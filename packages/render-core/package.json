@@ -1,1 +1,23 @@
-{"name":"@vosu-tools/render-core","version":"0.1.0","type":"module","exports":{".":"./src/index.ts","./scene":"./src/scene.ts"},"scripts":{"check":"tsc --noEmit -p tsconfig.json","test":"bun test"},"dependencies":{"@vosu-tools/osu-parse":"workspace:*","@vosu-tools/skin-spec":"workspace:*","vgpu":"0.6.0"},"devDependencies":{"@webgpu/types":"latest","typescript":"^5.9.3","@types/bun":"latest"}}
+{
+  "name": "@vosu-tools/render-core",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./scene": "./src/scene.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@vosu-tools/osu-parse": "workspace:*",
+    "@vosu-tools/skin-spec": "workspace:*",
+    "vgpu": "0.6.0"
+  },
+  "devDependencies": {
+    "@webgpu/types": "latest",
+    "typescript": "^5.9.3",
+    "@types/bun": "latest"
+  }
+}

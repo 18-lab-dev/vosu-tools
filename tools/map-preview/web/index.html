@@ -1,7 +1,132 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Map preview · 18-LAB</title><link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore></head><body>
-<header><span class="brand">18—LAB / VOSU TOOLS</span><h1>Map preview</h1><button id="reload">Load selected map</button><label class="file">Open .osu<input id="map-file" type="file" accept=".osu"></label></header>
-<main><section class="viewer"><div class="section-label">01 / PLAYFIELD <span id="mode">—</span></div><div class="screen"><canvas id="playfield" width="1920" height="1080" aria-label="Beatmap preview"></canvas><div id="status" role="status">Loading selected beatmap…</div></div><div class="transport"><button id="play" disabled>Play</button><output id="time">0:00.000</output><input id="seek" aria-label="Seek" type="range" min="0" max="1000" value="0" step="1"><label>Rate <input id="rate" type="number" min="0.25" max="3" value="1" step="0.05">×</label><label class="file">Audio<input id="audio-file" type="file" accept="audio/*"></label></div><h2 id="title">No beatmap</h2><p id="detail"></p></section>
-<aside><div class="section-label">02 / DISPLAY</div><label>Approach rate <input id="ar" type="number" min="0" max="11" step="0.1" placeholder="Map default"></label><label>Circle size / keys <input id="cs" type="number" min="1" max="18" step="0.1" placeholder="Map default"></label><label>Mania scroll speed <input id="scroll" type="number" min="1" max="100" step="1" value="20"></label><label>Taiko / mania note speed <input id="note-speed" type="number" min="0.1" max="5" step="0.1" value="1"></label>
-<div class="section-label">03 / VISUAL MODS</div><fieldset id="mods"><label><input type="checkbox" value="HR">Hard Rock</label><label><input type="checkbox" value="EZ">Easy</label><label><input type="checkbox" value="HD">Hidden</label><label><input type="checkbox" value="FI">Fade In · mania</label><label><input type="checkbox" value="FL">Flashlight</label><label><input type="checkbox" value="MR">Mirror</label><label><input type="checkbox" value="RD">Random · seeded</label><label><input type="checkbox" value="UD">Upside Down · mania</label></fieldset><label>Random seed<input id="seed" type="number" step="1" value="1"></label>
-<div class="section-label">04 / SKIN</div><p id="skin-name">Client’s current skin</p><button id="current-skin">Use current skin</button><label class="file">Choose skin folder<input id="skin-folder" type="file" webkitdirectory multiple></label><p class="hint">Folder files stay in this browser. Missing elements use built-in shapes. Audio is the playback clock; seeking and rate changes keep map time aligned.</p></aside></main><script type="module" src="./src/main.ts"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Map preview · 18-LAB</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+  </head>
+  <body>
+    <header>
+      <span class="brand">18—LAB / VOSU TOOLS</span>
+      <h1>Map preview</h1>
+      <button id="reload">Load selected map</button
+      ><label class="file"
+        >Open .osu<input id="map-file" type="file" accept=".osu"
+      /></label>
+    </header>
+    <main>
+      <section class="viewer">
+        <div class="section-label">01 / PLAYFIELD <span id="mode">—</span></div>
+        <div class="screen">
+          <canvas
+            id="playfield"
+            width="1920"
+            height="1080"
+            aria-label="Beatmap preview"
+          ></canvas>
+          <div id="status" role="status">Loading selected beatmap…</div>
+        </div>
+        <div class="transport">
+          <button id="play" disabled>Play</button
+          ><output id="time">0:00.000</output
+          ><input
+            id="seek"
+            aria-label="Seek"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+            step="1"
+          /><label
+            >Rate
+            <input
+              id="rate"
+              type="number"
+              min="0.25"
+              max="3"
+              value="1"
+              step="0.05"
+            />×</label
+          ><label class="file"
+            >Audio<input id="audio-file" type="file" accept="audio/*"
+          /></label>
+        </div>
+        <h2 id="title">No beatmap</h2>
+        <p id="detail"></p>
+      </section>
+      <aside>
+        <div class="section-label">02 / DISPLAY</div>
+        <label
+          >Approach rate
+          <input
+            id="ar"
+            type="number"
+            min="0"
+            max="11"
+            step="0.1"
+            placeholder="Map default" /></label
+        ><label
+          >Circle size / keys
+          <input
+            id="cs"
+            type="number"
+            min="1"
+            max="18"
+            step="0.1"
+            placeholder="Map default" /></label
+        ><label
+          >Mania scroll speed
+          <input
+            id="scroll"
+            type="number"
+            min="1"
+            max="100"
+            step="1"
+            value="20" /></label
+        ><label
+          >Taiko / mania note speed
+          <input
+            id="note-speed"
+            type="number"
+            min="0.1"
+            max="5"
+            step="0.1"
+            value="1"
+        /></label>
+        <div class="section-label">03 / VISUAL MODS</div>
+        <fieldset id="mods">
+          <label><input type="checkbox" value="HR" />Hard Rock</label
+          ><label><input type="checkbox" value="EZ" />Easy</label
+          ><label><input type="checkbox" value="HD" />Hidden</label
+          ><label><input type="checkbox" value="FI" />Fade In · mania</label
+          ><label><input type="checkbox" value="FL" />Flashlight</label
+          ><label><input type="checkbox" value="MR" />Mirror</label
+          ><label><input type="checkbox" value="RD" />Random · seeded</label
+          ><label
+            ><input type="checkbox" value="UD" />Upside Down · mania</label
+          >
+        </fieldset>
+        <label
+          >Random seed<input id="seed" type="number" step="1" value="1"
+        /></label>
+        <div class="section-label">04 / SKIN</div>
+        <p id="skin-name">Client’s current skin</p>
+        <button id="current-skin">Use current skin</button
+        ><label class="file"
+          >Choose skin folder<input
+            id="skin-folder"
+            type="file"
+            webkitdirectory
+            multiple
+        /></label>
+        <p class="hint">
+          Folder files stay in this browser. Missing elements use built-in
+          shapes. Audio is the playback clock; seeking and rate changes keep map
+          time aligned.
+        </p>
+      </aside>
+    </main>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

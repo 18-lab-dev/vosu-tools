@@ -5,7 +5,11 @@ Deterministic WebGPU beatmap rendering, MIT OR Apache-2.0. Import from `@vosu-to
 ```ts
 const map = parseOsu(osuText);
 const renderer = await createRenderer({ canvas, width: 1920, height: 1080 });
-renderer.setBeatmap(map, { mods: [{ acronym: 'HR' }], scrollSpeed: 20, noteSpeed: 1 });
+renderer.setBeatmap(map, {
+  mods: [{ acronym: "HR" }],
+  scrollSpeed: 20,
+  noteSpeed: 1,
+});
 renderer.renderAt(12345, {
   cursor: { x: 256, y: 192, pressed: false },
   keys: [false, true, false, false],

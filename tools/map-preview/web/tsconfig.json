@@ -1,1 +1,5 @@
-{"extends":"../../../packages/tool-web/tsconfig.tool.json","compilerOptions":{"types":["vite/client","@webgpu/types"]},"include":["src","vite.config.ts"]}
+{
+  "extends": "../../../packages/tool-web/tsconfig.tool.json",
+  "compilerOptions": { "types": ["vite/client", "@webgpu/types"] },
+  "include": ["src", "vite.config.ts"]
+}
