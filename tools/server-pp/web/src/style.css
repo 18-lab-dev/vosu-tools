@@ -1,0 +1,547 @@
+/* Server pp — "ledger" identity, matching the tool's icon and banner:
+ * bottle-green ground, bone ink and a vermilion margin rule in dark mode;
+ * bone paper, green ink and the same vermilion in light mode. Results are
+ * ruled ledger lines with a hairline bar for each amount.
+ * Fonts are bundled (OFL-1.1, see ../../licenses): Commissioner for interface
+ * text, Azeret Mono for figures and identifiers. */
+
+@font-face {
+  font-family: "Commissioner";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/commissioner-latin-standard-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Commissioner";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/commissioner-latin-ext-standard-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Azeret Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/azeret-mono-latin-wght-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Azeret Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/azeret-mono-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* Scheme: follows prefers-color-scheme until main.ts applies
+ * vosu.colorScheme as data-scheme; `color-scheme` drives light-dark() and
+ * native controls (select popups, number spinners, scrollbars). */
+:root {
+  color-scheme: light dark;
+  --ground: light-dark(#f1ece0, #12271f);
+  --sheet: light-dark(#f8f4ea, #163029);
+  --ink: light-dark(#14302a, #ebe4d3);
+  --muted: light-dark(#4f6a61, #a7b8ae);
+  --rule: light-dark(#14302a24, #ebe4d31f);
+  --rule-strong: light-dark(#14302a59, #ebe4d34d);
+  --red: light-dark(#b8381f, #f0684a);
+  --red-soft: light-dark(#b8381f1a, #f0684a24);
+  --bar: light-dark(#14302a1f, #ebe4d31a);
+  --field: light-dark(#fffdf7, #10221c);
+  --focus: light-dark(#b8381f, #f0684a);
+  --sans: "Commissioner", system-ui, sans-serif;
+  --mono: "Azeret Mono", ui-monospace, monospace;
+}
+:root[data-scheme="light"] {
+  color-scheme: light;
+}
+:root[data-scheme="dark"] {
+  color-scheme: dark;
+}
+
+[hidden] {
+  display: none !important;
+}
+* {
+  box-sizing: border-box;
+}
+/* 14px at 1920 px and below, growing to about 17px at 2560 px so a
+ * 1440p screen gets the same proportions as 1080p. */
+html {
+  font-size: clamp(14px, 0.4vw + 6.5px, 18px);
+}
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 1rem/1.45 var(--sans);
+  font-feature-settings: "tnum" 1;
+}
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* ── Slim top bar ─────────────────────────────────────────────── */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 8px 16px 8px 20px;
+  border-bottom: 1px solid var(--rule-strong);
+  /* the ledger's double margin rule */
+  box-shadow:
+    inset 6px 0 0 -4px var(--red),
+    inset 10px 0 0 -8px var(--red);
+}
+.mark {
+  width: 1.85rem;
+  height: 1.85rem;
+  flex: none;
+}
+.name {
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.9286rem;
+}
+.pill {
+  font: 500 0.7857rem/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 4px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  color: var(--muted);
+}
+.pill[data-state="open"] {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.pill[data-state="closed"] {
+  color: var(--red);
+  border-color: var(--red);
+}
+.map {
+  flex: 1 1 220px;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+}
+.files {
+  display: flex;
+  gap: 6px;
+}
+.button {
+  position: relative;
+  font: 550 0.8571rem/1 var(--sans);
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 7px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.button:hover {
+  border-color: var(--ink);
+}
+.button input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  cursor: pointer;
+}
+.button:has(input:disabled) {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.button:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.score {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+.field {
+  display: grid;
+  gap: 2px;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+input,
+select {
+  font: 500 0.9286rem/1.2 var(--mono);
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 5px 7px;
+  width: 7.5em;
+}
+input[name="mods"] {
+  width: 8em;
+  text-transform: uppercase;
+}
+input[name="misses"],
+input[name="combo"] {
+  width: 6em;
+}
+select {
+  width: auto;
+}
+.segment {
+  display: inline-flex;
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  overflow: hidden;
+  align-self: end;
+}
+.segment label {
+  position: relative;
+}
+.segment input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+.segment span {
+  display: block;
+  padding: 6px 10px;
+  font-size: 0.8571rem;
+  font-weight: 550;
+}
+.segment input:checked + span {
+  background: var(--ink);
+  color: var(--ground);
+}
+.segment input:focus-visible + span {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* ── Workspace ────────────────────────────────────────────────── */
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 27rem);
+  min-height: 0;
+}
+section,
+aside {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+aside {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  border-left: 1px solid var(--rule-strong);
+  background: var(--sheet);
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 14px 20px 8px;
+  border-bottom: 1px solid var(--rule);
+}
+h2 {
+  margin: 0;
+  font-size: 0.7857rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8929rem;
+}
+.link {
+  margin-left: auto;
+  color: var(--red);
+  font-size: 0.8929rem;
+  font-weight: 550;
+}
+.scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ── Ledger table ─────────────────────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 9px 14px;
+  text-align: left;
+  vertical-align: baseline;
+  border-bottom: 1px solid var(--rule);
+}
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--ground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom-color: var(--rule-strong);
+  z-index: 1;
+}
+thead th:first-child,
+tbody th {
+  padding-left: 20px;
+}
+tbody th {
+  font-weight: 600;
+  min-width: 13em;
+}
+.tag {
+  display: block;
+  font: 400 0.7857rem/1.3 var(--mono);
+  color: var(--muted);
+  margin-top: 2px;
+}
+.num {
+  text-align: right;
+  font-family: var(--mono);
+  white-space: nowrap;
+}
+.amount {
+  position: relative;
+  font-size: 1.1429rem;
+  font-weight: 600;
+  min-width: 8.5em;
+}
+.amount::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  bottom: 4px;
+  height: 2px;
+  width: calc((100% - 28px) * var(--share, 0));
+  background: var(--bar);
+}
+tbody tr.custom .amount::after {
+  background: var(--red);
+  opacity: 0.55;
+}
+.reference {
+  background: var(--red-soft);
+}
+.reference th {
+  color: var(--red);
+}
+.delta {
+  color: var(--muted);
+}
+.error {
+  color: var(--red);
+  margin: 0;
+}
+.muted {
+  color: var(--muted);
+  font-style: italic;
+}
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  max-width: 34rem;
+  padding: 48px 20px;
+}
+.empty svg {
+  width: 240px;
+  height: 64px;
+}
+.empty .rule {
+  stroke: var(--rule-strong);
+  stroke-width: 2;
+  fill: none;
+}
+.empty .bone {
+  fill: var(--ink);
+}
+.empty .red {
+  fill: var(--red);
+}
+.empty strong {
+  font-size: 1.2143rem;
+  font-weight: 650;
+}
+.empty p {
+  margin: 0;
+  color: var(--muted);
+}
+code {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+.fine {
+  color: var(--muted);
+  font-size: 0.8929rem;
+}
+.breakdown {
+  font-size: 0.8929rem;
+  min-width: 16em;
+}
+.item {
+  display: inline-flex;
+  gap: 5px;
+  margin-right: 12px;
+  white-space: nowrap;
+}
+.item .label {
+  color: var(--muted);
+}
+.item .value {
+  font-family: var(--mono);
+}
+tbody[aria-busy="true"] {
+  opacity: 0.6;
+}
+
+/* ── Calculators list ─────────────────────────────────────────── */
+#modules {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+.module,
+.guide {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+.module-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.module-name {
+  font-weight: 600;
+}
+.state {
+  margin-left: auto;
+  font: 500 0.75rem/1 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 3px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 2px;
+}
+.module.ready .state {
+  border-color: var(--ink);
+}
+.module.error .state {
+  color: var(--red);
+  border-color: var(--red);
+}
+.module.disabled {
+  opacity: 0.65;
+}
+.meta,
+.path {
+  margin: 3px 0 0;
+  font: 400 0.8214rem/1.4 var(--mono);
+  color: var(--muted);
+}
+.path {
+  word-break: break-all;
+}
+.module .error {
+  margin-top: 4px;
+  font-size: 0.8929rem;
+}
+.guide p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.config {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--rule-strong);
+  font-size: 0.8571rem;
+}
+.config .label {
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ── Narrow and split-screen widths ───────────────────────────── */
+@media (max-width: 900px) {
+  main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+  aside {
+    border-left: 0;
+    border-top: 1px solid var(--rule-strong);
+  }
+}
+@media (max-width: 560px) {
+  .bar {
+    padding-left: 16px;
+  }
+  .map {
+    flex-basis: 100%;
+    order: 3;
+  }
+  .score {
+    order: 4;
+  }
+  th,
+  td {
+    padding: 8px 10px;
+  }
+  thead th:first-child,
+  tbody th {
+    padding-left: 16px;
+  }
+  tbody th {
+    min-width: 9em;
+  }
+}

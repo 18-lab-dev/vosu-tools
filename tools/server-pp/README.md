@@ -1,10 +1,14 @@
 # Server pp calculator
 
-Service and CLI for **recorded public calculator snapshots**, not a promise of parity with a private server's current production deployment, plus **your own pp formulas** as sandboxed WebAssembly calculators. No account credentials, remote score submission, or map downloads are used.
+Service, CLI and browser UI for **recorded public calculator snapshots**, not a promise of parity with a private server's current production deployment, plus **your own pp formulas** as sandboxed WebAssembly calculators. No account credentials, remote score submission, or map downloads are used.
 
 ## Custom calculators
 
 Drop a `.wasm` calculator into the calculator folder (`<vosu data directory>/tool-data/server-pp/calculators` by default) and use its file name as `--server`/`server=`. Any language that compiles to WebAssembly works. server-pp hands the module rosu-pp 4.0.1 difficulty attributes and the score state, and the module returns pp plus an optional breakdown. The dashboard's tool settings choose the folder, extra files, enabled ids, display names and the fuel/memory limits. The ABI, the settings, Rust and AssemblyScript examples, the fidelity reference and the runtime benchmarks are in [CALCULATORS.md](CALCULATORS.md).
+
+## Browser UI
+
+The ledger compares every calculator on the map selected in osu!. It follows song select live, and as a "what if" it applies the mods, accuracy, misses, combo and ruleset in the top bar. **Live play** shows the score as it stands while you play. A tab opened from the dashboard can also score an `.osu` file instead of the selected map. Each row shows pp, if-FC pp, the difference from vosu's official pp, stars and the calculator's breakdown. The side panel lists built-in profiles and every discovered custom calculator with its status, load error, version, rulesets and file, plus the calculator folder, the limits and a link to the tool's dashboard settings.
 
 ## Provenance and coverage
 

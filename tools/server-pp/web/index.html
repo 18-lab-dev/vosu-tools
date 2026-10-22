@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Server pp calculator</title>
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
+        <rect width="256" height="256" rx="44" fill="#152f28" />
+        <circle cx="81" cy="115" r="30" fill="none" stroke="#ebe4d3" stroke-width="22" />
+        <path d="M51 74V203" stroke="#ebe4d3" stroke-width="22" />
+        <circle cx="175" cy="93" r="30" fill="none" stroke="#ee5a3a" stroke-width="22" />
+        <path d="M145 52V181" stroke="#ee5a3a" stroke-width="22" />
+      </svg>
+      <span class="name">Server pp</span>
+      <span id="live" class="pill" role="status" hidden></span>
+      <p id="map" class="map" title="">No map selected in osu!</p>
+      <div class="files">
+        <label class="button" id="open-label"><input id="file" type="file" accept=".osu" />Open .osu</label>
+        <button id="clear-file" type="button" class="button" hidden>Use selected map</button>
+      </div>
+      <form id="score" class="score" autocomplete="off">
+        <div class="segment" role="radiogroup" aria-label="Score source">
+          <label><input type="radio" name="source" value="whatif" checked /><span>What if</span></label>
+          <label><input type="radio" name="source" value="live" /><span>Live play</span></label>
+        </div>
+        <label class="field">Mods<input name="mods" placeholder="NM" spellcheck="false" maxlength="40" /></label>
+        <label class="field">Acc %<input name="acc" type="number" min="0" max="100" step="0.01" value="100" /></label>
+        <label class="field">Misses<input name="misses" type="number" min="0" step="1" value="0" /></label>
+        <label class="field">Combo<input name="combo" type="number" min="0" step="1" placeholder="max" /></label>
+        <label class="field">Ruleset<select name="mode">
+            <option value="">Map's own</option>
+            <option value="osu">osu!</option>
+            <option value="taiko">taiko</option>
+            <option value="fruits">catch</option>
+            <option value="mania">mania</option>
+          </select></label>
+      </form>
+    </header>
+    <main>
+      <section class="ledger" aria-labelledby="ledger-title">
+        <div class="head">
+          <h2 id="ledger-title">Ledger</h2>
+          <p id="ledger-note" class="note" role="status"></p>
+        </div>
+        <div class="scroll">
+          <table id="ledger" aria-describedby="ledger-note" hidden>
+            <thead>
+              <tr>
+                <th scope="col">Calculator</th>
+                <th scope="col" class="num">pp</th>
+                <th scope="col" class="num">if FC</th>
+                <th scope="col" class="num">vs official</th>
+                <th scope="col" class="num">Stars</th>
+                <th scope="col">Breakdown</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div id="empty" class="empty">
+            <svg viewBox="0 0 240 64" aria-hidden="true">
+              <path d="M8 40H232M8 40v-10M32 40v-6M56 40v-6M80 40v-10M104 40v-6M128 40v-6M152 40v-10M176 40v-6M200 40v-6M224 40v-10" class="rule" />
+              <path d="M90 56l8-12 8 12z" class="bone" />
+              <path d="M126 56l8-12 8 12z" class="red" />
+            </svg>
+            <strong>Nothing on the ledger yet.</strong>
+            <p>Pick a map in osu! and every calculator scores it, following your song select. Change mods, accuracy and misses above to ask “what if”.</p>
+            <p id="empty-file" hidden>You can also open an <code>.osu</code> file to try your calculators on any map.</p>
+          </div>
+        </div>
+      </section>
+      <aside class="modules" aria-labelledby="modules-title">
+        <div class="head">
+          <h2 id="modules-title">Calculators</h2>
+          <a id="settings-link" class="link" target="_blank" rel="noopener noreferrer">Settings</a>
+        </div>
+        <ul id="modules" class="scroll"></ul>
+        <footer id="config" class="config"></footer>
+      </aside>
+    </main>
+  </body>
+</html>

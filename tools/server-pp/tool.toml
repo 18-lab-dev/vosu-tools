@@ -7,13 +7,16 @@ description = "Reproduce pinned public Akatsuki and Mamestagram calculator snaps
 icon = "art/icon.svg"
 banner = "art/banner.svg"
 
+[ui]
+root = "web/dist"
+
 [service]
 command = ["bin/vosu-server-pp"]
 startup = "on-demand"
 
 [cli]
 command = ["bin/vosu-server-pp", "cli"]
-summary = "Calculate private-server snapshot pp and compare official pp"
+summary = "Calculate private-server snapshot and custom calculator pp and compare official pp"
 
 [api]
 read = ["/v1/servers", "/v1/current", "/v1/pp"]
