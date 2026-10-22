@@ -39,37 +39,57 @@ def fetch(path, data=None, token=None):
         return error.code, error.headers.get('Content-Type', ''), error.read()
 
 
-async def browser_checks(url: str, evidence: Path, skin_report):
+async def browser_checks(url: str, evidence: Path):
     from playwright.async_api import async_playwright
 
     errors: list[str] = []
     async with async_playwright() as p:
-        browser = await p.chromium.launch(executable_path=str(CHROME), headless=True)
+        browser = await p.chromium.launch(
+            executable_path=str(CHROME), headless=True,
+            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
+                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
         # The OS preference is dark; the launch hint (light) must win where the bridge reports it.
-        page = await browser.new_page(viewport={'width': 1440, 'height': 980}, device_scale_factor=1, color_scheme='dark')
+        page = await browser.new_page(viewport={'width': 1920, 'height': 1080}, device_scale_factor=1, color_scheme='dark')
+        # Headless Chromium can answer the first requestAdapter() with null; harness-only retry.
+        await page.add_init_script(
+            '{ const request = GPU.prototype.requestAdapter;'
+            ' GPU.prototype.requestAdapter = async function (o) {'
+            ' return (await request.call(this, o)) ?? request.call(this, o); }; }')
         page.on('pageerror', lambda error: errors.append(str(error)))
-        await page.goto(url)
-        # No osu! client is attached, so there is no selected beatmap either.
-        await page.wait_for_function("document.querySelector('#status').textContent.includes('No selected beatmap')", timeout=30000)
-        expected = ('No osu! client is connected' if skin_report is not None
-                    else 'does not report the current skin')
+        # Headless screenshots need the documented capture presentation.
+        await page.goto(url.replace('/#', '/?presentation=bitmap#', 1))
+        # The page follows whatever this isolated daemon sees (possibly a
+        # running client it cannot read): it must settle on a stated status,
+        # a beatmap or a reason there is none, and a skin with its source.
         await page.wait_for_function(
-            '([t]) => document.querySelector("#skin-message").textContent.includes(t)', arg=[expected], timeout=30000)
-        scheme = await page.evaluate('document.documentElement.dataset.scheme')
-        color_scheme = await page.evaluate('getComputedStyle(document.documentElement).colorScheme')
-        await page.screenshot(path=str(evidence / 'real-vosu-light.png'))
+            "!document.querySelector('#follow-status').textContent.startsWith('Connecting')"
+            " && document.querySelector('#skin-name').textContent !== '—'"
+            " && (document.querySelector('#status').textContent !== '' || document.querySelector('#mode').dataset.mode !== '')",
+            timeout=30000)
+        observed = await page.evaluate('''() => ({
+            follow: document.querySelector('#follow-status').textContent,
+            status: document.querySelector('#status').textContent,
+            skin: document.querySelector('#skin-name').textContent,
+            skinMessage: document.querySelector('#skin-message').textContent,
+            scheme: document.documentElement.dataset.scheme,
+            colorScheme: getComputedStyle(document.documentElement).colorScheme,
+            bar: document.querySelector('#bar').getBoundingClientRect().height,
+        })''')
+        await page.screenshot(path=str(evidence / 'real-vosu.png'))
+        await page.locator('#controls-toggle').click()
         await page.locator('#current-skin').click()
-        await page.wait_for_function(
-            '([t]) => document.querySelector("#skin-message").textContent.includes(t)', arg=[expected], timeout=30000)
+        await page.wait_for_function("!document.querySelector('#skin-panel').hasAttribute('aria-busy')", timeout=30000)
+        await page.screenshot(path=str(evidence / 'real-vosu-controls.png'))
         await browser.close()
     assert not errors, errors
-    return scheme, color_scheme
+    assert observed['bar'] <= 48, observed
+    return observed
 
 
 async def main():
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
     vosu = Path(args[0]).resolve()
-    evidence = Path(args[1]) if len(args) > 1 else Path('/tmp/vosu-r2-evidence/ToolMapPreview')
+    evidence = Path(args[1]) if len(args) > 1 else Path('/tmp/vosu-r3-evidence/ToolMapPreview')
     evidence.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='map-preview-vosu-smoke-') as directory:
         temp = Path(directory)
@@ -113,13 +133,15 @@ async def main():
                 art['banner'] = status
             status, kind, body = fetch('/files/skin/')
             skin_report = json.loads(body) if status == 200 and 'json' in kind else None
+            status, kind, body = fetch('/tools/map-preview/_settings')
+            settings = json.loads(body) if status == 200 and 'json' in kind else {'status': status}
             token = json.loads(broker.read_text())['token']
             status, _, body = fetch('/tools/_host/v1/cli/map-preview/open', data=b'{"theme":"light"}', token=token)
             assert status == 200, (status, body)
             url = json.loads(body)['url']
-            scheme, color_scheme = await browser_checks(url, evidence, skin_report)
-            result = {'vosu': str(vosu), 'art': art, 'skin_report': skin_report, 'launch_theme': 'light',
-                      'data_scheme': scheme, 'color_scheme': color_scheme}
+            observed = await browser_checks(url, evidence)
+            result = {'vosu': str(vosu), 'art': art, 'skin_report': skin_report, 'settings_route': settings,
+                      'launch_theme': 'light', 'page': observed}
             (evidence / 'real-vosu-smoke.json').write_text(json.dumps(result, indent=2) + '\n')
             print('PASS', json.dumps(result))
         finally:

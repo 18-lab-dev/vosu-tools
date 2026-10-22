@@ -8,7 +8,36 @@ export interface Skin {
   animations?: Map<string, string[]>;
   frameRate?: number;
   version?: number;
+  /** Rendering traits that skin.ini cannot express; built-in skins set it. */
+  style?: SkinStyle;
 }
+/**
+ * Client rendering traits of a skin family. Skins loaded from files are legacy
+ * skins: their sliders use the "legacy" profile.
+ */
+export interface SkinStyle {
+  /** The client built-in skin this skin reimplements, if any. */
+  builtin?: string;
+  slider?: {
+    /** Colour profile across the body, from edge to centre. */
+    profile: "legacy" | "triangles" | "argon";
+    /** Body radius relative to the hit circle radius. */
+    radius: number;
+    /** Border width as a portion of the body radius (legacy: including its shadow). */
+    border: number;
+    /** Body opacity, composited over the playfield. */
+    alpha: number;
+  };
+  /** Taiko centre (don) and rim (kat) note colours. */
+  taiko?: { centre: readonly number[]; rim: readonly number[] };
+}
+/** Slider body traits of skins loaded from files (lazer LegacySliderBody / stable). */
+export const legacySliderStyle: NonNullable<SkinStyle["slider"]> = {
+  profile: "legacy",
+  radius: 1,
+  border: 0.1875,
+  alpha: 0.7,
+};
 export interface AtlasRegion {
   u: number;
   v: number;
