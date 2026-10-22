@@ -122,6 +122,7 @@ async function add(bytes: Uint8Array<ArrayBuffer>) {
     bytes,
     { ...preset, settings: { ...preset.settings } },
     fetcher,
+    { currentBuiltin: skins.builtin },
   );
   await betweenFrames(() => {
     tracks.push(track);
@@ -232,6 +233,7 @@ function renderTracks() {
           ),
           { skin: skin.value || null, settings: editor.read() },
           fetcher,
+          { currentBuiltin: skins.builtin },
         );
         await betweenFrames(() => {
           tracks[tracks.indexOf(track)] = updated;

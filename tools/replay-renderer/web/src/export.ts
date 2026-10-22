@@ -19,6 +19,8 @@ try {
     layout: Layout;
     presets: Record<string, Preset>;
     default_settings: Record<string, number>;
+    /** The client's current skin as the service reads it (see `/v1/context`). */
+    current_skin: { builtin: string | null };
     overlays: {
       folder: string;
       width: number;
@@ -44,7 +46,12 @@ try {
         ...entry.settings,
       },
     };
-    tracks.push(await loadTrack(entry.id, bytes, preset, request, "assets"));
+    tracks.push(
+      await loadTrack(entry.id, bytes, preset, request, {
+        assetPrefix: "assets",
+        currentBuiltin: spec.current_skin.builtin,
+      }),
+    );
   }
   const [width, height] = spec.resolution.split("x").map(Number);
   composition = new Composition(tracks, width, height, spec.layout);
