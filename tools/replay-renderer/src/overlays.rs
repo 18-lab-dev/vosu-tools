@@ -42,7 +42,7 @@ pub struct Image {
 }
 struct Native {
     bytes: Arc<[u8]>,
-    path: PathBuf,
+    files: crate::library::MapFiles,
     pp: rosu_pp::GradualPerformance,
     passed: u32,
     current_pp: f64,
@@ -102,7 +102,7 @@ impl Overlays {
     }
     pub async fn configure(
         &self,
-        path: PathBuf,
+        files: crate::library::MapFiles,
         bytes: Vec<u8>,
         rate: f64,
         mods: u32,
@@ -112,7 +112,7 @@ impl Overlays {
         let difficulty = rosu_pp::Difficulty::new().clock_rate(rate).mods(mods);
         *self.native.lock().await = Some(Native {
             bytes: bytes.into(),
-            path,
+            files,
             pp: rosu_pp::GradualPerformance::checked_new(difficulty, &map).map_err(error)?,
             passed: 0,
             current_pp: 0.0,
@@ -400,13 +400,7 @@ async fn beatmap_file(
         .as_str()
         .ok_or_else(|| error("Replay map asset is unavailable"))?
         .to_owned();
-    let file = confined(
-        native
-            .path
-            .parent()
-            .ok_or_else(|| error("Map has no folder"))?,
-        &filename,
-    )?;
+    let file = native.files.asset(&filename)?;
     Response::builder()
         .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
         .map_err(error)

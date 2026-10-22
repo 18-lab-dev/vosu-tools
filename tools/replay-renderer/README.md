@@ -1,8 +1,32 @@
 # Replay renderer
 
-`vosux replay-renderer render /absolute/play.osr --set mania.scroll_speed=27 --set background_dim=0.9 --out /absolute/play.mp4`
+`vosux replay-renderer render /absolute/play.osr --set mania.scroll_speed=27 --set background_dim=0.9 --resolution 2560x1440 --out /absolute/play.mp4`
+
+`--out`, `--fps` and `--resolution` are optional; the last two default to the tool's settings. Without `--out`, the video is named after the replay and goes into the output folder. A relative `--out` is resolved against the current directory.
 
 The studio exposes the same settings under each replay's **Render settings** disclosure. Apply changes to that replay, or save them in the named player's preset. Skin selection remains independent per replay. None of these settings modifies osu! or changes the recorded key/cursor input or judgement windows.
+
+## Maps and replays
+
+A replay stores only its beatmap's MD5, so the exact difficulty must be installed locally. The service looks it up in two places, in this order:
+
+1. **stable Songs**: the folder vosu reports for an attached stable client, or the tool's `osu_dir` / `songs_dir` settings. The folder is indexed by MD5 once and cached.
+2. **lazer**: through the optional **Lazer library** tool (`lazer-library`), via `GET /tools/lazer-library/api/v1/beatmaps/by-md5/<md5>`. Files are read from lazer's hashed store, and only after checking that the `.osu` MD5 matches and that every path stays inside `<lazer>/files`. The library is called on its public read routes without a token, so it stays optional; listing it in `[[requires]]` would block the studio whenever it is missing.
+
+If neither has the map, the service answers 404 with `{"code":"map_missing","md5","searched":[…]}`. The studio turns that into a note above the monitor. The note names the MD5 and every place it searched, offers Copy MD5, and, when the Beatmap downloader is installed, a **Find in Beatmap downloader** link (`/tools/downloader/#md5=<md5>`).
+
+Replays come from stable's `Replays` folder and lazer's `exports` folder. The lazer folder is found from the attached lazer client, then the library's data folder, then the platform default (honouring `storage.ini`). For a given map, the list also includes lazer scores with replays from `GET …/v1/scores/by-beatmap/<md5>`. `GET /v1/replays` lists every replay, newest first. `GET /v1/replays?md5=` lists one map's replays, and the studio's **This map** tab follows the map open in osu! through `/websocket/v2/subscribe`.
+
+## Output size, defaults and presets
+
+The resolution picker offers common sizes in 16:9, 16:10, 21:9, 32:9, 4:3, 9:16 (vertical) and 1:1, plus a custom width × height. Sides must be even and 64–7680 px, and a frame may hold at most 7680×4320 pixels; the service enforces the same rule. Named custom sizes and the last size used are stored in the tool's data folder (`sizes.json`, routes `/v1/sizes`). The preview renders at most 1920 px on the long side, while MP4 and WebM exports use the full size.
+
+Settings the dashboard can edit without opening the studio:
+
+- `resolution` and `fps`: defaults for new compositions and the CLI.
+- `output_dir`: where file names are written; when empty, the Videos folder (XDG `user-dirs.dirs` on Linux, `%USERPROFILE%\Videos` on Windows).
+- `ffmpeg_path`: the FFmpeg executable; when empty, `VOSU_RENDER_FFMPEG`, then `ffmpeg` on PATH.
+- `osu_dir`, `songs_dir` and `skin`: an offline stable installation, a Songs folder override, and its fallback skin.
 
 ## Skins
 

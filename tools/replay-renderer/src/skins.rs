@@ -557,6 +557,7 @@ mod tests {
             jobs: Arc::default(),
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             uploads: Arc::default(),
+            lazer_maps: Arc::default(),
         }
     }
     fn skin_query(path: &str) -> Query<BTreeMap<String, String>> {
