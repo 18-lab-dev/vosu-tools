@@ -39,6 +39,12 @@ async def browser_checks(url, map_rating, timeline):
         await page.goto(url)
         await page.get_by_text('Analysis ready', exact=False).wait_for(timeout=90000)
         await page.screenshot(path=str(EVIDENCE / 'analysis.png'), full_page=True)
+        await page.locator('#timeline-caption').filter(has_text='Dotted line = whole-map MSD').wait_for()
+        await page.locator('#system').select_option('etterna-native')
+        await page.locator('#timeline-caption').filter(has_text='base-adjusted').wait_for(timeout=90000)
+        await page.screenshot(path=str(EVIDENCE / 'analysis-native-strain.png'),full_page=True)
+        await page.locator('#system').select_option('etterna')
+        await page.locator('#timeline-caption').filter(has_text='Dotted line = whole-map MSD').wait_for(timeout=90000)
         await page.locator('#start').fill('90')
         await page.locator('#end').fill('135')
         await page.locator('#section').click()
@@ -54,7 +60,7 @@ async def browser_checks(url, map_rating, timeline):
             ws.on_message(lambda message: ws.send(json.dumps([0,1,[[0,map_rating['checksum']],[1,0],[2,1],[3,5]]])))
         await overlay.route_web_socket('**/websocket/v2/subscribe', socket)
         await overlay.goto(ORIGIN + '/ratings-timeline/')
-        await overlay.locator('#message').filter(has_text='native strain').wait_for(timeout=90000)
+        await overlay.locator('#message').filter(has_text='LOCAL MSD').wait_for(timeout=90000)
         await overlay.screenshot(path=str(EVIDENCE / 'overlay-song-select-1920x1080.png'),omit_background=True)
         sockets[0].send(json.dumps([1,2,[[1,95000],[3,2]],[]]))
         await overlay.locator('#mode').filter(has_text='IN PLAY').wait_for()
@@ -74,7 +80,7 @@ async def main():
         temp = Path(directory)
         env = dict(os.environ)
         env['HOME'] = str(temp)
-        for key,folder in [('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_RUNTIME_DIR','runtime')]:
+        for key,folder in [('XDG_CONFIG_HOME','config'),('XDG_DATA_HOME','data'),('XDG_CACHE_HOME','cache'),('XDG_STATE_HOME','state'),('XDG_RUNTIME_DIR','runtime')]:
             env[key] = str(temp / folder)
             (temp/folder).mkdir(mode=0o700)
         env.pop('DISPLAY',None)
@@ -107,7 +113,19 @@ async def main():
             assert api['msd']==rating['msd']
             rates=request(f'/tools/ratings/api/v1/beatmap/{md5}/rates?step=0.05')
             assert len(rates['rates'])==31
-            timeline=request(f'/tools/ratings/api/v1/beatmap/{md5}/timeline?rate=1&system=etterna&window=1&hop=0.5')
+            path=f'/tools/ratings/api/v1/beatmap/{md5}/timeline?rate=1&system=etterna&window=12&hop=1'
+            started=time.perf_counter()
+            timeline=request(path)
+            cold_ms=(time.perf_counter()-started)*1000
+            started=time.perf_counter()
+            warm=request(path)
+            warm_ms=(time.perf_counter()-started)*1000
+            assert timeline == warm
+            assert timeline['mode']=='local_msd' and timeline['window']==12 and timeline['hop']==1
+            assert abs(timeline['overall']-rating['msd']['overall'])<0.0001
+            timings={'cold_http_ms':cold_ms,'warm_http_ms':warm_ms,'samples':len(timeline['points']),'window_chart_seconds':12,'hop_chart_seconds':1,'build':'debug','chart':'Rice Fusion','notes':rating['notes']}
+            (EVIDENCE/'timings.json').write_text(json.dumps(timings,indent=2))
+            print('Local MSD timeline timing:',json.dumps(timings))
             section=request(f'/tools/ratings/api/v1/beatmap/{md5}/section?start=90&end=135&rate=1')
             assert section['rating']['notes']<rating['notes']
             for args in [('--rates',),('--timeline',),('--section','1:30-2:15')]:

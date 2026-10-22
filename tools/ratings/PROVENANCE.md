@@ -146,23 +146,64 @@ All query times are **chart seconds**, not playback seconds. Read routes:
 `GET /v1/beatmap/current?rate=`,
 `GET /v1/beatmap/<md5>?rate=&systems=`,
 `GET /v1/beatmap/<md5>/rates?step=0.05`,
-`GET /v1/beatmap/<md5>/timeline?rate=&system=&window=1&hop=0.25`,
+`GET /v1/beatmap/<md5>/timeline?rate=&system=etterna&window=12&hop=1`,
 `GET /v1/beatmap/<md5>/section?start=&end=&rate=`.
 `POST /v1/calculate?rate=` accepts raw .osu bytes, up to 1 MiB. CLI file/stdin
 imports use this route; read routes never modify osu! data. `systems` validates
 comma-separated identifiers; the result retains the fixed comparison schema.
 
-Timelines are contextual native strain features, **not local MSD/star ratings**.
-MinaCalc's C ABI copies the existing `base_adj_diff[hand][skill][interval]`
-arrays after `CalcMain`; no native difficulty arithmetic changes. It reports
-the maximum across hands at native 500 ms **playback** intervals. Overall and
-stamina entries in these arrays are not separately calculated local ratings.
+### Local MSD (default Etterna timeline)
+
+`system=etterna` now returns **actual local MSD**, not a conversion of native
+strain. Each sample independently runs the unchanged MinaCalc `CalcMain` at
+0.93 goal on the heads in a **centered 12 s chart-time window**, sampled every
+**1 s of chart time** by default. All eight returned skillsets are included:
+overall, stream, jumpstream, handstream, stamina, jackspeed, chordjack, technical.
+The `value` field is local overall MSD; `skills` follows `skill_names`.
+The response also carries whole-map `overall` and `overall_skills`.
+
+Context is reset for each window; rows in `[start,end)` are rebased by subtracting
+the window start before calculation. Windows are clipped at the chart's edges;
+their actual bounds accompany each sample. This prevents song-position silence
+from changing local difficulty and avoids inheriting earlier phrase strain.
+There is no post-smoothing or averaging, and short windows do not model the
+stamina demands of a complete chart/course. Local windows are not the same
+context policy as the explicit multi-system `/section` endpoint below.
+
+Results are persistently cached in SQLite `timelines`, keyed by chart MD5,
+calculator/model revisions, rate tick, system, exact window/hop bits and
+window-context version. Cache lookup, parsing, all window calculations and cache
+writes run through the same **single blocking worker**, with at most 16 admitted
+requests. A queued identical request rechecks the cache after acquiring the
+worker, so it does not recompute the same timeline. No native arithmetic changes.
+
+The analysis page and compact overlay default to local MSD with a dotted
+whole-map MSD reference and a 0–40 scale (expanded in tens if needed).
+Discrete 18-LAB warm palette bands are `<10`, `10–20`, `20–30`, `30–40`, `40+`;
+no rainbow gradient is used.
+
+### Native strain option
+
+`system=etterna-native` retains contextual native interval features, **not local
+MSD**. MinaCalc's C ABI copies existing `base_adj_diff[hand][skill][interval]`
+arrays after `CalcMain`; it reports the maximum across hands at native 500 ms
+**playback** intervals. Overall/stamina slots here are not local ratings.
 Quaver exposes native action strain; Interlude exposes peak finger strain by row;
-osu!mania exposes rosu-pp's native 400 ms playback strain peaks.
-Displayed windows take the maximum of overlapping native samples/intervals.
-Defaults are a 1 s chart-time window, 0.25 s hop, **no smoothing**.
-NPS is head count in the half-open chart window divided by its playback duration.
-Metadata reports the window, hop, units, aggregation and time unit.
+osu!mania exposes rosu-pp's native 400 ms playback strain peaks. These modes take
+the maximum of overlapping native samples/intervals, defaulting to a 1 s
+chart-time window and 0.25 s hop (0.5 s in the compact overlay), no smoothing.
+NPS is head count in the selected half-open window divided by playback duration;
+the local-MSD NPS series uses the centered window and actual clipped bounds.
+
+### Measured cost
+
+On Rice Fusion (7,849 heads, 423 samples), using the debug tool build through an
+isolated real vosu dev daemon: **398.71 ms cold HTTP response**, **8.15 ms cached**,
+12 s centered windows / 1 s hop / rate 1.00. These include HTTP transfer and JSON
+parsing, not just calculator CPU time. A fresh temporary data directory ensured
+the first request had no cached timeline. `tests/smoke.py` reproduces this and
+writes `/tmp/vosu-tools-evidence/ratings/timings.json`. Hardware-load variation
+and release optimization will affect timings; these are observations, not SLAs.
 
 Sections recompute all systems on heads inside `[start,end)`, retain associated
 holds in full, reset prior strain context, and preserve original chart timestamps.

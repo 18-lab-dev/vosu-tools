@@ -145,7 +145,7 @@ fn human(result: &Value, header: &str) -> String {
         return format!(
             "{header}\n{}\n{}",
             text(&result["units"]),
-            table(&["Time / s", "Native strain", "NPS"], &rows)
+            table(&["Time / s", "Rating / strain", "NPS"], &rows)
         );
     }
     if result["rating"].is_object() {
