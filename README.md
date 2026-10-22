@@ -9,7 +9,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 | Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
 | skin.ini editor | `skin-editor` | UI | Edit skin.ini with validation and file completion |
 | Map preview | `map-preview` | UI | WebGPU previews for all four rulesets, audio-synced seeking/rate, visual mods, AR/CS, scroll controls and current/custom skins; [shared renderer API](packages/render-core/README.md) |
-| Replay renderer | `replay-renderer` | CLI, UI | Render one or more replays to video with your choice of skin, settings and overlays |
+| Replay renderer | `replay-renderer` | service, CLI, UI | Deterministic multi-replay studio with player presets, skin/scroll-speed overrides, browser WebM and native MP4 export (external Chromium + FFmpeg; no Node runtime). Configure an offline osu! folder in tool settings. Judgement HUD appears only when simulation matches the replay's stored counts. |
 | Beatmap downloader | `downloader` | UI | Batch-download maps by mapper, skill level or ratings |
 
 ## Layout

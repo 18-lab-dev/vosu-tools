@@ -1,0 +1,24 @@
+manifest_version = 1
+id = "replay-renderer"
+name = "Replay renderer"
+version = "0.1.0"
+description = "A deterministic, skin-aware replay video studio"
+author = "18-LAB"
+
+[ui]
+root = "web/dist"
+
+[service]
+command = ["bin/vosu-replay-renderer"]
+startup = "on-demand"
+
+[cli]
+command = ["bin/vosu-replay-renderer", "cli"]
+summary = "Render replays to video and manage player presets"
+
+[api]
+read = []
+write = ["/v1/context", "/v1/replays", "/v1/assets", "/v1/presets", "/v1/render", "/v1/jobs"]
+
+[permissions]
+host = ["context"]

@@ -1,0 +1,23 @@
+{
+  "name": "@vosu-tools/replay-renderer-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vosu-tools/replay": "workspace:*",
+    "@vosu-tools/render-export": "workspace:*",
+    "@vosu-tools/render-core": "workspace:*",
+    "@vosu-tools/osu-parse": "workspace:*",
+    "@vosu-tools/tool-web": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.1.7",
+    "typescript": "^5.9.3",
+    "@webgpu/types": "^0.1.64",
+    "@types/dom-webcodecs": "^0.1.17"
+  }
+}
