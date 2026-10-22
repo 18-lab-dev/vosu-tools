@@ -1,1 +1,20 @@
-{"name":"@vosu-tools/practice","version":"0.1.0","private":true,"type":"module","scripts":{"check":"tsc --noEmit","build":"vite build"},"dependencies":{"@vosu-tools/tool-web":"workspace:*"},"devDependencies":{"typescript":"^5.9.3","vite":"^7.2.4"}}
+{
+  "name": "@vosu-tools/practice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "^5.3.0",
+    "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@fontsource/dm-mono": "^5.3.0",
+    "@vosu-tools/tool-web": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.2.4"
+  }
+}
