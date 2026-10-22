@@ -1,0 +1,20 @@
+manifest_version = 1
+id = "skin-editor"
+name = "skin.ini editor"
+version = "0.1.0"
+description = "Offline skin.ini editing with wiki-verified language intelligence and safe backups"
+author = "18-LAB"
+
+[ui]
+root = "web/dist"
+
+[service]
+command = ["bin/vosu-skin-editor"]
+startup = "on-demand"
+
+[api]
+read = ["/v1/skins", "/v1/skin"]
+write = ["/v1/save"]
+
+[permissions]
+host = ["context"]

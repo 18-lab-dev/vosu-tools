@@ -1,0 +1,46 @@
+# Server pp calculator
+
+Service and CLI for **recorded public calculator snapshots**, not a promise of parity with a private server's current production deployment. No account credentials, remote score submission, or map downloads are used. This release has no browser UI.
+
+## Provenance and coverage
+
+| Profile | Recorded source | Rulesets / policy | Difference from official |
+| --- | --- | --- | --- |
+| `akatsuki` | [akatsuki-pp c0e499ec3ac138c7cc329771fc70992de39fbb77](https://github.com/osuAkatsuki/akatsuki-pp-rs/tree/c0e499ec3ac138c7cc329771fc70992de39fbb77) | Native osu!, taiko, catch, mania; vanilla all, RX osu/taiko/catch, AP osu | osu! RX uses custom `osu_2019`; remaining scores use the fork's modern stable performance builder, matching the public service dispatch |
+| `mamestagram` | [mames-pp 11f4c0443f8dd777a356cad1d06e675971ec0a4e](https://github.com/Mamestagram/mamestagram-pp-rs/tree/11f4c0443f8dd777a356cad1d06e675971ec0a4e) | Native four rulesets, vanilla stable scoring only | Historical rosu-pp fork, not vosu's current official engine; differences depend on map and score |
+
+Akatsuki's [public service callsite at 2e89b9c9d4365e98e2b0d98ba506862db5e92c60](https://github.com/osuAkatsuki/performance-service/blob/2e89b9c9d4365e98e2b0d98ba506862db5e92c60/src/api/routes/calculate.rs) pins the Akatsuki revision above. In particular, RX is **not** routed through ordinary upstream rosu-pp. AP uses the fork's ordinary performance path, exactly as this callsite does. Raw library f64 pp is exposed (the service callsite separately rounds f32 to two decimals); no account-total aggregation or eligibility is reproduced. Exact deployed revisions are unverified for both servers. Mamestagram's public calculator is identifiable, but its live server dependency and score policy are not verified: the profile explicitly represents the library, not an asserted live backend.
+
+All calculations use stable score semantics (`lazer(false)`). Accepted legacy mods: NM/NF/EZ/HD/HR/SD/DT/NC/HT/FL/SO/PF plus the server/ruleset RX/AP coverage above. Acronyms may be concatenated or separated by spaces, commas or `+`; legacy integer bits are accepted with the same validation. ScoreV2, key overrides, automation, lazer-specific mods, unknown bits, incompatible mods and ruleset conversions are rejected, not approximated. Mamestagram RX/AP are rejected because its server policies are unverified. Akatsuki's legacy RX accuracy generator has representability/unsigned-underflow bugs on some accuracy/miss combinations (especially small maps); those inputs return a clear error instead of changing the algorithm. Supply exact hit judgements where possible.
+
+Unsupported profiles are returned with reasons by `servers`: Ripple documents custom standard RX, but no current identifiable source/revision; its classic taiko/catch version is also unpinned. Gatari, Kurikku and Titanic have no verified current implementation/revision. `bancho.py` is a framework, not a particular deployed calculator. None is silently replaced by official pp or a guessed multiplier.
+
+## CLI
+
+```sh
+vosux server-pp servers --json
+vosux server-pp /path/to/map.osu --server akatsuki --mods RX --acc 98.5 --json
+cat map.osu | vosux server-pp - --server mamestagram --acc 99 --combo 1200 --misses 2
+vosux server-pp --server akatsuki --json   # selected map + current live score
+```
+
+On Windows use `vosu x server-pp ...` when no `vosux` link exists. CLI commands are thin clients of the supervised service. File/stdin bytes are uploaded through its authenticated write route and share the cache. Human output includes official pp details and an explicit deployment warning. JSON returns the raw comparison response. `--mods`, `--acc`, `--combo` and `--misses` apply to file/stdin; live mode always takes the game's actual state.
+
+## Overlay/service API
+
+All paths below are relative to `/tools/server-pp/api`; vosu authenticates its service connection. GET routes are overlay-readable; POST requires the tool's write session or CLI token.
+
+- `GET /v1/servers`: supported source profiles, exact versions, coverage, deviations, deployment warning, unsupported reasons.
+- `GET /v1/current?server=akatsuki`: fetch `/json/v2`, selected map bytes from `/files/beatmap/file`, live numeric mods, combo and per-ruleset judgements. Missing live data or converts return an error, never synthetic pp. Catch progress counts fruits/droplets, not tiny droplets; standard progress does not double-count geki/katu.
+- `GET /v1/pp?server=akatsuki&checksum=<md5>&mods=RX&acc=98.5&combo=1000&misses=1`: calculate a cached or currently selected map. Unknown checksum returns 404, not a different map. Omit checksum to use the selected map. There is no network map lookup.
+- `POST /v1/calculate?server=akatsuki&mods=HD&acc=99`: raw `.osu` body, at most 1 MiB. Optional checksum must match actual MD5. Exact score parameters `n300`, `n100`, `n50`, `n_geki`, `n_katu`, `misses`, `combo`, `passed_objects` are accepted; accuracy and judgements are mutually exclusive.
+
+Responses contain `current`, `if_fc`, `stars`, checksum, ruleset, mods, server revision, deployment flag, and `official`. `current` respects passed objects and current combo. `if_fc` is explicitly a **full-map projection at achieved accuracy, zero misses and maximum combo**, not a claim about future accuracy. With exact judgements it derives ruleset-specific achieved accuracy. Official comparison invokes vosu's `/api/calculate/pp` with identical stable score parameters against a temporary copy in the tool cache, removed after the request. An unavailable host comparison is reported as `official.available=false` with a reason; it is never replaced with an estimate.
+
+The bounded 32-entry LRU cache reuses parsed map bytes partitioned by `(server, checksum, mods)`. Scores are not cached, so new hit counts/accuracy cannot reuse stale pp. Evicted arbitrary maps must be uploaded again. Caches are memory-only and reset with service restart.
+
+## Verification and reference values
+
+`cargo test --locked -p vosu-server-pp` executes each **actual pinned server library independently** as the reference oracle on the included original deterministic map in each native ruleset, for NM/HD/DT and verified RX/AP combinations. The adapter's full-precision current pp must match to `1e-10`. Expected values are therefore generated directly at the recorded revisions, not borrowed from the official calculator or invented constants. Additional tests cover incompatible/unverified mods including ScoreV2, LRU partitioning/eviction, live judgement translation and official API parameter spelling, FC projection, and the legacy RX underflow guard. No private server connection is required.
+
+Both calculator dependencies are unmodified MIT libraries; original license text is in `licenses/calculators-MIT.txt`. Cargo.lock pins the entire resolution, including Mamestagram's transitive Git rosu-map dependency. This tool does not import server application code.

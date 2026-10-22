@@ -4,10 +4,10 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 
 | Tool | id | Interfaces | Purpose |
 | --- | --- | --- | --- |
-| osu! practice tool | `practice` | CLI, UI, service | Offline rate changes, mania Invert/Hold Off/Mirror/seeded Random, taiko Swap/seeded Random, osu! Mirror and difficulty adjustment; see [scope and provenance](tools/practice/PROVENANCE.md) |
-| Server pp calculator | `server-pp` | service, CLI | pp as calculated by popular private servers |
+| osu! practice tool | `practice` | CLI, UI, service | Offline rate changes and map transforms; see [scope and provenance](tools/practice/PROVENANCE.md) |
+| Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots, with official pp comparison |
 | Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
-| skin.ini editor | `skin-editor` | UI | Edit skin.ini with validation and file completion |
+| skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for stable skins: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; read-only without a dashboard session; lazer unsupported |
 | Map preview | `map-preview` | UI | Render any map in the browser before playing it, with lazer mods and custom settings |
 | Replay renderer | `replay-renderer` | CLI, UI | Render one or more replays to video with your choice of skin, settings and overlays |
 | Beatmap downloader | `downloader` | UI | Batch-download maps by mapper, skill level or ratings |

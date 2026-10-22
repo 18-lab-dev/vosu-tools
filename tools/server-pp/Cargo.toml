@@ -1,0 +1,21 @@
+[package]
+name = "vosu-server-pp"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+vosu-tool-sdk = { path = "../../crates/vosu-tool-sdk" }
+akatsuki = { package = "akatsuki-pp", git = "https://github.com/osuAkatsuki/akatsuki-pp-rs", rev = "c0e499ec3ac138c7cc329771fc70992de39fbb77", features = ["sync"] }
+mamestagram = { package = "mames-pp", git = "https://github.com/Mamestagram/mamestagram-pp-rs", rev = "11f4c0443f8dd777a356cad1d06e675971ec0a4e", features = ["sync"] }
+axum = "0.8"
+clap = { version = "4", features = ["derive"] }
+md5 = "0.7"
+reqwest = { version = "=0.13.4", default-features = false, features = ["query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-std", "io-util"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
