@@ -21,6 +21,7 @@ mod browser;
 mod cdp;
 mod overlays;
 mod render;
+mod skins;
 type Error = (StatusCode, Json<Value>);
 fn error(message: impl ToString) -> Error {
     (
@@ -35,6 +36,7 @@ struct App {
     maps: Arc<Mutex<BTreeMap<String, PathBuf>>>,
     jobs: Arc<Mutex<BTreeMap<String, Value>>>,
     render_gate: Arc<tokio::sync::Semaphore>,
+    uploads: Arc<Mutex<BTreeMap<String, skins::Upload>>>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Preset {
@@ -60,6 +62,7 @@ enum Command {
 enum Cli {
     Render {
         file: PathBuf,
+        /// Skin folder under osu!/Skins, or `imported/<name>`; default: current skin
         #[arg(long)]
         skin: Option<String>,
         #[arg(long="set", value_parser=parse_setting)]
@@ -78,6 +81,31 @@ enum Cli {
     Presets {
         #[command(subcommand)]
         command: Presets,
+    },
+    /// Import, list and delete `.osk` skins stored by this tool
+    Skins {
+        #[command(subcommand)]
+        command: Skins,
+    },
+}
+#[derive(Subcommand)]
+enum Skins {
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    Import {
+        file: PathBuf,
+        /// Defaults to the archive's file name without `.osk`
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    Delete {
+        name: String,
+        #[arg(long)]
+        json: bool,
     },
 }
 #[derive(Subcommand)]
@@ -160,6 +188,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
     }
     tokio::fs::create_dir_all(&env.data_dir).await?;
     tokio::fs::create_dir_all(env.cache_dir.join("replays")).await?;
+    skins::reset_uploads(&env).await?;
     let presets = match tokio::fs::read(env.data_dir.join("presets.json")).await {
         Ok(bytes) => serde_json::from_slice(&bytes)?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
@@ -171,6 +200,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         maps: Arc::default(),
         jobs: Arc::default(),
         render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+        uploads: Arc::default(),
     };
     let router = Router::new()
         .route("/v1/context", get(context))
@@ -183,6 +213,10 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
             post(save_preset).delete(delete_preset),
         )
         .route("/v1/render", post(render::start))
+        .route("/v1/skins/uploads", post(skins::start))
+        .route("/v1/skins/uploads/{id}", post(skins::part))
+        .route("/v1/skins/uploads/{id}/finish", post(skins::finish))
+        .route("/v1/skins/{name}", axum::routing::delete(skins::delete))
         .route("/v1/jobs/{id}", get(job).delete(cancel))
         .layer(DefaultBodyLimit::max(1024 * 1024))
         .with_state(app);
@@ -192,6 +226,109 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
 async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let client = env.client();
     match command {
+        Cli::Skins { command } => match command {
+            Skins::List { json: as_json } => {
+                let value: Value = client.own_json("v1/context").await?;
+                if as_json {
+                    println!(
+                        "{}",
+                        json!({"current":value["current_skin"],"installed":value["skins"],"imported":value["imported_skins"]})
+                    );
+                } else {
+                    let mut rows = vec![vec![
+                        String::new(),
+                        "current".to_owned(),
+                        value["current_skin"]["name"]
+                            .as_str()
+                            .unwrap_or("unavailable")
+                            .to_owned(),
+                    ]];
+                    for (source, key, prefix) in [
+                        ("osu! Skins", "skins", ""),
+                        ("imported", "imported_skins", skins::IMPORTED),
+                    ] {
+                        for name in value[key].as_array().into_iter().flatten() {
+                            let name = name.as_str().unwrap_or_default();
+                            rows.push(vec![
+                                format!("{prefix}{name}"),
+                                source.to_owned(),
+                                name.to_owned(),
+                            ]);
+                        }
+                    }
+                    print!(
+                        "{}",
+                        vosu_tool_sdk::cli::table(&["--skin VALUE", "SOURCE", "NAME"], &rows)
+                    );
+                }
+            }
+            Skins::Import {
+                file,
+                name,
+                json: as_json,
+            } => {
+                let name = match name {
+                    Some(name) => name,
+                    None => file
+                        .file_stem()
+                        .ok_or("Skin archive needs a file name")?
+                        .to_string_lossy()
+                        .into_owned(),
+                };
+                let bytes = tokio::fs::read(&file).await?;
+                let started: Value = vosu_tool_sdk::send_json(client.own(
+                    Method::POST,
+                    &format!(
+                        "v1/skins/uploads?name={}&size={}",
+                        encode(&name),
+                        bytes.len()
+                    ),
+                ))
+                .await?;
+                let upload = started["upload"].as_str().ok_or("Missing upload id")?;
+                let part = started["part_size"].as_u64().unwrap_or(1 << 20) as usize;
+                for (index, chunk) in bytes.chunks(part).enumerate() {
+                    let _: Value = vosu_tool_sdk::send_json(
+                        client
+                            .own(
+                                Method::POST,
+                                &format!("v1/skins/uploads/{upload}?offset={}", index * part),
+                            )
+                            .body(chunk.to_vec()),
+                    )
+                    .await?;
+                }
+                let result: Value = vosu_tool_sdk::send_json(
+                    client.own(Method::POST, &format!("v1/skins/uploads/{upload}/finish")),
+                )
+                .await?;
+                if as_json {
+                    println!("{result}");
+                } else {
+                    println!(
+                        "Imported {} files as --skin {}{}",
+                        result["files"],
+                        skins::IMPORTED,
+                        result["name"].as_str().unwrap_or(&name)
+                    );
+                }
+            }
+            Skins::Delete {
+                name,
+                json: as_json,
+            } => {
+                let name = name.strip_prefix(skins::IMPORTED).unwrap_or(&name);
+                let result: Value = vosu_tool_sdk::send_json(
+                    client.own(Method::DELETE, &format!("v1/skins/{}", encode(name))),
+                )
+                .await?;
+                if as_json {
+                    println!("{result}");
+                } else {
+                    println!("Deleted imported skin {name}");
+                }
+            }
+        },
         Cli::Presets { command } => match command {
             Presets::List { json: as_json } => {
                 let value: Value = client.own_json("v1/presets").await?;
@@ -353,6 +490,8 @@ async fn context(State(app): State<App>) -> Result<Json<Value>, Error> {
     }
     skins.sort();
     value["skins"] = json!(skins);
+    value["imported_skins"] = json!(skins::imported_names(&app));
+    value["current_skin"] = skins::current(&app, &value).await.describe();
     Ok(Json(value))
 }
 async fn get_presets(State(app): State<App>) -> Json<Value> {
@@ -519,25 +658,27 @@ async fn asset(
 ) -> Result<Bytes, Error> {
     let kind = query.get("kind").map(String::as_str).unwrap_or("map");
     let path = if kind == "skin" {
-        let ctx = host_context(&app).await?;
-        let root = if let Some(name) = query.get("skin").filter(|s| !s.is_empty()) {
-            let osu = ctx["osu_dir"]
-                .as_str()
-                .ok_or_else(|| error("No stable installation selected"))?;
-            confined(&FsPath::new(osu).join("Skins"), name)?
-        } else {
-            PathBuf::from(
-                ctx["skin"]["folder"]
+        let file = query
+            .get("path")
+            .ok_or_else(|| error("Missing skin asset path"))?;
+        let root = match query.get("skin").filter(|s| !s.is_empty()) {
+            Some(name) if name.starts_with(skins::IMPORTED) => confined(
+                &skins::imported_root(&app),
+                skins::valid_name(&name[skins::IMPORTED.len()..])?,
+            )?,
+            Some(name) => {
+                let ctx = host_context(&app).await?;
+                let osu = ctx["osu_dir"]
                     .as_str()
-                    .ok_or_else(|| error("Current skin folder is unavailable"))?,
-            )
+                    .ok_or_else(|| error("No stable installation selected"))?;
+                confined(&FsPath::new(osu).join("Skins"), name)?
+            }
+            None => {
+                let ctx = host_context(&app).await?;
+                return skins::current_file(&app, &ctx, file).await;
+            }
         };
-        confined(
-            &root,
-            query
-                .get("path")
-                .ok_or_else(|| error("Missing skin asset path"))?,
-        )?
+        confined(&root, file)?
     } else {
         let map = map_path(
             &app,
@@ -592,6 +733,7 @@ mod tests {
             maps: Arc::default(),
             jobs: Arc::default(),
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
+            uploads: Arc::default(),
         }
     }
     #[tokio::test]

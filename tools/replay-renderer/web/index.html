@@ -1,94 +1,132 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Replay renderer · 18-LAB</title>
-    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+    <meta name="color-scheme" content="dark light" />
+    <title>Replay studio</title>
   </head>
   <body>
-    <header>
-      <a href="/tools" rel="noopener">18-LAB / VOSU TOOLS</a
-      ><span>REPLAY WORKSTATION</span>
+    <header class="slate">
+      <div class="mark">
+        <span class="tally" id="tally" aria-hidden="true"></span>
+        <h1>Replay <em>studio</em></h1>
+        <span class="credit">by 18-LAB</span>
+      </div>
+      <p id="notice" role="status" aria-live="polite">Connecting to vosu…</p>
+      <a id="dashboard" href="/tools" rel="noopener">vosu tools</a>
     </header>
-    <main>
-      <section class="heading">
-        <p class="eyebrow">01 / REPLAY STUDIO</p>
-        <h1>Replay renderer</h1>
-        <p>One clock. Every player. Your skin.</p>
-      </section>
-      <p id="notice" role="status">Connecting to vosu…</p>
-      <div class="workspace">
-        <aside>
-          <h2>02 / PLAYERS</h2>
-          <label class="drop" id="drop"
-            >Drop .osr files here<input
-              id="files"
-              type="file"
-              accept=".osr"
-              multiple
-          /></label>
-          <div class="installed">
-            <select id="installed" aria-label="Installed replay">
-              <option value="">Choose from osu! Replays</option></select
-            ><button id="refresh">Refresh</button
-            ><button id="add-installed">Add</button>
+    <main class="bay">
+      <aside class="bin" aria-label="Sources and skins">
+        <section class="panel">
+          <h2 class="panel-head">Sources</h2>
+          <label class="drop" id="drop">
+            <span class="drop-title">Drop .osr replays</span>
+            <span class="drop-hint">or choose files</span>
+            <input id="files" type="file" accept=".osr" multiple />
+          </label>
+          <div class="picker">
+            <label class="field">
+              <span>From osu! Replays</span>
+              <select id="installed">
+                <option value="">Choose a replay</option>
+              </select>
+            </label>
+            <div class="picker-actions">
+              <button id="refresh" type="button">Rescan</button>
+              <button id="add-installed" type="button">Add to timeline</button>
+            </div>
           </div>
-          <div id="tracks"></div>
-          <p class="help">
-            Player presets apply automatically when a replay is added. Same map
-            set and playback rate required.
-          </p>
-        </aside>
-        <section class="view">
-          <h2>03 / COMPOSITION</h2>
-          <div id="preview"><p>Add a replay to begin.</p></div>
-          <div class="transport">
-            <button id="play">Play</button
-            ><input
-              id="seek"
-              aria-label="Timeline"
-              type="range"
-              min="0"
-              max="1000"
-              value="0"
-            /><output id="time">0:00</output>
-          </div>
-          <div class="settings">
-            <label
-              >Layout<select id="layout">
-                <option value="side-by-side">Side by side</option>
-                <option value="stacked">Stacked</option>
-                <option value="grid">Grid</option>
-              </select></label
-            ><label
-              >Resolution<select id="resolution">
-                <option>1920x1080</option>
-                <option>1280x720</option>
-                <option>640x360</option>
-              </select></label
-            ><label
-              >FPS<input id="fps" type="number" min="1" max="240" value="60"
-            /></label>
-          </div>
-          <section id="overlay-layout"></section>
-          <h2>05 / RENDER QUEUE</h2>
-          <div class="export">
-            <label
-              >Absolute MP4 output path<input
-                id="out"
-                placeholder="/home/you/Videos/replay.mp4" /></label
-            ><button id="queue">Queue MP4</button
-            ><button id="webm">Export WebM in browser</button>
-          </div>
-          <div id="jobs"></div>
-          <p class="help">
-            Native MP4: Chromium + external FFmpeg (VP9/AAC). Browser WebM:
-            WebCodecs (VP9/Opus). Audio follows the first replay. No Node
-            installation required.
+          <ol id="tracks" class="tracks" aria-label="Timeline tracks"></ol>
+          <p class="note">
+            Every track must share one map set and playback rate. A saved player
+            preset applies when that player's replay is added.
           </p>
         </section>
-      </div>
+        <section class="panel">
+          <h2 class="panel-head">Skins</h2>
+          <p id="current-skin" class="skin-current">Reading current skin…</p>
+          <label class="import" id="import-label">
+            <span>Import .osk</span>
+            <input id="osk" type="file" accept=".osk,.zip" />
+          </label>
+          <p id="import-status" class="note" role="status"></p>
+          <ul id="imported" class="imported" aria-label="Imported skins"></ul>
+          <p class="note">
+            Imported skins live in this tool's own data folder; your osu!
+            folders are never modified.
+          </p>
+        </section>
+      </aside>
+      <section class="program" aria-label="Program monitor">
+        <div class="monitor">
+          <div id="preview" class="gate">
+            <p class="empty">
+              <strong>No footage yet.</strong>
+              Drop replays into Sources or pick one from your osu! Replays
+              folder. Each replay becomes a track on one shared clock.
+            </p>
+          </div>
+        </div>
+        <div class="transport">
+          <button id="play" type="button" class="play" aria-label="Play">
+            <span aria-hidden="true"></span>
+          </button>
+          <output id="time" class="timecode" aria-label="Playhead"
+            >00:00:00:00</output
+          >
+          <input
+            id="seek"
+            class="scrub"
+            aria-label="Timeline"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+          />
+          <output id="duration" class="timecode dim" aria-label="Duration"
+            >00:00:00:00</output
+          >
+        </div>
+        <div class="sequence">
+          <label class="field"
+            ><span>Layout</span
+            ><select id="layout">
+              <option value="side-by-side">Side by side</option>
+              <option value="stacked">Stacked</option>
+              <option value="grid">Grid</option>
+            </select></label
+          ><label class="field"
+            ><span>Frame size</span
+            ><select id="resolution">
+              <option value="1920x1080">1920 × 1080</option>
+              <option value="1280x720">1280 × 720</option>
+              <option value="640x360">640 × 360</option>
+            </select></label
+          ><label class="field"
+            ><span>Frame rate</span
+            ><input id="fps" type="number" min="1" max="240" value="60"
+          /></label>
+        </div>
+        <section id="overlay-layout" class="panel overlays"></section>
+        <section class="panel queue">
+          <h2 class="panel-head">Render queue</h2>
+          <div class="export">
+            <label class="field grow"
+              ><span>Absolute MP4 output path</span
+              ><input id="out" placeholder="/home/you/Videos/replay.mp4"
+            /></label>
+            <button id="queue" type="button" class="primary">Queue MP4</button>
+            <button id="webm" type="button">Export WebM here</button>
+          </div>
+          <ol id="jobs" class="jobs" aria-label="Render jobs"></ol>
+          <p class="note">
+            MP4 renders in a private headless browser and encodes with your
+            FFmpeg (VP9/AAC). WebM encodes in this tab with WebCodecs
+            (VP9/Opus). Audio follows the first track.
+          </p>
+        </section>
+      </section>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

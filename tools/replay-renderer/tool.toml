@@ -4,6 +4,8 @@ name = "Replay renderer"
 version = "0.1.0"
 description = "A deterministic, skin-aware replay video studio"
 author = "18-LAB"
+icon = "icon.svg"
+banner = "banner.svg"
 
 [ui]
 root = "web/dist"
@@ -18,7 +20,7 @@ summary = "Render replays to video and manage player presets"
 
 [api]
 read = []
-write = ["/v1/context", "/v1/replays", "/v1/assets", "/v1/presets", "/v1/render", "/v1/jobs"]
+write = ["/v1/context", "/v1/replays", "/v1/assets", "/v1/presets", "/v1/render", "/v1/jobs", "/v1/skins"]
 
 [permissions]
 host = ["context"]
