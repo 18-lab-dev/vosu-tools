@@ -1,0 +1,10 @@
+{
+  "name": "vosu-tools",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "tools/*/web"],
+  "scripts": {
+    "build": "bun run --filter '*' build",
+    "check": "bun run --filter '*' check"
+  }
+}

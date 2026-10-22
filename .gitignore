@@ -1,0 +1,10 @@
+/target/
+/dist/
+node_modules/
+**/web/dist/
+*.profraw
+__pycache__/
+.env
+.env.*
+.DS_Store
+Thumbs.db
