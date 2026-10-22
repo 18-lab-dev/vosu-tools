@@ -95,7 +95,7 @@ with tempfile.TemporaryDirectory(prefix='practice-real-map-smoke-') as directory
                 shutil.copy2(source.parent/audio_name, folder/audio_name)
                 mode = int(field(text,'Mode','0'))
                 context.update(client='stable', songs_dir=str(songs), beatmap={'checksum':hashlib.md5(original).hexdigest(),'mode':{0:'osu',1:'taiko',2:'fruits',3:'mania'}[mode], 'folder':str(folder),'file':str(chart),'audio':str(folder/audio_name),'background':None})
-                combinations = {3:[('IN,MR',0.9),('HO,RD',1.1)],1:[('SW',0.9),('RD',1.1)],0:[('MR,DA',0.9)]}[mode]
+                combinations = {3:[('IN,MR,CS',0.9),('HO,RD,CS',1.1)],1:[('SW,CS',0.9),('RD,CS',1.1)],2:[('MR',0.9)],0:[('RD,MR,DA',0.9)]}[mode]
                 for mods,rate in combinations:
                     entry = cli('--mods',mods,'--seed','1','--rate',str(rate))
                     output_path = next(Path(f['path']) for f in entry['files'] if f['path'].endswith('.osu'))
@@ -120,7 +120,7 @@ with tempfile.TemporaryDirectory(prefix='practice-real-map-smoke-') as directory
                     assert not output_path.exists() and chart.read_bytes()==original
                 if mode==3:
                     context['client']='lazer'
-                    export=cli('--mods','HO,MR','--rate','1.1')
+                    export=cli('--mods','HO,MR,CS','--rate','1.1')
                     archive=next(Path(f['path']) for f in export['files'] if f['path'].endswith('.osz'))
                     assert archive.is_file()
                     import zipfile

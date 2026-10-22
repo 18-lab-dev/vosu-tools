@@ -1,13 +1,13 @@
 import { vosu } from '/tools/_host/v1/bridge.js';
 import './style.css';
-type Options = {rate:number;seed:number;mirror:string;mods:string[];pitch_preserving:boolean;hp:number|null;cs:number|null;ar:number|null;od:number|null;lock_ar:boolean;lock_od:boolean};
+type Options = {rate:number;seed:number;mirror:string;angle_sharpness:number;mods:string[];pitch_preserving:boolean;hp:number|null;cs:number|null;ar:number|null;od:number|null;lock_ar:boolean;lock_od:boolean};
 type Entry = {id:string;name:string;files:{path:string}[];warnings:string[]};
 const $ = <T extends HTMLElement>(id:string)=>document.getElementById(id) as T;
 const form=$<HTMLFormElement>('form');
 const status=$('status');
 let job:string|null=null;
 let busy=false;
-const groups:[string,string[],string[]][]=[['All rulesets',['HT','DC','DT','NC','DA'],['Half Time','Daycore','Double Time','Nightcore','Difficulty Adjust']],['osu!',['MR'],['Mirror']],['taiko',['SW','RD'],['Swap','Random']],['mania',['IN','HO','MR','RD'],['Invert','Hold Off','Mirror','Random']]];
+const groups:[string,string[],string[]][]=[['All rulesets',['HT','DC','DT','NC','DA'],['Half Time','Daycore','Double Time','Nightcore','Difficulty Adjust']],['osu!',['MR','RD'],['Mirror','Random']],['taiko',['SW','RD','CS'],['Swap','Random','Constant Speed']],['catch',['MR'],['Mirror']],['mania',['IN','HO','MR','RD','CS'],['Invert','Hold Off','Mirror','Random','Constant Speed']]];
 const selectors:{input:HTMLInputElement;group:string}[]=[];
 for(const [group,ids,names] of groups){
  const field=document.createElement('fieldset');const legend=document.createElement('legend');legend.textContent=group;field.append(legend);
@@ -16,10 +16,10 @@ for(const [group,ids,names] of groups){
 function control(name:string):HTMLInputElement{return form.elements.namedItem(name) as HTMLInputElement;}
 function options():Options {
  const number=(name:string)=>control(name).value===''?null:Number(control(name).value);
- return {rate:Number(control('rate').value),seed:Number(control('seed').value),mirror:control('mirror').value,mods:selectors.filter(x=>x.input.checked&&!x.input.disabled).map(x=>x.input.value),pitch_preserving:!control('pitch').checked,hp:number('hp'),cs:number('cs'),ar:number('ar'),od:number('od'),lock_ar:control('lock_ar').checked,lock_od:control('lock_od').checked};
+ return {rate:Number(control('rate').value),seed:Number(control('seed').value),mirror:control('mirror').value,angle_sharpness:Number(control('angle_sharpness').value),mods:selectors.filter(x=>x.input.checked&&!x.input.disabled).map(x=>x.input.value),pitch_preserving:!control('pitch').checked,hp:number('hp'),cs:number('cs'),ar:number('ar'),od:number('od'),lock_ar:control('lock_ar').checked,lock_od:control('lock_od').checked};
 }
 function setOptions(o:Options){
- for(const key of ['rate','seed','mirror','hp','cs','ar','od'] as const) control(key).value=o[key]===null?'':String(o[key]);
+ for(const key of ['rate','seed','mirror','angle_sharpness','hp','cs','ar','od'] as const) control(key).value=o[key]===null?'':String(o[key]);
  control('pitch').checked=!o.pitch_preserving;control('lock_ar').checked=o.lock_ar;control('lock_od').checked=o.lock_od;
  for(const x of selectors)x.input.checked=o.mods.includes(x.input.value);
 }
@@ -35,7 +35,7 @@ async function refresh(){
  $('title').textContent=b?`${b.artist} — ${b.title}`:'No selected beatmap';
  $('map').textContent=b?`${b.version} / ${b.mode} / ${b.bpm.toFixed(2)} BPM / ${v.client}`:'Select a beatmap in osu! to begin.';
  $('ratings').textContent=v.ratings?.msd?`Source-map MSD at selected rate: ${v.ratings.msd.overall.toFixed(2)} (before map transforms)`:'';
- for(const x of selectors){const allowed=x.group==='All rulesets'||x.group===b?.mode;x.input.disabled=!allowed;x.input.closest('label')?.classList.toggle('unavailable',!allowed);}
+ for(const x of selectors){const ruleset=x.group==='osu!'?'osu':x.group==='catch'?'fruits':x.group;const allowed=x.group==='All rulesets'||ruleset===b?.mode;x.input.disabled=!allowed;x.input.closest('label')?.classList.toggle('unavailable',!allowed);}
  control('cs').disabled=b?.mode==='mania';if(b?.mode==='mania')control('cs').value='';
 }
 async function generated(){
