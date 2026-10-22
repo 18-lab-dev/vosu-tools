@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
+  <title>Skin studio</title>
+  <defs>
+    <pattern id="check" width="16" height="16" patternUnits="userSpaceOnUse">
+      <rect width="16" height="16" fill="#1a1514"/><rect width="8" height="8" fill="#241d1c"/><rect x="8" y="8" width="8" height="8" fill="#241d1c"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="400" fill="#191413"/>
+  <rect x="44" y="44" width="1112" height="312" fill="#130f0e" stroke="#3b302d" stroke-width="2"/>
+  <path d="M24 52V24H52" fill="none" stroke="#5a4a45" stroke-width="2"/><path d="M1176 52V24H1148" fill="none" stroke="#5a4a45" stroke-width="2"/><path d="M24 348V376H52" fill="none" stroke="#5a4a45" stroke-width="2"/><path d="M1176 348V376H1148" fill="none" stroke="#5a4a45" stroke-width="2"/>
+  <rect x="96" y="78" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><circle cx="162" cy="130" r="30" fill="#ff5d8f"/><circle cx="162" cy="130" r="30" fill="none" stroke="#f1e7df" stroke-width="5"/><rect x="96" y="186" width="132" height="6" fill="#ff5d8f"/><rect x="246" y="78" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><circle cx="312" cy="130" r="34" fill="none" stroke="#52c6b4" stroke-width="4"/><rect x="246" y="186" width="132" height="6" fill="#52c6b4"/><rect x="396" y="78" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><path d="M422 144h80" stroke="#ffc04a" stroke-width="22" stroke-linecap="round"/><circle cx="502" cy="144" r="15" fill="#f1e7df"/><rect x="396" y="186" width="132" height="6" fill="#ffc04a"/><rect x="96" y="204" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><rect x="128" y="246" width="68" height="20" rx="4" fill="#8aa8ff"/><rect x="128" y="272" width="68" height="6" fill="#f1e7df" opacity="0.5"/><rect x="96" y="312" width="132" height="6" fill="#8aa8ff"/><rect x="246" y="204" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><path d="M298 234l30 22-30 22z" fill="#c58bff"/><circle cx="298" cy="234" r="6" fill="#f1e7df"/><rect x="246" y="312" width="132" height="6" fill="#c58bff"/><rect x="396" y="204" width="132" height="108" fill="url(#check)" stroke="#3b302d" stroke-width="2"/><path d="M432 276v-14M447 276v-30M462 276v-40M477 276v-24M492 276v-10" stroke="#9be36b" stroke-width="7" stroke-linecap="round"/><rect x="396" y="312" width="132" height="6" fill="#9be36b"/>
+  <path d="M572 200h64" stroke="#ff5d8f" stroke-width="4"/><path d="M628 188l14 12-14 12" fill="none" stroke="#ff5d8f" stroke-width="4"/>
+  <line x1="656" y1="64" x2="656" y2="336" stroke="#3b302d" stroke-width="2" stroke-dasharray="4 8"/>
+  <rect x="676" y="150" width="52" height="52" fill="#ff5d8f"/><rect x="734" y="150" width="52" height="52" fill="#ffc04a"/><rect x="792" y="150" width="52" height="52" fill="#52c6b4"/><rect x="850" y="150" width="52" height="52" fill="#8aa8ff"/><rect x="908" y="150" width="52" height="52" fill="#f1e7df"/><rect x="966" y="150" width="52" height="52" fill="#ff7262"/><rect x="1024" y="150" width="52" height="52" fill="#c58bff"/><rect x="1082" y="150" width="52" height="52" fill="#9be36b"/>
+  <rect x="676" y="226" width="458" height="2" fill="#3b302d"/>
+  <rect x="676" y="244" width="200" height="8" fill="#f1e7df" opacity="0.85"/>
+  <rect x="676" y="264" width="130" height="8" fill="#6f625b"/>
+  <g fill="none" stroke="#ff5d8f" stroke-width="3">
+    <circle cx="1090" cy="100" r="22"/>
+    <path d="M1090 64v72M1054 100h72"/>
+  </g>
+</svg>
