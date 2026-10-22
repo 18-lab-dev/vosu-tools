@@ -21,6 +21,7 @@ Each section records third-party code, data, or assets included in this reposito
 ## skin.ini editor
 
 - Monaco Editor 0.52.2, Microsoft Corporation, MIT: https://github.com/microsoft/monaco-editor. License: `tools/skin-editor/licenses/monaco-editor-MIT.txt`. Editor and worker are bundled offline.
+- Bundled fonts, SIL Open Font License 1.1, served offline from the tool package: Instrument Serif and Instrument Sans (Copyright 2022 The Instrument Serif / Instrument Sans Project Authors, https://github.com/Instrument), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono), via the Fontsource 5.3.0 packages. Licenses: `tools/skin-editor/licenses/{instrument-serif,instrument-sans,jetbrains-mono}-OFL.txt`.
 - `packages/skin-spec/spec.json` contains interoperability facts extracted from the osu! wiki skin.ini reference at revision `c9fa3ff277dba4c620d4731fd2c3fbb74770c20b`: https://github.com/ppy/osu-wiki/blob/c9fa3ff277dba4c620d4731fd2c3fbb74770c20b/wiki/Skinning/skin.ini/en.md. Wiki prose and images (CC-BY-NC-4.0) are not redistributed; hover wording is independently authored. Regenerate factual fields with `bun packages/skin-spec/generate.ts`.
 
 ## Ratings
