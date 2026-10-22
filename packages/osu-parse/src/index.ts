@@ -1,3 +1,27 @@
+import { parse as parseSkinDocument } from "@vosu-tools/skin-spec";
+
+/** Repeated Mania blocks are kept separate, keyed by their explicit Keys entry. */
+export function parseSkinIni(
+  text: string,
+): Map<string, Record<string, string>[]> {
+  const sections = new Map<string, Record<string, string>[]>();
+  for (const line of parseSkinDocument(text).lines) {
+    if (line.key === undefined || line.value === undefined) continue;
+    let blocks = sections.get(line.section);
+    if (!blocks) {
+      blocks = [];
+      sections.set(line.section, blocks);
+    }
+    let block = blocks.find((s) => s.__block === String(line.block));
+    if (!block) {
+      block = { __block: String(line.block) };
+      blocks.push(block);
+    }
+    block[line.key] = line.value;
+  }
+  return sections;
+}
+
 export type Point = { x: number; y: number };
 export type Ruleset = 0 | 1 | 2 | 3;
 export interface TimingPoint {
@@ -44,6 +68,7 @@ export interface Beatmap {
   breaks: [number, number][];
   events: string[];
   colours: [number, number, number][];
+  colourSettings?: Record<string, [number, number, number]>;
   duration: number;
   rate: number;
   visualMods: string[];
@@ -233,11 +258,28 @@ export function timingAt(
   }
   return { beatLength, sv, meter };
 }
+/** Taiko's 1.4 velocity factor, expressed in the 640x480 virtual playfield. */
+export function taikoVelocity(
+  map: Beatmap,
+  time: number,
+  noteSpeed = 1,
+): number {
+  const timing = timingAt(map.timing, time);
+  return (
+    ((140 * map.difficulty.sliderMultiplier * timing.sv) / timing.beatLength) *
+    noteSpeed
+  );
+}
 export function approachTime(ar: number): number {
   return ar < 5 ? 1800 - 120 * ar : 1200 - 150 * (ar - 5);
 }
 export function circleRadius(cs: number): number {
   return 54.4 - 4.48 * cs;
+}
+function endPosition(object: HitObject): Point {
+  return object.type & 2 && object.repeats % 2 === 1
+    ? (object.path[object.path.length - 1] ?? object)
+    : object;
 }
 /** Stable's v6+ backwards stacking. Slider-tail stacks receive negative offsets. */
 export function applyStacking(map: Beatmap): void {
@@ -271,11 +313,10 @@ export function applyStacking(map: Beatmap): void {
         const n = objs[j];
         if (n.type & 8) continue;
         if (o.time - n.endTime > threshold) break;
-        if (n.type & 2 && distance(n.path[n.path.length - 1] ?? n, o) < 3) {
+        if (n.type & 2 && distance(endPosition(n), o) < 3) {
           const offset = o.stack - n.stack + 1;
           for (let k = j + 1; k <= i; k++)
-            if (distance(n.path[n.path.length - 1] ?? n, objs[k]) < 3)
-              objs[k].stack -= offset;
+            if (distance(endPosition(n), objs[k]) < 3) objs[k].stack -= offset;
           break;
         }
         if (distance(n, o) < 3) {
@@ -288,7 +329,7 @@ export function applyStacking(map: Beatmap): void {
         const n = objs[j];
         if (n.type & 8) continue;
         if (o.time - n.time > threshold) break;
-        if (distance(n.path[n.path.length - 1] ?? n, o) < 3) {
+        if (distance(endPosition(n), o) < 3) {
           n.stack = o.stack + 1;
           o = n;
         }
@@ -315,6 +356,7 @@ export function parseOsu(text: string): Beatmap {
     breaks: [],
     events: [],
     colours: [],
+    colourSettings: {},
     duration: 0,
     rate: 1,
     visualMods: [],
@@ -345,6 +387,10 @@ export function parseOsu(text: string): Beatmap {
       else if (/^Combo\d+$/.test(key)) {
         const c = value.split(",").map(Number);
         map.colours.push([c[0] / 255, c[1] / 255, c[2] / 255]);
+      } else {
+        const c = value.split(",").map(Number);
+        if (c.length >= 3 && c.every(Number.isFinite))
+          map.colourSettings![key] = [c[0] / 255, c[1] / 255, c[2] / 255];
       }
       continue;
     }

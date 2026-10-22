@@ -4,6 +4,7 @@ import {
   createRenderer,
   loadSkin,
   type Renderer,
+  type Skin,
 } from "@vosu-tools/render-core";
 import "./style.css";
 const canvas = document.querySelector<HTMLCanvasElement>("#playfield")!,
@@ -14,6 +15,7 @@ const canvas = document.querySelector<HTMLCanvasElement>("#playfield")!,
   audio = new Audio();
 let renderer: Renderer | undefined,
   map: Beatmap | undefined,
+  selectedSkin: Skin | undefined,
   objectUrl: string | undefined,
   loadSequence = 0,
   animation = 0,
@@ -26,6 +28,12 @@ const inputs = Object.fromEntries(
 );
 function showError(error: unknown): void {
   status.textContent = error instanceof Error ? error.message : String(error);
+}
+function installSkin(skin: Skin): void {
+  renderer?.setSkin(skin);
+  const previous = selectedSkin;
+  selectedSkin = skin;
+  if (previous) for (const bitmap of previous.assets.values()) bitmap.close();
 }
 function refreshScene(): void {
   if (!map || !renderer) return;
@@ -63,9 +71,14 @@ async function openMap(text: string, audioSource?: string): Promise<void> {
   manualTime = 0;
   play.textContent = "Play";
   map = parseOsu(text);
+  inputs.cs.max = map.mode === 3 ? "18" : "11";
+  inputs.cs.step = map.mode === 3 ? "1" : "0.1";
   if (!map.objects.length)
     throw new Error("This beatmap contains no hit objects");
-  if (!renderer) renderer = await createRenderer({ canvas });
+  if (!renderer) {
+    renderer = await createRenderer({ canvas, skin: selectedSkin });
+    if (!selectedSkin) await currentSkin();
+  }
   refreshScene();
   if (audioSource) {
     audio.src = audioSource;
@@ -111,7 +124,7 @@ async function currentSkin(): Promise<void> {
       const response = await fetch(`/files/skin/${encodeURIComponent(name)}`);
       return response.ok ? response.blob() : null;
     });
-    renderer?.setSkin(skin);
+    installSkin(skin);
     document.getElementById("skin-name")!.textContent = "Client’s current skin";
     status.textContent = "";
   } catch (error) {
@@ -202,13 +215,17 @@ document.querySelector<HTMLInputElement>("#skin-folder")!.onchange = async (
   status.textContent = "Loading selected skin…";
   try {
     const lookup = new Map<string, File>();
-    for (const file of files) lookup.set(file.name.toLowerCase(), file);
+    for (const file of files)
+      lookup.set(
+        file.webkitRelativePath.split("/").slice(1).join("/").toLowerCase(),
+        file,
+      );
     const name = files[0].webkitRelativePath.split("/")[0],
       skin = await loadSkin(
         async (name) => lookup.get(name.toLowerCase()) ?? null,
         name,
       );
-    renderer?.setSkin(skin);
+    installSkin(skin);
     document.getElementById("skin-name")!.textContent = name;
     status.textContent = "";
   } catch (error) {
@@ -219,12 +236,13 @@ window.addEventListener("pagehide", () => {
   cancelAnimationFrame(animation);
   audio.pause();
   renderer?.destroy();
+  if (selectedSkin)
+    for (const bitmap of selectedSkin.assets.values()) bitmap.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
 });
 try {
   await vosu.ready;
   await currentMap();
-  if (renderer) await currentSkin();
 } catch (error) {
   showError(error);
 }

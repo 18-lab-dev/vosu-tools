@@ -1,4 +1,4 @@
-import { parse } from "@vosu-tools/skin-spec";
+import { parseSkinIni } from "@vosu-tools/osu-parse";
 export interface Skin {
   name: string;
   assets: Map<string, ImageBitmap>;
@@ -23,13 +23,10 @@ export const assetNames = [
   "cursor",
   "taikohitcircle",
   "taikohitcircleoverlay",
-  "taiko-hitcircle",
-  "taiko-hitcircle-kiai",
   "taiko-drum-inner",
   "taiko-drum-outer",
-  "taiko-roll-middle",
-  "taiko-roll-end",
-  "taiko-bigcircle",
+  "taikobigcircle",
+  "taikobigcircleoverlay",
   "fruit-apple",
   "fruit-grapes",
   "fruit-orange",
@@ -64,23 +61,7 @@ export async function loadSkin(
 ): Promise<Skin> {
   const skin: Skin = { name, assets: new Map(), sections: new Map() };
   const ini = await resolve("skin.ini");
-  if (ini) {
-    const doc = parse(await ini.text());
-    for (const line of doc.lines) {
-      if (line.key === undefined || line.value === undefined) continue;
-      let sections = skin.sections.get(line.section);
-      if (!sections) {
-        sections = [];
-        skin.sections.set(line.section, sections);
-      }
-      let section = sections.find((s) => s.__block === String(line.block));
-      if (!section) {
-        section = { __block: String(line.block) };
-        sections.push(section);
-      }
-      section[line.key] = line.value;
-    }
-  }
+  if (ini) skin.sections = parseSkinIni(await ini.text());
   const names = new Set(assetNames);
   for (const section of skin.sections.get("Mania") ?? [])
     for (const [key, value] of Object.entries(section))

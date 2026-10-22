@@ -7,6 +7,9 @@
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test"
   },
+  "dependencies": {
+    "@vosu-tools/skin-spec": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.3",
     "@types/bun": "latest"

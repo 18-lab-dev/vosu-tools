@@ -212,7 +212,7 @@ export async function createRenderer(
               ? 1
               : Math.max(0, Math.min(1, (time - p.time) / (q.time - p.time)));
         cursorX = p.x + (q.x - p.x) * f;
-        cursorY = 350;
+        cursorY = (p.y ?? 350) + ((q.y ?? 350) - (p.y ?? 350)) * f;
       }
       let mask = 0;
       if (frame?.keys)

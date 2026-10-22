@@ -11,6 +11,7 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(kind==1u){centre.y=motion.w-(motion.y-g.timing.y)*g.timing.x;if(life.y>life.x){centre.y=min(centre.y,motion.w);}else if(now>life.x){alpha=0.0;} }
  if(kind==2u){let head=min(motion.w,motion.w-(motion.y-g.timing.y)*g.timing.x);let tail=motion.w-(motion.z-g.timing.y)*g.timing.x;centre.y=(head+tail)*0.5;size.y=max(0.0,head-tail);}
  if(kind==3u){centre.x=geometry.x+(life.x-now)*motion.y;}
+ if(mode==1u && kind==3u && now>life.x){alpha=0.0;}
  if(kind==4u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;}
  if(kind==5u){centre=mix(geometry.xy,motion.yz,clamp((now-life.x)/max(0.01,life.y-life.x),0.0,1.0));}
  if(kind==6u){size*=1.0+3.0*clamp((life.x-now)/g.timing.z,0.0,1.0);}
@@ -39,7 +40,9 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(shape==5u){let a=length((v.local-vec2f(-0.2,0.1))/vec2f(0.7,0.8));let b=length((v.local-vec2f(0.2,0.1))/vec2f(0.7,0.8));coverage=1.0-smoothstep(1.0-aa,1.0,min(a,b));}
  if(shape==6u){var nearest=10.0;for(var i=0u;i<6u;i++){let row=select(0.0,0.55,i>2u);let x=f32(i%3u)*0.55-0.55;nearest=min(nearest,length(v.local-vec2f(x,row-0.3))/0.4);}coverage=1.0-smoothstep(1.0-aa,1.0,nearest);}
  if(shape==8u){let outer=length(v.local-vec2f(-0.15,-0.3));let inner=length(v.local-vec2f(0.15,-0.5));coverage=(1.0-smoothstep(1.0-aa,1.0,outer))*smoothstep(0.74-aa,0.74,inner);}
+ if(shape==9u){coverage=1.0-smoothstep(1.0-aa,1.0,d);let rim=smoothstep(0.72,0.78,d);colour=vec4f(mix(vec3f(0.86,0.65,0.5),vec3f(0.45,0.48,0.5),rim),colour.a);if(abs(v.local.x)<0.025){colour=vec4f(0.2,0.2,0.2,colour.a);}}
  if(shape==10u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
+ if(shape==11u){let spoke=pow(max(0.0,cos(atan2(v.local.y,v.local.x)*6.0)),8.0);coverage=(1.0-smoothstep(1.0-aa,1.0,d))*max(smoothstep(0.83,0.88,d),spoke*smoothstep(0.25,0.35,d));}
  if(g.cursor.z>0.0){coverage*=1.0-smoothstep(90.0,125.0,distance(v.world,g.cursor.xy));}
  let alpha=colour.a*coverage;if(alpha<0.002){discard;}return vec4f(colour.rgb*alpha,alpha);
 }

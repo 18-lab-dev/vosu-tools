@@ -8,6 +8,9 @@
     "packages/osu-parse": {
       "name": "@vosu-tools/osu-parse",
       "version": "0.1.0",
+      "dependencies": {
+        "@vosu-tools/skin-spec": "workspace:*",
+      },
       "devDependencies": {
         "@types/bun": "latest",
         "typescript": "^5.9.3",
@@ -18,7 +21,6 @@
       "version": "0.1.0",
       "dependencies": {
         "@vosu-tools/osu-parse": "workspace:*",
-        "@vosu-tools/skin-spec": "workspace:*",
         "vgpu": "0.6.0",
       },
       "devDependencies": {

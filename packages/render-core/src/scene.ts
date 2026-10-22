@@ -4,6 +4,7 @@ import {
   pathPosition,
   scrollPosition,
   timingAt,
+  taikoVelocity,
 } from "@vosu-tools/osu-parse";
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
 import type { Skin, AtlasRegion } from "./skin";
@@ -20,7 +21,7 @@ export interface Scene {
   count: number;
   preempt: number;
   speed: number;
-  catcher: { time: number; x: number }[];
+  catcher: { time: number; x: number; y?: number }[];
 }
 const palette: readonly (readonly number[])[] = [
   [1, 0.52, 0.24],
@@ -38,18 +39,34 @@ export function compileScene(
   const values: number[] = [],
     preempt = approachTime(map.difficulty.ar),
     radius = circleRadius(map.difficulty.cs),
-    catcher: { time: number; x: number }[] = [];
+    catcher: { time: number; x: number; y?: number }[] = [];
   const mania = skin?.sections
     .get("Mania")
     ?.find((s) => Number(s.Keys) === Math.round(map.difficulty.cs));
+  const skinColours = Object.entries(skin?.sections.get("Colours")?.[0] ?? {})
+    .filter(([key]) => /^Combo\d+$/.test(key))
+    .sort(([a], [b]) => Number(a.slice(5)) - Number(b.slice(5)))
+    .map(([, value]) =>
+      value.split(",").map((channel) => Number(channel.trim()) / 255),
+    );
+  const colours = map.colours.length ? map.colours : skinColours;
+  const border = map.colourSettings?.SliderBorder ??
+    skin?.sections
+      .get("Colours")?.[0]
+      ?.SliderBorder?.split(",")
+      .map((c) => Number(c) / 255) ?? [0.85, 0.85, 0.85];
+  const trackOverride =
+    map.colourSettings?.SliderTrackOverride ??
+    skin?.sections
+      .get("Colours")?.[0]
+      ?.SliderTrackOverride?.split(",")
+      .map((c) => Number(c) / 255);
   const speed =
     map.mode === 3
       ? ((options.scrollSpeed ?? 20) / 20) * 0.55
-      : map.mode === 1
-        ? 0.32 * (options.noteSpeed ?? 1)
-        : map.mode === 2
-          ? 300 / preempt
-          : 0;
+      : map.mode === 2
+        ? 300 / preempt
+        : 0;
   function add(
     x: number,
     y: number,
@@ -71,6 +88,8 @@ export function compileScene(
     r = 0,
   ): void {
     const uv = regions.get(asset);
+    if (uv && map.mode === 3 && (motion === 1 || motion === 11))
+      h = (w * uv.h) / uv.w;
     values.push(
       x,
       y,
@@ -167,12 +186,44 @@ export function compileScene(
       );
   }
   if (map.mode === 0) {
+    for (const object of map.objects) {
+      const offset = (object.stack * radius) / 10;
+      catcher.push({
+        time: object.time,
+        x: object.x - offset,
+        y: object.y - offset,
+      });
+      if (object.type & 2) {
+        for (let repeat = 0; repeat < object.repeats; repeat++) {
+          const reverse = repeat % 2 === 1;
+          let travelled = 0;
+          for (let i = 0; i < object.path.length; i++) {
+            const point = object.path[i];
+            if (i)
+              travelled += Math.hypot(
+                point.x - object.path[i - 1].x,
+                point.y - object.path[i - 1].y,
+              );
+            const progress = travelled / Math.max(1, object.length);
+            catcher.push({
+              time:
+                object.time +
+                (repeat + (reverse ? 1 - progress : progress)) * object.span,
+              x: point.x - offset,
+              y: point.y - offset,
+            });
+          }
+        }
+      } else if (object.type & 8)
+        catcher.push({ time: object.endTime, x: 256, y: 192 });
+    }
+    catcher.sort((a, b) => a.time - b.time);
     // Slider tracks sit below all hit objects. Discs fill joins; capsule segments avoid cracks.
     for (const o of map.objects)
       if (o.type & 2) {
         const offset = (o.stack * radius) / 10,
           colour =
-            map.colours[o.combo % map.colours.length] ??
+            colours[o.combo % colours.length] ??
             palette[o.combo % palette.length];
         let cumulative = 0;
         for (let i = 1; i < o.path.length; i++) {
@@ -193,7 +244,7 @@ export function compileScene(
             o.endTime,
             reveal,
             o.endTime + 180,
-            [0.85, 0.85, 0.85],
+            border,
             2,
             0,
             Math.atan2(b.y - a.y, b.x - a.x),
@@ -211,7 +262,11 @@ export function compileScene(
             o.endTime,
             reveal,
             o.endTime + 180,
-            [colour[0] * 0.3, colour[1] * 0.3, colour[2] * 0.3],
+            trackOverride ?? [
+              colour[0] * 0.3,
+              colour[1] * 0.3,
+              colour[2] * 0.3,
+            ],
             2,
             0,
             Math.atan2(b.y - a.y, b.x - a.x),
@@ -228,7 +283,7 @@ export function compileScene(
         x = o.x - offset,
         y = o.y - offset,
         colour =
-          map.colours[o.combo % map.colours.length] ??
+          colours[o.combo % colours.length] ??
           palette[o.combo % palette.length];
       if (o.type & 8) {
         add(
@@ -241,7 +296,7 @@ export function compileScene(
           o.time - preempt,
           o.endTime + 180,
           [0.65, 0.7, 0.8, 0.5],
-          1,
+          11,
           7,
           0,
           0,
@@ -554,19 +609,47 @@ export function compileScene(
         );
     }
   } else if (map.mode === 1) {
-    add(300, 192, 424, 92, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
-    add(90, 192, 78, 78, 0, 0, -1e9, 1e9, [0.85, 0.85, 0.85], 1);
+    add(336, 135, 480, 96, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
+    for (let i = 0; i < map.timing.length; i++) {
+      const timing = map.timing[i];
+      if (!timing.uninherited) continue;
+      const end =
+        map.timing.slice(i + 1).find((t) => t.uninherited)?.time ??
+        map.duration;
+      for (
+        let time = timing.time;
+        time < end;
+        time += timing.beatLength * timing.meter
+      ) {
+        const velocity = taikoVelocity(map, time, options.noteSpeed ?? 1);
+        add(
+          96,
+          135,
+          1,
+          96,
+          time,
+          time,
+          time - 480 / velocity,
+          time,
+          [0.35, 0.35, 0.38, 0.55],
+          4,
+          3,
+          velocity,
+        );
+      }
+    }
+    add(96, 135, 90, 90, 0, 0, -1e9, 1e9, [0.85, 0.85, 0.85], 1);
     add(
-      42,
-      192,
-      65,
-      74,
+      16,
+      135,
+      86,
+      86,
       0,
       0,
       -1e9,
       1e9,
-      [0.4, 0.4, 0.4],
-      0,
+      [0.9, 0.8, 0.7],
+      9,
       0,
       0,
       0,
@@ -577,32 +660,43 @@ export function compileScene(
       const o = map.objects[i],
         rim = !!(o.sound & 10),
         big = !!(o.sound & 4),
-        r = big ? 31 : 22,
+        r = big ? 45 : 32,
         t = timingAt(map.timing, o.time),
-        velocity =
-          ((speed * map.difficulty.sliderMultiplier * 500) / t.beatLength) *
-          t.sv,
+        velocity = taikoVelocity(map, o.time, options.noteSpeed ?? 1),
         lead = 480 / velocity;
       if (o.type & 8) {
         add(
-          300,
-          192,
-          86,
-          86,
+          96,
+          135,
+          90,
+          90,
           o.time,
           o.endTime,
           o.time - lead,
           o.endTime,
           [0.9, 0.7, 0.2],
-          1,
+          11,
           7,
+        );
+        add(
+          96,
+          135,
+          96,
+          96,
+          o.time,
+          o.endTime,
+          o.time,
+          o.endTime,
+          [1, 0.9, 0.2],
+          1,
+          10,
         );
         continue;
       }
       if (o.type & 2) {
         add(
-          90,
-          192,
+          96,
+          135,
           Math.max(1, (o.endTime - o.time) * velocity),
           r * 2,
           o.time,
@@ -610,7 +704,7 @@ export function compileScene(
           o.time - lead,
           o.endTime,
           [1, 0.75, 0.25],
-          4,
+          2,
           4,
           velocity,
         );
@@ -618,8 +712,8 @@ export function compileScene(
           t.beatLength / (map.difficulty.sliderTickRate === 3 ? 6 : 8);
         for (let time = o.time; time < o.endTime; time += interval)
           add(
-            90,
-            192,
+            96,
+            135,
             6,
             6,
             time,
@@ -634,8 +728,8 @@ export function compileScene(
         continue;
       }
       add(
-        90,
-        192,
+        96,
+        135,
         r * 2,
         r * 2,
         o.time,
@@ -648,11 +742,11 @@ export function compileScene(
         velocity,
         0,
         0,
-        big ? "taiko-bigcircle" : "taikohitcircle",
+        big ? "taikobigcircle" : "taikohitcircle",
       );
       add(
-        90,
-        192,
+        96,
+        135,
         r * 2,
         r * 2,
         o.time,
@@ -665,7 +759,7 @@ export function compileScene(
         velocity,
         0,
         0,
-        "taikohitcircleoverlay",
+        big ? "taikobigcircleoverlay" : "taikohitcircleoverlay",
       );
     }
   } else {
@@ -724,14 +818,18 @@ export function compileScene(
       8,
       (106.75 * (1 - (0.7 * (map.difficulty.cs - 5)) / 5)) / 2,
     );
-    for (let index=0;index<fruits.length;index++) {
-      const fruit=fruits[index];
-      let next=index+1;
-      while(next<fruits.length && fruits[next].kind===2)next++;
-      const target=fruits[next];
-      const hyper=fruit.kind<2 && !!target && target.kind<2 &&
-        Math.abs(target.x-fruit.x)>Math.max(0,target.time-fruit.time)+size;
-      if(fruit.kind!==2)catcher.push({time:fruit.time,x:fruit.x});
+    for (let index = 0; index < fruits.length; index++) {
+      const fruit = fruits[index];
+      let next = index + 1;
+      while (next < fruits.length && fruits[next].kind === 2) next++;
+      const target = fruits[next];
+      const hyper =
+        fruit.kind < 2 &&
+        !!target &&
+        target.kind < 2 &&
+        Math.abs(target.x - fruit.x) >
+          Math.max(0, target.time - fruit.time) + size;
+      if (fruit.kind !== 2) catcher.push({ time: fruit.time, x: fruit.x });
       const r =
         fruit.kind === 0
           ? 15
@@ -752,12 +850,22 @@ export function compileScene(
         fruit.kind === 3
           ? [1, 0.9, 0.1]
           : palette[Math.floor(fruit.time / 1000) % palette.length],
-        fruit.kind===3?8:fruit.kind===0?5+Math.floor(fruit.time/1000)%2:0,
+        fruit.kind === 3
+          ? 8
+          : fruit.kind === 0
+            ? 5 + (Math.floor(fruit.time / 1000) % 2)
+            : 0,
         8,
         0,
         0,
         0,
-        fruit.kind===0?["fruit-apple","fruit-grapes","fruit-orange"][Math.floor(fruit.time/1000)%3]:fruit.kind===3?"fruit-bananas":"fruit-drop",
+        fruit.kind === 0
+          ? ["fruit-apple", "fruit-grapes", "fruit-orange"][
+              Math.floor(fruit.time / 1000) % 3
+            ]
+          : fruit.kind === 3
+            ? "fruit-bananas"
+            : "fruit-drop",
       );
       if (hyper)
         add(
