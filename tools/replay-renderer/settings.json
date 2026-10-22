@@ -1,0 +1,30 @@
+[
+  {
+    "uniqueID": "osu_dir",
+    "type": "text",
+    "title": "osu! folder",
+    "description": "Absolute stable installation folder for offline rendering. Leave empty to follow the active osu! client. Songs, Skins and Replays are read only.",
+    "value": ""
+  },
+  {
+    "uniqueID": "songs_dir",
+    "type": "text",
+    "title": "Songs folder override",
+    "description": "Optional absolute Songs folder, including installations with a custom BeatmapDirectory.",
+    "value": ""
+  },
+  {
+    "uniqueID": "skin",
+    "type": "text",
+    "title": "Offline skin",
+    "description": "Skin folder name under Skins, used when the active client has no current skin.",
+    "value": ""
+  },
+  {
+    "uniqueID": "mania.scroll_speed",
+    "type": "number",
+    "title": "Default mania scroll speed",
+    "description": "Default for replay tracks without a player preset. Per-replay overrides never modify osu! settings.",
+    "value": 20
+  }
+]

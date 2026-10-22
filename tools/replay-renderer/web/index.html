@@ -1,0 +1,94 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Replay renderer · 18-LAB</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+  </head>
+  <body>
+    <header>
+      <a href="/tools" rel="noopener">18-LAB / VOSU TOOLS</a
+      ><span>REPLAY WORKSTATION</span>
+    </header>
+    <main>
+      <section class="heading">
+        <p class="eyebrow">01 / REPLAY STUDIO</p>
+        <h1>Replay renderer</h1>
+        <p>One clock. Every player. Your skin.</p>
+      </section>
+      <p id="notice" role="status">Connecting to vosu…</p>
+      <div class="workspace">
+        <aside>
+          <h2>02 / PLAYERS</h2>
+          <label class="drop" id="drop"
+            >Drop .osr files here<input
+              id="files"
+              type="file"
+              accept=".osr"
+              multiple
+          /></label>
+          <div class="installed">
+            <select id="installed" aria-label="Installed replay">
+              <option value="">Choose from osu! Replays</option></select
+            ><button id="refresh">Refresh</button
+            ><button id="add-installed">Add</button>
+          </div>
+          <div id="tracks"></div>
+          <p class="help">
+            Player presets apply automatically when a replay is added. Same map
+            set and playback rate required.
+          </p>
+        </aside>
+        <section class="view">
+          <h2>03 / COMPOSITION</h2>
+          <div id="preview"><p>Add a replay to begin.</p></div>
+          <div class="transport">
+            <button id="play">Play</button
+            ><input
+              id="seek"
+              aria-label="Timeline"
+              type="range"
+              min="0"
+              max="1000"
+              value="0"
+            /><output id="time">0:00</output>
+          </div>
+          <div class="settings">
+            <label
+              >Layout<select id="layout">
+                <option value="side-by-side">Side by side</option>
+                <option value="stacked">Stacked</option>
+                <option value="grid">Grid</option>
+              </select></label
+            ><label
+              >Resolution<select id="resolution">
+                <option>1920x1080</option>
+                <option>1280x720</option>
+                <option>640x360</option>
+              </select></label
+            ><label
+              >FPS<input id="fps" type="number" min="1" max="240" value="60"
+            /></label>
+          </div>
+          <h2>04 / RENDER QUEUE</h2>
+          <div class="export">
+            <label
+              >Absolute MP4 output path<input
+                id="out"
+                placeholder="/home/you/Videos/replay.mp4" /></label
+            ><button id="queue">Queue MP4</button
+            ><button id="webm">Export WebM in browser</button>
+          </div>
+          <div id="jobs"></div>
+          <p class="help">
+            Native MP4: Chromium + external FFmpeg (VP9/AAC). Browser WebM:
+            WebCodecs (VP9/Opus). Audio follows the first replay. No Node
+            installation required.
+          </p>
+        </section>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
