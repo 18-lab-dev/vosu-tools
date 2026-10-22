@@ -258,7 +258,7 @@ impl Discovery {
                                     match self
                                         .host
                                         .tool_json::<Value>(
-                                            "ratings",
+                                            "mania-ratings",
                                             &format!("v1/beatmap/{hash}?rate=1"),
                                         )
                                         .await
