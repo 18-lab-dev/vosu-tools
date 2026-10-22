@@ -1,0 +1,1 @@
+{"extends":"../../../packages/tool-web/tsconfig.tool.json","include":["src","vite.config.ts"]}
