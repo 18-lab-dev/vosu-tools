@@ -76,7 +76,7 @@
     },
     "tools/map-preview/web": {
       "name": "@vosu-tools/map-preview",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@vosu-tools/osu-parse": "workspace:*",
         "@vosu-tools/render-core": "workspace:*",
