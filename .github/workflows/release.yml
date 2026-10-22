@@ -1,0 +1,78 @@
+name: Tool release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: linux
+            flags: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: windows
+            flags: '--native-only'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772
+        with:
+          toolchain: 1.96.1
+          targets: ${{ matrix.target }}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.4.3
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes clang libclang-dev cmake pkg-config
+      - name: Locate native Windows LLVM
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $clang = Join-Path $env:ProgramFiles 'LLVM/bin'
+          if (!(Test-Path "$clang/libclang.dll")) { throw 'LLVM libclang.dll is required' }
+          "LIBCLANG_PATH=$clang" >> $env:GITHUB_ENV
+      - run: bun install --frozen-lockfile
+      - run: python -m unittest discover -s scripts -p test_package.py
+      - name: Build packages and target catalog
+        run: python scripts/package.py --target ${{ matrix.target }} ${{ matrix.flags }} --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: release-*
+          path: incoming
+      - name: Merge target catalogs
+        run: python scripts/package.py --merge-catalogs incoming/release-linux/catalog.json incoming/release-windows/catalog.json --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+      - uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e
+        with:
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: |
+            incoming/**/*.zip
+            dist/catalog.json
