@@ -4,7 +4,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 
 | Tool | id | Interfaces | Purpose |
 | --- | --- | --- | --- |
-| osu! practice tool | `practice` | CLI, UI | Bring lazer's map-changing mods and rate changes to osu!stable as practice copies |
+| osu! practice tool | `practice` | CLI, UI, service | Offline rate changes, mania Invert/Hold Off/Mirror/seeded Random, taiko Swap/seeded Random, osu! Mirror and difficulty adjustment; see [scope and provenance](tools/practice/PROVENANCE.md) |
 | Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots, with official pp comparison |
 | Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
 | skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for stable skins: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; read-only without a dashboard session; lazer unsupported |
