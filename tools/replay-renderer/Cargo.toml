@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 vosu-tool-sdk = { path = "../../crates/vosu-tool-sdk" }
-axum = { version = "=0.8.9", features = ["json", "tokio", "http1", "query"] }
+axum = { version = "=0.8.9", features = ["json", "tokio", "http1", "query", "ws"] }
 serde = { version = "=1.0.228", features = ["derive"] }
 serde_json = "=1.0.150"
 tokio = { version = "=1.52.3", features = ["rt-multi-thread", "macros", "fs", "process", "sync", "io-util"] }
@@ -18,3 +18,8 @@ walkdir = "2"
 reqwest = { version = "=0.13.4", default-features = false, features = ["rustls"] }
 sha2 = "0.10"
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+tokio-tungstenite = "0.29"
+futures-util = { version = "0.3", features = ["sink"] }
+base64 = "0.22"
+rosu-pp = { version = "=4.0.1", features = ["sync"] }
+vosu-ratings = { path = "../ratings" }

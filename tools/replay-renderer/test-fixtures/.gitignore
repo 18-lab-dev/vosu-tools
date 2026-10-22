@@ -1,0 +1,3 @@
+# Local, user-owned test inputs survive /tmp cleanup but never ship or commit.
+*
+!.gitignore

@@ -18,6 +18,8 @@ use tokio::sync::Mutex;
 use vosu_tool_sdk::{ToolEnv, cli::Method};
 
 mod browser;
+mod cdp;
+mod overlays;
 mod render;
 type Error = (StatusCode, Json<Value>);
 fn error(message: impl ToString) -> Error {
@@ -68,6 +70,8 @@ enum Cli {
         fps: u32,
         #[arg(long, default_value = "1920x1080")]
         resolution: String,
+        #[arg(long = "overlay")]
+        overlays: Vec<PathBuf>,
         #[arg(long)]
         json: bool,
     },
@@ -251,6 +255,7 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             out,
             fps,
             resolution,
+            overlays,
             json: as_json,
         } => {
             let bytes = tokio::fs::read(file).await?;
@@ -262,7 +267,13 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             } else {
                 std::env::current_dir()?.join(out)
             };
-            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"out":out,"fps":fps,"resolution":resolution,"layout":"side-by-side"}))).await?;
+            let (width, height) = resolution
+                .split_once('x')
+                .ok_or("Resolution must be WIDTHxHEIGHT")?;
+            let width: u32 = width.parse()?;
+            let height: u32 = height.parse()?;
+            let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width,"height":height,"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
+            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"side-by-side"}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
             let result = client
                 .wait_job("replay-renderer", id, |state| {

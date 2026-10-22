@@ -18,6 +18,8 @@ pub(super) struct Request {
     fps: u32,
     resolution: String,
     layout: String,
+    #[serde(default)]
+    overlays: Vec<crate::overlays::Overlay>,
 }
 #[derive(Clone)]
 struct Worker {
@@ -31,10 +33,11 @@ struct Worker {
     encoder: Arc<Mutex<Option<Child>>>,
     frames: Arc<Mutex<u64>>,
     start: Instant,
+    overlays: Arc<crate::overlays::Overlays>,
 }
 pub(super) async fn start(
     State(app): State<App>,
-    Json(request): Json<Request>,
+    Json(mut request): Json<Request>,
 ) -> Result<(StatusCode, Json<Value>), Error> {
     if request.replays.is_empty()
         || request.replays.len() > 16
@@ -70,11 +73,13 @@ pub(super) async fn start(
             parse_setting(&format!("{key}={value}")).map_err(error)?;
         }
     }
+    crate::overlays::Overlays::validate(&mut request.overlays)?;
     let id = uuid::Uuid::new_v4().to_string();
     app.jobs.lock().await.insert(id.clone(),json!({"state":"queued","progress":0.0,"message":"Starting private headless renderer","result":null}));
     let worker = Worker {
         app,
         id: id.clone(),
+        overlays: crate::overlays::Overlays::new(request.overlays.clone()),
         staged: request.out.with_file_name(format!(".vosu-render-{id}.mp4")),
         request,
         width,
@@ -121,6 +126,7 @@ async fn run(worker: Worker) -> Result<(), String> {
         .route("/begin", post(begin))
         .route("/frame", post(frame))
         .route("/finish", post(finish))
+        .route("/frame-state", post(frame_state))
         .route("/fail", post(fail))
         .route("/{*path}", get(web))
         .layer(DefaultBodyLimit::max(
@@ -132,8 +138,19 @@ async fn run(worker: Worker) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let url = format!("http://127.0.0.1:{port}/{cap}/export.html");
+    worker
+        .overlays
+        .origin(format!("http://127.0.0.1:{port}"))
+        .await;
+    let overlay_routes = crate::overlays::routes(worker.overlays.clone());
     let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, Router::new().nest(&format!("/{cap}"), router)).await;
+        let _ = axum::serve(
+            listener,
+            Router::new()
+                .nest(&format!("/{cap}"), router)
+                .merge(overlay_routes),
+        )
+        .await;
     });
     // The capability never enters the host overlay origin; this private browser has no vosu credentials.
     let profile = worker
@@ -158,6 +175,14 @@ async fn run(worker: Worker) -> Result<(), String> {
         } else {
             &[][..]
         })
+        .args(if worker.request.overlays.is_empty() {
+            &[][..]
+        } else {
+            &[
+                "--remote-debugging-address=127.0.0.1",
+                "--remote-debugging-port=0",
+            ][..]
+        })
         .arg(format!("--user-data-dir={}", profile.display()))
         .arg(&url)
         .stdin(Stdio::null())
@@ -174,6 +199,27 @@ async fn run(worker: Worker) -> Result<(), String> {
             ));
         }
     };
+    if !worker.request.overlays.is_empty() {
+        let endpoint = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                if let Ok(text) =
+                    tokio::fs::read_to_string(profile.join("DevToolsActivePort")).await
+                {
+                    let mut lines = text.lines();
+                    if let (Some(port), Some(path)) = (lines.next(), lines.next())
+                        && port.parse::<u16>().is_ok()
+                        && path.starts_with("/devtools/browser/")
+                    {
+                        break format!("ws://127.0.0.1:{port}{path}");
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .map_err(|_| "Managed browser did not expose its private overlay debugger".to_owned())?;
+        worker.overlays.debug(endpoint).await;
+    }
     let result = loop {
         let state = worker.app.jobs.lock().await[&worker.id]["state"]
             .as_str()
@@ -246,6 +292,10 @@ struct Begin {
     hash: String,
     rate: f64,
     frames: u64,
+    #[serde(default)]
+    mods: u32,
+    #[serde(default)]
+    initial: Value,
 }
 async fn begin(
     State(worker): State<Worker>,
@@ -260,6 +310,18 @@ async fn begin(
     }
     let map = map_path(&worker.app, &input.hash).await?;
     let text = tokio::fs::read_to_string(&map).await.map_err(error)?;
+    if !worker.request.overlays.is_empty() {
+        worker
+            .overlays
+            .configure(
+                map.clone(),
+                text.as_bytes().to_vec(),
+                input.rate,
+                input.mods,
+                input.initial,
+            )
+            .await?;
+    }
     let audio = text
         .lines()
         .find_map(|line| line.trim().strip_prefix("AudioFilename:"))
@@ -389,4 +451,14 @@ async fn fail(State(worker): State<Worker>, Json(value): Json<Value>) -> Json<Va
         );
     }
     Json(json!({"received":true}))
+}
+
+async fn frame_state(
+    State(worker): State<Worker>,
+    Json(value): Json<Value>,
+) -> Result<Json<Vec<crate::overlays::Image>>, Error> {
+    if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" {
+        return Err(error("Render cancelled"));
+    }
+    Ok(Json(worker.overlays.frame(value).await?))
 }

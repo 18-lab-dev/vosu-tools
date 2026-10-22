@@ -1,0 +1,566 @@
+use super::*;
+use axum::{
+    body::Body,
+    extract::{
+        WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
+    response::{IntoResponse, Response},
+};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
+};
+use tokio::sync::watch;
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct Overlay {
+    pub folder: PathBuf,
+    pub width: u32,
+    pub height: u32,
+    pub x: f64,
+    pub y: f64,
+    #[serde(default = "one")]
+    pub scale: f64,
+    #[serde(default = "one")]
+    pub opacity: f64,
+    #[serde(default)]
+    pub settings: BTreeMap<String, Value>,
+}
+fn one() -> f64 {
+    1.0
+}
+#[derive(Serialize)]
+pub struct Image {
+    pub png: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: u32,
+    pub height: u32,
+    pub scale: f64,
+    pub opacity: f64,
+}
+struct Native {
+    bytes: Arc<[u8]>,
+    path: PathBuf,
+    pp: rosu_pp::GradualPerformance,
+    passed: u32,
+    current_pp: f64,
+    max_combo: u32,
+    rating: Option<Value>,
+    timelines: BTreeMap<String, Value>,
+}
+pub struct Overlays {
+    pub layers: Vec<Overlay>,
+    source: watch::Sender<Value>,
+    native: Mutex<Option<Native>>,
+    driver: Mutex<Option<crate::cdp::Driver>>,
+    debug: Mutex<Option<String>>,
+    origin: Mutex<String>,
+    sequence: AtomicU64,
+}
+impl Overlays {
+    pub fn new(layers: Vec<Overlay>) -> Arc<Self> {
+        let (source, _) = watch::channel(
+            json!({"state":{"number":2,"name":"Playing"},"__render":{"sequence":0}}),
+        );
+        Arc::new(Self {
+            layers,
+            source,
+            native: Mutex::new(None),
+            driver: Mutex::new(None),
+            debug: Mutex::new(None),
+            origin: Mutex::new(String::new()),
+            sequence: AtomicU64::new(0),
+        })
+    }
+    pub fn validate(layers: &mut [Overlay]) -> Result<(), Error> {
+        if layers.len() > 8 {
+            return Err(error("At most eight overlays per render"));
+        }
+        for layer in layers {
+            if !(16..=4096).contains(&layer.width)
+                || !(16..=4096).contains(&layer.height)
+                || ![layer.x, layer.y, layer.scale, layer.opacity]
+                    .iter()
+                    .all(|v| v.is_finite())
+                || !(0.05..=8.0).contains(&layer.scale)
+                || !(0.0..=1.0).contains(&layer.opacity)
+            {
+                return Err(error("Invalid overlay viewport or transform"));
+            }
+            layer.folder = layer.folder.canonicalize().map_err(error)?;
+            confined(&layer.folder, "index.html")?;
+        }
+        Ok(())
+    }
+    pub async fn origin(&self, origin: String) {
+        *self.origin.lock().await = origin;
+    }
+    pub async fn debug(&self, url: String) {
+        *self.debug.lock().await = Some(url);
+    }
+    pub async fn configure(
+        &self,
+        path: PathBuf,
+        bytes: Vec<u8>,
+        rate: f64,
+        mods: u32,
+        initial: Value,
+    ) -> Result<(), Error> {
+        let map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
+        let difficulty = rosu_pp::Difficulty::new().clock_rate(rate).mods(mods);
+        *self.native.lock().await = Some(Native {
+            bytes: bytes.into(),
+            path,
+            pp: rosu_pp::GradualPerformance::checked_new(difficulty, &map).map_err(error)?,
+            passed: 0,
+            current_pp: 0.0,
+            max_combo: 0,
+            rating: None,
+            timelines: BTreeMap::new(),
+        });
+        self.source.send_replace(initial);
+        Ok(())
+    }
+    pub async fn frame(&self, mut state: Value) -> Result<Vec<Image>, Error> {
+        if self.layers.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        state["__render"]["sequence"] = json!(sequence);
+        let wall = state["__render"]["wallMs"]
+            .as_f64()
+            .ok_or_else(|| error("Frame has no render clock"))?;
+        let epoch = state["__render"]["epochMs"].as_f64().unwrap_or(0.0);
+        if state["__render"]["verified"] == true
+            && (state["play"]["mode"]["number"] == 3 || state["play"]["combo"]["current"].is_u64())
+        {
+            let counts = &state["__render"]["counts"];
+            let count =
+                |key: &str| counts[key].as_u64().unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+            let mut score = rosu_pp::any::ScoreState::new();
+            score.n_geki = count("geki");
+            score.n_katu = count("katu");
+            score.n300 = count("n300");
+            score.n100 = count("n100");
+            score.n50 = count("n50");
+            score.misses = count("miss");
+            score.max_combo = state["play"]["combo"]["current"]
+                .as_u64()
+                .unwrap_or(0)
+                .min(u64::from(u32::MAX)) as u32;
+            let passed =
+                score.n_geki + score.n_katu + score.n300 + score.n100 + score.n50 + score.misses;
+            let mut native = self.native.lock().await;
+            let native = native
+                .as_mut()
+                .ok_or_else(|| error("Overlay score map is not configured"))?;
+            native.max_combo = native.max_combo.max(score.max_combo);
+            score.max_combo = native.max_combo;
+            if passed < native.passed {
+                return Err(error("Overlay judgement clock moved backwards"));
+            }
+            if passed > native.passed {
+                if let Some(pp) = native.pp.nth(score, (passed - native.passed - 1) as usize) {
+                    native.current_pp = pp.pp();
+                }
+                native.passed = passed;
+            }
+            state["play"]["pp"]["current"] = json!(native.current_pp);
+        }
+        self.source.send_replace(state);
+        let mut driver = self.driver.lock().await;
+        if driver.is_none() {
+            let url = tokio::time::timeout(Duration::from_secs(30), async {
+                loop {
+                    if let Some(url) = self.debug.lock().await.clone() {
+                        break url;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .map_err(|_| error("Overlay browser debugging endpoint unavailable"))?;
+            let mut connected = crate::cdp::Driver::connect(&url).await.map_err(error)?;
+            let origin = self.origin.lock().await.clone();
+            for (index, layer) in self.layers.iter().enumerate() {
+                let name = layer
+                    .folder
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .ok_or_else(|| error("Overlay folder needs a UTF-8 name"))?;
+                connected
+                    .add_page(
+                        &format!("{origin}/overlays/{index}/index.html"),
+                        layer.width,
+                        layer.height,
+                        name,
+                        epoch,
+                    )
+                    .await
+                    .map_err(error)?;
+            }
+            *driver = Some(connected);
+        }
+        let screenshots = driver
+            .as_mut()
+            .unwrap()
+            .capture(sequence, wall)
+            .await
+            .map_err(error)?;
+        Ok(screenshots
+            .into_iter()
+            .zip(&self.layers)
+            .map(|(png, layer)| Image {
+                png,
+                x: layer.x,
+                y: layer.y,
+                width: layer.width,
+                height: layer.height,
+                scale: layer.scale,
+                opacity: layer.opacity,
+            })
+            .collect())
+    }
+}
+pub fn routes(state: Arc<Overlays>) -> Router {
+    Router::new()
+        .route("/json/v2", get(snapshot))
+        .route("/websocket/v2", get(full))
+        .route("/websocket/v2/precise", get(precise))
+        .route("/websocket/v2/subscribe", get(subscribe))
+        .route("/websocket/commands", get(commands))
+        .route("/overlays/{id}/{*path}", get(file))
+        .route("/files/beatmap/{kind}", get(beatmap_file))
+        .route("/tools/ratings/api/{*path}", get(ratings))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            same_origin,
+        ))
+        .with_state(state)
+}
+async fn same_origin(
+    State(state): State<Arc<Overlays>>,
+    request: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let origin = state.origin.lock().await;
+    let foreign = request.headers().get("host").is_none_or(|value| {
+        origin
+            .split_once("://")
+            .is_none_or(|(_, authority)| value.as_bytes() != authority.as_bytes())
+    }) || request
+        .headers()
+        .get("origin")
+        .is_some_and(|value| value.as_bytes() != origin.as_bytes())
+        || request
+            .headers()
+            .get("sec-fetch-site")
+            .is_some_and(|value| value != "same-origin" && value != "none");
+    drop(origin);
+    if foreign {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    next.run(request).await
+}
+async fn snapshot(State(state): State<Arc<Overlays>>) -> Json<Value> {
+    Json(state.source.borrow().clone())
+}
+async fn full(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade
+        .on_upgrade(move |socket| stream(socket, state, false))
+        .into_response()
+}
+async fn precise(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade
+        .on_upgrade(move |socket| stream(socket, state, false))
+        .into_response()
+}
+async fn subscribe(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade
+        .on_upgrade(move |socket| stream(socket, state, true))
+        .into_response()
+}
+async fn stream(mut socket: WebSocket, state: Arc<Overlays>, selected: bool) {
+    let mut receiver = state.source.subscribe();
+    let mut fields: Vec<String> = Vec::new();
+    loop {
+        let snapshot = receiver.borrow_and_update().clone();
+        let sequence = snapshot["__render"]["sequence"].as_u64().unwrap_or(0);
+        let frame = if selected {
+            json!([
+                0,
+                sequence,
+                fields
+                    .iter()
+                    .enumerate()
+                    .map(|(index, path)| (
+                        index,
+                        snapshot.pointer(path).cloned().unwrap_or(Value::Null)
+                    ))
+                    .collect::<Vec<_>>(),
+                []
+            ])
+        } else {
+            snapshot
+        };
+        if (!selected || !fields.is_empty())
+            && socket
+                .send(Message::Text(frame.to_string().into()))
+                .await
+                .is_err()
+        {
+            return;
+        }
+        tokio::select! {change=receiver.changed()=>{if change.is_err(){return;}},message=socket.recv()=>match message{Some(Ok(Message::Text(text)))=>{if selected{match serde_json::from_str::<Vec<String>>(&text){Ok(next)if next.len()<=256&&next.iter().all(|s|s.starts_with('/'))=>fields=next,_=>{let _=socket.send(Message::Text(json!([2,sequence,"Expected at most 256 JSON pointers"]).to_string().into())).await;}}}},Some(Ok(Message::Close(_)))|None|Some(Err(_))=>return,_=>{}}}
+    }
+}
+async fn commands(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
+    upgrade
+        .on_upgrade(move |mut socket| async move {
+            while let Some(Ok(Message::Text(text))) = socket.recv().await {
+                let Some(name) = text.strip_prefix("getSettings:") else {
+                    continue;
+                };
+                let layer = state.layers.iter().find(|layer| {
+                    layer.folder.file_name().is_some_and(|n| {
+                        encode(&n.to_string_lossy()) == name || n.to_string_lossy() == name
+                    })
+                });
+                let mut values = BTreeMap::new();
+                if let Some(layer) = layer {
+                    if let Ok(bytes) = tokio::fs::read(layer.folder.join("settings.json")).await
+                        && let Ok(Value::Array(settings)) = serde_json::from_slice::<Value>(&bytes)
+                    {
+                        for setting in settings {
+                            if let Some(key) = setting["uniqueID"].as_str() {
+                                values.insert(key.to_owned(), default_setting_value(&setting));
+                            }
+                        }
+                    }
+                    values.extend(layer.settings.clone());
+                }
+                if socket
+                    .send(Message::Text(
+                        json!({"command":"getSettings","message":values})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        })
+        .into_response()
+}
+async fn file(
+    State(state): State<Arc<Overlays>>,
+    Path((id, path)): Path<(usize, String)>,
+) -> Result<Response, Error> {
+    let layer = state
+        .layers
+        .get(id)
+        .ok_or_else(|| error("Unknown overlay"))?;
+    let file = confined(&layer.folder, &path)?;
+    let mime = match file.extension().and_then(|s| s.to_str()) {
+        Some("html") => "text/html",
+        Some("js" | "mjs") => "text/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("svg") => "image/svg+xml",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        _ => "application/octet-stream",
+    };
+    Response::builder()
+        .header("content-type", mime)
+        .header("cache-control", "no-store")
+        .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
+        .map_err(error)
+}
+async fn beatmap_file(
+    State(state): State<Arc<Overlays>>,
+    Path(kind): Path<String>,
+) -> Result<Response, Error> {
+    let native = state.native.lock().await;
+    let native = native.as_ref().ok_or_else(|| error("No replay map"))?;
+    if kind == "file" {
+        return Response::builder()
+            .header("content-type", "text/plain")
+            .body(Body::from(native.bytes.to_vec()))
+            .map_err(error);
+    }
+    let filename = state.source.borrow()["__render"]["files"][&kind]
+        .as_str()
+        .ok_or_else(|| error("Replay map asset is unavailable"))?
+        .to_owned();
+    let file = confined(
+        native
+            .path
+            .parent()
+            .ok_or_else(|| error("Map has no folder"))?,
+        &filename,
+    )?;
+    Response::builder()
+        .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
+        .map_err(error)
+}
+fn default_setting_value(setting: &Value) -> Value {
+    let value = &setting["value"];
+    match (setting["type"].as_str(), value.as_str()) {
+        (Some("checkbox"), Some(text)) => text
+            .parse::<bool>()
+            .map(Value::Bool)
+            .unwrap_or_else(|_| value.clone()),
+        (Some("number"), Some(text)) => text
+            .parse::<f64>()
+            .ok()
+            .and_then(serde_json::Number::from_f64)
+            .map(Value::Number)
+            .unwrap_or_else(|| value.clone()),
+        _ => value.clone(),
+    }
+}
+async fn ratings(
+    State(state): State<Arc<Overlays>>,
+    Path(path): Path<String>,
+    Query(query): Query<BTreeMap<String, String>>,
+) -> Result<Json<Value>, Error> {
+    let configured_rate = state.source.borrow()["play"]["mods"]["rate"]
+        .as_f64()
+        .unwrap_or(1.0) as f32;
+    let rate = query
+        .get("rate")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(configured_rate);
+    if (rate - configured_rate).abs() > 0.000001 {
+        return Err(error("Replay ratings use the render's fixed playback rate"));
+    }
+    let params = vosu_ratings::Params::new(rate, None).map_err(error)?;
+    let mut native = state.native.lock().await;
+    let native = native.as_mut().ok_or_else(|| error("No replay map"))?;
+    if path == "v1/beatmap/current" {
+        if native.rating.is_none() {
+            native.rating = Some(
+                serde_json::to_value(
+                    vosu_ratings::calculate(&native.bytes, params).map_err(error)?,
+                )
+                .map_err(error)?,
+            );
+        }
+        return Ok(Json(native.rating.clone().unwrap()));
+    }
+    let hash = state.source.borrow()["beatmap"]["checksum"]
+        .as_str()
+        .unwrap_or("")
+        .to_owned();
+    if path != format!("v1/beatmap/{hash}/timeline") {
+        return Err(error("Unsupported replay ratings route"));
+    }
+    let system = query.get("system").map(String::as_str).unwrap_or("etterna");
+    let window = query
+        .get("window")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(12.0);
+    let hop = query.get("hop").and_then(|s| s.parse().ok()).unwrap_or(1.0);
+    let key = format!("{rate}:{system}:{window}:{hop}");
+    if !native.timelines.contains_key(&key) {
+        let timeline = vosu_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
+            .map_err(error)?;
+        native.timelines.insert(key.clone(), timeline);
+    }
+    Ok(Json(native.timelines[&key].clone()))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn legacy_schema_defaults_preserve_boolean_and_number_types() {
+        assert_eq!(
+            default_setting_value(&json!({"type":"checkbox","value":"false"})),
+            json!(false)
+        );
+        assert_eq!(
+            default_setting_value(&json!({"type":"number","value":"40"})),
+            json!(40.0)
+        );
+        assert_eq!(
+            default_setting_value(&json!({"type":"text","value":"false"})),
+            json!("false")
+        );
+    }
+    #[tokio::test]
+    async fn private_origin_rejects_cross_site_requests() {
+        let state = Overlays::new(Vec::new());
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        state.origin(origin.clone()).await;
+        let task = tokio::spawn(async move {
+            axum::serve(listener, routes(state)).await.unwrap();
+        });
+        let client = reqwest::Client::new();
+        assert_eq!(
+            client
+                .get(format!("{origin}/json/v2"))
+                .header("origin", "https://foreign.invalid")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            client
+                .get(format!("{origin}/json/v2"))
+                .header("sec-fetch-site", "cross-site")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            client
+                .get(format!("{origin}/json/v2"))
+                .header("host", "foreign.invalid")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            client
+                .get(format!("{origin}/json/v2"))
+                .header("origin", &origin)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        task.abort();
+    }
+    #[test]
+    fn invalid_overlay_transforms_are_rejected() {
+        let mut layers = [Overlay {
+            folder: PathBuf::new(),
+            width: 100,
+            height: 100,
+            x: 0.0,
+            y: 0.0,
+            scale: 0.0,
+            opacity: 1.0,
+            settings: BTreeMap::new(),
+        }];
+        assert!(Overlays::validate(&mut layers).is_err());
+    }
+}
