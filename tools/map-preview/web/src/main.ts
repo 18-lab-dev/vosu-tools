@@ -1,12 +1,34 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parseOsu, type Beatmap, type Mod } from "@vosu-tools/osu-parse";
 import {
+  parseOsu,
+  parseSkinIni,
+  type Beatmap,
+  type Mod,
+} from "@vosu-tools/osu-parse";
+import {
+  builtinSkin,
   createRenderer,
   loadSkin,
+  withFallback,
+  type BuiltinSkinName,
+  type RenderOptions,
   type Renderer,
   type Skin,
 } from "@vosu-tools/render-core";
+import {
+  LiveClock,
+  emptyState,
+  followGame,
+  hiddenForGameplay,
+  type GameState,
+  type LiveStatus,
+} from "./live";
 import { openOsk } from "./osk";
+import {
+  defaultSettings,
+  readSettings,
+  type PreviewSettings,
+} from "./settings";
 import { hostSkinFiles, readCurrentSkin } from "./skin-source";
 import "./style.css";
 
@@ -18,56 +40,368 @@ const applyScheme = () => {
 };
 applyScheme();
 
-const canvas = document.querySelector<HTMLCanvasElement>("#playfield")!,
-  status = document.querySelector<HTMLElement>("#status")!,
-  play = document.querySelector<HTMLButtonElement>("#play")!,
-  seek = document.querySelector<HTMLInputElement>("#seek")!,
-  rate = document.querySelector<HTMLInputElement>("#rate")!,
-  skinPanel = document.getElementById("skin-panel")!,
-  skinName = document.getElementById("skin-name")!,
-  skinSource = document.getElementById("skin-source")!,
-  skinMessage = document.getElementById("skin-message")!,
+const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
+  document.getElementById(id) as T;
+const canvas = $<HTMLCanvasElement>("playfield"),
+  stage = $("stage"),
+  status = $("status"),
+  hiddenState = $("hidden-state"),
+  followButton = $<HTMLButtonElement>("follow"),
+  followStatus = $("follow-status"),
+  timeOutput = $<HTMLOutputElement>("time"),
+  progress = $("progress"),
+  progressFill = $("progress-fill"),
+  transport = $("transport"),
+  play = $<HTMLButtonElement>("play"),
+  seek = $<HTMLInputElement>("seek"),
+  rate = $<HTMLInputElement>("rate"),
+  drawer = $("controls"),
+  controlsToggle = $<HTMLButtonElement>("controls-toggle"),
+  skinPanel = $("skin-panel"),
+  skinName = $("skin-name"),
+  skinSource = $("skin-source"),
+  skinMessage = $("skin-message"),
+  builtinSelect = $<HTMLSelectElement>("builtin-skin"),
+  scrollInput = $<HTMLInputElement>("scroll"),
+  noteSpeedInput = $<HTMLInputElement>("note-speed"),
+  modInputs = [...document.querySelectorAll<HTMLInputElement>("#mods input")],
+  overrideInputs = ["seed", "ar", "cs"].map((id) => $<HTMLInputElement>(id)),
   audio = new Audio();
+
 let renderer: Renderer | undefined,
+  rendererReady: Promise<Renderer> | undefined,
   map: Beatmap | undefined,
-  selectedSkin: Skin | undefined,
-  objectUrl: string | undefined,
+  mapKey = "",
+  sceneKey = "",
   loadSequence = 0,
   skinSequence = 0,
-  animation = 0,
-  manualTime = 0;
-const inputs = Object.fromEntries(
-  ["ar", "cs", "scroll", "note-speed", "seed"].map((id) => [
-    id,
-    document.getElementById(id) as HTMLInputElement,
-  ]),
-);
+  selectedSkin: Skin | undefined,
+  ownedBitmaps: ImageBitmap[] = [],
+  skinChoice: "client" | "user" | BuiltinSkinName = "client",
+  clientSkinKey = "",
+  settings: PreviewSettings = { ...defaultSettings },
+  following = true,
+  objectUrl: string | undefined,
+  manualTime = 0,
+  game: GameState = emptyState(),
+  liveStatus: LiveStatus = "connecting",
+  hidden = false;
+const clock = new LiveClock(),
+  builtins = new Map<BuiltinSkinName, Skin>();
+
+/* ------------------------------------------------------------ helpers */
+
+const builtin = (name: BuiltinSkinName) => {
+  let skin = builtins.get(name);
+  if (!skin) builtins.set(name, (skin = builtinSkin(name)));
+  return skin;
+};
+const formatTime = (ms: number) => {
+  const t = Math.max(0, Math.round(ms));
+  return `${Math.floor(t / 60000)}:${String(Math.floor(t / 1000) % 60).padStart(2, "0")}.${String(t % 1000).padStart(3, "0")}`;
+};
 function showError(error: unknown): void {
   status.textContent = error instanceof Error ? error.message : String(error);
 }
 function skinNotice(
   message: string,
   tone: "info" | "notice" | "error" = "info",
-): void {
+) {
   skinMessage.textContent = message;
   skinMessage.dataset.tone = tone;
 }
-/** Installs a skin (or the built-in defaults when `skin` is undefined). */
+const stateNames: Record<number, string> = {
+  0: "main menu",
+  1: "editor",
+  2: "gameplay",
+  4: "editor song select",
+  5: "song select",
+  7: "results",
+  11: "multiplayer lobby",
+  12: "multiplayer room",
+  13: "multiplayer song select",
+  22: "tourney",
+};
+
+/* ------------------------------------------------------------ renderer */
+
+function ensureRenderer(): Promise<Renderer> {
+  rendererReady ??= createRenderer({
+    canvas,
+    skin: selectedSkin,
+    presentation:
+      new URLSearchParams(location.search).get("presentation") === "bitmap"
+        ? "bitmap"
+        : "direct",
+  }).then(
+    (created) => {
+      renderer = created;
+      // A skin installed while the renderer was being created must still reach it.
+      created.setSkin(selectedSkin);
+      resize();
+      return created;
+    },
+    (error: unknown) => {
+      // A later attempt (next map) may succeed, e.g. after a GPU reset.
+      rendererReady = undefined;
+      throw new Error(
+        `Map preview needs WebGPU, which this browser could not start (${error instanceof Error ? error.message : String(error)}). Use a current Chrome, Edge or Firefox with hardware acceleration on.`,
+      );
+    },
+  );
+  return rendererReady;
+}
+function resize(): void {
+  const scale = Math.min(window.devicePixelRatio || 1, 2),
+    width = Math.max(1, Math.round(stage.clientWidth * scale)),
+    height = Math.max(1, Math.round(stage.clientHeight * scale));
+  if (renderer) renderer.resize(width, height);
+  else {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  sceneKey = "";
+}
+new ResizeObserver(resize).observe(stage);
+
+/** Everything that changes the compiled scene. */
+function renderOptions(): RenderOptions {
+  const manualMods: Mod[] = modInputs
+    .filter((input) => input.checked)
+    .map((input) => ({
+      acronym: input.value,
+      settings:
+        input.value === "RD"
+          ? { seed: Number(overrideInputs[0].value) }
+          : undefined,
+    }));
+  // Constant Speed (mania "CS") would remove scroll velocity changes, so the
+  // preview never applies it. Random without a client-chosen seed cannot match
+  // the client and is left out rather than shown with an invented seed.
+  const liveMods: Mod[] = game.mods
+    .filter(
+      (mod) =>
+        mod.acronym.toUpperCase() !== "CS" &&
+        !(mod.acronym.toUpperCase() === "RD" && mod.settings?.seed == null),
+    )
+    .map((mod) => ({ acronym: mod.acronym, settings: mod.settings }));
+  const scroll =
+    Number(scrollInput.value) ||
+    settings.maniaScrollSpeed ||
+    game.mania.scrollSpeed ||
+    20;
+  const [, arInput, csInput] = overrideInputs;
+  return {
+    mods: following ? liveMods : manualMods,
+    ar: !following && arInput.value !== "" ? Number(arInput.value) : undefined,
+    cs: !following && csInput.value !== "" ? Number(csInput.value) : undefined,
+    scrollSpeed: scroll,
+    noteSpeed: Number(noteSpeedInput.value) || settings.noteSpeed,
+    maniaScrollUp: game.mania.scrollUp,
+    hitLighting: game.visual.hitLighting ?? undefined,
+    beatmapColours: game.visual.beatmapColours ?? undefined,
+    snakingIn: game.visual.snakingIn ?? undefined,
+  };
+}
+function refreshScene(force = false): void {
+  if (!renderer || !map) return;
+  const options = renderOptions(),
+    key = JSON.stringify(options);
+  if (!force && key === sceneKey) return;
+  sceneKey = key;
+  try {
+    renderer.setBeatmap(map, options);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function currentTime(): number {
+  if (following) return clock.read(performance.now()) ?? 0;
+  return audio.readyState ? audio.currentTime * 1000 : manualTime;
+}
+function tick(): void {
+  requestAnimationFrame(tick);
+  if (hidden || !renderer || !map) return;
+  refreshScene();
+  const now = currentTime();
+  try {
+    renderer.renderAt(now);
+  } catch (error) {
+    showError(error);
+    return;
+  }
+  timeOutput.value = formatTime(now);
+  const duration = Math.max(1, map.duration);
+  progressFill.style.transform = `scaleX(${Math.min(1, Math.max(0, now / duration))})`;
+  if (!following && document.activeElement !== seek) seek.value = String(now);
+}
+requestAnimationFrame(tick);
+
+/* ------------------------------------------------------------ beatmap */
+
+async function openMap(text: string, label: string): Promise<void> {
+  const parsed = parseOsu(text);
+  if (!parsed.objects.length)
+    throw new Error("This beatmap contains no hit objects.");
+  await ensureRenderer();
+  map = parsed;
+  overrideInputs[2].max = map.mode === 3 ? "18" : "11";
+  overrideInputs[2].step = map.mode === 3 ? "1" : "0.1";
+  refreshScene(true);
+  seek.max = String(map.duration + 2000);
+  $("title").textContent =
+    `${map.metadata.Artist ?? ""} — ${map.metadata.Title ?? "Untitled"}`;
+  $("detail").textContent =
+    `[${map.metadata.Version ?? ""}] ${map.metadata.Creator ?? ""} · ${map.objects.length.toLocaleString()} objects · ${label}`;
+  const mode = $("mode");
+  mode.textContent = ["osu!", "taiko", "catch", "mania"][map.mode];
+  mode.dataset.mode = String(map.mode);
+  updateFollowNotice();
+}
+/** Loads the game's selected map when it changes. */
+async function followMap(force = false): Promise<void> {
+  const key = game.checksum ?? "";
+  if (!force && key === mapKey) return;
+  mapKey = key;
+  const seq = ++loadSequence;
+  if (!key && !force) return;
+  status.textContent = "Loading the selected beatmap…";
+  try {
+    const response = await fetch("/files/beatmap/file", { cache: "no-store" });
+    if (!response.ok)
+      throw new Error(
+        `vosu has no selected beatmap file (${response.status}). Pick a map in osu!, or open an .osu file.`,
+      );
+    const text = await response.text();
+    if (seq !== loadSequence || !following) return;
+    status.textContent = "";
+    await openMap(text, "from the game");
+  } catch (error) {
+    if (seq === loadSequence) showError(error);
+  }
+}
+let followNotice = "";
+/** Explains where following the game cannot match the client exactly. */
+function updateFollowNotice(): void {
+  if (!map) return;
+  const notes: string[] = [];
+  const selected = game.selectedMode;
+  if (following && map.mode === 0 && selected !== null && selected !== 0)
+    notes.push(
+      `The client converts this map to ${["osu!", "taiko", "catch", "mania"][selected]}; the preview shows the original osu! map.`,
+    );
+  if (
+    following &&
+    game.mods.some(
+      (mod) => mod.acronym.toUpperCase() === "RD" && mod.settings?.seed == null,
+    )
+  )
+    notes.push(
+      "Random is selected but the client has not chosen its seed yet, so notes are shown unshuffled.",
+    );
+  const next = notes.join(" ");
+  if (next) status.textContent = next;
+  else if (followNotice && status.textContent === followNotice)
+    status.textContent = "";
+  followNotice = next;
+}
+
+/* ------------------------------------------------------------ follow / manual */
+
+function setFollowing(next: boolean): void {
+  following = next;
+  followButton.setAttribute("aria-pressed", String(next));
+  transport.hidden = next;
+  progress.hidden = !next || !settings.showProgress;
+  for (const input of [...modInputs, ...overrideInputs]) input.disabled = next;
+  $("mods-note").textContent = next
+    ? "Following the game: the client's selected mods apply."
+    : "Manual preview: choose mods here.";
+  if (next) {
+    audio.pause();
+    status.textContent = "";
+    void followMap(true);
+  }
+  sceneKey = "";
+  updateStatusChip();
+}
+function updateStatusChip(): void {
+  let text: string,
+    state: string = liveStatus;
+  if (!following) {
+    text = "Manual preview";
+    state = "manual";
+  } else if (liveStatus === "connecting") text = "Connecting to vosu…";
+  else if (liveStatus === "lost") text = "vosu disconnected · retrying";
+  else if (liveStatus === "waiting" || !game.client)
+    text = "vosu connected · no game";
+  else {
+    const where =
+      game.state === 2 && game.source && game.source !== "player"
+        ? game.source === "autoplay"
+          ? "autoplay"
+          : "watching a replay"
+        : (stateNames[game.state ?? -1] ?? "in game");
+    text = `${game.client} · ${where}`;
+  }
+  followStatus.textContent = text;
+  followStatus.dataset.state = state;
+}
+function updateHidden(): void {
+  const next = hiddenForGameplay(game);
+  if (next === hidden) return;
+  hidden = next;
+  hiddenState.hidden = !hidden;
+  // Map time and progress hide too: nothing here tracks the play.
+  for (const element of [canvas, progress, timeOutput])
+    element.style.visibility = hidden ? "hidden" : "";
+  if (hidden) {
+    audio.pause();
+    play.textContent = "Play";
+  }
+}
+
+function onGame(state: GameState): void {
+  const previousClient = game.client,
+    previousSkin = game.skinFolder;
+  game = { ...state, mania: { ...state.mania }, visual: { ...state.visual } };
+  clock.update(state.time, state.rate, state.running, performance.now());
+  updateHidden();
+  updateStatusChip();
+  if (following) {
+    void followMap();
+    updateFollowNotice();
+    // The disabled chips mirror the client's selection while following.
+    for (const input of modInputs)
+      input.checked = game.mods.some(
+        (mod) => mod.acronym.toUpperCase() === input.value,
+      );
+  }
+  if (
+    skinChoice === "client" &&
+    (previousClient !== game.client || previousSkin !== game.skinFolder)
+  )
+    void useClientSkin(false);
+}
+
+/* ------------------------------------------------------------ skins */
+
+/** Installs a skin; bitmaps in `owned` are released when it is replaced. */
 function installSkin(
-  skin: Skin | undefined,
+  skin: Skin,
   label: string,
   source: string,
-): void {
+  owned: ImageBitmap[] = [],
+) {
   renderer?.setSkin(skin);
-  const previous = selectedSkin;
   selectedSkin = skin;
-  if (previous) for (const bitmap of previous.assets.values()) bitmap.close();
+  for (const bitmap of ownedBitmaps) bitmap.close();
+  ownedBitmaps = owned;
   skinName.textContent = label;
   skinSource.textContent = source;
+  sceneKey = "";
 }
-const useDefaults = () =>
-  installSkin(undefined, "Default elements", "Built into Map preview");
-/** Runs a skin load; a later choice always wins over one still loading. */
 async function loadSkinFrom(
   pending: string,
   load: (isCurrent: () => boolean) => Promise<void>,
@@ -89,43 +423,83 @@ async function loadSkinFrom(
 }
 const fileCount = (count: number) =>
   `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
-function currentSkin(): Promise<void> {
+const builtinLabels: Record<BuiltinSkinName, string> = {
+  argon: "Argon",
+  "argon-pro": "Argon Pro",
+  triangles: "Triangles",
+  legacy: "Classic",
+};
+function useBuiltin(name: BuiltinSkinName, source: string, message = "") {
+  skinChoice = name;
+  installSkin(builtin(name), builtinLabels[name], source);
+  skinNotice(message);
+}
+/** Shows the client's current skin, falling back to the classic look with a reason. */
+function useClientSkin(announce = true): Promise<void> {
+  skinChoice = "client";
   return loadSkinFrom(
     "Asking vosu for the current skin…",
     async (isCurrent) => {
       const current = await readCurrentSkin();
       if (!isCurrent()) return;
-      if (current.kind === "defaults") {
-        useDefaults();
+      const key = JSON.stringify(current);
+      if (!announce && key === clientSkinKey) {
+        skinNotice("");
+        return;
+      }
+      clientSkinKey = key;
+      const client = current.info?.client ?? "client";
+      if (current.kind === "unavailable") {
+        installSkin(builtin("legacy"), "Classic", "fallback look");
         skinNotice(current.message, "notice");
         return;
       }
-      const client = current.info.client!;
+      if (current.kind === "builtin") {
+        let skin = builtin(current.look);
+        if (current.coloursFromFiles) {
+          const ini = await hostSkinFiles().resolve("skin.ini");
+          const colours = ini
+            ? parseSkinIni(await ini.text()).get("Colours")
+            : undefined;
+          if (!isCurrent()) return;
+          if (colours?.length)
+            skin = {
+              ...skin,
+              sections: new Map(skin.sections).set("Colours", colours),
+            };
+        }
+        installSkin(
+          skin,
+          current.name,
+          `${client} · ${current.info.builtin ? "built-in skin" : `${builtinLabels[current.look]}-based skin`}`,
+        );
+        skinNotice(current.message ?? "", current.message ? "notice" : "info");
+        return;
+      }
       skinNotice(`Loading “${current.name}” from ${client}…`);
       const host = hostSkinFiles(),
-        skin = await loadSkin(host.resolve, current.name);
+        loaded = await loadSkin(host.resolve, current.name);
       if (!isCurrent()) {
-        for (const bitmap of skin.assets.values()) bitmap.close();
+        for (const bitmap of loaded.assets.values()) bitmap.close();
         return;
       }
       if (!host.served) {
-        useDefaults();
+        installSkin(builtin("legacy"), "Classic", "fallback look");
         skinNotice(
           host.failures
-            ? `vosu could not serve the files of “${current.name}”, so default elements are shown. Load an .osk file or a skin folder instead.`
-            : `“${current.name}” has no skin.ini or gameplay elements that Map preview draws, so default elements are shown.`,
+            ? `vosu could not serve the files of “${current.name}”; showing the classic look.`
+            : `“${current.name}” has no skin.ini or gameplay elements the preview draws; showing the classic look.`,
           "notice",
         );
         return;
       }
       installSkin(
-        skin,
+        withFallback(loaded, builtin(current.fallback)),
         current.name,
         `${client} · current skin · ${fileCount(host.served)}`,
+        [...loaded.assets.values()],
       );
-      skinNotice(
-        `Loaded the current ${client} skin. Elements it lacks use defaults.`,
-      );
+      skinNotice("");
     },
   );
 }
@@ -136,121 +510,89 @@ async function userSkin(
   isCurrent: () => boolean,
 ): Promise<void> {
   let used = 0;
-  const skin = await loadSkin(async (path) => {
+  const loaded = await loadSkin(async (path) => {
     const blob = await resolve(path);
     if (blob) used++;
     return blob;
   }, name);
   if (!isCurrent()) {
-    for (const bitmap of skin.assets.values()) bitmap.close();
+    for (const bitmap of loaded.assets.values()) bitmap.close();
     return;
   }
   if (!used) {
-    useDefaults();
     skinNotice(
-      `“${name}” contains no skin.ini or gameplay elements that Map preview draws, so default elements are shown.`,
+      `“${name}” contains no skin.ini or gameplay elements the preview draws; the current skin stays.`,
       "notice",
     );
     return;
   }
-  installSkin(skin, name, `${source} · ${fileCount(used)} used`);
-  skinNotice(`Loaded “${name}”. Elements it lacks use defaults.`);
+  skinChoice = "user";
+  installSkin(
+    withFallback(loaded, builtin("legacy")),
+    name,
+    `${source} · ${fileCount(used)} used`,
+    [...loaded.assets.values()],
+  );
+  skinNotice(`Loaded “${name}”. Missing elements use the classic look.`);
 }
-function refreshScene(): void {
-  if (!map || !renderer) return;
-  const mods: Mod[] = [
-    ...document.querySelectorAll<HTMLInputElement>("#mods input:checked"),
-  ].map((i) => ({
-    acronym: i.value,
-    settings:
-      i.value === "RD" ? { seed: Number(inputs.seed.value) } : undefined,
-  }));
-  renderer.setBeatmap(map, {
-    mods,
-    ar: inputs.ar.value === "" ? undefined : Number(inputs.ar.value),
-    cs: inputs.cs.value === "" ? undefined : Number(inputs.cs.value),
-    scrollSpeed: Number(inputs.scroll.value),
-    noteSpeed: Number(inputs["note-speed"].value),
+function applySkinSetting(): void {
+  if (settings.skin === "client") void useClientSkin();
+  else useBuiltin(settings.skin, "set in Map preview settings");
+}
+
+/* ------------------------------------------------------------ settings */
+
+async function loadSettings(initial: boolean): Promise<void> {
+  const previous = settings;
+  const { settings: next, source } = await readSettings(vosu);
+  settings = next;
+  $("bar").hidden = !settings.showBar;
+  progress.hidden = !following || !settings.showProgress;
+  scrollInput.placeholder = settings.maniaScrollSpeed
+    ? String(settings.maniaScrollSpeed)
+    : "Client";
+  if (initial) {
+    noteSpeedInput.value = String(settings.noteSpeed);
+    setDrawer(settings.controlsOpen);
+    if (source === "defaults")
+      skinNotice("This vosu has no settings route for tools; defaults apply.");
+  }
+  if (initial || previous.skin !== settings.skin) applySkinSetting();
+  sceneKey = "";
+}
+function setDrawer(open: boolean): void {
+  drawer.hidden = !open;
+  controlsToggle.setAttribute("aria-expanded", String(open));
+}
+
+/* ------------------------------------------------------------ events */
+
+followButton.onclick = () => setFollowing(!following);
+controlsToggle.onclick = () => setDrawer(drawer.hidden);
+$<HTMLButtonElement>("current-skin").onclick = () => void useClientSkin();
+builtinSelect.onchange = () => {
+  const value = builtinSelect.value as BuiltinSkinName | "";
+  builtinSelect.value = "";
+  if (value) useBuiltin(value, "chosen in this tab");
+};
+for (const input of [
+  scrollInput,
+  noteSpeedInput,
+  ...overrideInputs,
+  ...modInputs,
+])
+  input.addEventListener("change", () => {
+    if (input.checked && (input.value === "HR" || input.value === "EZ"))
+      for (const other of modInputs)
+        if (other.value === (input.value === "HR" ? "EZ" : "HR"))
+          other.checked = false;
+    sceneKey = "";
   });
-  renderer.renderAt(audio.readyState ? audio.currentTime * 1000 : manualTime);
-}
-function tick(): void {
-  if (renderer && map) {
-    const now = audio.readyState ? audio.currentTime * 1000 : manualTime;
-    renderer.renderAt(now);
-    seek.value = String(now);
-    const ms = Math.round(now),
-      minutes = Math.floor(ms / 60000),
-      seconds = Math.floor(ms / 1000) % 60;
-    document.querySelector<HTMLOutputElement>("#time")!.value =
-      `${minutes}:${String(seconds).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
-  }
-  animation = requestAnimationFrame(tick);
-}
-async function openMap(text: string, audioSource?: string): Promise<void> {
-  audio.pause();
-  manualTime = 0;
-  play.textContent = "Play";
-  map = parseOsu(text);
-  inputs.cs.max = map.mode === 3 ? "18" : "11";
-  inputs.cs.step = map.mode === 3 ? "1" : "0.1";
-  if (!map.objects.length)
-    throw new Error("This beatmap contains no hit objects");
-  if (!renderer) {
-    // The current skin loads alongside the map; one installed while the
-    // renderer was being created must still reach it.
-    const skin = selectedSkin;
-    renderer = await createRenderer({
-      canvas,
-      skin,
-      presentation:
-        new URLSearchParams(location.search).get("presentation") === "bitmap"
-          ? "bitmap"
-          : "direct",
-    });
-    if (selectedSkin !== skin) renderer.setSkin(selectedSkin);
-  }
-  refreshScene();
-  if (audioSource) {
-    audio.src = audioSource;
-    audio.load();
-  }
-  seek.max = String(map.duration + 2000);
-  play.disabled = !audio.src;
-  document.getElementById("title")!.textContent =
-    `${map.metadata.Artist ?? ""} — ${map.metadata.Title ?? "Untitled"}`;
-  document.getElementById("detail")!.textContent =
-    `${map.metadata.Version ?? ""} · mapped by ${map.metadata.Creator ?? "unknown"} · ${map.objects.length.toLocaleString()} objects`;
-  const mode = document.getElementById("mode")!;
-  mode.textContent = ["OSU!", "TAIKO", "CATCH", "MANIA"][map.mode];
-  mode.dataset.mode = String(map.mode);
-  status.textContent = audioSource
-    ? ""
-    : "Choose the map’s audio file to enable synchronized playback.";
-  if (!animation) tick();
-}
-async function currentMap(): Promise<void> {
-  const seq = ++loadSequence;
-  status.textContent = "Loading selected beatmap…";
-  try {
-    const response = await fetch("/files/beatmap/file", { cache: "no-store" });
-    if (!response.ok)
-      throw new Error(
-        `No selected beatmap is available (${response.status}). Select a map in osu! or open an .osu file.`,
-      );
-    const text = await response.text();
-    if (seq !== loadSequence) return;
-    await openMap(text, `/files/beatmap/audio?v=${Date.now()}`);
-  } catch (error) {
-    showError(error);
-  }
-}
 play.onclick = async () => {
   try {
     if (audio.paused) {
       await audio.play();
       play.textContent = "Pause";
-      status.textContent = "";
     } else {
       audio.pause();
       play.textContent = "Play";
@@ -259,60 +601,39 @@ play.onclick = async () => {
     showError(error);
   }
 };
-audio.onended = () => {
-  play.textContent = "Play";
-};
+audio.onended = () => (play.textContent = "Play");
 audio.onerror = () => {
   play.disabled = true;
   status.textContent =
-    "Audio is unavailable. Choose the matching audio file to play; seeking still previews map time.";
+    "This audio could not be played. Choose the map's audio file; seeking still previews map time.";
 };
 seek.oninput = () => {
   manualTime = Number(seek.value);
   if (audio.readyState) audio.currentTime = manualTime / 1000;
-  renderer?.renderAt(manualTime);
 };
 rate.onchange = () => {
   audio.playbackRate = Math.max(0.25, Math.min(3, Number(rate.value) || 1));
   rate.value = String(audio.playbackRate);
   audio.preservesPitch = false;
 };
-for (const input of Object.values(inputs))
-  input.onchange = () => {
-    try {
-      refreshScene();
-    } catch (error) {
-      showError(error);
-    }
-  };
-for (const input of document.querySelectorAll<HTMLInputElement>("#mods input"))
-  input.onchange = () => {
-    if (input.checked) {
-      const other =
-        input.value === "HR" ? "EZ" : input.value === "EZ" ? "HR" : null;
-      if (other)
-        document.querySelector<HTMLInputElement>(
-          `#mods input[value=${other}]`,
-        )!.checked = false;
-    }
-    refreshScene();
-  };
-document.getElementById("reload")!.onclick = () => void currentMap();
-document.getElementById("current-skin")!.onclick = () => void currentSkin();
-document.querySelector<HTMLInputElement>("#map-file")!.onchange = async (
-  event,
-) => {
-  const file = (event.target as HTMLInputElement).files?.[0];
+$<HTMLInputElement>("map-file").onchange = async (event) => {
+  const input = event.target as HTMLInputElement,
+    file = input.files?.[0];
+  input.value = "";
   if (!file) return;
+  loadSequence++;
+  setFollowing(false);
+  audio.removeAttribute("src");
+  play.disabled = true;
+  manualTime = 0;
   try {
-    loadSequence++;
-    audio.removeAttribute("src");
-    await openMap(await file.text());
+    await openMap(await file.text(), file.name);
+    status.textContent = "Choose the map's audio file to play it back.";
   } catch (error) {
     showError(error);
   }
 };
-document.querySelector<HTMLInputElement>("#audio-file")!.onchange = (event) => {
+$<HTMLInputElement>("audio-file").onchange = (event) => {
   const file = (event.target as HTMLInputElement).files?.[0];
   if (!file) return;
   if (objectUrl) URL.revokeObjectURL(objectUrl);
@@ -321,7 +642,7 @@ document.querySelector<HTMLInputElement>("#audio-file")!.onchange = (event) => {
   play.disabled = !map;
   status.textContent = "";
 };
-document.querySelector<HTMLInputElement>("#skin-osk")!.onchange = (event) => {
+$<HTMLInputElement>("skin-osk").onchange = (event) => {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
   input.value = "";
@@ -329,13 +650,11 @@ document.querySelector<HTMLInputElement>("#skin-osk")!.onchange = (event) => {
   const name = file.name.replace(/\.(osk|zip)$/i, "");
   void loadSkinFrom(`Reading “${file.name}”…`, async (isCurrent) => {
     const archive = await openOsk(file);
-    if (!isCurrent()) return;
-    await userSkin(name, ".osk file", archive.resolve, isCurrent);
+    if (isCurrent())
+      await userSkin(name, ".osk file", archive.resolve, isCurrent);
   });
 };
-document.querySelector<HTMLInputElement>("#skin-folder")!.onchange = (
-  event,
-) => {
+$<HTMLInputElement>("skin-folder").onchange = (event) => {
   const input = event.target as HTMLInputElement,
     chosen = [...(input.files ?? [])];
   input.value = "";
@@ -357,21 +676,33 @@ document.querySelector<HTMLInputElement>("#skin-folder")!.onchange = (
     ),
   );
 };
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void loadSettings(false);
+});
 window.addEventListener("pagehide", () => {
-  cancelAnimationFrame(animation);
   audio.pause();
   renderer?.destroy();
-  if (selectedSkin)
-    for (const bitmap of selectedSkin.assets.values()) bitmap.close();
+  for (const bitmap of ownedBitmaps) bitmap.close();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
 });
+
+/* ------------------------------------------------------------ start */
+
 try {
   await vosu.ready;
   applyScheme();
-  document.getElementById("version")!.textContent =
-    `Map preview ${vosu.tool.version}`.trim();
-  void currentSkin();
-  await currentMap();
+  $("version").textContent = `Map preview ${vosu.tool.version}`.trim();
+  await loadSettings(true);
+  setFollowing(true);
+  followGame(
+    (fields, onFrame, onStatus) => vosu.subscribe(fields, onFrame, onStatus),
+    onGame,
+    (next) => {
+      liveStatus = next;
+      updateStatusChip();
+    },
+  );
+  await ensureRenderer();
 } catch (error) {
   showError(error);
 }

@@ -7,7 +7,7 @@ import {
   taikoVelocity,
 } from "@vosu-tools/osu-parse";
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
-import type { Skin, AtlasRegion } from "./skin";
+import { legacySliderStyle, type Skin, type AtlasRegion } from "./skin";
 export interface RenderOptions {
   mods?: Mod[];
   ar?: number;
@@ -15,6 +15,12 @@ export interface RenderOptions {
   scrollSpeed?: number;
   noteSpeed?: number;
   hitLighting?: boolean;
+  /** Use the beatmap's combo and slider colours (clients' "beatmap colours"); default true. */
+  beatmapColours?: boolean;
+  /** Mania notes scroll upwards (the client's scroll direction "up"). */
+  maniaScrollUp?: boolean;
+  /** Slider bodies grow along their path while approaching (clients' snaking sliders); default true. */
+  snakingIn?: boolean;
 }
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
@@ -30,6 +36,13 @@ const palette: readonly (readonly number[])[] = [
   [0.35, 0.72, 1],
   [0.68, 0.9, 0.35],
   [0.86, 0.45, 0.8],
+];
+/** The clients' fallback combo colours (osu! SkinConfiguration.DefaultComboColours). */
+const defaultComboColours: readonly (readonly number[])[] = [
+  [255 / 255, 192 / 255, 0],
+  [0, 202 / 255, 0],
+  [18 / 255, 124 / 255, 255 / 255],
+  [242 / 255, 24 / 255, 57 / 255],
 ];
 /** Packed 6xvec4 instance ABI: geometry, lifetime, tint, motion, UV, shape parameters. */
 export function compileScene(
@@ -75,14 +88,26 @@ export function compileScene(
     .map(([, value]) =>
       value.split(",").map((channel) => Number(channel.trim()) / 255),
     );
-  const colours = map.colours.length ? map.colours : skinColours;
-  const border = map.colourSettings?.SliderBorder ??
+  // Clients fall back to the default combo colours when a skin defines none.
+  const colours =
+    map.colours.length && options.beatmapColours !== false
+      ? map.colours
+      : skinColours.length || !skin
+        ? skinColours
+        : defaultComboColours;
+  const border =
+    (options.beatmapColours !== false
+      ? map.colourSettings?.SliderBorder
+      : undefined) ??
     skin?.sections
       .get("Colours")?.[0]
       ?.SliderBorder?.split(",")
-      .map((c) => Number(c) / 255) ?? [0.85, 0.85, 0.85];
+      .map((c) => Number(c) / 255) ??
+    (skin ? [1, 1, 1] : [0.85, 0.85, 0.85]);
   const trackOverride =
-    map.colourSettings?.SliderTrackOverride ??
+    (options.beatmapColours !== false
+      ? map.colourSettings?.SliderTrackOverride
+      : undefined) ??
     skin?.sections
       .get("Colours")?.[0]
       ?.SliderTrackOverride?.split(",")
@@ -113,13 +138,15 @@ export function compileScene(
     p = 0,
     q = 0,
     r = 0,
+    /** Shape parameters for untextured shapes, carried in the UV slot. */
+    custom?: readonly [number, number, number, number],
   ): void {
     if (
       options.hitLighting === false &&
       (motion === 13 || motion === 18 || motion === 19)
     )
       return;
-    const uv = regions.get(asset);
+    const uv = custom ? undefined : regions.get(asset);
     if (uv && map.mode === 3 && [1, 11, 12].includes(motion))
       h = (w * uv.h) / uv.w;
     if (uv && map.mode === 3) colour = [1, 1, 1, colour[3] ?? 1];
@@ -140,10 +167,10 @@ export function compileScene(
       a,
       b,
       c,
-      uv?.u ?? 0,
-      uv?.v ?? 0,
-      uv?.w ?? 0,
-      uv?.h ?? 0,
+      uv?.u ?? custom?.[0] ?? 0,
+      uv?.v ?? custom?.[1] ?? 0,
+      uv?.w ?? custom?.[2] ?? 0,
+      uv?.h ?? custom?.[3] ?? 0,
       uv ? 10 : shape,
       uv?.first ?? p,
       uv?.count ?? q,
@@ -272,13 +299,77 @@ export function compileScene(
         catcher.push({ time: object.endTime, x: 256, y: 192 });
     }
     catcher.sort((a, b) => a.time - b.time);
-    // Slider tracks sit below all hit objects. Discs fill joins; capsule segments avoid cracks.
+    // Slider tracks sit below all hit objects. Skinned sliders follow the
+    // client's body profile: all border capsules of a slider first, then all
+    // body capsules, so joints between path segments never show a border.
+    const sliderStyle =
+      skin?.style?.slider ?? (skin ? legacySliderStyle : undefined);
+    const profileCode = sliderStyle
+      ? { legacy: 1, triangles: 2, argon: 3 }[sliderStyle.profile] * 10 +
+        Math.min(0.999, sliderStyle.alpha)
+      : 0;
     for (const o of map.objects)
       if (o.type & 2) {
         const offset = (o.stack * radius) / 10,
           colour =
             colours[o.combo % colours.length] ??
             palette[o.combo % palette.length];
+        if (sliderStyle) {
+          const outer = radius * sliderStyle.radius,
+            accent =
+              sliderStyle.profile === "legacy" && trackOverride
+                ? trackOverride
+                : colour,
+            edge =
+              sliderStyle.profile === "argon" ? colour : border.slice(0, 3),
+            custom = [edge[0], edge[1], edge[2], profileCode] as const;
+          // Pass 2 (legacy only) draws the soft outer shadow, 1 the border,
+          // -1 the body; shape parameter: border portion, +10 for shadows.
+          for (const pass of sliderStyle.profile === "legacy"
+            ? [2, 1, -1]
+            : [1, -1]) {
+            const r = pass > 0 ? outer : outer * (1 - sliderStyle.border);
+            let cumulative = 0;
+            for (let i = 1; i < o.path.length; i++) {
+              const a = o.path[i - 1],
+                b = o.path[i],
+                len = Math.hypot(b.x - a.x, b.y - a.y);
+              cumulative += len;
+              const reveal =
+                o.time -
+                preempt +
+                (options.snakingIn === false
+                  ? 0
+                  : Math.min(1, cumulative / Math.max(1, o.length)) *
+                    preempt *
+                    0.4);
+              add(
+                (a.x + b.x) / 2 - offset,
+                (a.y + b.y) / 2 - offset,
+                len + r * 2,
+                r * 2,
+                o.time,
+                o.endTime,
+                reveal,
+                o.endTime + 180,
+                accent,
+                12,
+                0,
+                Math.atan2(b.y - a.y, b.x - a.x),
+                0,
+                0,
+                "",
+                pass === 2
+                  ? sliderStyle.border + 10
+                  : pass * sliderStyle.border,
+                0,
+                0,
+                custom,
+              );
+            }
+          }
+          continue;
+        }
         let cumulative = 0;
         for (let i = 1; i < o.path.length; i++) {
           const a = o.path[i - 1],
@@ -288,7 +379,11 @@ export function compileScene(
           const reveal =
             o.time -
             preempt +
-            Math.min(1, cumulative / Math.max(1, o.length)) * preempt * 0.4;
+            (options.snakingIn === false
+              ? 0
+              : Math.min(1, cumulative / Math.max(1, o.length)) *
+                preempt *
+                0.4);
           add(
             (a.x + b.x) / 2 - offset,
             (a.y + b.y) / 2 - offset,
@@ -685,7 +780,9 @@ export function compileScene(
           pressed = mania?.[`KeyImage${lane}D`] ?? `mania-key${kind}D`,
           uv = regions.get(name),
           height = uv ? (widths[lane] * uv.h) / uv.w : 30,
-          y = hit - height / 2;
+          // Clients anchor key sprites to the stage's bottom edge, not to the
+          // hit position; upward scrolling mirrors the whole stage in WGSL.
+          y = 432 - height / 2;
         add(
           positions[lane],
           y,
@@ -1134,7 +1231,9 @@ export function compileScene(
         o.time,
         o.time - lead,
         o.time + 120,
-        rim ? [0.22, 0.65, 0.85] : [0.95, 0.25, 0.22],
+        rim
+          ? (skin?.style?.taiko?.rim ?? [0.22, 0.65, 0.85])
+          : (skin?.style?.taiko?.centre ?? [0.95, 0.25, 0.22]),
         0,
         3,
         velocity,
