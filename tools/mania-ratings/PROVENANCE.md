@@ -213,7 +213,8 @@ whole-map section has identical numerical ratings to the complete map.
 Reset-context section results need not equal plotted contextual strain peaks.
 
 The UI is a single-screen dashboard (designed for 1920 × 1080, scaling to
-2560 × 1440; it stacks and scrolls below ~1100 px). It subscribes to
+2560 × 1440; it stacks and scrolls below ~1100 px). Through `vosu.subscribe`
+(the bridge owns reconnects; its status shows in the top bar) it subscribes to
 `/websocket/v2/subscribe` (`/beatmap/checksum`, `/play/mods/rate`,
 `/play/mods/name`, `/state/number`, `/beatmap/time/live`, `/beatmap/mode/name`)
 and re-analyses the selected chart at the game's rate, rounded to 0.05×; during

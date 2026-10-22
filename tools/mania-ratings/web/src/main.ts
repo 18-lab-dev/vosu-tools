@@ -41,7 +41,7 @@ async function loadSettings():Promise<Settings> {
 let settings=normalize();
 let rating:Rating|undefined, timeline:Timeline|undefined, curve:RatePoint[]|undefined, selection:number|undefined, generation=0;
 let pendingFile:File|undefined, fileName:string|undefined, follow=true, timelineTouched=false, analysedKey='', pending:number|undefined;
-const live={connected:false,checksum:'',rate:1,mods:'',state:-1,time:0,mode:'',title:''};
+const live={connected:false,connecting:true,checksum:'',rate:1,mods:'',state:-1,time:0,mode:''};
 const app=document.querySelector<HTMLElement>('.app')!;
 const canvas=$<HTMLCanvasElement>('timeline'), density=$<HTMLCanvasElement>('density');
 
@@ -59,10 +59,10 @@ async function api<T>(path:string,init?:RequestInit):Promise<T> {
 }
 function setLive(){
  const el=$('live');
- const state=!live.connected?(el.dataset.state==='connecting'?'connecting':'offline'):!follow?'manual':live.state===2?'playing':'live';
+ const state=!live.connected?(live.connecting?'connecting':'offline'):!follow?'manual':live.state===2?'playing':'live';
  el.dataset.state=state;
  el.textContent={connecting:'Connecting',offline:'Offline',manual:'Manual',playing:'In play',live:'Live'}[state];
- el.title=state==='manual'?'Not following the game; press Follow game to resume':state==='offline'?'vosu telemetry disconnected; retrying':'Following the map and rate selected in osu!';
+ el.title=state==='manual'?'Not following the game; press Follow game to resume':state==='offline'?'vosu telemetry disconnected; the bridge reconnects automatically':state==='connecting'?'Connecting to vosu telemetry':'Following the map and rate selected in osu!';
  $('follow').setAttribute('aria-pressed',String(follow));
  const mods=$('mods');mods.hidden=!live.mods||live.mods==='NM';mods.textContent=live.mods;
 }
@@ -244,15 +244,15 @@ function section() {
 
 // Live telemetry: selected map, rate, mods and play position.
 const FIELDS=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number','/play/mods/name','/beatmap/mode/name'];
+// The bridge owns the socket and its reconnect backoff; vosu 1.2.0 bridges report
+// the connection through onStatus, older ones only deliver frames.
 function connect(){
- const url=new URL('/websocket/v2/subscribe',location.href);url.protocol=location.protocol==='https:'?'wss:':'ws:';
- const socket=new WebSocket(url),values:unknown[]=[];
- socket.onopen=()=>{socket.send(JSON.stringify(FIELDS));live.connected=true;setLive();};
- socket.onmessage=event=>{
-  const message:unknown=JSON.parse(String(event.data));
+ const values:unknown[]=[];
+ vosu.subscribe(FIELDS,message=>{
   if(!Array.isArray(message))return;
   if(message[0]===2){status(`Telemetry: ${String(message[2])}`,'error');return;}
   if(message[0]!==0&&message[0]!==1)return;
+  if(!live.connected){live.connected=true;live.connecting=false;}
   if(message[0]===0)values.length=0;
   if(Array.isArray(message[2]))for(const change of message[2])if(Array.isArray(change)&&typeof change[0]==='number')values[change[0]]=change[1];
   if(Array.isArray(message[3]))for(const i of message[3])if(typeof i==='number')delete values[i];
@@ -265,8 +265,7 @@ function connect(){
   // Only the time-based plots move during play; the curve moves only for the manual-mode game-rate marker.
   if(timeline&&(live.state===2||wasPlaying)){draw(canvas,timeline.points,'value');draw(density,timeline.points,'nps');}
   if(!follow&&live.rate!==previousRate)rateCurve();
- };
- socket.onclose=()=>{live.connected=false;setLive();window.setTimeout(connect,2000);};
+ },state=>{live.connected=state==='open';live.connecting=state==='connecting';setLive();});
 }
 
 canvas.addEventListener('pointerdown',e=>{if(!timeline)return;selection=position(e);canvas.setPointerCapture(e.pointerId);});
