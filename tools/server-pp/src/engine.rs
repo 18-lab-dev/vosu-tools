@@ -1,13 +1,17 @@
+use crate::custom;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::VecDeque, sync::Arc};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, OnceLock},
+};
 
 pub const AKATSUKI: &str = "c0e499ec3ac138c7cc329771fc70992de39fbb77";
 pub const MAME: &str = "11f4c0443f8dd777a356cad1d06e675971ec0a4e";
 pub fn servers() -> Value {
     json!({"servers": [
-        {"id":"akatsuki", "version":AKATSUKI, "rulesets":["osu","taiko","fruits","mania"], "coverage":"Native rulesets; vanilla all modes, RX osu/taiko/catch, AP osu only. Stable scoring; ScoreV2 rejected.", "difference":"osu RX uses custom osu_2019; other scores use the fork's modern stable calculator.", "source":"https://github.com/osuAkatsuki/akatsuki-pp-rs", "callsite":"https://github.com/osuAkatsuki/performance-service/blob/2e89b9c9d4365e98e2b0d98ba506862db5e92c60/src/api/routes/calculate.rs", "deployment_verified":false},
-        {"id":"mamestagram", "version":MAME, "rulesets":["osu","taiko","fruits","mania"], "coverage":"Public calculator snapshot, native rulesets, vanilla stable mods only; RX/AP/ScoreV2 rejected (server policies unverified).", "difference":"Fork of 2024 rosu-pp; not the current official engine. Exact numeric difference is map dependent.", "source":"https://github.com/Mamestagram/mamestagram-pp-rs", "deployment_verified":false}
+        {"id":"akatsuki", "kind":"builtin", "version":AKATSUKI, "rulesets":["osu","taiko","fruits","mania"], "coverage":"Native rulesets; vanilla all modes, RX osu/taiko/catch, AP osu only. Stable scoring; ScoreV2 rejected.", "difference":"osu RX uses custom osu_2019; other scores use the fork's modern stable calculator.", "source":"https://github.com/osuAkatsuki/akatsuki-pp-rs", "callsite":"https://github.com/osuAkatsuki/performance-service/blob/2e89b9c9d4365e98e2b0d98ba506862db5e92c60/src/api/routes/calculate.rs", "deployment_verified":false},
+        {"id":"mamestagram", "kind":"builtin", "version":MAME, "rulesets":["osu","taiko","fruits","mania"], "coverage":"Public calculator snapshot, native rulesets, vanilla stable mods only; RX/AP/ScoreV2 rejected (server policies unverified).", "difference":"Fork of 2024 rosu-pp; not the current official engine. Exact numeric difference is map dependent.", "source":"https://github.com/Mamestagram/mamestagram-pp-rs", "deployment_verified":false}
     ], "warning":"Reproducible public source snapshots, NOT a guarantee of current server deployment or ranking eligibility.", "unsupported":[
         {"id":"ripple","reason":"Documented custom std RX formula but no identifiable current implementation/revision; classic taiko/catch version unpinned."},
         {"id":"gatari","reason":"Current calculator implementation/revision not verifiable."},
@@ -33,6 +37,12 @@ pub struct Input {
     pub n_geki: Option<u32>,
     pub n_katu: Option<u32>,
     pub passed_objects: Option<u32>,
+    /// Ruleset to score the map as (`osu`, `taiko`, `fruits`, `mania` or
+    /// 0-3). Converts are only supported by custom calculators.
+    pub mode: Option<String>,
+    /// Set for the game's live play; never read from a query.
+    #[serde(skip)]
+    pub live: bool,
 }
 
 pub fn mods(text: &str) -> Result<u32, String> {
@@ -51,6 +61,7 @@ pub fn mods(text: &str) -> Result<u32, String> {
         bits |= match pair {
             b"NF" => 1,
             b"EZ" => 2,
+            b"TD" => 4,
             b"HD" => 8,
             b"HR" => 16,
             b"SD" => 32,
@@ -75,18 +86,44 @@ pub struct Map {
     pub bytes: Arc<[u8]>,
     pub akatsuki: akatsuki::Beatmap,
     pub mame: mamestagram::Beatmap,
+    /// From [Metadata]; positive ids only.
+    pub beatmap_id: Option<u32>,
+    pub beatmapset_id: Option<u32>,
+    /// rosu-pp 4.0.1 parse, only needed by custom calculators.
+    official: Arc<OnceLock<Result<rosu_pp::Beatmap, String>>>,
+    /// Custom calculator inputs that do not depend on the score.
+    pub(crate) prepared: Arc<custom::PreparedCache>,
 }
 impl Map {
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
         if bytes.len() > 1024 * 1024 || !bytes.starts_with(b"osu file format v") {
             return Err("expected an .osu file (maximum 1 MiB)".into());
         }
+        let metadata = |key: &str| {
+            String::from_utf8_lossy(bytes).lines().find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                (name.trim() == key)
+                    .then(|| value.trim().parse::<u32>().ok())
+                    .flatten()
+                    .filter(|id| *id > 0)
+            })
+        };
         Ok(Self {
             checksum: format!("{:x}", md5::compute(bytes)),
             bytes: bytes.into(),
             akatsuki: akatsuki::Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?,
             mame: mamestagram::Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?,
+            beatmap_id: metadata("BeatmapID"),
+            beatmapset_id: metadata("BeatmapSetID"),
+            official: Arc::default(),
+            prepared: Arc::default(),
         })
+    }
+    pub fn official(&self) -> Result<&rosu_pp::Beatmap, String> {
+        self.official
+            .get_or_init(|| rosu_pp::Beatmap::from_bytes(&self.bytes).map_err(|e| e.to_string()))
+            .as_ref()
+            .map_err(Clone::clone)
     }
 }
 
@@ -115,9 +152,28 @@ impl Cache {
     }
 }
 
-pub fn calculate(map: &Map, input: &Input) -> Result<Value, String> {
+/// Which calculator scores a request.
+pub enum Profile<'a> {
+    /// A pinned built-in library, selected by `Input::server`.
+    Builtin,
+    /// A custom WebAssembly calculator.
+    Custom(&'a custom::Resolved),
+}
+
+pub fn calculate(map: &Map, input: &Input, profile: Profile) -> Result<Value, String> {
     let bits = mods(&input.mods)?;
-    let mode = map.akatsuki.mode as u8;
+    let native = map.akatsuki.mode as u8;
+    let mode = match input.mode.as_deref().map(str::trim) {
+        None | Some("") => native,
+        Some(text) => custom::parse_mode(text)?,
+    };
+    let custom = match profile {
+        Profile::Builtin => None,
+        Profile::Custom(resolved) => Some(resolved),
+    };
+    if custom.is_none() && mode != native {
+        return Err("ruleset conversions are not supported by built-in profiles".into());
+    }
     let counts = match mode {
         0 | 1 => [
             input.n300,
@@ -144,12 +200,17 @@ pub fn calculate(map: &Map, input: &Input) -> Result<Value, String> {
     let objects = input
         .passed_objects
         .unwrap_or(map.akatsuki.hit_objects.len() as u32);
-    if mode != 2 && total > objects {
+    // Converted maps may have a different object count; rosu-pp clamps those.
+    if mode != 2 && mode == native && total > objects {
         return Err("judgement counts exceed passed objects".into());
     }
     let allowed = 1 | 2 | 8 | 16 | 32 | 64 | 128 | 256 | 512 | 1024 | 4096 | 8192 | 16384;
-    if bits & !allowed != 0 {
+    if custom.is_none() && bits & !allowed != 0 {
         return Err("ScoreV2, automation, key overrides and unknown mods are not verified for these server profiles".into());
+    }
+    // Custom calculators also receive TD and ScoreV2 and decide themselves.
+    if custom.is_some() && bits & !(allowed | 4 | (1 << 29)) != 0 {
+        return Err("automation, key overrides and unknown mods are not supported".into());
     }
     if bits & 64 != 0 && bits & 256 != 0
         || bits & 2 != 0 && bits & 16 != 0
@@ -157,9 +218,10 @@ pub fn calculate(map: &Map, input: &Input) -> Result<Value, String> {
     {
         return Err("incompatible mods".into());
     }
-    if bits & 8192 != 0 && mode != 0
-        || bits & 128 != 0 && mode == 3
-        || input.server == "mamestagram" && bits & (128 | 8192) != 0
+    if custom.is_none()
+        && (bits & 8192 != 0 && mode != 0
+            || bits & 128 != 0 && mode == 3
+            || input.server == "mamestagram" && bits & (128 | 8192) != 0)
     {
         return Err("RX/AP not verified for this server/ruleset".into());
     }
@@ -211,13 +273,38 @@ pub fn calculate(map: &Map, input: &Input) -> Result<Value, String> {
         fc.n_geki = None;
         fc.n_katu = None;
     }
+    let projection = "full map at achieved accuracy with zero misses and maximum combo";
+    if let Some(resolved) = custom {
+        let current = custom::evaluate(resolved, map, input, bits, mode, false)?;
+        let if_fc = custom::evaluate(resolved, map, &fc, bits, mode, true)?;
+        return Ok(json!({
+            "server": resolved.id,
+            "kind": "custom",
+            "name": resolved.name,
+            "version": resolved.calculator.info.version,
+            "md5": resolved.calculator.md5,
+            "checksum": map.checksum,
+            "mode": mode,
+            "mods": bits,
+            "current": current.pp,
+            "if_fc": if_fc.pp,
+            "stars": current.stars,
+            "breakdown": custom::breakdown_json(&current.breakdown),
+            "if_fc_breakdown": custom::breakdown_json(&if_fc.breakdown),
+            "base": {"current": current.base_pp, "if_fc": if_fc.base_pp},
+            "fuel": current.fuel,
+            "attributes": custom::ATTRIBUTES,
+            "projection": projection,
+            "deployment_verified": false,
+        }));
+    }
     let (current, stars) = raw(map, input, bits)?;
     let (if_fc, _) = raw(map, &fc, bits)?;
     if !current.is_finite() || !if_fc.is_finite() {
         return Err("calculator returned a non-finite result".into());
     }
     Ok(
-        json!({"server":input.server,"version":match input.server.as_str(){"akatsuki"=>AKATSUKI,_=>MAME},"checksum":map.checksum,"mode":mode,"mods":bits,"current":current,"if_fc":if_fc,"stars":stars,"projection":"full map at achieved accuracy with zero misses and maximum combo","deployment_verified":false}),
+        json!({"server":input.server,"kind":"builtin","version":match input.server.as_str(){"akatsuki"=>AKATSUKI,_=>MAME},"checksum":map.checksum,"mode":mode,"mods":bits,"current":current,"if_fc":if_fc,"stars":stars,"projection":projection,"deployment_verified":false}),
     )
 }
 

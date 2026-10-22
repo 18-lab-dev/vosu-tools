@@ -112,14 +112,26 @@ def retained_license(root, dependency):
         revision = '6934784e7188e98dd053370c79604c72b201e97a'
         path = root / 'tools/practice/licenses/audio.txt'
         source = f'https://github.com/ComunidadAylas/vorbis-rs/blob/{revision}/LICENSE'
+    elif (name, version) in {('wasmi', '2.0.0'), ('wasmi_core', '2.0.0'), ('wasmi_ir', '2.0.0'), ('wasmi_collections', '2.0.0')}:
+        revision = '2970aa871cc1001b57b267ccecdcd1e42306199e'
+        path = root / 'tools/server-pp/licenses/wasmi-MIT.txt'
+        source = f'https://github.com/wasmi-labs/wasmi/blob/{revision}/LICENSE-MIT'
+    elif (name, version) == ('wasmparser', '0.228.0'):
+        revision = 'e66235859a6ec0502bf6f9dcc358953eda4cafcc'
+        path = root / 'tools/server-pp/licenses/wasm-tools-MIT.txt'
+        source = f'https://github.com/bytecodealliance/wasm-tools/blob/{revision}/LICENSE-MIT'
     else:
         return {}, None
     vcs = Path(dependency['manifest_path']).parent / '.cargo_vcs_info.json'
     if not dependency.get('source', '').startswith('registry+') or json.loads(vcs.read_text())['git']['sha1'] != revision:
         raise ValueError(f'retained license exception revision mismatch: {name}@{version}')
     data = path.read_bytes().replace(b'\r\n', b'\n')
-    if name in dasp and hashlib.sha1(f'blob {len(data)}'.encode() + bytes([0]) + data).hexdigest() != 'b35b54912ac435a64227b09c9347475caefa1cbd':
-        raise ValueError('retained dasp MIT text differs from its pinned upstream blob')
+    # Git blob ids of the pinned upstream texts.
+    blobs = {'dasp-MIT.txt': 'b35b54912ac435a64227b09c9347475caefa1cbd',
+             'wasmi-MIT.txt': '1399b075915d94e530b1aa7de1938139d713ab31',
+             'wasm-tools-MIT.txt': '31aa79387f27e730e33d871925e152e35e428031'}
+    if path.name in blobs and hashlib.sha1(f'blob {len(data)}'.encode() + bytes([0]) + data).hexdigest() != blobs[path.name]:
+        raise ValueError(f'retained {path.name} differs from its pinned upstream blob')
     return {path.name: data}, source
 
 

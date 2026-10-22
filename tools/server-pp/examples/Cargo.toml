@@ -1,0 +1,17 @@
+# Guest-side workspace for custom calculator modules. It is deliberately separate
+# from the repository workspace: everything here builds for wasm32-unknown-unknown.
+[workspace]
+members = ["guest", "rust-example", "rosu-reference"]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

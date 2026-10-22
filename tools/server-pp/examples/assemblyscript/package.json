@@ -1,0 +1,13 @@
+{
+  "name": "server-pp-assemblyscript-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Example server-pp calculator module written in AssemblyScript",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "build": "asc assembly/index.ts --outFile build/assemblyscript_example.wasm --optimize --runtime stub --use abort="
+  },
+  "devDependencies": {
+    "assemblyscript": "0.28.20"
+  }
+}

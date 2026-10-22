@@ -135,6 +135,15 @@
         "vite": "^7.1.7",
       },
     },
+    "tools/server-pp/web": {
+      "name": "@vosu-tools/server-pp",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@vosu-tools/tool-web": "workspace:*",
+        "typescript": "^5.9.3",
+        "vite": "^7.2.4",
+      },
+    },
     "tools/skin-studio/web": {
       "name": "@vosu-tools/skin-studio",
       "version": "0.1.0",
@@ -314,6 +323,8 @@
     "@vosu-tools/replay": ["@vosu-tools/replay@workspace:packages/replay"],
 
     "@vosu-tools/replay-renderer-web": ["@vosu-tools/replay-renderer-web@workspace:tools/replay-renderer/web"],
+
+    "@vosu-tools/server-pp": ["@vosu-tools/server-pp@workspace:tools/server-pp/web"],
 
     "@vosu-tools/skin-spec": ["@vosu-tools/skin-spec@workspace:packages/skin-spec"],
 

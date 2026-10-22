@@ -1,0 +1,44 @@
+[
+  {
+    "uniqueID": "calculators.folder",
+    "type": "text",
+    "title": "Custom calculator folder",
+    "description": "Folder scanned for .wasm calculator modules (not recursive). Each file's name becomes its id. Leave empty for <vosu data directory>/tool-data/server-pp/calculators (on Linux ~/.local/share/vosu/tool-data/server-pp/calculators).",
+    "value": ""
+  },
+  {
+    "uniqueID": "calculators.files",
+    "type": "textarea",
+    "title": "Additional calculator files",
+    "description": "One .wasm path per line, optionally as `id = path` to choose the id. Relative paths are resolved against the calculator folder. Lines starting with # are ignored.",
+    "value": ""
+  },
+  {
+    "uniqueID": "calculators.enabled",
+    "type": "textarea",
+    "title": "Enabled calculators",
+    "description": "Calculator ids to enable, one per line. * enables every discovered calculator.",
+    "value": "*"
+  },
+  {
+    "uniqueID": "calculators.names",
+    "type": "textarea",
+    "title": "Display names",
+    "description": "Optional `id = Display name` lines. Without one, the module's own name is shown.",
+    "value": ""
+  },
+  {
+    "uniqueID": "calculators.fuel",
+    "type": "number",
+    "title": "Instruction budget per calculation (millions)",
+    "description": "A calculator that executes more WebAssembly instructions than this is stopped. Typical formulas use well under 0.1 million.",
+    "value": 10
+  },
+  {
+    "uniqueID": "calculators.memory_mib",
+    "type": "number",
+    "title": "Memory limit per calculator (MiB)",
+    "description": "Largest linear memory a calculator may have or grow to (1 to 1024).",
+    "value": 16
+  }
+]

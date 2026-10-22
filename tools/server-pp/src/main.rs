@@ -1,3 +1,6 @@
+mod custom;
+#[cfg(test)]
+mod custom_tests;
 mod engine;
 #[cfg(test)]
 mod tests;
@@ -9,7 +12,7 @@ use axum::{
     routing::{get, post},
 };
 use clap::Parser;
-use engine::{Cache, Input, Map};
+use engine::{Cache, Input, Map, Profile};
 use serde_json::{Value, json};
 use std::{
     path::PathBuf,
@@ -36,8 +39,35 @@ struct App {
     client: Client,
     cache: Arc<Mutex<Cache>>,
     dir: PathBuf,
+    calculators: Arc<custom::Calculators>,
 }
 impl App {
+    fn new(client: Client, env: &ToolEnv) -> Self {
+        Self {
+            client,
+            cache: Arc::new(Mutex::new(Cache::default())),
+            dir: env.cache_dir.clone(),
+            calculators: Arc::new(custom::Calculators::new(&env.data_dir)),
+        }
+    }
+    /// Re-reads calculator settings and module files when they may have changed.
+    async fn refresh(&self) {
+        if self.calculators.stale() {
+            let settings = self
+                .client
+                .settings::<Value>()
+                .await
+                .map_err(|e| e.to_string());
+            self.calculators.refresh(settings);
+        }
+    }
+    async fn resolve(&self, server: &str) -> Result<Option<custom::Resolved>, ApiError> {
+        if custom::RESERVED.contains(&server) {
+            return Ok(None);
+        }
+        self.refresh().await;
+        self.calculators.resolve(server).map(Some).map_err(bad)
+    }
     fn cached(&self, i: &Input) -> Result<Option<Arc<Map>>, ApiError> {
         let Some(checksum) = i.checksum.as_deref() else {
             return Ok(None);
@@ -54,6 +84,18 @@ impl App {
             .map_err(|_| bad("cache unavailable"))?
             .insert(&i.server, engine::mods(&i.mods).map_err(bad)?, map);
         Ok(())
+    }
+    fn score(
+        &self,
+        map: &Map,
+        i: &Input,
+        custom: Option<&custom::Resolved>,
+    ) -> Result<Value, ApiError> {
+        let profile = match custom {
+            Some(resolved) => Profile::Custom(resolved),
+            None => Profile::Builtin,
+        };
+        engine::calculate(map, i, profile).map_err(bad)
     }
     async fn selected(&self, i: &Input) -> Result<Arc<Map>, ApiError> {
         if let Some(map) = self.cached(i)? {
@@ -81,13 +123,21 @@ impl App {
         self.insert(i, map.clone())?;
         Ok(map)
     }
-    async fn output(&self, map: Arc<Map>, i: Input) -> Result<Json<Value>, ApiError> {
-        let mut result = engine::calculate(&map, &i).map_err(bad)?;
-        result["official"] = match self.official(&map, &i).await {
+    async fn output(
+        &self,
+        map: Arc<Map>,
+        i: Input,
+        custom: Option<custom::Resolved>,
+    ) -> Result<Json<Value>, ApiError> {
+        let result = self.score(&map, &i, custom.as_ref())?;
+        Ok(self.with_official(result, &map, &i).await)
+    }
+    async fn with_official(&self, mut result: Value, map: &Map, i: &Input) -> Json<Value> {
+        result["official"] = match self.official(map, i).await {
             Ok(v) => json!({"available":true,"result":v}),
             Err(e) => json!({"available":false,"reason":e}),
         };
-        Ok(Json(result))
+        Json(result)
     }
     async fn official(&self, map: &Map, i: &Input) -> Result<Value, String> {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -108,6 +158,9 @@ impl App {
             ("mods", engine::mods(&i.mods)?.to_string()),
             ("nMisses", i.misses.to_string()),
         ];
+        if let Some(mode) = i.mode.as_deref().filter(|m| !m.trim().is_empty()) {
+            query.push(("mode", custom::parse_mode(mode)?.to_string()));
+        }
         macro_rules! field {
             ($key:literal,$v:expr) => {
                 if let Some(v) = $v {
@@ -135,21 +188,23 @@ impl App {
     }
 }
 async fn pp(State(app): State<App>, Query(i): Query<Input>) -> Result<Json<Value>, ApiError> {
+    let custom = app.resolve(&i.server).await?;
     let map = app.selected(&i).await?;
-    app.output(map, i).await
+    app.output(map, i, custom).await
 }
 async fn upload(
     State(app): State<App>,
     Query(i): Query<Input>,
     bytes: Bytes,
 ) -> Result<Json<Value>, ApiError> {
+    let custom = app.resolve(&i.server).await?;
     let map = Arc::new(Map::parse(&bytes).map_err(bad)?);
     if i.checksum.as_ref().is_some_and(|v| v != &map.checksum) {
         return Err(bad("checksum mismatch"));
     }
-    engine::calculate(&map, &i).map_err(bad)?;
+    let result = app.score(&map, &i, custom.as_ref())?;
     app.insert(&i, map.clone())?;
-    app.output(map, i).await
+    Ok(app.with_official(result, &map, &i).await)
 }
 fn count(v: &Value, key: &str) -> Result<u32, ApiError> {
     v[key]
@@ -189,20 +244,26 @@ async fn current(
     if i.checksum.is_none() {
         return Err(bad("live beatmap checksum unavailable"));
     }
+    // Built-in profiles reject conversions; custom calculators score them.
+    i.mode = Some(mode.to_string());
+    i.live = true;
+    let custom = app.resolve(&i.server).await?;
     let map = app.selected(&i).await?;
-    let mode = map.akatsuki.mode as u8;
-    // A native-map-only profile cannot silently score a ruleset conversion.
-    if live["play"]["mode"]["number"]
-        .as_u64()
-        .is_some_and(|v| v != mode as u64)
-    {
-        return Err(bad("ruleset conversions are not supported"));
+    app.output(map, i, custom).await
+}
+async fn servers(State(app): State<App>) -> Json<Value> {
+    app.refresh().await;
+    let mut value = engine::servers();
+    let (custom, config) = app.calculators.describe();
+    if let Some(servers) = value["servers"].as_array_mut() {
+        servers.extend(custom);
     }
-    app.output(map, i).await
+    value["calculators"] = config;
+    Json(value)
 }
 fn router(app: App) -> Router {
     Router::new()
-        .route("/v1/servers", get(|| async { Json(engine::servers()) }))
+        .route("/v1/servers", get(servers))
         .route("/v1/pp", get(pp))
         .route("/v1/current", get(current))
         .route("/v1/calculate", post(upload))
@@ -216,6 +277,7 @@ fn router(app: App) -> Router {
 struct Args {
     /// .osu file, '-' for stdin, 'servers' to list profiles; omitted uses live state
     file: Option<String>,
+    /// Built-in profile or custom calculator id (see `servers`)
     #[arg(long, default_value = "akatsuki")]
     server: String,
     #[arg(long, default_value = "NM")]
@@ -226,6 +288,9 @@ struct Args {
     combo: Option<u32>,
     #[arg(long, default_value_t = 0)]
     misses: u32,
+    /// Score a file as another ruleset (osu, taiko, fruits, mania); custom calculators only
+    #[arg(long)]
+    mode: Option<String>,
     #[arg(long)]
     json: bool,
 }
@@ -240,6 +305,7 @@ async fn cli(env: &ToolEnv, args: Args) -> Result<(), Box<dyn std::error::Error>
             acc: args.acc,
             combo: args.combo,
             misses: args.misses,
+            mode: args.mode,
             ..Input::default()
         };
         if let Some(file) = args.file {
@@ -274,13 +340,85 @@ async fn cli(env: &ToolEnv, args: Args) -> Result<(), Box<dyn std::error::Error>
         if let Some(servers) = value["servers"].as_array() {
             let rows = servers
                 .iter()
-                .map(|s| vec![text(&s["id"]), text(&s["version"]), text(&s["coverage"])])
+                .map(|s| {
+                    if s["kind"] == "custom" {
+                        let detail = match s["error"].as_str() {
+                            Some(error) => error.to_owned(),
+                            None => format!(
+                                "{} · {}",
+                                text(&s["name"]),
+                                s["rulesets"]
+                                    .as_array()
+                                    .map(|r| r.iter().map(text).collect::<Vec<_>>().join(", "))
+                                    .unwrap_or_default()
+                            ),
+                        };
+                        vec![
+                            text(&s["id"]),
+                            format!("custom, {}", text(&s["status"])),
+                            text(&s["version"]),
+                            detail,
+                        ]
+                    } else {
+                        vec![
+                            text(&s["id"]),
+                            "built-in".to_owned(),
+                            text(&s["version"]),
+                            text(&s["coverage"]),
+                        ]
+                    }
+                })
                 .collect::<Vec<_>>();
+            let calculators = &value["calculators"];
+            let mut notes = format!(
+                "Custom calculators: {} (ABI v{}, {} attributes)",
+                text(&calculators["folder"]),
+                calculators["abi"],
+                text(&calculators["attributes"])
+            );
+            for key in ["settings_error", "folder_error"] {
+                if let Some(error) = calculators[key].as_str() {
+                    notes.push_str(&format!("\n{key}: {error}"));
+                }
+            }
             format!(
-                "{}\n\n{}\nUnsupported: {}",
-                table(&["Profile", "Revision", "Coverage"], &rows),
+                "{}\n\n{}\n{}\nUnsupported: {}",
+                table(&["Profile", "Kind", "Version", "Coverage"], &rows),
+                notes,
                 text(&value["warning"]),
                 value["unsupported"]
+            )
+        } else if value["kind"] == "custom" {
+            let breakdown = value["breakdown"]
+                .as_object()
+                .map(|b| {
+                    b.iter()
+                        .map(|(label, v)| format!("{label} {}", number(v)))
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                })
+                .unwrap_or_default();
+            let official = &value["official"];
+            let official = if official["available"] == true {
+                format!("{} pp", number(&official["result"]["pp"]))
+            } else {
+                format!("unavailable ({})", text(&official["reason"]))
+            };
+            format!(
+                "{} (custom calculator {})\nCurrent: {} pp · if FC: {} pp · {} stars\nBreakdown: {}\n{} stable base: {} pp · official (vosu): {}",
+                text(&value["name"]),
+                text(&value["server"]),
+                number(&value["current"]),
+                number(&value["if_fc"]),
+                number(&value["stars"]),
+                if breakdown.is_empty() {
+                    "—"
+                } else {
+                    &breakdown
+                },
+                text(&value["attributes"]),
+                number(&value["base"]["current"]),
+                official
             )
         } else {
             format!(
@@ -304,11 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return cli(&ToolEnv::from_env()?, parsed).await;
     }
     let env = ToolEnv::from_env()?;
-    let app = App {
-        client: env.client(),
-        cache: Arc::new(Mutex::new(Cache::default())),
-        dir: env.cache_dir.clone(),
-    };
+    let app = App::new(env.client(), &env);
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())
 }

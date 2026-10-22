@@ -208,6 +208,36 @@ command=["bin/vosu-example", "cli"]
         with self.assertRaises(ValueError):
             package.retained_license(self.root, dependency)
 
+    def test_retained_wasmi_and_wasmparser_licenses_are_pinned(self):
+        cases = [('wasmi', '2.0.0', '2970aa871cc1001b57b267ccecdcd1e42306199e', 'wasmi-MIT.txt'),
+                 ('wasmi_core', '2.0.0', '2970aa871cc1001b57b267ccecdcd1e42306199e', 'wasmi-MIT.txt'),
+                 ('wasmi_ir', '2.0.0', '2970aa871cc1001b57b267ccecdcd1e42306199e', 'wasmi-MIT.txt'),
+                 ('wasmi_collections', '2.0.0', '2970aa871cc1001b57b267ccecdcd1e42306199e', 'wasmi-MIT.txt'),
+                 ('wasmparser', '0.228.0', 'e66235859a6ec0502bf6f9dcc358953eda4cafcc', 'wasm-tools-MIT.txt')]
+        licenses = self.root / 'tools/server-pp/licenses'
+        licenses.mkdir(parents=True)
+        for name, version, revision, text in cases:
+            retained = licenses / text
+            retained.write_bytes((package.ROOT / 'tools/server-pp/licenses' / text).read_bytes())
+            directory = self.root / 'registry' / name
+            directory.mkdir(parents=True)
+            vcs = directory / '.cargo_vcs_info.json'
+            vcs.write_text(json.dumps({'git': {'sha1': revision}}))
+            dependency = {'name': name, 'version': version, 'source': 'registry+test', 'manifest_path': str(directory / 'Cargo.toml')}
+            texts, source = package.retained_license(self.root, dependency)
+            self.assertIn(text, texts)
+            self.assertIn(revision, source)
+            self.assertEqual(package.retained_license(self.root, {**dependency, 'version': '9.9.9'}), ({}, None))
+            vcs.write_text(json.dumps({'git': {'sha1': 'wrong'}}))
+            with self.assertRaises(ValueError):
+                package.retained_license(self.root, dependency)
+            vcs.write_text(json.dumps({'git': {'sha1': revision}}))
+            original = retained.read_bytes()
+            retained.write_text('altered license')
+            with self.assertRaises(ValueError):
+                package.retained_license(self.root, dependency)
+            retained.write_bytes(original)
+
 
 if __name__ == '__main__':
     unittest.main()
