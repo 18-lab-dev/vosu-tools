@@ -238,7 +238,7 @@ impl Discovery {
                 if query.discovery == "similar-msd" {
                     let rating = self
                         .host
-                        .tool_json::<Value>("ratings", "v1/beatmap/current?rate=1")
+                        .tool_json::<Value>("mania-ratings", "v1/beatmap/current?rate=1")
                         .await
                         .ok();
                     if let Some(overall) =
@@ -258,7 +258,7 @@ impl Discovery {
                                     match self
                                         .host
                                         .tool_json::<Value>(
-                                            "ratings",
+                                            "mania-ratings",
                                             &format!("v1/beatmap/{hash}?rate=1"),
                                         )
                                         .await
@@ -285,7 +285,7 @@ impl Discovery {
                         sets = matching;
                         notices.push(format!("Cached mania MSD similarity: current {overall:.2} ±2 overall, within the ±1-star candidate window. {unknown} uncached/unsupported difficulties excluded; no missing rating is fabricated."));
                     } else {
-                        notices.push("Ratings is not installed, current map is not cached, or MSD is unavailable; using ±1 star instead. No hard ratings dependency is required.".into());
+                        notices.push("Mania ratings is not installed, current map is not cached, or MSD is unavailable; using ±1 star instead. No hard ratings dependency is required.".into());
                     }
                 }
             }

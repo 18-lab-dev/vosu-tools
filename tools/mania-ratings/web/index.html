@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Mania ratings · vosu tool</title>
+</head>
+<body>
+<div class="app">
+<header class="bar">
+<div class="brand" title="Mania ratings · a vosu tool by 18-LAB">
+<svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="mark-paper" d="M2 4h28v24H2z"/><path class="mark-rule" d="M2 21h28"/><path class="mark-trace" d="M4 24v-5h3v-3h3v-5h3v2h3v-8h3v6h3v4h3v3h3v6"/></svg>
+<span class="tool-name">Mania ratings</span>
+</div>
+<div class="now">
+<span id="live" class="live" data-state="connecting">Connecting</span>
+<div class="now-text">
+<h1 id="title">Waiting for an osu!mania beatmap</h1>
+<p id="meta">Select a mania chart in osu!; this page follows it live.</p>
+</div>
+</div>
+<div class="bar-controls controls">
+<label class="rate">Rate <input id="rate" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+<span id="mods" class="chip" hidden></span>
+<button id="follow" class="toggle" type="button" aria-pressed="true">Follow game</button>
+<label class="file"><span class="file-label">Open .osu</span><input id="file" type="file" accept=".osu"></label>
+<a id="dashboard" class="dashboard-link">Dashboard ↗</a>
+</div>
+</header>
+<p id="status" role="status" data-state="busy">Connecting to vosu…</p>
+<section id="summary" class="readouts" aria-label="Independent system ratings"></section>
+<div class="left">
+<section class="figure skills-figure" aria-labelledby="skills-heading">
+<header class="fig-head"><p class="fig-no">Table 1 · Etterna skills</p><h2 id="skills-heading">What the chart asks of you</h2></header>
+<div id="skills" class="skills" data-empty="No chart analysed yet"></div>
+</section>
+<section class="figure curve-figure" aria-labelledby="curve-heading">
+<header class="fig-head"><p class="fig-no">Fig. 1 · Rate curve</p><h2 id="curve-heading">Find your next step</h2></header>
+<div class="plot-frame" data-empty="Rate curve appears after analysis"><svg id="curve" class="plot" role="img" aria-label="Etterna overall versus rate"></svg></div>
+<ol id="ladder" class="ladder" aria-label="Etterna overall MSD at nearby rates"></ol>
+<p id="curve-caption" class="caption">MinaCalc overall MSD · 0.50–2.00× · dot = analysed rate · dashed = game rate in manual mode</p>
+</section>
+</div>
+<div class="right">
+<section class="figure timeline-figure" aria-labelledby="timeline-heading">
+<div class="section-head"><header class="fig-head"><p class="fig-no">Fig. 2 · Timeline</p><h2 id="timeline-heading">Every phrase, in context</h2></header>
+<div class="controls">
+<label>System <span class="select"><select id="system"><option value="etterna">Etterna · local MSD</option><option value="etterna-native">Etterna · native strain</option><option value="quaver">Quaver</option><option value="interlude">Interlude</option><option value="osu">osu!mania</option><option value="nps">NPS</option></select></span></label>
+<label>Window / s <input id="window" type="number" min="0.1" max="60" step="0.25" value="12"></label>
+<label>Hop / s <input id="hop" type="number" min="0.05" max="60" step="0.05" value="1"></label>
+</div></div>
+<div class="plot-frame" data-empty="Timeline appears after analysis"><canvas id="timeline" class="plot" aria-label="Difficulty timeline. Drag to select a section"></canvas></div>
+<div class="timeline-foot">
+<p id="timeline-caption" class="caption">Local MSD: independently rated centred windows. Dotted line = whole-map MSD. Drag a phrase to rate it.</p>
+<div class="controls section-controls"><label>Start / s <input id="start" type="number" min="0" step="0.1" value="0"></label><label>End / s <input id="end" type="number" min="0" step="0.1" value="30"></label><button id="section" class="secondary" type="button">Rate section</button><output id="section-result" for="start end"></output></div>
+</div>
+</section>
+<section class="figure density-figure" aria-labelledby="density-heading">
+<header class="fig-head"><p class="fig-no">Fig. 3 · Density</p><h2 id="density-heading">Heads per playback second</h2></header>
+<div class="plot-frame" data-empty="Density appears after analysis"><canvas id="density" class="plot" aria-label="Note density timeline"></canvas></div>
+<p class="caption">Tap and hold heads, not releases · no smoothing · skill categories are MinaCalc's own pattern model. <span class="credits">MinaCalc 527 · Quaver 0.0.5 · Interlude Prelude · rosu-pp 4.0.1 · by 18-LAB</span></p>
+</section>
+</div>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

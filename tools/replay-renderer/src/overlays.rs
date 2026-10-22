@@ -233,7 +233,7 @@ pub fn routes(state: Arc<Overlays>) -> Router {
         .route("/websocket/commands", get(commands))
         .route("/overlays/{id}/{*path}", get(file))
         .route("/files/beatmap/{kind}", get(beatmap_file))
-        .route("/tools/ratings/api/{*path}", get(ratings))
+        .route("/tools/mania-ratings/api/{*path}", get(ratings))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             same_origin,
@@ -442,14 +442,14 @@ async fn ratings(
     if (rate - configured_rate).abs() > 0.000001 {
         return Err(error("Replay ratings use the render's fixed playback rate"));
     }
-    let params = vosu_ratings::Params::new(rate, None).map_err(error)?;
+    let params = vosu_mania_ratings::Params::new(rate, None).map_err(error)?;
     let mut native = state.native.lock().await;
     let native = native.as_mut().ok_or_else(|| error("No replay map"))?;
     if path == "v1/beatmap/current" {
         if native.rating.is_none() {
             native.rating = Some(
                 serde_json::to_value(
-                    vosu_ratings::calculate(&native.bytes, params).map_err(error)?,
+                    vosu_mania_ratings::calculate(&native.bytes, params).map_err(error)?,
                 )
                 .map_err(error)?,
             );
@@ -471,8 +471,9 @@ async fn ratings(
     let hop = query.get("hop").and_then(|s| s.parse().ok()).unwrap_or(1.0);
     let key = format!("{rate}:{system}:{window}:{hop}");
     if !native.timelines.contains_key(&key) {
-        let timeline = vosu_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
-            .map_err(error)?;
+        let timeline =
+            vosu_mania_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
+                .map_err(error)?;
         native.timelines.insert(key.clone(), timeline);
     }
     Ok(Json(native.timelines[&key].clone()))

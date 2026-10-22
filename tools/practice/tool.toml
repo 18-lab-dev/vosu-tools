@@ -15,7 +15,7 @@ startup = "on-demand"
 read = ["/v1/current", "/v1/generated", "/v1/jobs", "/v1/settings"]
 write = ["/v1/generate", "/v1/preview", "/v1/settings", "/v1/jobs", "/v1/delete"]
 [[requires]]
-id = "ratings"
+id = "mania-ratings"
 version = ">=0.1.0"
 [permissions]
 host = ["context", "songs:write"]

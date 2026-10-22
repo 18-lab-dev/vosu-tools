@@ -85,7 +85,7 @@ async fn current(
     }
     let ratings = app
         .client
-        .tool_json::<Value>("ratings", &format!("v1/beatmap/current?rate={rate}"))
+        .tool_json::<Value>("mania-ratings", &format!("v1/beatmap/current?rate={rate}"))
         .await
         .ok();
     Ok(Json(

@@ -1,6 +1,6 @@
 use rosu_map::Beatmap;
 use serde_json::Value;
-use vosu_ratings::{Params, analysis, calculate, interlude, quaver, rows};
+use vosu_mania_ratings::{Params, analysis, calculate, interlude, quaver, rows};
 #[test]
 fn upstream_reference_values_and_strain_arrays() {
     let fixtures: Vec<Value> =
@@ -52,7 +52,8 @@ fn whole_map_sections_and_rate_steps() {
     let p = Params::new(1.0, None).unwrap();
     let full = calculate(bytes, p).unwrap();
     let section = analysis::section(bytes, p, 0.0, 24001.0).unwrap();
-    let part: vosu_ratings::Difficulty = serde_json::from_value(section["rating"].clone()).unwrap();
+    let part: vosu_mania_ratings::Difficulty =
+        serde_json::from_value(section["rating"].clone()).unwrap();
     assert_eq!(full.msd.unwrap().overall, part.msd.unwrap().overall);
     assert_eq!(full.interlude, part.interlude);
     assert_eq!(full.quaver, part.quaver);
@@ -102,7 +103,7 @@ fn local_msd_is_an_actual_independent_window_calculation() {
             let clipped = all_rows
                 .iter()
                 .filter(|r| r.seconds >= start && r.seconds < end)
-                .map(|r| vosu_ratings::Row {
+                .map(|r| vosu_mania_ratings::Row {
                     notes: r.notes,
                     seconds: r.seconds - start,
                 })

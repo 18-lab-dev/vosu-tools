@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Semaphore;
-use vosu_ratings::{Difficulty, MAX_BYTES, Params, calculate, checksum};
+use vosu_mania_ratings::{Difficulty, MAX_BYTES, Params, calculate, checksum};
 use vosu_tool_sdk::{Client, ToolEnv};
 
 #[derive(Clone)]
@@ -68,7 +68,7 @@ fn one() -> f32 {
 }
 impl Options {
     fn params(self) -> Result<Params> {
-        vosu_ratings::analysis::systems(self.systems.as_deref())?;
+        vosu_mania_ratings::analysis::systems(self.systems.as_deref())?;
         Ok(Params::new(self.rate, self.score)?)
     }
 }
@@ -207,7 +207,7 @@ async fn rates(
     Path(md5): Path<String>,
     Query(options): Query<RateOptions>,
 ) -> Result<Json<Value>> {
-    let ticks = vosu_ratings::analysis::rate_ticks(options.step)?;
+    let ticks = vosu_mania_ratings::analysis::rate_ticks(options.step)?;
     app.work(move |conn| {
         let mut rates = Vec::with_capacity(14);
         for tick in ticks {
@@ -274,7 +274,8 @@ fn cached_timeline(
     if let Some(value) = stored {
         return serde_json::from_str(&value).map_err(|e| e.to_string());
     }
-    let result = vosu_ratings::analysis::timeline(&map_bytes(conn, md5)?, p, system, window, hop)?;
+    let result =
+        vosu_mania_ratings::analysis::timeline(&map_bytes(conn, md5)?, p, system, window, hop)?;
     let serialized = serde_json::to_string(&result).map_err(|e| e.to_string())?;
     conn.execute(
         "INSERT OR REPLACE INTO timelines(key,result) VALUES(?1,?2)",
@@ -295,15 +296,17 @@ async fn section(
     let end = options
         .end
         .ok_or_else(|| ApiError(StatusCode::BAD_REQUEST, "missing end (seconds)".into()))?;
-    app.work(move |conn| vosu_ratings::analysis::section(&map_bytes(&conn, &md5)?, p, start, end))
-        .await
-        .map(Json)
+    app.work(move |conn| {
+        vosu_mania_ratings::analysis::section(&map_bytes(&conn, &md5)?, p, start, end)
+    })
+    .await
+    .map(Json)
 }
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if std::env::args().nth(1).as_deref() == Some("cli") {
         if let Err(error) = cli::run().await {
-            eprintln!("vosux ratings: {error}");
+            eprintln!("vosux mania-ratings: {error}");
             std::process::exit(1);
         }
         return Ok(());

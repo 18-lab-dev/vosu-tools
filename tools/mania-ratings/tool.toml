@@ -1,14 +1,14 @@
 manifest_version = 1
-id = "ratings"
-name = "Ratings"
+id = "mania-ratings"
+name = "Mania ratings"
 version = "0.1.0"
-description = "Native mania analysis: MinaCalc, Quaver, Interlude, osu!mania stars, timelines and experimental Reform estimates."
+description = "Live osu!mania difficulty dashboard for a second monitor: MinaCalc, Quaver, Interlude and osu!mania stars, rate curve, timelines and experimental Reform estimates for the selected map and rate."
 author = "18-LAB"
 icon = "assets/icon.svg"
 banner = "assets/banner.svg"
 
 [service]
-command = ["bin/vosu-ratings"]
+command = ["bin/vosu-mania-ratings"]
 startup = "on-demand"
 
 [api]
@@ -19,7 +19,7 @@ write = ["/v1/calculate"]
 host = ["context"]
 
 [cli]
-command = ["bin/vosu-ratings", "cli"]
+command = ["bin/vosu-mania-ratings", "cli"]
 summary = "Compare mania ratings, rate curves, timelines and selected sections"
 
 [ui]

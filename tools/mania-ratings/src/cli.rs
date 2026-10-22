@@ -8,7 +8,7 @@ use vosu_tool_sdk::{
 };
 #[derive(Parser, Debug)]
 #[command(
-    name = "vosux ratings",
+    name = "vosux mania-ratings",
     about = "Calculate the selected beatmap, a .osu file, or stdin (-)"
 )]
 struct Args {
@@ -59,7 +59,7 @@ fn parse_section(value: &str) -> Result<(f32, f32), String> {
 }
 pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse_from(
-        std::iter::once("vosux ratings".to_owned()).chain(std::env::args().skip(2)),
+        std::iter::once("vosux mania-ratings".to_owned()).chain(std::env::args().skip(2)),
     );
     let client = ToolEnv::from_env()?.client();
     let mut query = format!("rate={}", args.rate);
@@ -67,7 +67,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         query.push_str(&format!("&score={score}"));
     }
     if let Some(systems) = &args.systems {
-        vosu_ratings::analysis::systems(Some(systems))?;
+        vosu_mania_ratings::analysis::systems(Some(systems))?;
         query.push_str(&format!("&systems={systems}"));
     }
     let result: Value = if let Some(file) = &args.file {
@@ -78,9 +78,9 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         };
         let mut bytes = Vec::new();
         reader
-            .take((vosu_ratings::MAX_BYTES + 1) as u64)
+            .take((vosu_mania_ratings::MAX_BYTES + 1) as u64)
             .read_to_end(&mut bytes)?;
-        if bytes.len() > vosu_ratings::MAX_BYTES {
+        if bytes.len() > vosu_mania_ratings::MAX_BYTES {
             return Err("beatmap exceeds 1 MiB".into());
         }
         send_json(
