@@ -10,12 +10,18 @@ export interface ToolIdentity {
 }
 
 export interface VosuBridge {
-  /** Resolves after a launch code (if any) is exchanged and data-theme is applied. */
+  /** Resolves after a launch code (if any) is exchanged. */
   readonly ready: Promise<void>;
   readonly tool: ToolIdentity;
   /** True only in a tab opened from the dashboard; a reload is read-only. */
   readonly canWrite: boolean;
   readonly dashboardUrl: string;
+  /**
+   * The dashboard's colour mode when the tool was opened, else the system
+   * preference. Tools choose their own theme; this is only a hint. Bridges
+   * from before vosu 1.2.0 do not provide it.
+   */
+  readonly colorScheme?: "dark" | "light";
   /** Fetch relative to /tools/<id>/api/, adding the UI session header. */
   fetch(path: string, init?: RequestInit): Promise<Response>;
   /** Selected-field /websocket/v2/subscribe helper; returns an unsubscribe function. */
