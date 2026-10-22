@@ -1,0 +1,13 @@
+[package]
+name = "rust-example"
+version = "1.0.0"
+description = "Example server-pp calculator module written in Rust"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vosu-pp-guest = { path = "../guest" }

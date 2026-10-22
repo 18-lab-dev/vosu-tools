@@ -58,7 +58,7 @@ fn pinned_server_libraries_are_reference_oracles() {
                         .calculate()
                         .pp()
                 };
-                let actual = calculate(&map, &input).unwrap()["current"]
+                let actual = calculate(&map, &input, Profile::Builtin).unwrap()["current"]
                     .as_f64()
                     .unwrap();
                 assert!(
@@ -89,7 +89,8 @@ fn rejects_unverified_and_conflicting_mods() {
                     server: server.into(),
                     mods: mods.into(),
                     ..Input::default()
-                }
+                },
+                Profile::Builtin,
             )
             .is_err()
         );
@@ -128,11 +129,11 @@ fn judgement_live_and_fc_are_distinct() {
             passed_objects: Some(10),
             ..Input::default()
         };
-        let r = calculate(&map, &i).unwrap();
+        let r = calculate(&map, &i, Profile::Builtin).unwrap();
         assert!(r["if_fc"].as_f64().unwrap() > r["current"].as_f64().unwrap());
         let mut conflicting = i;
         conflicting.acc = Some(99.0);
-        assert!(calculate(&map, &conflicting).is_err());
+        assert!(calculate(&map, &conflicting, Profile::Builtin).is_err());
     }
 }
 
@@ -144,7 +145,7 @@ async fn live_host_mapping_and_official_query() {
         routing::get,
     };
     use serde_json::json;
-    use std::{collections::HashMap, sync::Mutex};
+    use std::collections::HashMap;
     let checksum = format!("{:x}", md5::compute(MAP));
     let host = Router::new()
         .route("/files/beatmap/file", get(|| async { MAP }))
@@ -183,11 +184,7 @@ async fn live_host_mapping_and_official_query() {
         cache_dir: dir.clone(),
         interface: vosu_tool_sdk::Interface::Service,
     };
-    let app = crate::App {
-        client: env.client(),
-        cache: Arc::new(Mutex::new(Cache::default())),
-        dir: dir.clone(),
-    };
+    let app = crate::App::new(env.client(), &env);
     let Json(result) = crate::current(
         State(app),
         Query(Input {
@@ -216,7 +213,8 @@ fn legacy_rx_unrepresentable_accuracy_returns_error_not_panic() {
                     acc: Some(acc),
                     misses: 1,
                     ..Input::default()
-                }
+                },
+                Profile::Builtin,
             )
             .is_err()
         );

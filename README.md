@@ -5,7 +5,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 | Tool | id | Interfaces | Purpose |
 | --- | --- | --- | --- |
 | osu! practice tool | `practice` | CLI, UI, service | Offline rates, Constant Speed, seeded Random and ruleset-specific map transforms; see [scope and provenance](tools/practice/PROVENANCE.md) |
-| Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots, with official pp comparison |
+| Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots and run user-supplied WebAssembly pp calculators, with official pp comparison |
 | Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
 | skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for skin.ini: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; stable Skins plus folders added by path (including lazer's "Edit externally" folder); lazer's current skin is viewable read-only; read-only without a dashboard session |
 | Map preview | `map-preview` | UI | WebGPU previews for all four rulesets, audio-synced seeking/rate, visual mods, AR/CS and scroll controls; skins from the client's current skin (stable, or lazer via vosu's `/files/skin/` report, with built-in lazer skins falling back to defaults), an `.osk` file, or a skin folder; [shared renderer API](packages/render-core/README.md) |

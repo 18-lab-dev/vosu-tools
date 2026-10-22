@@ -1,0 +1,14 @@
+[package]
+name = "rosu-reference"
+version = "4.0.1"
+description = "rosu-pp 4.0.1 stable performance formulas as a server-pp calculator module (fidelity reference)"
+edition.workspace = true
+# Ported calculator source; see LICENSE-rosu-pp.
+license = "MIT"
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+vosu-pp-guest = { path = "../guest" }
