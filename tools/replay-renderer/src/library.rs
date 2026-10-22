@@ -110,7 +110,8 @@ pub(super) async fn lazer(app: &App) -> Lazer {
         _ => Lazer::NoData(
             status["error"]
                 .as_str()
-                .unwrap_or("no lazer data found")
+                // No error yet: the library is still taking its first Realm snapshot.
+                .unwrap_or("still reading lazer's database; try again in a moment")
                 .to_owned(),
         ),
     }

@@ -195,7 +195,11 @@ export async function loadTrack(
         columns,
       );
       if (!simulation.verified)
-        warning = `Judgement verification failed: ${JSON.stringify(simulation.differences)}. Timing HUD omitted.`;
+        warning = `Judgement counts could not be reproduced (${Object.entries(
+          simulation.differences,
+        )
+          .map(([result, d]) => `${result} ${d.expected} recorded vs ${d.actual}`)
+          .join(", ")}), so combo, accuracy and judgement counters are hidden. The playfield and input are unaffected.`;
     } catch (e) {
       warning = String(e);
     }
