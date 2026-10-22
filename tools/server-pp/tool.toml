@@ -4,6 +4,8 @@ name = "Server pp calculator"
 version = "0.1.0"
 author = "18-LAB"
 description = "Reproduce pinned public Akatsuki and Mamestagram calculator snapshots. Live deployment parity is not claimed."
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [service]
 command = ["bin/vosu-server-pp"]
