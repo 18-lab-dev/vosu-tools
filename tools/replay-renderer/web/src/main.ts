@@ -9,6 +9,7 @@ import {
   type Preset,
 } from "./studio";
 import "./style.css";
+import settingSchema from "../../render-settings.json";
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const notice = el("notice");
@@ -64,7 +65,7 @@ async function add(bytes: Uint8Array<ArrayBuffer>) {
     refreshComposition();
   } catch (error) {
     tracks.pop();
-    track.renderer.destroy();
+    track.dispose();
     refreshComposition();
     throw error;
   }
@@ -93,22 +94,48 @@ function renderTracks() {
     }
     skin.value = track.skin ?? "";
     skinLabel.append(skin);
-    const speedLabel = document.createElement("label");
-    speedLabel.textContent = "Mania scroll speed";
-    const speed = document.createElement("input");
-    speed.type = "number";
-    speed.min = "1";
-    speed.max = "100";
-    speed.value = String(track.settings["mania.scroll_speed"] ?? 20);
-    speedLabel.append(speed);
-    speed.disabled = track.replay.mode !== 3;
+    const options = document.createElement("details"),
+      summary = document.createElement("summary");
+    summary.textContent = "Render settings";
+    options.append(summary);
+    const settingControls: Record<string, HTMLInputElement> = {};
+    for (const rule of settingSchema.filter((rule) =>
+      rule.modes.includes(track.replay.mode),
+    )) {
+      const label = document.createElement("label"),
+        input = document.createElement("input");
+      label.textContent = rule.label;
+      input.dataset.setting = rule.key;
+      input.type = rule.control === "toggle" ? "checkbox" : "number";
+      input.min = String(rule.min);
+      input.max = String(rule.max);
+      input.step = String(rule.step);
+      const value = track.settings[rule.key] ?? rule.default;
+      input.value = String(value);
+      input.checked = value !== 0;
+      label.append(input);
+      options.append(label);
+      settingControls[rule.key] = input;
+    }
+    const readSettings = () => {
+      const settings = { ...track.settings };
+      for (const rule of settingSchema) {
+        const input = settingControls[rule.key];
+        if (!input) continue;
+        const value =
+          rule.control === "toggle"
+            ? Number(input.checked)
+            : Number(input.value);
+        if (!Number.isFinite(value) || value < rule.min || value > rule.max)
+          throw new Error(`${rule.label} must be ${rule.min}..${rule.max}`);
+        settings[rule.key] = value;
+      }
+      return settings;
+    };
     const apply = document.createElement("button");
     apply.textContent = "Apply";
     apply.onclick = async () => {
       try {
-        const value = Number(speed.value);
-        if (!Number.isFinite(value) || value < 1 || value > 100)
-          throw new Error("Scroll speed must be 1..100");
         const updated = await loadTrack(
           track.id,
           new Uint8Array(
@@ -116,12 +143,12 @@ function renderTracks() {
           ),
           {
             skin: skin.value || null,
-            settings: { "mania.scroll_speed": value },
+            settings: readSettings(),
           },
           fetcher,
         );
         const index = tracks.indexOf(track);
-        track.renderer.destroy();
+        track.dispose();
         tracks[index] = updated;
         refreshComposition();
         renderTracks();
@@ -136,7 +163,7 @@ function renderTracks() {
       try {
         const preset = {
           skin: skin.value || null,
-          settings: { "mania.scroll_speed": Number(speed.value) },
+          settings: readSettings(),
         };
         await fetcher(`v1/presets/${encodeURIComponent(track.replay.player)}`, {
           method: "POST",
@@ -153,14 +180,14 @@ function renderTracks() {
     remove.textContent = "Remove";
     remove.onclick = () => {
       tracks.splice(tracks.indexOf(track), 1);
-      track.renderer.destroy();
+      track.dispose();
       refreshComposition();
       renderTracks();
     };
     const controls = document.createElement("div");
     controls.className = "row";
     controls.append(apply, remove);
-    row.append(name, detail, skinLabel, speedLabel, controls, save);
+    row.append(name, detail, skinLabel, options, controls, save);
     if (track.warning) {
       const warning = document.createElement("small");
       warning.textContent = track.warning;

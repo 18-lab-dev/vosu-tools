@@ -12,6 +12,7 @@ import {
 import {
   parseOsu,
   applyMods,
+  csv,
   type Beatmap,
   type Mod,
 } from "@vosu-tools/osu-parse";
@@ -33,6 +34,7 @@ import {
   assertCompatible,
   type Layout,
 } from "@vosu-tools/render-export";
+import settingSchema from "../../render-settings.json";
 export interface Preset {
   skin?: string | null;
   settings: Record<string, number>;
@@ -45,6 +47,8 @@ export interface Track extends Preset {
   renderer: Renderer;
   canvas: HTMLCanvasElement;
   warning: string;
+  background: ImageBitmap | null;
+  dispose(): void;
 }
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 export async function checked(response: Response): Promise<Response> {
@@ -66,6 +70,14 @@ export async function loadTrack(
   assetPrefix = "v1/assets",
 ): Promise<Track> {
   const replay = await parseReplay(bytes);
+  const settings = {
+    ...Object.fromEntries(
+      settingSchema
+        .filter((rule) => rule.modes.includes(replay.mode))
+        .map((rule) => [rule.key, rule.default]),
+    ),
+    ...preset.settings,
+  };
   const raw = parseOsu(
     await (
       await checked(
@@ -108,6 +120,16 @@ export async function loadTrack(
   } catch (e) {
     throw new Error(`Skin load failed: ${e}`);
   }
+  let background: ImageBitmap | null = null;
+  const backgroundFile = raw.events
+    .map(csv)
+    .find((fields) => fields[0] === "0" && fields[2])?.[2];
+  if (backgroundFile) {
+    const response = await fetcher(
+      `${assetPrefix}?${new URLSearchParams({ kind: "map-asset", hash: replay.beatmapHash, path: backgroundFile })}`,
+    );
+    background = await createImageBitmap(await response.blob());
+  }
   const canvas = document.createElement("canvas");
   sharedDevice ??= (async () => {
     const adapter =
@@ -123,10 +145,13 @@ export async function loadTrack(
     height: 540,
     skin,
     format: "rgba8unorm",
+    transparentBackground: true,
   });
   renderer.setBeatmap(raw, {
     mods,
-    scrollSpeed: preset.settings["mania.scroll_speed"],
+    scrollSpeed: settings["mania.scroll_speed"],
+    noteSpeed: settings.note_speed,
+    hitLighting: settings.hit_lighting !== 0,
   });
   let simulation: Simulation | null = null,
     warning = "";
@@ -167,7 +192,13 @@ export async function loadTrack(
     renderer,
     canvas,
     skin: preset.skin,
-    settings: preset.settings,
+    settings,
+    background,
+    dispose() {
+      renderer.destroy();
+      background?.close();
+      for (const bitmap of skin.assets.values()) bitmap.close();
+    },
     warning,
   };
 }
@@ -264,9 +295,28 @@ export class Composition {
         frame = frameAt(track.replay, time),
         resource = this.readbacks[i],
         rect = rects[i];
+      const settings = track.settings;
+      const trailDuration = settings["cursor.trail_ms"] ?? 0,
+        trail = [];
+      if (track.replay.mode === 0 || track.replay.mode === 2)
+        for (let ago = trailDuration; ago > 0; ago -= 16) {
+          const sample = frameAt(track.replay, time - ago);
+          trail.push({
+            x: sample.x,
+            y: sample.y,
+            opacity: (1 - ago / Math.max(1, trailDuration)) * 0.6,
+            scale: settings["cursor.size"] ?? 1,
+          });
+        }
       track.renderer.renderAt(time, {
         target: resource.texture.createView(),
-        cursor: { x: frame.x, y: frame.y, pressed: !!frame.keys },
+        cursor: {
+          x: frame.x,
+          y: frame.y,
+          pressed: !!frame.keys,
+          scale: settings["cursor.size"] ?? 1,
+        },
+        cursorTrail: trail,
         keys:
           track.replay.mode === 3
             ? columnKeys(frame, Math.round(track.map.difficulty.cs))
@@ -301,7 +351,32 @@ export class Composition {
         );
       resource.buffer.unmap();
       resource.canvas.getContext("2d")!.putImageData(resource.pixels, 0, 0);
-      context.drawImage(resource.canvas, rect.x, rect.y);
+      context.save();
+      context.beginPath();
+      context.rect(rect.x, rect.y, rect.width, rect.height);
+      context.clip();
+      if (track.background) {
+        context.drawImage(
+          track.background,
+          rect.x,
+          rect.y,
+          rect.width,
+          rect.height,
+        );
+        context.fillStyle = `rgba(0,0,0,${settings.background_dim ?? 0.85})`;
+        context.fillRect(rect.x, rect.y, rect.width, rect.height);
+      }
+      const scale = settings["playfield.scale"] ?? 1;
+      const x = rect.x + rect.width * (0.5 + (settings["playfield.x"] ?? 0)),
+        y = rect.y + rect.height * (0.5 + (settings["playfield.y"] ?? 0));
+      context.drawImage(
+        resource.canvas,
+        x - (rect.width * scale) / 2,
+        y - (rect.height * scale) / 2,
+        rect.width * scale,
+        rect.height * scale,
+      );
+      context.restore();
       const state = track.simulation?.verified
         ? stateAt(track.replay, track.simulation, time)
         : null;
@@ -309,13 +384,49 @@ export class Composition {
       context.fillRect(rect.x, rect.y, rect.width, 34);
       context.fillStyle = "#ff963f";
       context.font = `${Math.max(12, Math.round(rect.height / 30))}px monospace`;
-      context.fillText(
-        `${track.replay.player}${state ? `  ${state.combo}x  ${(state.accuracy * 100).toFixed(2)}%` : ""}`,
-        rect.x + 12,
-        rect.y + 23,
-      );
+      const hud = [
+        settings["hud.player"] !== 0 ? track.replay.player : "",
+        state && state.combo !== null && settings["hud.combo"] !== 0
+          ? `${state.combo}x`
+          : "",
+        state && settings["hud.accuracy"] !== 0
+          ? `${(state.accuracy * 100).toFixed(2)}%`
+          : "",
+      ].filter(Boolean);
+      context.fillText(hud.join("  "), rect.x + 12, rect.y + 23);
+      if (state && settings["hud.judgements"] !== 0) {
+        context.font = "12px monospace";
+        context.fillText(
+          Object.entries(state.counts)
+            .map(([key, value]) => `${key}:${value}`)
+            .join("  "),
+          rect.x + 12,
+          rect.y + 50,
+        );
+      }
+      if (
+        settings.key_overlay !== 0 &&
+        (track.replay.mode === 1 || track.replay.mode === 3)
+      ) {
+        const keys =
+          track.replay.mode === 3
+            ? columnKeys(frame, Math.round(track.map.difficulty.cs))
+            : Array.from(
+                { length: 4 },
+                (_, key) => !!(frame.keys & (1 << key)),
+              );
+        keys.forEach((pressed, key) => {
+          context.fillStyle = pressed ? "#ff963f" : "#303239";
+          context.fillRect(
+            rect.x + 12 + key * 26,
+            rect.y + rect.height - 24,
+            22,
+            12,
+          );
+        });
+      }
       const health = healthAt(track.replay, time);
-      if (health !== null) {
+      if (health !== null && settings["hud.health"] !== 0) {
         context.fillStyle = "#3a3c3f";
         context.fillRect(rect.x, rect.y + 32, rect.width, 3);
         context.fillStyle = "#ff963f";
@@ -344,6 +455,6 @@ export class Composition {
   }
   destroy() {
     this.releaseTargets();
-    for (const track of this.tracks) track.renderer.destroy();
+    for (const track of this.tracks) track.dispose();
   }
 }

@@ -84,6 +84,29 @@ test("mania tap simulation verifies header counts and combo", () => {
   expect(result.verified).toBe(true);
   expect(result.events[0].combo).toBe(1);
 });
+test("mania early-hit notelock lasts until the previous scheduled note time", () => {
+  const replay = {
+    ...base,
+    counts: { ...base.counts, geki: 2 },
+    frames: [
+      { time: 990, x: 1, y: 0, keys: 0 },
+      { time: 995, x: 0, y: 0, keys: 0 },
+      { time: 998, x: 1, y: 0, keys: 0 },
+      { time: 1001, x: 0, y: 0, keys: 0 },
+      { time: 1099, x: 1, y: 0, keys: 0 },
+    ],
+  };
+  const result = simulate(
+    replay,
+    [
+      { time: 1000, column: 0 },
+      { time: 1100, column: 0 },
+    ],
+    8,
+  );
+  expect(result.verified).toBe(true);
+  expect(result.events.map((event) => event.offset)).toEqual([-10, -1]);
+});
 test("mania hold combined head and release errors", () => {
   const replay = {
     ...base,
@@ -144,4 +167,28 @@ describe.skipIf(!fixture)("copied real stable replays", () => {
     expect(replay.counts.miss).toBe(47);
     expect(replay.rate).toBe(1.5);
   });
+});
+const corpus = process.env.REPLAY_CORPUS;
+describe.skipIf(!corpus)("real native mania parity regressions", () => {
+  for (const id of [3, 6, 9, 10, 12, 15, 16])
+    test(`stored judgement parity: corpus ${id}`, async () => {
+      const replay = await parseReplay(
+        new Uint8Array(await Bun.file(`${corpus}/${id}.osr`).arrayBuffer()),
+      );
+      const map = parseOsu(await Bun.file(`${corpus}/${id}.osu`).text()),
+        columns = Math.round(map.difficulty.cs);
+      const result = simulate(
+        replay,
+        map.objects.map((object) => ({
+          time: object.time,
+          endTime: object.type & 128 ? object.endTime : undefined,
+          column: Math.min(columns - 1, Math.floor((object.x * columns) / 512)),
+          kind: object.type & 128 ? "hold" : "circle",
+        })),
+        map.difficulty.od,
+        columns,
+      );
+      expect(result.verified).toBe(true);
+      expect(result.counts).toEqual(replay.counts);
+    });
 });

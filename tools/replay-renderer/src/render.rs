@@ -110,13 +110,9 @@ async fn run(worker: Worker) -> Result<(), String> {
     if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" {
         return Err("Render cancelled".into());
     }
-    let browser = std::env::var("VOSU_RENDER_CHROMIUM").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe".into()
-        } else {
-            "chromium".into()
-        }
-    });
+    worker.app.jobs.lock().await.get_mut(&worker.id).unwrap()["message"] =
+        json!("Preparing SHA-256-pinned browser runtime (first use may download)");
+    let browser = crate::browser::executable(&worker.app.env.cache_dir).await?;
     let cap = uuid::Uuid::new_v4().simple().to_string();
     let router = Router::new()
         .route("/spec", get(spec))

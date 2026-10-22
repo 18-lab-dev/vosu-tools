@@ -17,6 +17,7 @@ use std::{
 use tokio::sync::Mutex;
 use vosu_tool_sdk::{ToolEnv, cli::Method};
 
+mod browser;
 mod render;
 type Error = (StatusCode, Json<Value>);
 fn error(message: impl ToString) -> Error {
@@ -96,14 +97,37 @@ enum Presets {
         json: bool,
     },
 }
+#[derive(Deserialize)]
+struct RenderSetting {
+    key: String,
+    min: f64,
+    max: f64,
+    step: f64,
+}
+static RENDER_SETTINGS: std::sync::LazyLock<Vec<RenderSetting>> = std::sync::LazyLock::new(|| {
+    serde_json::from_str(include_str!("../render-settings.json"))
+        .expect("embedded render settings are valid")
+});
 fn parse_setting(input: &str) -> Result<(String, f64), String> {
     let (key, value) = input.split_once('=').ok_or("Expected KEY=NUMBER")?;
-    if key != "mania.scroll_speed" {
-        return Err("Supported setting: mania.scroll_speed".into());
-    }
-    let value: f64 = value.parse().map_err(|_| "Expected numeric setting")?;
-    if !value.is_finite() || !(1.0..=100.0).contains(&value) {
-        return Err("Scroll speed must be 1..100".into());
+    let rule = RENDER_SETTINGS
+        .iter()
+        .find(|rule| rule.key == key)
+        .ok_or_else(|| format!("Unknown render setting {key}; see render-settings.json"))?;
+    let value: f64 = value
+        .parse()
+        .map_err(|_| "Expected numeric setting (toggles use 0 or 1)")?;
+    if !value.is_finite()
+        || value < rule.min
+        || value > rule.max
+        || (rule.step == 1.0 && value.fract() != 0.0)
+    {
+        return Err(format!(
+            "{key} must be {}..{}{}",
+            rule.min,
+            rule.max,
+            if rule.step == 1.0 { " (integer)" } else { "" }
+        ));
     }
     Ok((key.to_owned(), value))
 }

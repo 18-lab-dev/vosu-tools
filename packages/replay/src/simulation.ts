@@ -25,6 +25,7 @@ export interface Simulation {
   events: Judgement[];
   counts: Counts;
   verified: boolean;
+  comboVerified: boolean;
   differences: Partial<Record<Result, { expected: number; actual: number }>>;
   warnings: string[];
 }
@@ -99,6 +100,7 @@ export function simulate(
       ? ["geki", "n300", "katu", "n100", "n50"]
       : ["n300", "n100"];
   const consumed = new Set<number>();
+  const previousStart = Array.from({ length: columns }, () => -Infinity);
   notes.forEach((note, index) => {
     if (
       replay.mode === 1 &&
@@ -107,11 +109,16 @@ export function simulate(
       warnings.push("Taiko drumroll/spinner bonus combo is not reconstructed");
       return;
     }
+    // An early hit does not unlock the next note until the previous note's scheduled time.
+    const notelock =
+      replay.mode === 3 ? previousStart[note.column ?? 0] : -Infinity;
+    if (replay.mode === 3) previousStart[note.column ?? 0] = note.time;
     const lateWindow = replay.mode === 3 ? windows[3] : missWindow;
     const candidate = presses.findIndex(
       (p, i) =>
         !p.used &&
         !consumed.has(i) &&
+        p.time >= notelock &&
         p.time >= note.time - missWindow &&
         p.time <= note.time + lateWindow &&
         (replay.mode === 3
@@ -198,10 +205,12 @@ export function simulate(
   });
   raw.sort((a, b) => a.time - b.time || a.note - b.note);
   const counts = empty();
-  let combo = 0;
+  let combo = 0,
+    maxCombo = 0;
   const events = raw.map((event) => {
     counts[event.result]++;
     combo = event.result === "miss" ? 0 : combo + 1;
+    maxCombo = Math.max(maxCombo, combo);
     return {
       ...event,
       combo,
@@ -221,6 +230,7 @@ export function simulate(
   return {
     events,
     counts,
+    comboVerified: maxCombo === replay.maxCombo,
     verified: !Object.keys(differences).length && !warnings.length,
     differences,
     warnings,
@@ -236,7 +246,7 @@ export function stateAt(replay: Replay, simulation: Simulation, time: number) {
   }
   const event = simulation.events[low - 1];
   return {
-    combo: event?.combo ?? 0,
+    combo: simulation.comboVerified ? (event?.combo ?? 0) : null,
     counts: event?.counts ?? empty(),
     accuracy: event?.accuracy ?? 1,
     health: healthAt(replay, time),
