@@ -27,6 +27,8 @@ id="example"
 name="Example"
 version="1.2.3"
 author="18-LAB"
+icon="icon.svg"
+banner="banner.svg"
 [ui]
 root="web/dist"
 [service]
@@ -36,6 +38,8 @@ command=["bin/vosu-example", "cli"]
 '''
         (self.tool / 'tool.toml').write_text(self.manifest)
         (self.tool / 'Cargo.toml').write_text('[package]\nname="vosu-example"\nversion="1.2.3"\n')
+        (self.tool / 'icon.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"/>')
+        (self.tool / 'banner.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400"/>')
         (self.tool / 'web/dist/index.html').write_text('<h1>Example</h1>')
         (self.tool / 'web/dist/assets/app.js').write_text('console.log("example")')
         (self.tool / 'web/dist/assets/app.js.map').write_text(json.dumps({'sources': []}))
@@ -51,6 +55,20 @@ command=["bin/vosu-example", "cli"]
     def assemble(self, target='x86_64-unknown-linux-gnu'):
         with patch.object(package, 'rust_licenses', return_value=({'licenses/rust/example/LICENSE': b'MIT'}, [])), contextlib.redirect_stdout(io.StringIO()):
             return package.assemble(self.root, self.root / 'dist', target, 'https://example.com/releases/v1', self.metadata, package.discover(self.root))
+
+    def test_art_is_packaged_and_published(self):
+        entry = self.assemble()['tools'][0]
+        for role in ('icon', 'banner'):
+            name = f'vosu-tool-example-{role}.svg'
+            self.assertEqual(entry[role + '_url'], 'https://example.com/releases/v1/' + name)
+            self.assertEqual((self.root / 'dist' / name).read_bytes(), (self.tool / (role + '.svg')).read_bytes())
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            self.assertEqual(archive.read('banner.svg'), (self.tool / 'banner.svg').read_bytes())
+
+    def test_missing_art_rejected(self):
+        (self.tool / 'tool.toml').write_text(self.manifest.replace('icon="icon.svg"\n', ''))
+        with self.assertRaises(ValueError):
+            package.discover(self.root)
 
     def test_deterministic_archive_integrity_and_modes(self):
         first = self.assemble()

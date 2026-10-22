@@ -10,6 +10,7 @@ import sys
 import tomllib
 
 from package_common import TARGETS, add_tree, atomic_json, published, release_url, valid_id, write_zip
+from package_art import artwork, art_urls, publish_art
 
 ROOT = Path(__file__).resolve().parents[1]
 ALLOWED = {'MIT', 'MIT-0', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 'Zlib',
@@ -257,6 +258,7 @@ def discover(root):
             raise ValueError(f'invalid tool identity/version in {manifest_path}')
         if manifest.get('manifest_version') != 1:
             raise ValueError(f'unsupported manifest version: {manifest_path}')
+        artwork(directory, manifest, required=True)
         native = 'service' in manifest or 'cli' in manifest
         cargo = directory / 'Cargo.toml'
         package = tomllib.loads(cargo.read_text())['package']['name'] if native else None
@@ -285,6 +287,8 @@ def assemble(root, out, target, base_url, metadata, tools):
     for directory, manifest, package in tools:
         identity, version = manifest['id'], manifest['version']
         files = {'tool.toml': (directory / 'tool.toml').read_bytes()}
+        art = artwork(directory, manifest, required=True)
+        files.update({path: data for path, data in art.values()})
         for name in ('LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md'):
             if not (root / name).is_file():
                 raise ValueError(f'missing repository notice: {name}')
@@ -322,6 +326,8 @@ def assemble(root, out, target, base_url, metadata, tools):
                       'interfaces': [section for section in ('ui', 'service', 'cli') if section in manifest],
                       'requires': manifest.get('requires', []),
                       'packages': {package_target: {'url': release_url(base_url, filename), **integrity}}})
+        publish_art(art, identity, 'tool', out)
+        entry.update(art_urls(art, identity, 'tool', base_url))
         catalog['tools'].append(entry)
         print(f'{identity}\t{package_target}\t{integrity["size"]}\t{integrity["sha256"]}')
     return catalog
@@ -379,7 +385,8 @@ def main():
                 for directory, manifest, package in tools:
                     print(json.dumps({'id': manifest['id'], 'target': args.target if package else 'any',
                                       'cargo': ['cargo', 'build', '--release', '--locked', '--target', args.target, '-p', package] if package else None,
-                                      'ui': str(directory / 'web') if 'ui' in manifest else None}, sort_keys=True))
+                                      'ui': str(directory / 'web') if 'ui' in manifest else None,
+                                      **art_urls(artwork(directory, manifest, required=True), manifest['id'], 'tool', args.base_url)}, sort_keys=True))
                 return 0
             if not args.skip_build:
                 build(root, args.target, tools)

@@ -26,6 +26,11 @@ Rules vosu enforces before installing: regular files and directories only (no sy
 
 Supported tool targets: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`. A tool without native code may publish one package with target `any`.
 
+Official tool manifests must declare `icon` and `banner`, relative paths within the tool directory. Icons are square SVG or PNG, at least 256×256. Banners accept PNG, JPEG, WebP or SVG and must be 3:1 (±2%; recommended 1200×400). Each file must be nonempty and at most 1 MiB; extensions must match image headers. Symlinks and escaping paths are rejected. Artwork is copied into the ZIP at its manifest path, and published separately as `vosu-tool-<id>-icon.<ext>` and `vosu-tool-<id>-banner.<ext>`.
+
+Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` fields for artwork before installation. Overlay metadata may declare `icon` and `banner` with the same constraints; otherwise packaging discovers a single `icon.*` / `banner.*` in the overlay directory. Overlay art is optional, stays in the ZIP, and is published as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`. Multiple matching files require explicit metadata. Art assets are versioned by release URL rather than filename.
+
+
 ## catalog.json
 
 ```json
@@ -41,6 +46,8 @@ Supported tool targets: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`. A 
       "description": "…",
       "author": "18-LAB",
       "homepage": "https://github.com/shiruviaa/vosu-tools/tree/main/tools/practice",
+      "icon_url": "https://github.com/…/vosu-tool-practice-icon.svg",
+      "banner_url": "https://github.com/…/vosu-tool-practice-banner.svg",
       "protocol": 1,
       "interfaces": ["ui", "service", "cli"],
       "requires": [{"id": "ratings", "version": ">=0.1.0"}],
@@ -60,6 +67,8 @@ Supported tool targets: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`. A 
       "homepage": "https://github.com/shiruviaa/vosu-overlays/tree/main/overlays/ratings-timeline",
       "resolution": [640, 120],
       "preview": "https://…/ratings-timeline.png",
+      "icon_url": "https://…/vosu-overlay-ratings-timeline-icon.png",
+      "banner_url": "https://…/vosu-overlay-ratings-timeline-banner.png",
       "requires_tools": [{"id": "ratings", "version": ">=0.1.0"}],
       "package": {"url": "https://github.com/…/vosu-overlay-ratings-timeline-0.1.0.zip", "sha256": "<64 hex>", "size": 123456}
     }
