@@ -4,6 +4,8 @@ name = "Ratings"
 version = "0.1.0"
 description = "Native mania analysis: MinaCalc, Quaver, Interlude, osu!mania stars, timelines and experimental Reform estimates."
 author = "18-LAB"
+icon = "assets/icon.svg"
+banner = "assets/banner.svg"
 
 [service]
 command = ["bin/vosu-ratings"]

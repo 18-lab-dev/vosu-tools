@@ -179,8 +179,9 @@ worker, so it does not recompute the same timeline. No native arithmetic changes
 
 The analysis page and compact overlay default to local MSD with a dotted
 whole-map MSD reference and a 0–40 scale (expanded in tens if needed).
-Discrete 18-LAB warm palette bands are `<10`, `10–20`, `20–30`, `30–40`, `40+`;
-no rainbow gradient is used.
+Discrete warm bands are `<10`, `10–20`, `20–30`, `30–40`, `40+` (a single-hue
+pen ramp on the analysis page, light and dark variants); no rainbow gradient is
+used.
 
 ### Native strain option
 

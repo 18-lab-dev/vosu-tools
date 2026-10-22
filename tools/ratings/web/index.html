@@ -2,37 +2,50 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ratings · 18-LAB</title>
-<link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore>
+<meta name="color-scheme" content="light dark">
+<title>Ratings · vosu tool</title>
 </head>
-<body><main>
-<nav><b>18—LAB</b><span>TOOLS / RATINGS</span><a id="dashboard">Dashboard ↗</a></nav>
-<header>
-<p class="eyebrow">01 / MAP ANALYSIS</p><h1>Ratings<span class="dot">.</span></h1>
-<h2 id="title">Select an osu!mania beatmap</h2><p id="meta">Independent models. Different scales. One chart.</p>
-<div class="controls">
-<label>Playback rate <input id="rate" type="number" min="0.5" max="2" step="0.05" value="1"></label>
-<button id="refresh">Analyze selected map</button>
-<label class="file">Open .osu <input id="file" type="file" accept=".osu"></label>
-</div><p id="status" role="status">Connecting to vosu…</p>
-</header>
-<section id="summary" class="summary" aria-label="Independent system ratings"></section>
-<div class="columns">
-<section class="panel"><p class="eyebrow">02 / ETTERNA SKILL PROFILE</p><h2>What the chart asks of you</h2><div id="skills"></div><p id="dan" class="caption"></p></section>
-<section class="panel"><p class="eyebrow">03 / RATE CURVE</p><h2>Find your next step</h2><svg id="curve" viewBox="0 0 600 230" role="img" aria-label="Etterna overall versus rate"></svg><p class="caption">MinaCalc overall MSD · 0.50–2.00× in 0.05× steps</p></section>
+<body>
+<header class="masthead">
+<div class="brand">
+<svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><path class="mark-paper" d="M2 4h28v24H2z"/><path class="mark-rule" d="M2 21h28"/><path class="mark-trace" d="M4 24v-5h3v-3h3v-5h3v2h3v-8h3v6h3v4h3v3h3v6"/></svg>
+<h1>Ratings</h1>
+<p class="brand-note">mania difficulty, measured four ways <small>· by 18-LAB</small></p>
 </div>
-<section class="panel">
-<div class="section-head"><div><p class="eyebrow">04 / TIMELINE EXPLORER</p><h2>Every phrase, in context</h2></div>
+<a id="dashboard" class="dashboard-link">vosu dashboard ↗</a>
+</header>
+<main>
+<section class="subject" aria-labelledby="title">
+<div class="subject-copy">
+<p class="kicker">Chart under analysis</p>
+<h2 id="title">Select an osu!mania beatmap</h2>
+<p id="meta">Independent models. Different scales. One chart.</p>
+</div>
+<div class="instrument controls">
+<label>Playback rate <input id="rate" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+<button id="refresh" class="primary">Analyze selected map</button>
+<label class="file">Open .osu file <input id="file" type="file" accept=".osu"></label>
+</div>
+</section>
+<p id="status" role="status" data-state="busy">Connecting to vosu…</p>
+<div class="ruler" aria-hidden="true"></div>
+<section id="summary" class="readouts" aria-label="Independent system ratings"></section>
+<div class="columns">
+<section class="figure" aria-labelledby="skills-heading"><header class="fig-head"><p class="fig-no">Table 1 · Etterna skill profile</p><h3 id="skills-heading">What the chart asks of you</h3></header><div id="skills"></div><p id="dan" class="caption"></p></section>
+<section class="figure" aria-labelledby="curve-heading"><header class="fig-head"><p class="fig-no">Fig. 1 · Rate curve</p><h3 id="curve-heading">Find your next step</h3></header><svg id="curve" class="plot" viewBox="0 0 600 240" role="img" aria-label="Etterna overall versus rate"></svg><p class="caption">MinaCalc overall MSD · 0.50–2.00× in 0.05× steps · dot = analysed rate</p></section>
+</div>
+<section class="figure" aria-labelledby="timeline-heading">
+<div class="section-head"><header class="fig-head"><p class="fig-no">Fig. 2 · Timeline explorer</p><h3 id="timeline-heading">Every phrase, in context</h3></header>
 <div class="controls">
-<label>System <select id="system"><option value="etterna">Etterna · local MSD</option><option value="etterna-native">Etterna · native strain</option><option value="quaver">Quaver</option><option value="interlude">Interlude</option><option value="osu">osu!mania</option><option value="nps">NPS</option></select></label>
+<label>System <span class="select"><select id="system"><option value="etterna">Etterna · local MSD</option><option value="etterna-native">Etterna · native strain</option><option value="quaver">Quaver</option><option value="interlude">Interlude</option><option value="osu">osu!mania</option><option value="nps">NPS</option></select></span></label>
 <label>Window / s <input id="window" type="number" min="0.1" max="60" step="0.25" value="12"></label>
 <label>Hop / s <input id="hop" type="number" min="0.05" max="60" step="0.05" value="1"></label>
 </div></div>
-<canvas id="timeline" height="200" aria-label="Difficulty timeline. Drag to select a section"></canvas>
+<canvas id="timeline" class="plot" height="200" aria-label="Difficulty timeline. Drag to select a section"></canvas>
 <p id="timeline-caption" class="caption">Local MSD: independently rate centered 12-second windows. Dotted line = whole-map MSD.</p>
-<div class="controls"><label>Start / s <input id="start" type="number" min="0" step="0.1" value="0"></label><label>End / s <input id="end" type="number" min="0" step="0.1" value="30"></label><button id="section">Rate section</button><output id="section-result"></output></div>
+<div class="controls section-controls"><label>Start / s <input id="start" type="number" min="0" step="0.1" value="0"></label><label>End / s <input id="end" type="number" min="0" step="0.1" value="30"></label><button id="section" class="secondary">Rate section</button><output id="section-result" for="start end"></output></div>
 </section>
-<section class="panel"><p class="eyebrow">05 / DENSITY & PATTERNS</p><h2>Heads per playback second</h2><canvas id="density" height="110" aria-label="Note density timeline"></canvas><p class="caption">NPS counts tap and hold heads, not releases. Skill categories above are MinaCalc's own pattern model, not a universal classification. No smoothing.</p></section>
-<footer>18-LAB / RATINGS <span>MinaCalc 527 · Quaver 0.0.5 · Interlude Prelude · rosu-pp 4.0.1</span></footer>
+<section class="figure" aria-labelledby="density-heading"><header class="fig-head"><p class="fig-no">Fig. 3 · Density &amp; patterns</p><h3 id="density-heading">Heads per playback second</h3></header><canvas id="density" class="plot" height="110" aria-label="Note density timeline"></canvas><p class="caption">NPS counts tap and hold heads, not releases. Skill categories above are MinaCalc's own pattern model, not a universal classification. No smoothing.</p></section>
+<footer><span>MinaCalc 527 · Quaver 0.0.5 · Interlude Prelude · rosu-pp 4.0.1</span><span>Ratings · a vosu tool by 18-LAB</span></footer>
 </main><script type="module" src="/src/main.ts"></script></body>
 </html>
