@@ -5,6 +5,7 @@ import {
   Composition,
   loadTrack,
   checked,
+  ApiError,
   type Track,
   type Preset,
 } from "./studio";
@@ -12,6 +13,8 @@ import "./style.css";
 import settingSchema from "../../render-settings.json";
 import { OverlayEditor } from "./overlay-layout";
 import { SkinLibrary } from "./skins";
+import { ReplayLibrary, showMissingMap } from "./library";
+import { SizePicker, parseSize, type SizeStore } from "./sizes";
 
 // The studio owns its look; vosu only hints the dashboard's mode.
 const root = document.documentElement;
@@ -68,9 +71,12 @@ function refreshComposition() {
     el("duration").textContent = timecode(0);
     return;
   }
-  const [width, height] = el<HTMLSelectElement>("resolution")
-    .value.split("x")
-    .map(Number);
+  const { width: outW, height: outH } = sizes.size;
+  // Preview at most 1920 px on the long side; exports use the full size.
+  const scale = Math.min(1, 1920 / Math.max(outW, outH));
+  const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
+  const [width, height] = [even(outW), even(outH)];
+  el("preview").style.setProperty("--ar", `${outW} / ${outH}`);
   const layout = el<HTMLSelectElement>("layout").value as Layout;
   composition = new Composition(tracks, width, height, layout);
   composition.validate();
@@ -289,47 +295,130 @@ function renderTracks() {
     row.append(editor.details, actions);
     list.append(row);
   });
+  el<HTMLInputElement>("out").placeholder = outName();
 }
-async function refreshInstalled() {
-  const names = (await (await fetcher("v1/replays")).json()) as string[];
-  const select = el<HTMLSelectElement>("installed");
-  select.replaceChildren(
-    new Option(names.length ? "Choose a replay" : "No replays found", ""),
-  );
-  for (const name of names) select.add(new Option(name, name));
+/** The Beatmap downloader UI answers same-origin when it is installed. */
+const downloaderInstalled = fetch("/tools/downloader/", { method: "HEAD" })
+  .then((response) => response.ok)
+  .catch(() => false);
+const library = new ReplayLibrary(
+  {
+    list: el("replays"),
+    filter: el("filter"),
+    sources: el("sources"),
+    mapTab: el("tab-map"),
+    allTab: el("tab-all"),
+    now: el("now"),
+  },
+  fetcher,
+  (entry) =>
+    addSafely(async () => {
+      const query = new URLSearchParams({ source: entry.source, md5: entry.md5 });
+      return new Uint8Array(
+        await (
+          await fetcher(`v1/replays/${encodeURIComponent(String(entry.id))}?${query}`)
+        ).arrayBuffer(),
+      );
+    }),
+  report,
+);
+const sizes = new SizePicker(
+  el("size-picker"),
+  "size-label",
+  (size) => {
+    betweenFrames(refreshComposition).catch(report);
+    if (vosu.canWrite)
+      fetcher("v1/sizes/last", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(size),
+      }).catch(report);
+  },
+  {
+    save: async (saved) =>
+      (await fetcher("v1/sizes", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(saved),
+      }).then((r) => r.json())) as SizeStore,
+    remove: async (name) =>
+      (await fetcher(`v1/sizes/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }).then((r) => r.json())) as SizeStore,
+  },
+  report,
+);
+/** The typed output, else `<player> - <title> [<difficulty>].mp4`. */
+function outName() {
+  const typed = el<HTMLInputElement>("out").value.trim();
+  if (typed) return /\.mp4$/i.test(typed) ? typed : `${typed}.mp4`;
+  const first = tracks[0];
+  const base = first
+    ? `${first.replay.player} - ${first.map.metadata.Title} [${first.map.metadata.Version}]`
+    : "replay";
+  return `${base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim()} ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.mp4`;
 }
 el("dashboard").setAttribute("href", vosu.dashboardUrl);
 el("dashboard").setAttribute("target", "_blank");
 await vosu.ready;
 applyScheme();
 const overlayEditor = new OverlayEditor(el("overlay-layout"));
+sizes.canWrite = vosu.canWrite;
 if (!vosu.canWrite) {
   report(
     "Read-only session. Open this studio from the vosu dashboard to load replays, import skins and save presets.",
   );
-  for (const id of ["files", "refresh", "add-installed", "queue", "webm", "osk"])
+  for (const id of ["files", "refresh", "queue", "webm", "osk"])
     el<HTMLButtonElement>(id).disabled = true;
   skins.describeReadOnly();
+  el("replays").innerHTML =
+    '<li class="list-empty">Replays appear here once the studio is opened from the vosu dashboard.</li>';
 } else {
   try {
     const context = await (await fetcher("v1/context")).json();
     skins.update(context);
     defaultSettings = context.default_settings;
+    const defaults = context.defaults as {
+      fps: number;
+      resolution: string;
+      output_dir: string | null;
+    };
+    el<HTMLInputElement>("fps").value = String(defaults.fps);
+    el("folder").textContent = defaults.output_dir
+      ? `File names save to ${defaults.output_dir} (change in the tool's settings).`
+      : "No output folder: type an absolute .mp4 path, or set a folder in the tool's settings.";
+    const store = (await (await fetcher("v1/sizes")).json()) as SizeStore;
+    sizes.set(
+      parseSize(store.last) ?? parseSize(defaults.resolution) ?? { width: 1920, height: 1080 },
+      store,
+    );
     presets = await (await fetcher("v1/presets")).json();
-    inform("Ready. Add replays to start a timeline.");
-    await refreshInstalled();
+    inform("Ready. Add replays from the list.");
+    library.follow(vosu.subscribe.bind(vosu));
+    library.show("map");
   } catch (error) {
     report(error);
   }
 }
-async function addFiles(files: Iterable<File>) {
-  for (const file of files) {
-    try {
-      await add(new Uint8Array(await file.arrayBuffer()));
-    } catch (error) {
-      report(error);
-    }
+/** Adds a replay, explaining a missing beatmap instead of a bare error. */
+async function addSafely(load: () => Promise<Uint8Array<ArrayBuffer>>) {
+  try {
+    el("missing").hidden = true;
+    await add(await load());
+  } catch (error) {
+    if (error instanceof ApiError && error.details?.code === "map_missing") {
+      showMissingMap(
+        el("missing"),
+        error.details as { md5: string; searched: string[] },
+        await downloaderInstalled,
+      );
+      report("This replay's map is not installed; see the note above the monitor.");
+    } else report(error);
   }
+}
+async function addFiles(files: Iterable<File>) {
+  for (const file of files)
+    await addSafely(async () => new Uint8Array(await file.arrayBuffer()));
 }
 el<HTMLInputElement>("files").onchange = async (event) => {
   const input = event.target as HTMLInputElement;
@@ -348,27 +437,8 @@ drop.ondrop = async (event) => {
   if (!vosu.canWrite) return;
   await addFiles(event.dataTransfer?.files ?? []);
 };
-el("refresh").onclick = () =>
-  refreshInstalled()
-    .then(() => inform("Rescanned osu! Replays"))
-    .catch(report);
-el("add-installed").onclick = async () => {
-  try {
-    const name = el<HTMLSelectElement>("installed").value;
-    if (!name) throw new Error("Choose a replay first");
-    await add(
-      new Uint8Array(
-        await (
-          await fetcher(`v1/replays/${encodeURIComponent(name)}?installed=1`)
-        ).arrayBuffer(),
-      ),
-    );
-  } catch (error) {
-    report(error);
-  }
-};
-for (const id of ["layout", "resolution"])
-  el(id).onchange = () => betweenFrames(refreshComposition).catch(report);
+el("refresh").onclick = () => void library.refresh();
+el("layout").onchange = () => betweenFrames(refreshComposition).catch(report);
 el("play").onclick = () => {
   playing = !playing;
   el("play").classList.toggle("playing", playing);
@@ -418,10 +488,10 @@ el("queue").onclick = async () => {
         settings: t.settings,
       })),
       fps: Number(el<HTMLInputElement>("fps").value),
-      resolution: el<HTMLSelectElement>("resolution").value,
+      resolution: `${sizes.size.width}x${sizes.size.height}`,
       layout: el<HTMLSelectElement>("layout").value,
       overlays: overlayEditor.read(),
-      out: el<HTMLInputElement>("out").value,
+      out: outName(),
     };
     const { job } = await (
       await fetcher("v1/render", {
@@ -505,25 +575,34 @@ el("webm").onclick = async () => {
         `v1/assets?${new URLSearchParams({ kind: "map-asset", hash: first.replay.beatmapHash, path: first.map.general.AudioFilename })}`,
       )
     ).arrayBuffer();
-    const blob = await exportWebM({
-      fps: Number(el<HTMLInputElement>("fps").value),
-      width: composition.width,
-      height: composition.height,
-      durationMs: composition.duration,
-      rate: first.replay.rate,
-      audio,
-      render: (t) => composition!.renderOffline(t),
-      progress: (p) => {
-        inform(`Encoding WebM · ${(p * 100).toFixed(1)}%`);
-      },
-    });
-    const url = URL.createObjectURL(blob),
-      link = document.createElement("a");
-    link.href = url;
-    link.download = "replay.webm";
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
-    inform("WebM export complete");
+    // Export at the full output size; the preview runs at a capped size.
+    composition.releaseTargets();
+    const { width, height } = sizes.size;
+    const full = new Composition(tracks, width, height, composition.layout);
+    try {
+      const blob = await exportWebM({
+        fps: Number(el<HTMLInputElement>("fps").value),
+        width,
+        height,
+        durationMs: full.duration,
+        rate: first.replay.rate,
+        audio,
+        render: (t) => full.renderOffline(t),
+        progress: (p) => {
+          inform(`Encoding WebM · ${(p * 100).toFixed(1)}%`);
+        },
+      });
+      const url = URL.createObjectURL(blob),
+        link = document.createElement("a");
+      link.href = url;
+      link.download = outName().replace(/\.mp4$/i, ".webm").split(/[\\/]/).pop()!;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      inform("WebM export complete");
+    } finally {
+      full.releaseTargets();
+      refreshComposition();
+    }
   } catch (error) {
     report(error);
   } finally {

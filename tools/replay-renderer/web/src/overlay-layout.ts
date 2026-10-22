@@ -15,10 +15,13 @@ export class OverlayEditor {
     inputs: Record<string, HTMLInputElement>;
   }[] = [];
   private list = document.createElement("div");
+  /** `root` is a `<details>` panel; its summary carries the heading. */
   constructor(root: HTMLElement) {
-    const heading = document.createElement("h2");
-    heading.className = "panel-head";
+    const summary = document.createElement("summary"),
+      heading = document.createElement("h2");
+    summary.className = "panel-head";
     heading.textContent = "Overlay layers";
+    summary.append(heading);
     const help = document.createElement("p");
     help.className = "note";
     help.textContent =
@@ -28,7 +31,7 @@ export class OverlayEditor {
     add.type = "button";
     add.textContent = "Add overlay layer";
     add.onclick = () => this.add();
-    root.append(heading, help, this.list, add);
+    root.append(summary, help, this.list, add);
   }
   private add() {
     const node = document.createElement("div");

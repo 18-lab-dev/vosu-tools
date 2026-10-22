@@ -46,26 +46,18 @@ pub(super) async fn start(
     {
         return Err(error("Invalid render configuration"));
     }
-    let (width, height) = request
-        .resolution
-        .split_once('x')
-        .ok_or_else(|| error("Resolution must be WIDTHxHEIGHT"))?;
-    let width: u32 = width.parse().map_err(error)?;
-    let height: u32 = height.parse().map_err(error)?;
-    if !(64..=7680).contains(&width)
-        || !(64..=4320).contains(&height)
-        || !width.is_multiple_of(2)
-        || !height.is_multiple_of(2)
-    {
-        return Err(error(
-            "Video dimensions must be even and within 64x64..7680x4320",
-        ));
-    }
-    if !request.out.is_absolute() || request.out.extension().is_none_or(|e| e != "mp4") {
-        return Err(error("Output must be an absolute .mp4 path"));
+    let (width, height) = crate::output::parse_size(&request.resolution)?;
+    let settings: Value = app.env.client().settings().await.map_err(error)?;
+    let relative = !request.out.is_absolute();
+    request.out = crate::output::resolve_out(&request.out, &settings)?;
+    if relative && let Some(folder) = request.out.parent() {
+        tokio::fs::create_dir_all(folder).await.map_err(error)?;
     }
     if request.out.exists() {
-        return Err(error("Output already exists; choose a new file"));
+        return Err(error(format!(
+            "{} already exists; choose a new file name",
+            request.out.display()
+        )));
     }
     for replay in &request.replays {
         uuid::Uuid::parse_str(&replay.id).map_err(error)?;
@@ -308,8 +300,8 @@ async fn begin(
     if ![0.75, 1.0, 1.5].contains(&input.rate) || input.frames == 0 {
         return Err(error("Invalid export clock"));
     }
-    let map = map_path(&worker.app, &input.hash).await?;
-    let text = tokio::fs::read_to_string(&map).await.map_err(error)?;
+    let map = crate::library::find_map(&worker.app, &input.hash).await?;
+    let text = tokio::fs::read_to_string(map.osu()).await.map_err(error)?;
     if !worker.request.overlays.is_empty() {
         worker
             .overlays
@@ -327,11 +319,9 @@ async fn begin(
         .find_map(|line| line.trim().strip_prefix("AudioFilename:"))
         .map(str::trim)
         .ok_or_else(|| error("Beatmap has no audio"))?;
-    let audio = confined(
-        map.parent().ok_or_else(|| error("Map has no parent"))?,
-        audio,
-    )?;
-    let executable = std::env::var("VOSU_RENDER_FFMPEG").unwrap_or_else(|_| "ffmpeg".into());
+    let audio = map.asset(audio)?;
+    let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
+    let executable = crate::output::ffmpeg(&settings);
     let mut child = Process::new(executable)
         .args([
             "-nostdin",
@@ -375,7 +365,11 @@ async fn begin(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| error(format!("Cannot launch ffmpeg; set VOSU_RENDER_FFMPEG: {e}")))?;
+        .map_err(|e| {
+            error(format!(
+                "Cannot launch FFmpeg ({e}); set the FFmpeg path in the tool's settings"
+            ))
+        })?;
     *worker.pipe.lock().await = child.stdin.take();
     *encoder = Some(child);
     worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":"Rendering frames","total_frames":input.frames,"result":null}));

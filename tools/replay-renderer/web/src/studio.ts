@@ -51,13 +51,29 @@ export interface Track extends Preset {
   dispose(): void;
 }
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
+/** A failed service call; `details` is the JSON error body when there is one. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly details: Record<string, unknown> | null,
+  ) {
+    super(message);
+  }
+}
 export async function checked(response: Response): Promise<Response> {
   if (!response.ok) {
-    let message = await response.text();
+    const text = await response.text();
+    let details: Record<string, unknown> | null = null;
     try {
-      message = JSON.parse(message).error ?? message;
+      details = JSON.parse(text);
     } catch {}
-    throw new Error(message);
+    const message = details?.error;
+    throw new ApiError(
+      typeof message === "string" ? message : text,
+      response.status,
+      details,
+    );
   }
   return response;
 }

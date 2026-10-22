@@ -26,5 +26,33 @@
     "title": "Default mania scroll speed",
     "description": "Default for replay tracks without a player preset. Per-replay overrides never modify osu! settings.",
     "value": 20
+  },
+  {
+    "uniqueID": "resolution",
+    "type": "text",
+    "title": "Default resolution",
+    "description": "WIDTHxHEIGHT for new compositions and CLI renders, e.g. 1920x1080, 2560x1440, 3440x1440 or 1080x1920 (vertical). Even sides, 64–7680 px, at most 7680×4320 pixels.",
+    "value": "1920x1080"
+  },
+  {
+    "uniqueID": "fps",
+    "type": "number",
+    "title": "Default frame rate",
+    "description": "Frames per second for new renders (1–240).",
+    "value": 60
+  },
+  {
+    "uniqueID": "output_dir",
+    "type": "text",
+    "title": "Output folder",
+    "description": "Absolute folder for rendered MP4 files named in the studio. Leave empty to use your Videos folder.",
+    "value": ""
+  },
+  {
+    "uniqueID": "ffmpeg_path",
+    "type": "text",
+    "title": "FFmpeg executable",
+    "description": "Absolute path to ffmpeg (ffmpeg.exe on Windows). Leave empty to use VOSU_RENDER_FFMPEG or ffmpeg on PATH.",
+    "value": ""
   }
 ]

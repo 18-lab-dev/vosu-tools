@@ -19,6 +19,8 @@ use vosu_tool_sdk::{ToolEnv, cli::Method};
 
 mod browser;
 mod cdp;
+mod library;
+mod output;
 mod overlays;
 mod render;
 mod skins;
@@ -37,6 +39,7 @@ struct App {
     jobs: Arc<Mutex<BTreeMap<String, Value>>>,
     render_gate: Arc<tokio::sync::Semaphore>,
     uploads: Arc<Mutex<BTreeMap<String, skins::Upload>>>,
+    lazer_maps: Arc<Mutex<BTreeMap<String, library::MapFiles>>>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Preset {
@@ -67,12 +70,15 @@ enum Cli {
         skin: Option<String>,
         #[arg(long="set", value_parser=parse_setting)]
         settings: Vec<(String, f64)>,
-        #[arg(long, default_value = "replay.mp4")]
-        out: PathBuf,
-        #[arg(long, default_value_t = 60)]
-        fps: u32,
-        #[arg(long, default_value = "1920x1080")]
-        resolution: String,
+        /// Defaults to the replay's name in the output folder setting (or Videos)
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Defaults to the tool's fps setting
+        #[arg(long)]
+        fps: Option<u32>,
+        /// WIDTHxHEIGHT, e.g. 2560x1440 or 1080x1920; defaults to the tool's setting
+        #[arg(long)]
+        resolution: Option<String>,
         #[arg(long = "overlay")]
         overlays: Vec<PathBuf>,
         #[arg(long)]
@@ -201,11 +207,18 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         jobs: Arc::default(),
         render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
         uploads: Arc::default(),
+        lazer_maps: Arc::default(),
     };
     let router = Router::new()
         .route("/v1/context", get(context))
-        .route("/v1/replays", get(replays).post(upload))
+        .route("/v1/replays", get(library::list).post(upload))
         .route("/v1/replays/{id}", get(replay_file))
+        .route("/v1/sizes", get(output::get_sizes).post(output::save_size))
+        .route("/v1/sizes/last", post(output::set_last))
+        .route(
+            "/v1/sizes/{name}",
+            axum::routing::delete(output::delete_size),
+        )
         .route("/v1/assets", get(asset))
         .route("/v1/presets", get(get_presets))
         .route(
@@ -395,21 +408,36 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             overlays,
             json: as_json,
         } => {
+            let defaults: Value = client.own_json("v1/context").await?;
+            let defaults = &defaults["defaults"];
+            let out = match out {
+                Some(out) if out.is_absolute() => out,
+                Some(out) => std::env::current_dir()?.join(out),
+                None => PathBuf::from(format!(
+                    "{}.mp4",
+                    file.file_stem()
+                        .ok_or("Replay needs a file name")?
+                        .to_string_lossy()
+                )),
+            };
             let bytes = tokio::fs::read(file).await?;
             let imported: Value =
                 vosu_tool_sdk::send_json(client.own(Method::POST, "v1/replays").body(bytes))
                     .await?;
-            let out = if out.is_absolute() {
-                out
-            } else {
-                std::env::current_dir()?.join(out)
-            };
-            let (width, height) = resolution
-                .split_once('x')
-                .ok_or("Resolution must be WIDTHxHEIGHT")?;
-            let width: u32 = width.parse()?;
-            let height: u32 = height.parse()?;
-            let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width,"height":height,"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
+            let fps = fps.unwrap_or(defaults["fps"].as_u64().unwrap_or(60) as u32);
+            let resolution = resolution.unwrap_or_else(|| {
+                defaults["resolution"]
+                    .as_str()
+                    .unwrap_or("1920x1080")
+                    .into()
+            });
+            let (width, height) = output::parse_size(&resolution).map_err(|(_, Json(body))| {
+                body["error"]
+                    .as_str()
+                    .unwrap_or("Invalid resolution")
+                    .to_owned()
+            })?;
+            let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width.min(4096),"height":height.min(4096),"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
             let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"side-by-side"}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
             let result = client
@@ -449,6 +477,16 @@ async fn host_context(app: &App) -> Result<Value, Error> {
     let client = app.env.client();
     let mut context: Value = client.host("context").await.map_err(error)?;
     let settings: Value = client.settings().await.map_err(error)?;
+    // lazer reports its hashed file store as songs_dir; it is not a Songs folder.
+    let lazer = context["client"] == "lazer";
+    context["lazer_files_dir"] = if lazer {
+        context["songs_dir"].clone()
+    } else {
+        Value::Null
+    };
+    if lazer {
+        context["songs_dir"] = Value::Null;
+    }
     if let Some(osu) = settings["osu_dir"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
@@ -473,7 +511,9 @@ async fn host_context(app: &App) -> Result<Value, Error> {
         let folder = confined(&FsPath::new(osu).join("Skins"), skin)?;
         context["skin"] = json!({"name":skin,"folder":folder});
     }
+    context["stable_songs_dir"] = context["songs_dir"].clone();
     context["default_settings"] = json!({"mania.scroll_speed":settings["mania.scroll_speed"].as_f64().or_else(||settings["mania.scroll_speed"].as_str().and_then(|s|s.parse::<f64>().ok())).unwrap_or(20.0)});
+    context["defaults"] = output::defaults(&settings);
     Ok(context)
 }
 async fn context(State(app): State<App>) -> Result<Json<Value>, Error> {
@@ -547,23 +587,6 @@ async fn upload(State(app): State<App>, body: Bytes) -> Result<Json<Value>, Erro
         .map_err(error)?;
     Ok(Json(json!({"id":id})))
 }
-async fn replays(State(app): State<App>) -> Result<Json<Value>, Error> {
-    let ctx = host_context(&app).await?;
-    let osu = ctx["osu_dir"]
-        .as_str()
-        .ok_or_else(|| error("Select a stable installation in vosu"))?;
-    let mut names = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(FsPath::new(osu).join("Replays")) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "osr") {
-                names.push(entry.file_name().to_string_lossy().into_owned());
-            }
-        }
-    }
-    names.sort();
-    Ok(Json(json!(names)))
-}
 fn confined(root: &FsPath, relative: &str) -> Result<PathBuf, Error> {
     let relative = FsPath::new(relative);
     if relative.is_absolute()
@@ -585,72 +608,16 @@ async fn replay_file(
     Path(id): Path<String>,
     Query(query): Query<BTreeMap<String, String>>,
 ) -> Result<Bytes, Error> {
-    let path = if query.contains_key("installed") {
-        let ctx = host_context(&app).await?;
-        let osu = ctx["osu_dir"]
-            .as_str()
-            .ok_or_else(|| error("No stable installation selected"))?;
-        confined(&FsPath::new(osu).join("Replays"), &id)?
-    } else {
-        uuid::Uuid::parse_str(&id).map_err(error)?;
-        app.env.cache_dir.join("replays").join(id)
+    let path = match query.get("source") {
+        Some(source) => {
+            return library::read(&app, source, &id, query.get("md5").map(String::as_str)).await;
+        }
+        None => {
+            uuid::Uuid::parse_str(&id).map_err(error)?;
+            app.env.cache_dir.join("replays").join(id)
+        }
     };
     Ok(tokio::fs::read(path).await.map_err(error)?.into())
-}
-async fn map_path(app: &App, hash: &str) -> Result<PathBuf, Error> {
-    if hash.len() != 32 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(error("Invalid beatmap checksum"));
-    }
-    let mut maps = app.maps.lock().await;
-    let ctx = host_context(app).await?;
-    let songs = ctx["songs_dir"]
-        .as_str()
-        .ok_or_else(|| error("Select a stable installation in vosu"))?
-        .to_owned();
-    let cache = app
-        .env
-        .cache_dir
-        .join(format!("maps-{:x}.json", Md5::digest(songs.as_bytes())));
-    if maps.is_empty()
-        && let Ok(bytes) = tokio::fs::read(&cache).await
-        && let Ok(cached) = serde_json::from_slice::<BTreeMap<String, PathBuf>>(&bytes)
-    {
-        maps.extend(cached);
-    }
-    if let Some(path) = maps.get(hash).filter(|p| p.starts_with(&songs))
-        && let Ok(bytes) = tokio::fs::read(path).await
-        && format!("{:x}", Md5::digest(bytes)) == hash
-    {
-        return Ok(path.clone());
-    }
-    let found = tokio::task::spawn_blocking(move || {
-        let mut result = BTreeMap::new();
-        for entry in walkdir::WalkDir::new(songs)
-            .max_depth(3)
-            .follow_links(false)
-            .into_iter()
-            .filter_map(Result::ok)
-        {
-            if entry.file_type().is_file()
-                && entry.path().extension().is_some_and(|s| s == "osu")
-                && let Ok(bytes) = std::fs::read(entry.path())
-            {
-                result.insert(format!("{:x}", Md5::digest(bytes)), entry.into_path());
-            }
-        }
-        result
-    })
-    .await
-    .map_err(error)?;
-    *maps = found;
-    let temporary = cache.with_extension("json.new");
-    tokio::fs::write(&temporary, serde_json::to_vec(&*maps).map_err(error)?)
-        .await
-        .map_err(error)?;
-    tokio::fs::rename(temporary, cache).await.map_err(error)?;
-    maps.get(hash)
-        .cloned()
-        .ok_or_else(|| error("Replay beatmap is not installed (checksum must match)"))
 }
 async fn asset(
     State(app): State<App>,
@@ -680,16 +647,15 @@ async fn asset(
         };
         confined(&root, file)?
     } else {
-        let map = map_path(
+        let map = library::find_map(
             &app,
             query.get("hash").ok_or_else(|| error("Missing map hash"))?,
         )
         .await?;
         if kind == "map" {
-            map
+            map.osu().to_path_buf()
         } else {
-            confined(
-                map.parent().ok_or_else(|| error("Map has no folder"))?,
+            map.asset(
                 query
                     .get("path")
                     .ok_or_else(|| error("Missing asset path"))?,
@@ -734,6 +700,7 @@ mod tests {
             jobs: Arc::default(),
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             uploads: Arc::default(),
+            lazer_maps: Arc::default(),
         }
     }
     #[tokio::test]
