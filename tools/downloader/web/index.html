@@ -3,24 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Beatmap downloader · 18-LAB</title>
-    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+    <meta name="color-scheme" content="light dark" />
+    <title>Beatmap downloader</title>
     <script type="module" src="./src/main.ts"></script>
   </head>
   <body>
-    <header>
-      <div class="brand">18—LAB <span>VOSU / TOOLS</span></div>
-      <h1>
-        Beatmap downloader<span class="revision">01 / LIBRARY ACQUISITION</span>
-      </h1>
-      <p>Find your next session. Queue deliberately. Import on your terms.</p>
-      <div id="access"></div>
+    <header class="waybill">
+      <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
+        <rect width="256" height="256" rx="44" fill="#ebe2cc" />
+        <g transform="rotate(-8 128 140)">
+          <path d="M66 96 L104 54 H152 L190 96 V222 H66 Z" fill="#a92d1b" />
+          <circle
+            cx="128"
+            cy="90"
+            r="25"
+            fill="none"
+            stroke="#ebe2cc"
+            stroke-width="6"
+          />
+          <circle cx="128" cy="90" r="11" fill="#ebe2cc" />
+          <path
+            d="M116 128 H140 V168 H162 L128 204 L94 168 H116 Z"
+            fill="#ebe2cc"
+          />
+          <path
+            d="M128 90 C 132 46, 176 20, 214 22"
+            fill="none"
+            stroke="#231d15"
+            stroke-width="7"
+            stroke-linecap="round"
+          />
+          <circle cx="128" cy="90" r="5" fill="#231d15" />
+        </g>
+      </svg>
+      <h1>Beatmap <span>downloader</span></h1>
+      <p class="lede">
+        Find your next session from your current map, your play history or a
+        pack. Queue deliberately, validate every archive, import on your terms.
+      </p>
+      <div id="access" class="access" role="status"></div>
     </header>
     <main>
       <aside>
-        <section>
-          <h2>01 / Discovery</h2>
-          <form id="search">
+        <section aria-labelledby="discovery-title">
+          <h2 id="discovery-title">
+            <span class="code" aria-hidden="true">A</span>Discovery
+          </h2>
+          <form id="search" class="form-grid">
             <label
               >Discovery mode<select name="discovery">
                 <option value="search">Search all beatmaps</option>
@@ -148,40 +177,42 @@
               Search beatmaps
             </button>
           </form>
-          <div class="pair">
+          <div class="row-actions">
             <button id="save-search" class="write">Save search</button
-            ><button id="save-preset" class="write">Save filter preset</button>
+            ><button id="save-preset" class="write">Save preset</button>
           </div>
-          <label
+          <label class="standalone"
             >Saved searches<select id="saved">
               <option value="">Choose a saved search</option>
             </select></label
-          ><label
+          ><label class="standalone"
             >Filter presets<select id="presets">
               <option value="">Choose a preset</option>
             </select></label
           >
         </section>
-        <section>
-          <h2>02 / Local context</h2>
-          <button id="library" class="write">
-            Refresh read-only library snapshot
-          </button>
+        <section aria-labelledby="library-title">
+          <h2 id="library-title">
+            <span class="code" aria-hidden="true">B</span>Local library
+          </h2>
+          <button id="library" class="write">Refresh library snapshot</button>
           <p id="library-state">
             Refresh to detect owned stable maps and recent plays.
           </p>
-          <p class="muted">
-            Lazer ownership is unknown: no supported local enumeration API.
-            Internal Realm storage is never opened. Stable databases are parsed
-            from temporary copies only.
+          <p class="fine">
+            Stable databases are parsed from temporary copies only. Lazer
+            ownership is unknown: there is no supported local enumeration API,
+            and internal Realm storage is never opened.
           </p>
         </section>
       </aside>
       <div class="workspace">
-        <section>
+        <section aria-labelledby="results-title">
           <div class="section-head">
-            <h2>03 / Search results</h2>
-            <span id="result-count">NO QUERY</span>
+            <h2 id="results-title">
+              <span class="code" aria-hidden="true">C</span>Manifest
+            </h2>
+            <span id="result-count" class="tally">NO QUERY</span>
           </div>
           <p id="notice" role="status">
             Choose a discovery mode to begin. Nothing downloads until you
@@ -192,27 +223,34 @@
             ><label class="check"
               ><input type="checkbox" id="no-video" checked /> Prefer no-video
               if available</label
-            ><select id="download-source" aria-label="Download source"></select
-            ><button id="enqueue" class="primary write">Queue selected</button
-            ><button id="next-page" class="write" disabled>Next page</button
-            ><button id="cancel-search" class="write" disabled>
-              Cancel search
+            ><label class="source"
+              >Download source<select id="download-source"></select></label
+            ><button id="enqueue" class="primary write push">
+              Queue selected
             </button>
           </div>
           <div id="results" class="results">
             <div class="empty">
               <strong>A better next map.</strong>
               <p>
-                Use the selected mapper, a difficulty window, a curated pack, or
-                your own play history.
+                Start from the mapper of your selected beatmap, a star window
+                around it, a curated pack or your own play history. Search
+                results land here as a manifest; tick sets, then queue them.
               </p>
             </div>
           </div>
+          <div class="toolbar pager">
+            <button id="cancel-search" class="write" disabled>
+              Cancel search</button
+            ><button id="next-page" class="write" disabled>Next page</button>
+          </div>
         </section>
-        <section>
+        <section aria-labelledby="queue-title">
           <div class="section-head">
-            <h2>04 / Download queue</h2>
-            <span id="queue-status">PAUSED</span>
+            <h2 id="queue-title">
+              <span class="code" aria-hidden="true">D</span>Dispatch queue
+            </h2>
+            <span id="queue-status" class="tally">PAUSED</span>
           </div>
           <div class="toolbar">
             <button data-control="resume" class="primary write">Resume</button
@@ -223,19 +261,23 @@
           <div id="queue"></div>
           <details>
             <summary>Import destination</summary>
-            <label
-              >Client<select id="client">
-                <option value="stable">osu!stable · place .osz in Songs</option>
-                <option value="lazer">
-                  osu!(lazer) · open .osz with file handler
-                </option>
-              </select></label
-            ><label
-              >Stable Songs directory<input
-                id="songs"
-                placeholder="Absolute Songs path · confirm before import"
-            /></label>
-            <p>
+            <div class="form-grid">
+              <label
+                >Client<select id="client">
+                  <option value="stable">
+                    osu!stable · place .osz in Songs
+                  </option>
+                  <option value="lazer">
+                    osu!(lazer) · open .osz with file handler
+                  </option>
+                </select></label
+              ><label
+                >Stable Songs directory<input
+                  id="songs"
+                  placeholder="Absolute Songs path · confirm before import"
+              /></label>
+            </div>
+            <p class="fine">
               Import only copies validated archives; no game database is
               modified. Press F5 in stable Song Select or restart stable. For
               lazer, choose lazer as the file handler or drag the archive into
@@ -243,76 +285,81 @@
             </p>
           </details>
         </section>
-        <section>
-          <h2>05 / Tool settings</h2>
+        <section aria-labelledby="settings-title">
+          <h2 id="settings-title">
+            <span class="code" aria-hidden="true">E</span>Sources &amp;
+            settings
+          </h2>
+          <p class="fine">
+            Downloads use a source whose operator allows automation. No silent
+            failover. Each source is paced at 2 seconds per request or slower;
+            429/Retry-After and transient-server backoff apply.
+            <a
+              href="https://osu.direct/tos"
+              target="_blank"
+              rel="noopener noreferrer"
+              >osu.direct terms</a
+            >
+            ·
+            <a
+              href="https://osu.direct/api/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              >API and budgets</a
+            >
+          </p>
           <details>
             <summary>Sources, credentials &amp; saved workspace</summary>
-            <p>
-              Downloads use a source whose operator allows automation. No silent
-              failover. Each source is paced at 2 seconds/request or slower;
-              429/Retry-After and transient-server backoff apply.
-              <a
-                href="https://osu.direct/tos"
-                target="_blank"
-                rel="noopener noreferrer"
-                >osu.direct terms</a
-              >
-              ·
-              <a
-                href="https://osu.direct/api/docs"
-                target="_blank"
-                rel="noopener noreferrer"
-                >API and budgets</a
-              >
-            </p>
             <form id="settings">
-              <div class="pair">
-                <label
-                  >Concurrent downloads (1–3)<input
-                    name="concurrency"
-                    type="number"
-                    min="1"
-                    max="3" /></label
-                ><label
-                  >Maximum archive MiB (1–128)<input
-                    name="max_file_mb"
-                    type="number"
-                    min="1"
-                    max="128" /></label
-                ><label
-                  >osu! API client ID<input
-                    name="client_id"
-                    autocomplete="off"
-                    inputmode="numeric"
-                    placeholder="Blank preserves saved value" /></label
-                ><label
-                  >osu! API client secret<input
-                    name="client_secret"
-                    type="password"
-                    autocomplete="new-password"
-                    placeholder="Never read back or logged"
-                /></label>
+              <div class="form-grid">
+                <div class="pair">
+                  <label
+                    >Concurrent downloads (1–3)<input
+                      name="concurrency"
+                      type="number"
+                      min="1"
+                      max="3" /></label
+                  ><label
+                    >Maximum archive MiB (1–128)<input
+                      name="max_file_mb"
+                      type="number"
+                      min="1"
+                      max="128" /></label
+                  ><label
+                    >osu! API client ID<input
+                      name="client_id"
+                      autocomplete="off"
+                      inputmode="numeric"
+                      placeholder="Blank keeps saved value" /></label
+                  ><label
+                    >osu! API client secret<input
+                      name="client_secret"
+                      type="password"
+                      autocomplete="new-password"
+                      placeholder="Never read back or logged"
+                  /></label>
+                </div>
               </div>
-              <p id="credential-state"></p>
-              <p class="muted">
+              <p id="credential-state" class="data"></p>
+              <p class="fine">
                 Credentials stay in private service settings on disk (not an
                 encrypted keychain). No browser storage is used. Official
                 metadata requests are cached for 10 minutes and paced at ≤1
                 request/second. Official OAuth download endpoints are not used.
               </p>
-              <label
+              <label class="standalone"
                 >Mirror adapters · JSON<textarea
                   name="sources"
                   rows="9"
                   spellcheck="false"
                 ></textarea>
               </label>
-              <p class="muted">
+              <p class="fine">
                 Custom sources must implement the documented osu.direct API
-                shape. Set enabled, priority (lower first), interval_ms (≥2000),
-                terms_url, and automation_permitted only after checking operator
-                terms. Disabled sources receive no new traffic; queued jobs
-                retain their explicitly chosen source.
+                shape. Set enabled, priority (lower first), interval_ms
+                (≥2000), terms_url, and automation_permitted only after
+                checking operator terms. Disabled sources receive no new
+                traffic; queued jobs retain their explicitly chosen source.
               </p>
               <button class="primary write" type="submit">Save settings</button>
             </form>
@@ -321,11 +368,11 @@
       </div>
     </main>
     <footer>
-      18-LAB / TOOL PROTOCOL 1
       <span
         >Personal use. Respect creators, provider terms and download
         budgets.</span
       >
+      <span>Tool protocol 1 · by 18-LAB</span>
     </footer>
   </body>
 </html>

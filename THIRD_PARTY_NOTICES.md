@@ -53,6 +53,19 @@ No code from mirror implementations or osu-web is included.
 Downloader Rust dependencies and their selected permissive license texts
 are shipped by the package license generator; see `tools/downloader/Cargo.toml`.
 
+The downloader UI bundles unmodified WOFF2 subsets of three fonts, taken from
+the Fontsource 5.3.0 packages. All three are under the SIL Open Font License 1.1.
+The license texts are shipped in `tools/downloader/licenses/`:
+
+- Archivo (variable, latin and latin-ext): Copyright 2020 The Archivo Project
+  Authors, https://github.com/Omnibus-Type/Archivo.
+- Saira Stencil One (latin): Copyright 2019 The Saira Stencil Project Authors,
+  https://github.com/Omnibus-Type/Saira.
+- Courier Prime (latin regular/bold, latin-ext regular): Copyright 2015 The
+  Courier Prime Project Authors, https://github.com/quoteunquoteapps/CourierPrime.
+
+The icon and banner artwork in `tools/downloader/assets/` is original.
+
 ## Map preview and shared render-core
 
 - vgpu 0.6.0 and its bundled @vgpu runtime modules: MIT, Copyright (c) 2025 Vercel, Inc.; https://github.com/vercel-labs/vgpu. License shipped in `tools/map-preview/licenses/vgpu-MIT.txt`. Used for WebGPU device initialization and lifecycle; rendering uses an original WGSL instance pipeline.

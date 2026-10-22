@@ -40,6 +40,14 @@ Lazer import opens the completed archive with the OS file handler (`xdg-open` / 
 
 Stable ownership uses positive set IDs and difficulty MD5s from a temporary copy of `osu!.db`, never folder-name guesses. `scores.db` supplies history, `collection.db` is read-only. Refresh the snapshot after importing; if snapshot parsing fails the UI reports incomplete/unknown ownership. Databases are never modified.
 
+## Look and artwork
+
+The UI has its own "dispatch desk" identity: a waybill header, ruled form boxes, a numbered results manifest, and queue parcels with status stamps. Light mode uses manila paper with stamp red. Dark mode uses carbon paper with vermilion. The page follows `vosu.colorScheme` (the dashboard's mode), or `prefers-color-scheme` on bridges that do not provide it. It sets `color-scheme` so native select popups, date pickers and scrollbars match, and gives options explicit colours. The host `theme.css` is not used.
+
+Fonts are bundled from `web/src/fonts` (all SIL OFL-1.1; texts are in `licenses/`): Saira Stencil One for headings, Archivo for interface text, and Courier Prime for data.
+
+`assets/icon.svg` is the manifest icon. It is plain shapes, so it renders the same anywhere. `assets/banner.png` (1200×400, 3:1) is rasterized from `assets/banner.svg`. To rasterize it, load the SVG inline in a page that declares `@font-face` rules for the bundled Saira Stencil One and Courier Prime files, then screenshot that page at 1200×400 with device scale factor 1 in Chromium.
+
 ## Verification
 
 `cargo test --locked -p osu-db -p vosu-downloader` covers synthetic legacy/modern DB fixtures, all truncated prefixes, size/count bounds, ownership, query construction, ID parsing, numeric/mode filtering, rate limiting, durable queue recovery/deduplication, and archive checksums. To also parse read-only temporary copies of real databases, set `OSU_DB_FIXTURE_DIR` to a stable installation directory; tests copy all three files into a fresh temporary directory first.
