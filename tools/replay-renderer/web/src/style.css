@@ -152,6 +152,33 @@ h1 em {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font: 0.72rem var(--mono);
+  color: var(--ink-2);
+}
+.link[hidden] {
+  display: none;
+}
+.link::before {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--line-strong);
+}
+.link[data-state="open"]::before {
+  background: var(--ok);
+}
+.link[data-state="closed"] {
+  color: var(--warn);
+}
+.link[data-state="closed"]::before {
+  background: var(--warn);
+}
 #dashboard {
   flex: none;
   font: 0.75rem var(--mono);

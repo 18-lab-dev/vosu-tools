@@ -394,7 +394,16 @@ if (!vosu.canWrite) {
     );
     presets = await (await fetcher("v1/presets")).json();
     inform("Ready. Add replays from the list.");
-    library.follow(vosu.subscribe.bind(vosu));
+    library.follow(vosu.subscribe.bind(vosu), (state) => {
+      const link = el("link");
+      link.hidden = false;
+      link.dataset.state = state;
+      link.textContent = { connecting: "Game: connecting…", open: "Game: live", closed: "Game: offline" }[state];
+      link.title =
+        state === "open"
+          ? "Following the map open in osu!"
+          : "Not receiving game state from vosu; the bridge retries automatically.";
+    });
     library.show("map");
   } catch (error) {
     report(error);

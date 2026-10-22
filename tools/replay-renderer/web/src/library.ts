@@ -26,6 +26,9 @@ export interface NowPlaying {
   version: string;
 }
 
+/** State of the bridge's game subscription. */
+export type LinkState = "connecting" | "open" | "closed";
+
 const SOURCE_LABEL: Record<ReplayEntry["source"], string> = {
   stable: "stable",
   "lazer-export": "lazer export",
@@ -71,8 +74,17 @@ export class ReplayLibrary {
         }
       };
   }
-  /** Selected-field frames: `[0|1, revision, [[index, value], …], removed?]`. */
-  follow(subscribe: (fields: unknown, onFrame: (frame: unknown) => void) => () => void) {
+  /** Follows the game's beatmap. Selected-field frames are
+   *  `[0|1, revision, [[index, value], …], removed?]`; the bridge reconnects
+   *  after vosu restarts and reports the link through `onStatus`. */
+  follow(
+    subscribe: (
+      fields: unknown,
+      onFrame: (frame: unknown) => void,
+      onStatus?: (state: LinkState) => void,
+    ) => () => void,
+    onStatus: (state: LinkState) => void,
+  ) {
     const fields = ["/beatmap/checksum", "/beatmap/artist", "/beatmap/title", "/beatmap/version"];
     const values: unknown[] = [];
     subscribe(fields, (frame) => {
@@ -97,7 +109,7 @@ export class ReplayLibrary {
         ? `Now: ${next.artist} – ${next.title} [${next.version}]`
         : "";
       if (this.tab === "map") void this.refresh();
-    });
+    }, onStatus);
   }
   show(tab: "map" | "all") {
     this.tab = tab;
