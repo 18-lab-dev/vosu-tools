@@ -1,0 +1,774 @@
+{
+  "revision": "c9fa3ff277dba4c620d4731fd2c3fbb74770c20b",
+  "source": "https://raw.githubusercontent.com/ppy/osu-wiki/c9fa3ff277dba4c620d4731fd2c3fbb74770c20b/wiki/Skinning/skin.ini/en.md",
+  "entries": [
+    {
+      "section": "General",
+      "key": "Name",
+      "type": "string",
+      "default": "Unknown"
+    },
+    {
+      "section": "General",
+      "key": "Author",
+      "type": "string"
+    },
+    {
+      "section": "General",
+      "key": "Version",
+      "type": "enum",
+      "enum": [
+        "1.0",
+        "2.0",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "2.7",
+        "latest"
+      ]
+    },
+    {
+      "section": "General",
+      "key": "AnimationFramerate",
+      "type": "integer",
+      "default": "-1",
+      "min": 1
+    },
+    {
+      "section": "General",
+      "key": "AllowSliderBallTint",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "General",
+      "key": "ComboBurstRandom",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "General",
+      "key": "CursorCentre",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "CursorExpand",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "CursorRotate",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "CursorTrailRotate",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "CustomComboBurstSounds",
+      "type": "integers",
+      "min": 1
+    },
+    {
+      "section": "General",
+      "key": "HitCircleOverlayAboveNumber",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "LayeredHitSounds",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "SliderBallFlip",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "SpinnerFadePlayfield",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "General",
+      "key": "SpinnerFrequencyModulate",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "General",
+      "key": "SpinnerNoBlink",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo1",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo2",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo3",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo4",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo5",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo6",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo7",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "Combo8",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "InputOverlayText",
+      "type": "rgb",
+      "default": "0,0,0"
+    },
+    {
+      "section": "Colours",
+      "key": "MenuGlow",
+      "type": "rgb",
+      "default": "0,78,155"
+    },
+    {
+      "section": "Colours",
+      "key": "SliderBall",
+      "type": "rgb",
+      "default": "2,170,255"
+    },
+    {
+      "section": "Colours",
+      "key": "SliderBorder",
+      "type": "rgb",
+      "default": "255,255,255"
+    },
+    {
+      "section": "Colours",
+      "key": "SliderTrackOverride",
+      "type": "rgb"
+    },
+    {
+      "section": "Colours",
+      "key": "SongSelectActiveText",
+      "type": "rgb",
+      "default": "0,0,0"
+    },
+    {
+      "section": "Colours",
+      "key": "SongSelectInactiveText",
+      "type": "rgb",
+      "default": "255,255,255"
+    },
+    {
+      "section": "Colours",
+      "key": "SpinnerBackground",
+      "type": "rgb",
+      "default": "100,100,100"
+    },
+    {
+      "section": "Colours",
+      "key": "StarBreakAdditive",
+      "type": "rgb",
+      "default": "255,182,193"
+    },
+    {
+      "section": "Fonts",
+      "key": "HitCirclePrefix",
+      "type": "prefix",
+      "default": "default"
+    },
+    {
+      "section": "Fonts",
+      "key": "HitCircleOverlap",
+      "type": "integer",
+      "default": "-2"
+    },
+    {
+      "section": "Fonts",
+      "key": "ScorePrefix",
+      "type": "prefix",
+      "default": "score"
+    },
+    {
+      "section": "Fonts",
+      "key": "ScoreOverlap",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "section": "Fonts",
+      "key": "ComboPrefix",
+      "type": "prefix",
+      "default": "score"
+    },
+    {
+      "section": "Fonts",
+      "key": "ComboOverlap",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "section": "CatchTheBeat",
+      "key": "HyperDash",
+      "type": "rgb",
+      "default": "255,0,0"
+    },
+    {
+      "section": "CatchTheBeat",
+      "key": "HyperDashFruit",
+      "type": "rgb"
+    },
+    {
+      "section": "CatchTheBeat",
+      "key": "HyperDashAfterImage",
+      "type": "rgb"
+    },
+    {
+      "section": "Mania",
+      "key": "Keys",
+      "type": "enum",
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "12",
+        "14",
+        "16",
+        "18"
+      ]
+    },
+    {
+      "section": "Mania",
+      "key": "ColumnStart",
+      "type": "number",
+      "default": "136"
+    },
+    {
+      "section": "Mania",
+      "key": "ColumnRight",
+      "type": "number",
+      "default": "19"
+    },
+    {
+      "section": "Mania",
+      "key": "ColumnSpacing",
+      "type": "numbers",
+      "default": "0",
+      "columns": -1
+    },
+    {
+      "section": "Mania",
+      "key": "ColumnWidth",
+      "type": "numbers",
+      "default": "30",
+      "columns": 0
+    },
+    {
+      "section": "Mania",
+      "key": "ColumnLineWidth",
+      "type": "numbers",
+      "default": "2",
+      "columns": 1
+    },
+    {
+      "section": "Mania",
+      "key": "BarlineHeight",
+      "type": "number",
+      "default": "1.2"
+    },
+    {
+      "section": "Mania",
+      "key": "LightingNWidth",
+      "type": "numbers",
+      "since": 2.5,
+      "columns": 0
+    },
+    {
+      "section": "Mania",
+      "key": "LightingLWidth",
+      "type": "numbers",
+      "since": 2.5,
+      "columns": 0
+    },
+    {
+      "section": "Mania",
+      "key": "WidthForNoteHeightScale",
+      "type": "number"
+    },
+    {
+      "section": "Mania",
+      "key": "HitPosition",
+      "type": "integer",
+      "default": "402"
+    },
+    {
+      "section": "Mania",
+      "key": "LightPosition",
+      "type": "integer",
+      "default": "413"
+    },
+    {
+      "section": "Mania",
+      "key": "ScorePosition",
+      "type": "integer"
+    },
+    {
+      "section": "Mania",
+      "key": "ComboPosition",
+      "type": "integer"
+    },
+    {
+      "section": "Mania",
+      "key": "JudgementLine",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "section": "Mania",
+      "key": "LightFramePerSecond",
+      "type": "integer"
+    },
+    {
+      "section": "Mania",
+      "key": "SpecialStyle",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1",
+        "2"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "Mania",
+      "key": "ComboBurstStyle",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1",
+        "2",
+        "Left",
+        "Right",
+        "Both"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "Mania",
+      "key": "SplitStages",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ]
+    },
+    {
+      "section": "Mania",
+      "key": "StageSeparation",
+      "type": "number",
+      "default": "40"
+    },
+    {
+      "section": "Mania",
+      "key": "SeparateScore",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1"
+    },
+    {
+      "section": "Mania",
+      "key": "KeysUnderNotes",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "Mania",
+      "key": "UpsideDown",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "0"
+    },
+    {
+      "section": "Mania",
+      "key": "KeyFlipWhenUpsideDown",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1",
+      "since": 2.5
+    },
+    {
+      "section": "Mania",
+      "key": "KeyFlipWhenUpsideDown#",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteFlipWhenUpsideDown",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "default": "1",
+      "since": 2.5
+    },
+    {
+      "section": "Mania",
+      "key": "KeyFlipWhenUpsideDown#D",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteFlipWhenUpsideDown#",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteFlipWhenUpsideDown#H",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteFlipWhenUpsideDown#L",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteFlipWhenUpsideDown#T",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteBodyStyle",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1",
+        "2"
+      ],
+      "default": "1",
+      "since": 2.5
+    },
+    {
+      "section": "Mania",
+      "key": "NoteBodyStyle#",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1",
+        "2"
+      ],
+      "since": 2.5,
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "Colour#",
+      "type": "rgba",
+      "default": "0,0,0,255",
+      "indexBase": 1
+    },
+    {
+      "section": "Mania",
+      "key": "ColourLight#",
+      "type": "rgb",
+      "default": "55,255,255",
+      "indexBase": 1
+    },
+    {
+      "section": "Mania",
+      "key": "ColourColumnLine",
+      "type": "rgba",
+      "default": "255,255,255,255"
+    },
+    {
+      "section": "Mania",
+      "key": "ColourBarline",
+      "type": "rgba",
+      "default": "255,255,255,255"
+    },
+    {
+      "section": "Mania",
+      "key": "ColourJudgementLine",
+      "type": "rgb",
+      "default": "255,255,255"
+    },
+    {
+      "section": "Mania",
+      "key": "ColourKeyWarning",
+      "type": "rgb",
+      "default": "0,0,0"
+    },
+    {
+      "section": "Mania",
+      "key": "ColourHold",
+      "type": "rgba",
+      "default": "255,191,51,255"
+    },
+    {
+      "section": "Mania",
+      "key": "ColourBreak",
+      "type": "rgb",
+      "default": "255,0,0"
+    },
+    {
+      "section": "Mania",
+      "key": "KeyImage#",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "KeyImage#D",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteImage#",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteImage#H",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteImage#L",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "NoteImage#T",
+      "type": "image",
+      "indexBase": 0
+    },
+    {
+      "section": "Mania",
+      "key": "StageLeft",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "StageRight",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "StageBottom",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "StageHint",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "StageLight",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "LightingN",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "LightingL",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "WarningArrow",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit0",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit50",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit100",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit200",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit300",
+      "type": "image"
+    },
+    {
+      "section": "Mania",
+      "key": "Hit300g",
+      "type": "image"
+    },
+    {
+      "section": "General",
+      "key": "HitCircleOverlayAboveNumer",
+      "type": "enum",
+      "enum": [
+        "0",
+        "1"
+      ]
+    }
+  ]
+}

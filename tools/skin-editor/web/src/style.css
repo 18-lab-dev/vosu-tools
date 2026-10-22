@@ -1,0 +1,141 @@
+:root {
+  color-scheme: dark;
+  background: #111214;
+  color: #e4e2dc;
+  font-family: Barlow, sans-serif;
+  --accent: #ff963f;
+  --rule: #37393c;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  background: #f2f1ec;
+  color: #252a31;
+  --accent: #175fad;
+  --rule: #c4c5bf;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  padding: 22px 28px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+header span,
+header p,
+#mode {
+  font:
+    12px "IBM Plex Mono",
+    monospace;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+h1 {
+  font:
+    44px "Barlow Condensed",
+    sans-serif;
+  margin: 7px 0;
+}
+nav {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 16px 28px;
+  border-bottom: 1px solid var(--rule);
+}
+button,
+select {
+  font:
+    14px Barlow,
+    sans-serif;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--rule);
+  padding: 9px 12px;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: var(--accent);
+}
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+select {
+  max-width: 420px;
+}
+#save {
+  color: var(--accent);
+}
+#mode {
+  margin-left: auto;
+}
+#status {
+  padding: 0 28px;
+  font:
+    13px "IBM Plex Mono",
+    monospace;
+  min-height: 18px;
+}
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  border-top: 1px solid var(--rule);
+  height: calc(100vh - 249px);
+  min-height: 400px;
+}
+#editor {
+  min-width: 0;
+  height: 100%;
+}
+aside {
+  border-left: 1px solid var(--rule);
+  padding: 20px;
+  overflow: auto;
+}
+h2,
+h3 {
+  font:
+    18px "Barlow Condensed",
+    sans-serif;
+  letter-spacing: 0.07em;
+}
+aside p {
+  line-height: 1.6;
+  font-size: 14px;
+  color: inherit;
+  opacity: 0.8;
+}
+#diagnostics {
+  padding-left: 18px;
+}
+#diagnostics button {
+  border: 0;
+  text-align: left;
+  padding: 5px 0;
+  font-size: 13px;
+}
+#revision {
+  font:
+    11px "IBM Plex Mono",
+    monospace;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 850px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  aside {
+    display: none;
+  }
+  nav {
+    flex-wrap: wrap;
+  }
+  #mode {
+    margin-left: 0;
+  }
+}
