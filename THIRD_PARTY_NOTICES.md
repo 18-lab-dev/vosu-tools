@@ -41,3 +41,13 @@ Each section records third-party code, data, or assets included in this reposito
 - Seeded compatibility random algorithm: .NET runtime `v10.0.0`, `System/Random.CompatImpl.cs`, MIT, .NET Foundation and Contributors. License: `tools/practice/licenses/dotnet-MIT.txt`.
 - Audio dependency license texts: `tools/practice/licenses/audio.txt`: Signalsmith Stretch and Linear (MIT), Rust Signalsmith bindings (MIT), minimp3 Rust bindings (MIT) and minimp3 decoder (CC0), rubato (MIT), hound (Apache-2.0), vorbis_rs and bundled Ogg/Vorbis libraries (BSD-3-Clause). Exact resolved versions are in Cargo.lock.
 - The original trainer implementation was ported from vosu commit `4c06922` under MIT OR Apache-2.0.
+
+## Beatmap downloader / osu-db
+
+`crates/osu-db` ports the read-only stable database parser from
+`shiruviaa/vosu` commit `4c06922`,
+`crates/vosu-tool-skill-tracker/src/stable.rs` (MIT OR Apache-2.0),
+extended with collection metadata and ownership identifiers.
+No code from mirror implementations or osu-web is included.
+Downloader Rust dependencies and their selected permissive license texts
+are shipped by the package license generator; see `tools/downloader/Cargo.toml`.

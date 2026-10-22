@@ -10,7 +10,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 | skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for stable skins: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; read-only without a dashboard session; lazer unsupported |
 | Map preview | `map-preview` | UI | Render any map in the browser before playing it, with lazer mods and custom settings |
 | Replay renderer | `replay-renderer` | CLI, UI | Render one or more replays to video with your choice of skin, settings and overlays |
-| Beatmap downloader | `downloader` | UI | Batch-download maps by mapper, skill level or ratings |
+| Beatmap downloader | `downloader` | service, UI | Context-aware discovery, read-only stable library/history, and a polite validated mirror queue |
 
 ## Layout
 

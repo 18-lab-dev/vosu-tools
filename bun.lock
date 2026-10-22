@@ -17,6 +17,15 @@
         "vite": "^7.2.4",
       },
     },
+    "tools/downloader/web": {
+      "name": "@vosu-tools/downloader",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@vosu-tools/tool-web": "workspace:*",
+        "typescript": "^5.9.3",
+        "vite": "^7.2.4",
+      },
+    },
     "tools/practice/web": {
       "name": "@vosu-tools/practice",
       "version": "0.1.0",
@@ -158,6 +167,8 @@
     "@rollup/rollup-win32-x64-msvc": ["@rollup/rollup-win32-x64-msvc@4.64.12", "", { "os": "win32", "cpu": "x64" }, "sha512-j5rXD4R/4DM5+V991AA9xOnG2Rwu2g3p5TPgu1Eu7apju0NUrLl+Bn/KpWc6wYJtlXqzwz1r+LNV1JeBU4VGvw=="],
 
     "@types/estree": ["@types/estree@1.0.9", "", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
+
+    "@vosu-tools/downloader": ["@vosu-tools/downloader@workspace:tools/downloader/web"],
 
     "@vosu-tools/practice": ["@vosu-tools/practice@workspace:tools/practice/web"],
 
