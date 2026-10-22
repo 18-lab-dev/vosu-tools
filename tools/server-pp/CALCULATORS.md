@@ -20,7 +20,7 @@ Modules run sandboxed in an interpreter. They have no imports, so they have no f
 
 Settings and files are re-read at most once per second, so a rebuilt module or a settings change applies to the next request without restarting anything. Compiled modules are cached by path, size and modification time.
 
-3. Check the result. `vosux server-pp servers` (or `GET /v1/servers`) lists every discovered module as `kind: "custom"` with `status` `ready`, `disabled` or `error` and the exact load error. Then use the id like a built-in profile:
+3. Check the result. The tool's page (Tools → Server pp calculator → Open) lists every discovered module with its status and the exact load error, and its ledger runs all of them on the selected map or an opened `.osu` file. `vosux server-pp servers` (or `GET /v1/servers`, where modules are `kind: "custom"` with `status` `ready`, `disabled` or `error`) shows the same. Then use the id like a built-in profile:
 
 ```sh
 vosux server-pp servers
@@ -217,17 +217,17 @@ The interpreter is [wasmi](https://github.com/wasmi-labs/wasmi) 2.0 (MIT/Apache-
 
 | | wasmi 2.0 | wasmtime 49 |
 | --- | --- | --- |
-| Module compile | 0.10–0.18 ms | 13–32 ms |
-| Instantiate | 0.26–2.4 ms | 0.05–0.07 ms |
-| Call, osu! reference formula | ≈ 5.1 µs | ≈ 1.2 µs |
-| Call, Rust example | ≈ 1.9 µs | ≈ 0.8 µs |
+| Module compile | 0.07–0.18 ms | 3–32 ms |
+| Instantiate | 0.12–2.4 ms | 0.03–0.07 ms |
+| Call, osu! reference formula | 3.0–5.1 µs | 0.66–1.2 µs |
+| Call, Rust example | 1.2–1.9 µs | 0.27–0.8 µs |
 | Release binary growth | +2.1 MB | +9.2 MB |
 | Clean release build | 15 s | 81 s |
 
-These numbers come from a standalone harness with a synthetic input. A request also computes rosu-pp difficulty attributes for a map unless they are cached (see below). That costs far more than either runtime's call, so the JIT's few-µs advantage barely shows in request latency. wasmi wins everything else:
+These numbers come from a standalone harness with a synthetic input; the ranges cover two runs under different machine load. A request also computes rosu-pp difficulty attributes for a map unless they are cached (see below). That costs far more than either runtime's call, so the JIT's few-µs advantage barely shows in request latency. wasmi wins everything else:
 
 - a 4× smaller binary;
-- 100× faster module loading, which matters for hot reload;
+- 40–100× faster module compilation, which matters for hot reload;
 - no generated machine code, so a smaller attack surface and no W^X/JIT restrictions on locked-down Windows machines;
 - deterministic fuel metering;
 - the same pure-Rust build on Linux and Windows.
