@@ -2426,12 +2426,15 @@ dependencies = [
  "axum",
  "clap",
  "md-5 0.10.6",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "uuid",
  "vosu-tool-sdk",
  "walkdir",
+ "zip",
 ]
 
 [[package]]

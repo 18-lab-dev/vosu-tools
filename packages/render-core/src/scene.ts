@@ -14,6 +14,7 @@ export interface RenderOptions {
   cs?: number;
   scrollSpeed?: number;
   noteSpeed?: number;
+  hitLighting?: boolean;
 }
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
@@ -113,6 +114,11 @@ export function compileScene(
     q = 0,
     r = 0,
   ): void {
+    if (
+      options.hitLighting === false &&
+      (motion === 13 || motion === 18 || motion === 19)
+    )
+      return;
     const uv = regions.get(asset);
     if (uv && map.mode === 3 && [1, 11, 12].includes(motion))
       h = (w * uv.h) / uv.w;

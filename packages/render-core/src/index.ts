@@ -15,7 +15,13 @@ export interface FrameState {
   target?: GPUTextureView;
   timestampWrites?: GPURenderPassTimestampWrites;
   captureTarget?: GPUTexture;
-  cursor?: { x: number; y: number; pressed?: boolean };
+  cursor?: { x: number; y: number; pressed?: boolean; scale?: number };
+  cursorTrail?: readonly {
+    x: number;
+    y: number;
+    opacity: number;
+    scale?: number;
+  }[];
   keys?: readonly boolean[];
   failed?: boolean;
   judgements?: readonly {
@@ -33,6 +39,8 @@ export interface RendererOptions {
   height?: number;
   skin?: Skin;
   presentation?: "direct" | "bitmap";
+  clearColour?: GPUColor;
+  transparentBackground?: boolean;
 }
 /** renderAt receives absolute beatmap milliseconds, never wall-clock time. */
 export interface Renderer {
@@ -207,12 +215,39 @@ export async function createRenderer(
       view: undefined as unknown as GPUTextureView,
       loadOp: "clear",
       storeOp: "store",
-      clearValue: { r: 0.012, g: 0.014, b: 0.02, a: 1 },
+      clearValue:
+        options.clearColour ??
+        (options.transparentBackground
+          ? { r: 0, g: 0, b: 0, a: 0 }
+          : { r: 0.012, g: 0.014, b: 0.02, a: 1 }),
     },
     passDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [attachment],
     },
     commands: GPUCommandBuffer[] = [];
+  function writeCursor(
+    index: number,
+    x: number,
+    y: number,
+    size: number,
+    alpha: number,
+    time: number,
+  ): void {
+    const b = index * 24;
+    overlays.fill(0, b, b + 24);
+    overlays[b] = x;
+    overlays[b + 1] = y;
+    overlays[b + 2] = size;
+    overlays[b + 3] = size;
+    overlays[b + 4] = time;
+    overlays[b + 5] = time;
+    overlays[b + 6] = -1e9;
+    overlays[b + 7] = 1e9;
+    overlays[b + 8] = 1;
+    overlays[b + 9] = 0.8;
+    overlays[b + 10] = 0.2;
+    overlays[b + 11] = alpha;
+  }
   let disposed = false;
   const renderer: Renderer = {
     device,
@@ -353,24 +388,29 @@ export async function createRenderer(
           pass.draw(6, chunk.count, 0, chunk.first);
       }
       let count = 0;
-      if (frame?.cursor && map.mode === 0) {
-        const b = 0;
-        overlays.fill(0, 0, 24);
-        overlays[b] = cursorX;
-        overlays[b + 1] = cursorY;
-        overlays[b + 2] = frame.cursor.pressed ? 20 : 15;
-        overlays[b + 3] = overlays[b + 2];
-        overlays[b + 4] = time;
-        overlays[b + 5] = time;
-        overlays[b + 6] = -1e9;
-        overlays[b + 7] = 1e9;
-        overlays[b + 8] = 1;
-        overlays[b + 9] = 0.8;
-        overlays[b + 10] = 0.2;
-        overlays[b + 11] = 1;
-        overlays[b + 20] = 0;
-        count++;
-      }
+      if (map.mode === 0 && frame?.cursorTrail)
+        for (let i = 0; i < frame.cursorTrail.length && count < 511; i++) {
+          const sample = frame.cursorTrail[i];
+          if (sample.opacity > 0)
+            writeCursor(
+              count++,
+              sample.x,
+              sample.y,
+              15 * Math.max(0, sample.scale ?? 1),
+              Math.min(1, sample.opacity),
+              time,
+            );
+        }
+      if (frame?.cursor && map.mode === 0)
+        writeCursor(
+          count++,
+          cursorX,
+          cursorY,
+          (frame.cursor.pressed ? 20 : 15) *
+            Math.max(0, frame.cursor.scale ?? 1),
+          1,
+          time,
+        );
       if (frame?.judgements)
         for (let i = 0; i < frame.judgements.length && count < 512; i++) {
           const j = frame.judgements[i],
