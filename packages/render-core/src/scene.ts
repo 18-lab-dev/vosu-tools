@@ -21,6 +21,7 @@ export interface Scene {
   count: number;
   preempt: number;
   speed: number;
+  scrollBase: number;
   catcher: { time: number; x: number; y?: number }[];
 }
 const palette: readonly (readonly number[])[] = [
@@ -43,6 +44,30 @@ export function compileScene(
   const mania = skin?.sections
     .get("Mania")
     ?.find((s) => Number(s.Keys) === Math.round(map.difficulty.cs));
+  const bodyStyle = Number(
+    mania?.NoteBodyStyle ?? ((skin?.version ?? 1) >= 2.5 ? 1 : 0),
+  );
+  const red = map.timing.filter((point) => point.uninherited),
+    weights = new Map<number, number>();
+  for (let i = 0; i < red.length; i++) {
+    const duration = Math.max(
+      0,
+      (red[i + 1]?.time ?? map.duration) - Math.max(0, red[i].time),
+    );
+    weights.set(
+      red[i].beatLength,
+      (weights.get(red[i].beatLength) ?? 0) + duration,
+    );
+  }
+  let scrollBase = 500,
+    largest = 0;
+  for (const [beat, weight] of weights)
+    if (weight > largest) {
+      scrollBase = beat;
+      largest = weight;
+    }
+  const scrollAt = (time: number) =>
+    scrollPosition(map.timing, time, "mania", scrollBase);
   const skinColours = Object.entries(skin?.sections.get("Colours")?.[0] ?? {})
     .filter(([key]) => /^Combo\d+$/.test(key))
     .sort(([a], [b]) => Number(a.slice(5)) - Number(b.slice(5)))
@@ -63,7 +88,8 @@ export function compileScene(
       .map((c) => Number(c) / 255);
   const speed =
     map.mode === 3
-      ? ((options.scrollSpeed ?? 20) / 20) * 0.55
+      ? ((options.scrollSpeed ?? 20) * 480) /
+        (11485 * (Number(mania?.HitPosition ?? 402) / 402))
       : map.mode === 2
         ? 300 / preempt
         : 0;
@@ -88,8 +114,9 @@ export function compileScene(
     r = 0,
   ): void {
     const uv = regions.get(asset);
-    if (uv && map.mode === 3 && (motion === 1 || motion === 11))
+    if (uv && map.mode === 3 && [1, 11, 12].includes(motion))
       h = (w * uv.h) / uv.w;
+    if (uv && map.mode === 3) colour = [1, 1, 1, colour[3] ?? 1];
     values.push(
       x,
       y,
@@ -112,9 +139,17 @@ export function compileScene(
       uv?.w ?? 0,
       uv?.h ?? 0,
       uv ? 10 : shape,
-      p,
-      q,
-      r,
+      uv?.first ?? p,
+      uv?.count ?? q,
+      uv
+        ? (motion === 13
+            ? Number(mania?.LightFramePerSecond ?? 60)
+            : (map.mode === 3 && [1, 2, 11, 12, 14, 18, 19].includes(motion)) ||
+                asset === "sliderb" ||
+                asset === "hitcircleoverlay"
+              ? 60
+              : (uv.fps ?? 60)) * (r < 0 ? -1 : 1)
+        : r,
     );
   }
   function circle(
@@ -162,14 +197,27 @@ export function compileScene(
     );
   }
   function digits(o: HitObject, x: number, y: number): void {
-    const s = String(o.number),
-      prefix = skin?.sections.get("Fonts")?.[0]?.HitCirclePrefix ?? "default";
-    for (let i = 0; i < s.length; i++)
+    const digits = String(o.number),
+      fonts = skin?.sections.get("Fonts")?.[0],
+      prefix = fonts?.HitCirclePrefix ?? "default",
+      scale = radius / 64,
+      overlap = Number(fonts?.HitCircleOverlap ?? 0) * scale;
+    const names = [...digits].map((d) =>
+      regions.has(`${prefix}-${d}`) ? `${prefix}-${d}` : `default-${d}`,
+    );
+    const widths = names.map(
+      (name) => (regions.get(name)?.width ?? 64) * scale,
+    );
+    let left =
+      x -
+      (widths.reduce((a, b) => a + b, 0) - overlap * (digits.length - 1)) / 2;
+    for (let i = 0; i < names.length; i++) {
+      const uv = regions.get(names[i]);
       add(
-        x + (i - (s.length - 1) / 2) * radius * 0.55,
+        left + widths[i] / 2,
         y,
-        radius * 0.7,
-        radius * 0.9,
+        widths[i],
+        (uv?.height ?? 80) * scale,
         o.time,
         o.time,
         o.time - preempt,
@@ -180,10 +228,10 @@ export function compileScene(
         0,
         0,
         0,
-        regions.has(`${prefix}-${s[i]}`)
-          ? `${prefix}-${s[i]}`
-          : `default-${s[i]}`,
+        names[i],
       );
+      left += widths[i] - overlap;
+    }
   }
   if (map.mode === 0) {
     for (const object of map.objects) {
@@ -286,40 +334,134 @@ export function compileScene(
           colours[o.combo % colours.length] ??
           palette[o.combo % palette.length];
       if (o.type & 8) {
-        add(
-          256,
-          192,
-          300,
-          300,
-          o.time,
-          o.endTime,
-          o.time - preempt,
-          o.endTime + 180,
-          [0.65, 0.7, 0.8, 0.5],
-          11,
-          7,
-          0,
-          0,
-          0,
-          "spinner-circle",
-        );
-        add(
-          256,
-          192,
-          300,
-          300,
-          o.time,
-          o.endTime,
-          o.time - preempt,
-          o.endTime,
-          [1, 1, 1],
-          1,
-          10,
-          0,
-          0,
-          0,
-          "spinner-approachcircle",
-        );
+        const modernSpinner =
+          (skin?.version ?? 1) >= 2 &&
+          [
+            "spinner-bottom",
+            "spinner-top",
+            "spinner-middle",
+            "spinner-middle2",
+          ].some((name) => regions.has(name));
+        if (regions.has("spinner-background"))
+          add(
+            256,
+            192,
+            480,
+            480,
+            o.time,
+            o.endTime,
+            o.time - preempt,
+            o.endTime + 180,
+            [1, 1, 1],
+            4,
+            0,
+            0,
+            0,
+            0,
+            "spinner-background",
+          );
+        if (!modernSpinner)
+          add(
+            256,
+            192,
+            300,
+            300,
+            o.time,
+            o.endTime,
+            o.time - preempt,
+            o.endTime + 180,
+            [0.65, 0.7, 0.8, 0.5],
+            11,
+            7,
+            0,
+            0,
+            0,
+            "spinner-circle",
+          );
+        for (const name of [
+          "spinner-bottom",
+          "spinner-middle2",
+          "spinner-middle",
+          "spinner-top",
+          "spinner-glow",
+        ])
+          if (modernSpinner && regions.has(name))
+            add(
+              256,
+              192,
+              300,
+              300,
+              o.time,
+              o.endTime,
+              o.time - preempt,
+              o.endTime + 180,
+              [1, 1, 1],
+              4,
+              7,
+              0,
+              0,
+              0,
+              name,
+            );
+        for (const [name, x, y, w, h] of [
+          ["spinner-metre", 510, 192, 24, 300],
+          ["spinner-rpm", 256, 360, 100, 30],
+          ["spinner-spin", 256, 300, 120, 36],
+        ] as const)
+          if (regions.has(name))
+            add(
+              x,
+              y,
+              w,
+              h,
+              o.time,
+              o.endTime,
+              o.time,
+              o.endTime,
+              [1, 1, 1],
+              4,
+              0,
+              0,
+              0,
+              0,
+              name,
+            );
+        if (regions.has("spinner-clear"))
+          add(
+            256,
+            80,
+            160,
+            40,
+            o.endTime,
+            o.endTime,
+            o.endTime - 150,
+            o.endTime + 500,
+            [1, 1, 1],
+            4,
+            0,
+            0,
+            0,
+            0,
+            "spinner-clear",
+          );
+        if (!modernSpinner)
+          add(
+            256,
+            192,
+            300,
+            300,
+            o.time,
+            o.endTime,
+            o.time - preempt,
+            o.endTime,
+            [1, 1, 1],
+            1,
+            10,
+            0,
+            0,
+            0,
+            "spinner-approachcircle",
+          );
         continue;
       }
       if (o.type & 2) {
@@ -350,8 +492,8 @@ export function compileScene(
               5,
               (reverse ? a.x : b.x) - offset,
               (reverse ? a.y : b.y) - offset,
-              0,
-              "sliderb0",
+              o.time,
+              "sliderb",
             );
             add(
               (reverse ? b.x : a.x) - offset,
@@ -367,7 +509,7 @@ export function compileScene(
               5,
               (reverse ? a.x : b.x) - offset,
               (reverse ? a.y : b.y) - offset,
-              0,
+              o.time,
               "sliderfollowcircle",
             );
           }
@@ -451,55 +593,174 @@ export function compileScene(
     }
   } else if (map.mode === 3) {
     const keys = Math.max(1, Math.round(map.difficulty.cs)),
-      rawWidths = mania?.ColumnWidth?.split(",").map(Number),
-      widths = Array.from({ length: keys }, (_, i) => rawWidths?.[i] ?? 30),
-      total = widths.reduce((a, b) => a + b, 0),
-      scale = Math.min(1.6, 240 / total);
-    let left = 256 - (total * scale) / 2;
-    const hit = (Number(mania?.HitPosition ?? 402) / 480) * 384;
+      raw = mania?.ColumnWidth?.split(",").map(Number),
+      spaces = mania?.ColumnSpacing?.split(",").map(Number) ?? [];
+    const widths = Array.from({ length: keys }, (_, i) => raw?.[i] ?? 30),
+      total =
+        widths.reduce((a, b) => a + b, 0) + spaces.reduce((a, b) => a + b, 0);
+    const left =
+        mania?.ColumnStart === undefined
+          ? 256 - total / 2
+          : Number(mania.ColumnStart) - ((480 * 16) / 9 - 512) / 2,
+      hit = Number(mania?.HitPosition ?? 402) - 48,
+      positions: number[] = [];
+    let columnLeft = left;
+    const sprite = (
+      asset: string,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+      motion = 0,
+      lane = 0,
+      colour: readonly number[] = [1, 1, 1],
+    ) => {
+      if (regions.has(asset))
+        add(x, y, w, h, 0, 0, -1e9, 1e9, colour, 4, motion, lane, 0, 0, asset);
+    };
+    const stage = (
+      key: string,
+      fallback: string,
+      x: number,
+      y: number,
+      w: number,
+      h: number,
+    ) => sprite(mania?.[key] ?? fallback, x, y, w, h);
     for (let lane = 0; lane < keys; lane++) {
-      const w = widths[lane] * scale,
-        x = left + w / 2;
+      positions.push(columnLeft + widths[lane] / 2);
+      const background = mania?.[`Colour${lane + 1}`]
+        ?.split(",")
+        .map((v) => Number(v) / 255) ?? [0.015, 0.015, 0.02, 1];
       add(
-        x,
+        positions[lane],
         192,
-        w - 1,
-        384,
+        widths[lane],
+        480,
         0,
         0,
         -1e9,
         1e9,
-        [lane % 2 ? 0.045 : 0.025, lane % 2 ? 0.05 : 0.03, 0.065],
+        background,
         4,
       );
-      add(x, hit, w - 1, 3, 0, 0, -1e9, 1e9, [0.8, 0.8, 0.8], 4);
-      left += w;
+      columnLeft += widths[lane] + (spaces[lane] ?? 0);
     }
+    const side = (key: string, fallback: string, right: boolean) => {
+      const name = mania?.[key] ?? fallback,
+        uv = regions.get(name);
+      if (uv) {
+        const w = (uv.width ?? 1) * 0.625;
+        sprite(name, right ? left + total + w / 2 : left - w / 2, 192, w, 480);
+      }
+    };
+    side("StageLeft", "mania-stage-left", false);
+    side("StageRight", "mania-stage-right", true);
+    stage(
+      "StageHint",
+      "mania-stage-hint",
+      left + total / 2,
+      hit,
+      total,
+      Math.max(
+        1,
+        (regions.get(mania?.StageHint ?? "mania-stage-hint")?.height ?? 2) *
+          0.625,
+      ),
+    );
+    const keyLayers = () => {
+      for (let lane = 0; lane < keys; lane++) {
+        const kind =
+            keys % 2 && lane === Math.floor(keys / 2)
+              ? "S"
+              : lane % 2
+                ? "2"
+                : "1",
+          name = mania?.[`KeyImage${lane}`] ?? `mania-key${kind}`,
+          pressed = mania?.[`KeyImage${lane}D`] ?? `mania-key${kind}D`,
+          uv = regions.get(name),
+          height = uv ? (widths[lane] * uv.h) / uv.w : 30,
+          y = hit - height / 2;
+        add(
+          positions[lane],
+          y,
+          widths[lane],
+          height,
+          0,
+          0,
+          -1e9,
+          1e9,
+          [0.3, 0.32, 0.36],
+          4,
+          11,
+          lane,
+          0,
+          0,
+          name,
+        );
+        add(
+          positions[lane],
+          y,
+          widths[lane],
+          height,
+          0,
+          0,
+          -1e9,
+          1e9,
+          [0.7, 0.75, 0.9],
+          4,
+          12,
+          lane,
+          0,
+          0,
+          regions.has(pressed) ? pressed : name,
+        );
+      }
+    };
+    for (let lane = 0; lane < keys; lane++) {
+      const name = mania?.StageLight ?? "mania-stage-light",
+        uv = regions.get(name);
+      if (uv) {
+        const h = (uv.height ?? 480) * 0.625,
+          colour = (mania?.[`ColourLight${lane + 1}`] ?? "55,255,255")
+            .split(",")
+            .map((value) => Number(value) / 255);
+        sprite(
+          name,
+          positions[lane],
+          Number(mania?.LightPosition ?? 413) - 48 - h / 2,
+          widths[lane],
+          h,
+          13,
+          lane,
+          colour,
+        );
+      }
+    }
+    if (mania?.KeysUnderNotes === "1") keyLayers();
     for (let layer = 0; layer < 3; layer++)
       for (const o of map.objects) {
         const lane = Math.min(keys - 1, Math.floor((o.x * keys) / 512)),
-          x =
-            256 -
-            (total * scale) / 2 +
-            widths.slice(0, lane).reduce((a, b) => a + b, 0) * scale +
-            (widths[lane] * scale) / 2,
-          w = widths[lane] * scale - 2,
           kind =
             keys % 2 && lane === Math.floor(keys / 2)
               ? "S"
               : lane % 2
                 ? "2"
                 : "1",
-          colour =
-            kind === "S"
-              ? [1, 0.65, 0.2]
-              : lane % 2
-                ? [0.35, 0.65, 1]
-                : [0.9, 0.9, 0.95],
-          s = scrollPosition(map.timing, o.time),
-          e = scrollPosition(map.timing, o.endTime),
-          from = o.time - 30000;
-        if (layer === 0 && o.endTime > o.time)
+          x = positions[lane],
+          w = widths[lane],
+          s = scrollAt(o.time),
+          e = scrollAt(o.endTime),
+          from = o.time - 30000,
+          hold = o.endTime > o.time;
+        const asset =
+          layer === 0
+            ? (mania?.[`NoteImage${lane}L`] ?? `mania-note${kind}L`)
+            : layer === 1
+              ? (mania?.[`NoteImage${lane}T`] ?? `mania-note${kind}T`)
+              : (mania?.[`NoteImage${lane}${hold ? "H" : ""}`] ??
+                `mania-note${kind}${hold ? "H" : ""}`);
+        const tint = lane % 2 ? [0.35, 0.65, 1] : [0.9, 0.9, 0.95];
+        if (layer === 0 && hold)
           add(
             x,
             hit,
@@ -509,15 +770,18 @@ export function compileScene(
             o.endTime,
             from,
             o.endTime + 120,
-            [...colour, 0.55],
+            tint,
             4,
-            2,
+            bodyStyle === 2 ? 14 : 2,
             s,
             e,
             hit,
-            mania?.[`NoteImage${lane}L`] ?? `mania-note${kind}L`,
+            asset,
+            0,
+            0,
+            bodyStyle > 0 ? -1 : 0,
           );
-        if (layer === 1 && o.endTime > o.time)
+        if (layer === 1 && hold)
           add(
             x,
             hit,
@@ -527,13 +791,13 @@ export function compileScene(
             o.endTime,
             from,
             o.endTime + 120,
-            colour,
+            tint,
             4,
             1,
             e,
             0,
             hit,
-            mania?.[`NoteImage${lane}T`] ?? `mania-note${kind}T`,
+            asset,
           );
         if (layer === 2)
           add(
@@ -545,71 +809,127 @@ export function compileScene(
             o.endTime,
             from,
             o.endTime + 120,
-            colour,
+            tint,
             4,
             1,
             s,
             0,
             hit,
-            mania?.[`NoteImage${lane}${o.endTime > o.time ? "H" : ""}`] ??
-              `mania-note${kind}${o.endTime > o.time ? "H" : ""}`,
+            asset,
           );
       }
-    left = 256 - (total * scale) / 2;
-    for (let lane = 0; lane < keys; lane++) {
-      const w = widths[lane] * scale,
-        kind =
-          keys % 2 && lane === Math.floor(keys / 2)
-            ? "S"
-            : lane % 2
-              ? "2"
-              : "1";
+    if (mania?.KeysUnderNotes !== "1") keyLayers();
+    for (let lane = 0; lane < keys; lane++)
+      for (const [key, fallback] of [
+        ["LightingN", "lightingN"],
+        ["LightingL", "lightingL"],
+      ]) {
+        const name = mania?.[key] ?? fallback,
+          uv = regions.get(name);
+        if (uv) {
+          const w = Number(
+              mania?.[`${key}Width`]?.split(",")[lane] ?? widths[lane],
+            ),
+            h = (w * (uv.height ?? 1)) / Math.max(0.01, uv.width ?? 1);
+          sprite(
+            name,
+            positions[lane],
+            hit,
+            w,
+            h,
+            key === "LightingN" ? 18 : 19,
+            lane,
+          );
+        }
+      }
+    for (let i = 0; i < map.timing.length; i++) {
+      const t = map.timing[i];
+      if (!t.uninherited) continue;
+      const end =
+        map.timing.slice(i + 1).find((p) => p.uninherited)?.time ??
+        map.duration;
+      for (let time = t.time; time < end; time += t.beatLength * t.meter)
+        if (Number(mania?.BarlineHeight ?? 1) > 0)
+          add(
+            left + total / 2,
+            hit,
+            total,
+            Number(mania?.BarlineHeight ?? 1),
+            time,
+            time,
+            time - 30000,
+            time,
+            [0.3, 0.3, 0.3, 0.5],
+            4,
+            1,
+            scrollAt(time),
+            0,
+            hit,
+          );
+    }
+    const bottom = mania?.StageBottom ?? "mania-stage-bottom",
+      bottomUV = regions.get(bottom);
+    if (bottomUV) {
+      const w = (bottomUV.width ?? 1) * 0.625,
+        h = (bottomUV.height ?? 1) * 0.625;
+      sprite(bottom, left + total / 2, 432 - h / 2, w, h);
+    }
+  } else if (map.mode === 1) {
+    add(336, 135, 480, 96, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
+    if (regions.has("taiko-slider"))
       add(
-        left + w / 2,
-        hit + 20,
-        w - 2,
-        30,
+        256,
+        135,
+        640,
+        132,
         0,
         0,
         -1e9,
         1e9,
-        [0.3, 0.32, 0.36],
+        [1, 1, 1],
         4,
-        11,
-        lane,
         0,
         0,
-        mania?.[`KeyImage${lane}`] ?? `mania-key${kind}`,
+        0,
+        0,
+        "taiko-slider",
       );
-      left += w;
-    }
-    // Uninherited beat grid; positions follow the same SV integral as notes.
-    for (let i = 0; i < map.timing.length; i++) {
-      const t = map.timing[i];
-      if (!t.uninherited) continue;
-      const next =
-        map.timing.slice(i + 1).find((p) => p.uninherited)?.time ??
-        map.duration;
-      for (let time = t.time; time < next; time += t.beatLength * t.meter)
-        add(
-          256,
-          hit,
-          total * scale,
-          0.8,
-          time,
-          time,
-          time - 30000,
-          time + 20,
-          [0.32, 0.34, 0.38, 0.5],
-          4,
-          1,
-          scrollPosition(map.timing, time),
-          0,
-          hit,
-        );
-    }
-  } else if (map.mode === 1) {
-    add(336, 135, 480, 96, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
+    if (regions.has("taiko-bar-left"))
+      add(
+        16,
+        135,
+        160,
+        132,
+        0,
+        0,
+        -1e9,
+        1e9,
+        [1, 1, 1],
+        4,
+        0,
+        0,
+        0,
+        0,
+        "taiko-bar-left",
+      );
+    if (regions.has("taiko-bar-right"))
+      add(
+        576,
+        135,
+        32,
+        132,
+        0,
+        0,
+        -1e9,
+        1e9,
+        [1, 1, 1],
+        4,
+        0,
+        0,
+        0,
+        0,
+        "taiko-bar-right",
+      );
     for (let i = 0; i < map.timing.length; i++) {
       const timing = map.timing[i];
       if (!timing.uninherited) continue;
@@ -638,7 +958,23 @@ export function compileScene(
         );
       }
     }
-    add(96, 135, 90, 90, 0, 0, -1e9, 1e9, [0.85, 0.85, 0.85], 1);
+    add(
+      96,
+      135,
+      90,
+      90,
+      0,
+      0,
+      -1e9,
+      1e9,
+      [1, 1, 1],
+      1,
+      0,
+      0,
+      0,
+      0,
+      "approachcircle",
+    );
     add(
       16,
       135,
@@ -648,7 +984,7 @@ export function compileScene(
       0,
       -1e9,
       1e9,
-      [0.9, 0.8, 0.7],
+      [1, 1, 1],
       9,
       0,
       0,
@@ -656,6 +992,24 @@ export function compileScene(
       0,
       "taiko-drum-inner",
     );
+    if (regions.has("taiko-drum-outer"))
+      add(
+        16,
+        135,
+        86,
+        86,
+        0,
+        0,
+        -1e9,
+        1e9,
+        [1, 1, 1],
+        4,
+        0,
+        0,
+        0,
+        0,
+        "taiko-drum-outer",
+      );
     for (let i = map.objects.length - 1; i >= 0; i--) {
       const o = map.objects[i],
         rim = !!(o.sound & 10),
@@ -707,7 +1061,45 @@ export function compileScene(
           2,
           4,
           velocity,
+          0,
+          0,
+          "taiko-roll-middle",
         );
+        add(
+          96,
+          135,
+          r * 2,
+          r * 2,
+          o.time,
+          o.endTime,
+          o.time - lead,
+          o.endTime,
+          [1, 0.4, 0.1],
+          0,
+          3,
+          velocity,
+          0,
+          0,
+          big ? "taikobigcircle" : "taikohitcircle",
+        );
+        if (regions.has("taiko-roll-end"))
+          add(
+            96,
+            135,
+            r * 2,
+            r * 2,
+            o.endTime,
+            o.endTime,
+            o.time - lead,
+            o.endTime,
+            [1, 1, 1],
+            0,
+            3,
+            velocity,
+            0,
+            0,
+            "taiko-roll-end",
+          );
         const interval =
           t.beatLength / (map.difficulty.sliderTickRate === 3 ? 6 : 8);
         for (let time = o.time; time < o.endTime; time += interval)
@@ -867,6 +1259,32 @@ export function compileScene(
             ? "fruit-bananas"
             : "fruit-drop",
       );
+      const fruitAsset =
+        fruit.kind === 0
+          ? ["fruit-apple", "fruit-grapes", "fruit-orange"][
+              Math.floor(fruit.time / 1000) % 3
+            ]
+          : fruit.kind === 3
+            ? "fruit-bananas"
+            : "fruit-drop";
+      if (regions.has(fruitAsset + "-overlay"))
+        add(
+          fruit.x,
+          340,
+          r * 2,
+          r * 2,
+          fruit.time,
+          fruit.time,
+          fruit.time - preempt,
+          fruit.time + 100,
+          [1, 1, 1],
+          4,
+          8,
+          0,
+          0,
+          0,
+          fruitAsset + "-overlay",
+        );
       if (hyper)
         add(
           fruit.x,
@@ -882,23 +1300,34 @@ export function compileScene(
           8,
         );
     }
-    add(
-      256,
-      355,
-      size * 2,
-      20,
-      0,
-      0,
-      -1e9,
-      1e9,
-      [0.9, 0.9, 0.95],
-      4,
-      9,
-      0,
-      0,
-      0,
-      "fruit-catcher-idle",
-    );
+    for (let state = 0; state < 3; state++) {
+      const name = [
+          "fruit-catcher-idle",
+          "fruit-catcher-kiai",
+          "fruit-catcher-fail",
+        ][state],
+        asset = regions.has(name) ? name : "fruit-catcher-idle",
+        uv = regions.get(asset),
+        w = size * 2,
+        h = uv ? (w * uv.h) / uv.w : 20;
+      add(
+        256,
+        350 + h / 2,
+        w,
+        h,
+        0,
+        0,
+        -1e9,
+        1e9,
+        [1, 1, 1],
+        4,
+        15 + state,
+        0,
+        0,
+        0,
+        asset,
+      );
+    }
   }
   const data = new Float32Array(values),
     count = values.length / 24,
@@ -918,6 +1347,7 @@ export function compileScene(
     chunks,
     count,
     preempt,
+    scrollBase,
     speed:
       map.mode === 1
         ? speed

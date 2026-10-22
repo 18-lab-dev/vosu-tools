@@ -21,6 +21,7 @@
       "version": "0.1.0",
       "dependencies": {
         "@vosu-tools/osu-parse": "workspace:*",
+        "@vosu-tools/skin-spec": "workspace:*",
         "vgpu": "0.6.0",
       },
       "devDependencies": {
