@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "tools/downloader", "tools/lazer-library", "tools/mania-ratings", "tools/practice", "tools/replay-renderer", "tools/server-pp", "tools/skin-editor"]
+members = ["crates/*", "tools/downloader", "tools/lazer-library", "tools/mania-ratings", "tools/practice", "tools/replay-renderer", "tools/server-pp", "tools/skin-studio"]
 resolver = "3"
 
 [workspace.package]

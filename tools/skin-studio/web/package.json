@@ -1,11 +1,12 @@
 {
-  "name": "@vosu-tools/skin-editor",
+  "name": "@vosu-tools/skin-studio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "test": "bun test test"
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "5.3.0",

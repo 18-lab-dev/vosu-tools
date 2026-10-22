@@ -1,0 +1,45 @@
+[
+  {
+    "uniqueID": "stable_skins_dir",
+    "type": "text",
+    "title": "Stable Skins folder",
+    "description": "Absolute osu!stable Skins folder to browse and to create mixed skins in. Leave empty to use the Skins folder of the stable client vosu is attached to.",
+    "value": ""
+  },
+  {
+    "uniqueID": "lazer_skins",
+    "type": "checkbox",
+    "title": "Show lazer skins",
+    "description": "List lazer's imported skins as mix sources (read-only). Needs the lazer-library tool.",
+    "value": true
+  },
+  {
+    "uniqueID": "export_dir",
+    "type": "text",
+    "title": ".osk export folder",
+    "description": "Absolute folder for lazer .osk exports. Leave empty for your Downloads folder.",
+    "value": ""
+  },
+  {
+    "uniqueID": "open_osk",
+    "type": "checkbox",
+    "title": "Open .osk after export",
+    "description": "Hand each exported .osk to the operating system so osu!lazer imports it.",
+    "value": true
+  },
+  {
+    "uniqueID": "credits",
+    "type": "checkbox",
+    "title": "Write a credits file",
+    "description": "Add skin-studio-credits.txt to mixed skins, listing the skins each mix used.",
+    "value": true
+  },
+  {
+    "uniqueID": "start_ruleset",
+    "type": "options",
+    "title": "Element tab",
+    "description": "Which ruleset's elements the studio shows first: follow the current beatmap, or always one ruleset.",
+    "options": ["follow", "osu", "taiko", "fruits", "mania"],
+    "value": "follow"
+  }
+]
