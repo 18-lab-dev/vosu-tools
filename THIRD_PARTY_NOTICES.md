@@ -10,6 +10,7 @@ Each section records third-party code, data, or assets included in this reposito
 - The original trainer implementation was ported from vosu commit `4c06922` under MIT OR Apache-2.0.
 - Slider curve parsing/calculation: rosu-map 0.2.1, MaxOhn, MIT. License: `tools/practice/licenses/rosu-map-MIT.txt`.
 - Fast vector-length reference formula: osuTK/OpenTK MathHelper, MIT, copyright Stefanos Apostolopoulos. License: `tools/practice/licenses/osuTK-MIT.txt`. No graphics/runtime library is linked.
+- UI fonts bundled into `tools/practice/web/dist` via Fontsource npm packages (woff2/woff subsets): Bricolage Grotesque (`@fontsource-variable/bricolage-grotesque` 5.3.0, The Bricolage Grotesque Project Authors), Instrument Sans (`@fontsource-variable/instrument-sans` 5.3.0, The Instrument Sans Project Authors) and DM Mono (`@fontsource/dm-mono` 5.3.0, The DM Mono Project Authors), all SIL Open Font License 1.1. Licenses: `tools/practice/licenses/font-{bricolage-grotesque,instrument-sans,dm-mono}-OFL.txt`. The tool icon and banner (`tools/practice/assets/`) are original artwork.
 ## server-pp calculators
 
 - Akatsuki `akatsuki-pp`, MIT, revision `c0e499ec3ac138c7cc329771fc70992de39fbb77`: https://github.com/osuAkatsuki/akatsuki-pp-rs.
