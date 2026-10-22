@@ -1,0 +1,8 @@
+import {test,expect} from 'bun:test';
+import {parseOsu} from '@vosu-tools/osu-parse';
+import {compileScene} from '../src/scene';
+const source='osu file format v14\n[Difficulty]\nCircleSize:4\nSliderMultiplier:1.4\nSliderTickRate:1\n[TimingPoints]\n0,500,4,1,0,100,1,0\n[HitObjects]\n64,192,1000,1,0\n192,192,1500,2,4,B|256:100|400:192,2,280\n320,192,4000,128,0,6000:0:0:0:0:\n256,192,7000,8,0,8500';
+for(const mode of [0,1,2,3] as const)test(`mode ${mode} compiles finite reusable geometry`,()=>{const m=parseOsu(source);m.mode=mode;const s=compileScene(m,{},new Map());expect(s.count).toBeGreaterThan(m.objects.length);expect(s.data.length).toBe(s.count*24);expect([...s.data].every(Number.isFinite)).toBe(true);expect(s.chunks.reduce((n,c)=>n+c.count,0)).toBe(s.count);expect(compileScene(m,{},new Map()).data).toEqual(s.data);});
+test('mania speed multiplier changes uniform speed, not object positions',()=>{const m=parseOsu(source);m.mode=3;const a=compileScene(m,{scrollSpeed:20,noteSpeed:1},new Map()),b=compileScene(m,{scrollSpeed:40,noteSpeed:1.5},new Map());expect(b.speed/a.speed).toBeCloseTo(3);expect(a.data).toEqual(b.data);});
+test('taiko rim notes, rolls and finishers are distinct primitives',()=>{const m=parseOsu(source);m.mode=1;const s=compileScene(m,{},new Map());const motions=[];for(let i=0;i<s.count;i++)motions.push(s.data[i*24+12]);expect(motions).toContain(3);expect(motions).toContain(4);expect(motions).toContain(7);});
+test('catch generates fruit/droplet/banana trajectories and catcher path',()=>{const m=parseOsu(source);m.mode=2;const s=compileScene(m,{},new Map());expect(s.catcher.length).toBeGreaterThan(m.objects.length);expect(s.catcher.every((p,i)=>!i||p.time>=s.catcher[i-1].time)).toBe(true);});

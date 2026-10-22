@@ -1,0 +1,1 @@
+{"name":"@vosu-tools/map-preview","version":"0.1.0","private":true,"type":"module","scripts":{"build":"vite build","check":"tsc --noEmit","test":"bun test"},"dependencies":{"@vosu-tools/tool-web":"workspace:*","@vosu-tools/render-core":"workspace:*","@vosu-tools/osu-parse":"workspace:*"},"devDependencies":{"vite":"^7.1.7","typescript":"^5.9.3","@webgpu/types":"latest"}}
