@@ -4,6 +4,16 @@
 
 The studio exposes the same settings under each replay's **Render settings** disclosure. Apply changes to that replay, or save them in the named player's preset. Skin selection remains independent per replay. None of these settings modifies osu! or changes the recorded key/cursor input or judgement windows.
 
+## Skins
+
+Each track picks its skin independently:
+
+- **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, triangles, legacy, …) are drawn by the game and have no files; the studio says so and renders those tracks with its own default skin.
+- **osu! Skins folder**: any folder under the stable installation's `Skins` directory.
+- **Imported .osk**: archives imported in the studio's **Skins** panel or with `vosux replay-renderer skins import <file.osk> [--name NAME]`. They are unpacked into the tool's data directory (`skins/<name>`), never into osu! folders; re-importing a name replaces that copy only after the new one is complete. Presets and `--skin` refer to them as `imported/<name>`; `skins list` and `skins delete` manage them.
+
+vosu forwards at most 1 MiB per request body, so imports are sent as ordered parts: `POST /v1/skins/uploads?name=&size=` (archives up to 512 MiB) returns `{upload, part_size}`, each `POST /v1/skins/uploads/<id>?offset=<n>` appends one part, and `POST /v1/skins/uploads/<id>/finish` validates and unpacks (no unsafe paths or symlinks, at most 20 000 entries and 1 GiB expanded). At most four imports run at once; parts idle for 30 minutes are discarded when the next import starts, and every unfinished upload is cleared when the service restarts.
+
 ## Per-replay settings schema
 
 `render-settings.json` is the authoritative machine-readable schema, consumed by both the Rust service/CLI validator and the studio control generator. Every entry declares key, label, applicable numeric rulesets (0 osu!, 1 taiko, 2 catch, 3 mania), inclusive bounds, UI step and default. Presets retain values by key. Toggles use numeric **0/1** so CLI arguments and existing preset files share one representation.
@@ -27,7 +37,7 @@ Browser export uses WebCodecs VP9/Opus and writes WebM, with OfflineAudioContext
 
 ## Installed overlay pages (native MP4)
 
-Add installed overlay folders in the studio's **04 / OVERLAY LAYOUT** section. Each layer has an independent page viewport, output X/Y, scale and opacity. These controls feed the native render queue; they do not iframe or execute an overlay inside the studio. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
+Add installed overlay folders in the studio's **Overlay layers** section. Each layer has an independent page viewport, output X/Y, scale and opacity. These controls feed the native render queue; they do not iframe or execute an overlay inside the studio. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
 
 The CLI accepts repeated `--overlay /absolute/overlay-folder` arguments. Each folder must contain `index.html`; CLI layers default to the full output viewport at (0, 0). The service render request accepts `overlays: [{folder,width,height,x,y,scale,opacity,settings}]` for custom layouts and per-layer setting overrides. Defaults are read from the overlay's own `settings.json`.
 
