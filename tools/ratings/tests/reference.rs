@@ -62,7 +62,14 @@ fn whole_map_sections_and_rate_steps() {
         (10..=40).collect::<Vec<_>>()
     );
     assert!(analysis::rate_ticks(0.07).is_err());
-    for system in ["etterna", "quaver", "interlude", "osu", "nps"] {
+    for system in [
+        "etterna",
+        "etterna-native",
+        "quaver",
+        "interlude",
+        "osu",
+        "nps",
+    ] {
         let t = analysis::timeline(bytes, p, system, 1.0, 0.25).unwrap();
         assert!(
             t["points"]
@@ -72,5 +79,38 @@ fn whole_map_sections_and_rate_steps() {
                 .all(|p| p["value"].as_f64().unwrap().is_finite())
         );
         assert_eq!(t["hop"], 0.25);
+    }
+}
+
+#[test]
+fn local_msd_is_an_actual_independent_window_calculation() {
+    let bytes = include_bytes!("fixtures/cyclic.osu");
+    let map = Beatmap::from_bytes(bytes).unwrap();
+    let all_rows = rows(&map, 4).unwrap();
+    for rate in [0.75, 1.0, 1.5] {
+        let params = Params::new(rate, None).unwrap();
+        let timeline = analysis::timeline(bytes, params, "etterna", 12.0, 1.0).unwrap();
+        assert_eq!(timeline["mode"], "local_msd");
+        assert_eq!(timeline["units"], "local MSD");
+        assert_eq!(
+            timeline["overall"],
+            minacalc::calculate(&all_rows, 4, rate, None).unwrap()[0]
+        );
+        for point in timeline["points"].as_array().unwrap().iter().step_by(13) {
+            let start = point["start"].as_f64().unwrap() as f32;
+            let end = point["end"].as_f64().unwrap() as f32;
+            let clipped = all_rows
+                .iter()
+                .filter(|r| r.seconds >= start && r.seconds < end)
+                .map(|r| vosu_ratings::Row {
+                    notes: r.notes,
+                    seconds: r.seconds - start,
+                })
+                .collect::<Vec<_>>();
+            let expected = minacalc::calculate(&clipped, 4, rate, None).unwrap();
+            let skills: [f32; 8] = serde_json::from_value(point["skills"].clone()).unwrap();
+            assert_eq!(skills, expected);
+            assert_eq!(point["value"], expected[0]);
+        }
     }
 }

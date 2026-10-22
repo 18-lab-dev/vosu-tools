@@ -2,7 +2,7 @@ import { vosu } from '/tools/_host/v1/bridge.js';
 import './style.css';
 type Rating = {checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:{label:string;value:number}|null};
 type Point = {time:number;value:number;nps:number};
-type Timeline = {duration:number;units:string;window:number;hop:number;points:Point[]};
+type Timeline = {duration:number;units:string;mode?:string;overall?:number;window:number;hop:number;points:Point[]};
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 const input = (id:string) => $<HTMLInputElement>(id);
 const status = (message:string) => $('status').textContent = message;
@@ -37,12 +37,23 @@ function draw(canvas:HTMLCanvasElement,points:Point[],field:'value'|'nps',range?
  const rect=canvas.getBoundingClientRect(),dpr=devicePixelRatio||1;
  canvas.width=Math.round(rect.width*dpr);canvas.height=Math.round((canvas.id==='density'?110:200)*dpr);
  const ctx=canvas.getContext('2d')!;ctx.scale(dpr,dpr);
- const w=rect.width,h=canvas.height/dpr,max=Math.max(1,...points.map(p=>p[field])),duration=timeline?.duration||1;
+ const w=rect.width,h=canvas.height/dpr,peak=Math.max(1,...points.map(p=>p[field])),duration=timeline?.duration||1;
+ const local=field==='value'&&timeline?.mode==='local_msd';
+ const max=local?Math.max(40,Math.ceil(Math.max(peak,timeline?.overall||0)/10)*10):peak;
  ctx.clearRect(0,0,w,h);ctx.strokeStyle='#47484b';ctx.fillStyle='#92959b';ctx.font='11px monospace';
- for(let i=1;i<4;i++){const y=i*h/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
- ctx.fillStyle=field==='nps'?'#858c98':'#ff963f';ctx.globalAlpha=.75;
- for(const p of points){const x=p.time/duration*w,bar=Math.max(1,(timeline?.hop||.25)/duration*w);ctx.fillRect(x,h-20-p[field]/max*(h-35),bar,p[field]/max*(h-35));}
- ctx.globalAlpha=1;ctx.fillStyle='#a6a9af';ctx.fillText(`0:00 · peak ${max.toFixed(1)}`,5,h-5);ctx.fillText(`${Math.floor(duration/60)}:${Math.floor(duration%60).toString().padStart(2,'0')}`,w-45,h-5);
+ for(let i=1;i<4;i++){const y=15+i*(h-35)/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+ ctx.globalAlpha=.85;
+ for(const p of points){
+  const x=p.time/duration*w,bar=Math.max(1,(timeline?.hop||1)/duration*w);
+  ctx.fillStyle=field==='nps'?'#858c98':p.value<10?'#665447':p.value<20?'#9b6845':p.value<30?'#d87b3e':p.value<40?'#ff963f':'#ffd3a3';
+  ctx.fillRect(x,h-20-p[field]/max*(h-35),bar,p[field]/max*(h-35));
+ }
+ ctx.globalAlpha=1;
+ if(local&&timeline?.overall!==undefined){
+  const y=h-20-timeline.overall/max*(h-35);ctx.setLineDash([3,4]);ctx.strokeStyle='#f2f1ec';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();ctx.setLineDash([]);
+  ctx.fillStyle='#f2f1ec';ctx.fillText(`MAP ${timeline.overall.toFixed(2)} MSD`,Math.max(5,w-145),Math.max(12,y-6));
+ }
+ ctx.fillStyle='#a6a9af';ctx.fillText(`0:00 · ${local?`0–${max} MSD · `:''}peak ${peak.toFixed(1)}`,5,h-5);ctx.fillText(`${Math.floor(duration/60)}:${Math.floor(duration%60).toString().padStart(2,'0')}`,w-45,h-5);
  if(range){ctx.fillStyle='#ffffff30';ctx.fillRect(range[0]/duration*w,0,(range[1]-range[0])/duration*w,h);}
 }
 async function loadTimeline(id:number) {
@@ -51,7 +62,7 @@ async function loadTimeline(id:number) {
  const t=await api<Timeline>(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${system}&window=${input('window').value}&hop=${input('hop').value}`);
  if(id!==generation)return;
  timeline=t;draw($<HTMLCanvasElement>('timeline'),t.points,'value');draw($<HTMLCanvasElement>('density'),t.points,'nps');
- $('timeline-caption').textContent=`${t.units} · ${t.window}s window / ${t.hop}s hop / no smoothing · chart-time axis. Drag a phrase to rate it.`;
+ $('timeline-caption').textContent=`${t.units} · ${t.window}s ${t.mode==='local_msd'?'centered, reset-context ':''}window / ${t.hop}s hop / no smoothing · chart-time axis. ${t.mode==='local_msd'?'Dotted line = whole-map MSD. Colour bands: <10 / 10–20 / 20–30 / 30–40 / 40+. ':''}Drag a phrase to rate it.`;
 }
 function rateCurve(rates:{rate:number;msd:{overall:number}|null}[]) {
  const svg=$('curve');svg.replaceChildren();
@@ -87,7 +98,11 @@ canvas.addEventListener('pointermove',e=>{if(selection!==undefined&&timeline)dra
 canvas.addEventListener('pointerup',e=>{if(selection===undefined)return;const a=Math.min(selection,position(e)),b=Math.max(selection,position(e));selection=undefined;input('start').value=a.toFixed(2);input('end').value=b.toFixed(2);void section();});
 $('refresh').onclick=()=>{selectedFile=undefined;void analyze();};$('section').onclick=()=>void section();
 input('file').onchange=()=>{const file=input('file').files?.[0];if(file)void analyze(file);};
-for(const id of ['system','window','hop'])$(id).onchange=()=>void loadTimeline(generation).catch(e=>status(String(e)));
+for(const id of ['window','hop'])$(id).onchange=()=>void loadTimeline(generation).catch(e=>status(String(e)));
+$('system').onchange=()=>{
+ const local=$<HTMLSelectElement>('system').value==='etterna';input('window').value=local?'12':'1';input('hop').value=local?'1':'0.25';
+ void loadTimeline(generation).catch(e=>status(String(e)));
+};
 input('rate').onchange=()=>void analyze();
 new ResizeObserver(()=>{if(timeline){draw(canvas,timeline.points,'value');draw($<HTMLCanvasElement>('density'),timeline.points,'nps');}}).observe(canvas);
 await vosu.ready;

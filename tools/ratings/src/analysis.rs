@@ -5,9 +5,12 @@ use serde_json::{Value, json};
 pub fn systems(value: Option<&str>) -> Result<(), String> {
     if let Some(value) = value {
         for system in value.split(',') {
-            if !matches!(system, "etterna" | "quaver" | "interlude" | "osu" | "nps") {
+            if !matches!(
+                system,
+                "etterna" | "etterna-native" | "quaver" | "interlude" | "osu" | "nps"
+            ) {
                 return Err(format!(
-                    "unsupported system {system}; available: etterna,quaver,interlude,osu,nps"
+                    "unsupported system {system}; available: etterna,etterna-native,quaver,interlude,osu,nps"
                 ));
             }
         }
@@ -84,7 +87,10 @@ pub fn timeline(
     let keys = map.circle_size as u32;
     let rows = rows(&map, keys)?;
     let duration = rows.last().map_or(0.0, |r| r.seconds + 0.001);
-    let native = if system == "etterna" {
+    if system == "etterna" {
+        return local_msd(bytes, &rows, keys, p, window, hop, duration);
+    }
+    let native = if system == "etterna-native" {
         minacalc::intervals(&rows, keys, p.rate())?
     } else {
         Vec::new()
@@ -124,7 +130,7 @@ pub fn timeline(
         let nps = heads as f32 * p.rate() / window;
         let mut skills = [0.0_f32; 8];
         let value = match system {
-            "etterna" => {
+            "etterna-native" => {
                 for (index, interval) in native.iter().enumerate() {
                     let time = index as f32 * 0.5 * p.rate();
                     if time < end && time + 0.5 * p.rate() > start {
@@ -159,6 +165,50 @@ pub fn timeline(
         points.push(json!({"time":start,"value":value,"nps":nps,"skills":skills}));
     }
     Ok(
-        json!({"checksum":checksum(bytes),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", _=>"notes per playback second"},"duration":duration,"points":points}),
+        json!({"checksum":checksum(bytes),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna-native"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", _=>"notes per playback second"},"duration":duration,"points":points}),
     )
+}
+
+fn local_msd(
+    bytes: &[u8],
+    rows: &[crate::Row],
+    keys: u32,
+    p: Params,
+    window: f32,
+    hop: f32,
+    duration: f32,
+) -> Result<Value, String> {
+    let overall = minacalc::calculate(rows, keys, p.rate(), None)?;
+    let mut points = Vec::with_capacity((duration / hop).ceil() as usize + 1);
+    let mut clipped = Vec::new();
+    for i in 0..=(duration / hop).floor() as usize {
+        let time = i as f32 * hop;
+        let start = (time - window / 2.0).max(0.0);
+        let end = (time + window / 2.0).min(duration);
+        let lo = rows.partition_point(|r| r.seconds < start);
+        let hi = rows.partition_point(|r| r.seconds < end);
+        clipped.clear();
+        clipped.extend(rows[lo..hi].iter().map(|r| crate::Row {
+            notes: r.notes,
+            seconds: r.seconds - start,
+        }));
+        let skills = minacalc::calculate(&clipped, keys, p.rate(), None)?;
+        let heads: u32 = clipped.iter().map(|r| r.notes.count_ones()).sum();
+        let nps = if end > start {
+            heads as f32 * p.rate() / (end - start)
+        } else {
+            0.0
+        };
+        points.push(json!({"time":time,"start":start,"end":end,"value":skills[0],"skills":skills,"nps":nps}));
+    }
+    Ok(json!({
+        "checksum":checksum(bytes),"rate":p.rate(),"system":"etterna",
+        "mode":"local_msd","calculator":crate::CALCULATOR,
+        "window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none",
+        "context":"independent centered windows; reset context; heads in [start,end); timestamps rebased to window start; clipped at chart edges",
+        "aggregation":"MinaCalc CalcMain independently on each window at 0.93 goal; no averaging or strain-to-MSD conversion",
+        "units":"local MSD","overall":overall[0],"overall_skills":overall,
+        "skill_names":["overall","stream","jumpstream","handstream","stamina","jackspeed","chordjack","technical"],
+        "duration":duration,"points":points
+    }))
 }

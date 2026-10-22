@@ -47,18 +47,13 @@ struct AnalysisOptions {
     rate: f32,
     #[serde(default = "default_system")]
     system: String,
-    #[serde(default = "one")]
-    window: f32,
-    #[serde(default = "quarter")]
-    hop: f32,
+    window: Option<f32>,
+    hop: Option<f32>,
     start: Option<f32>,
     end: Option<f32>,
 }
 fn default_system() -> String {
     "etterna".into()
-}
-fn quarter() -> f32 {
-    0.25
 }
 #[derive(Deserialize)]
 struct RateOptions {
@@ -247,17 +242,46 @@ async fn timeline(
     Query(options): Query<AnalysisOptions>,
 ) -> Result<Json<Value>> {
     let p = Params::new(options.rate, None)?;
-    app.work(move |conn| {
-        vosu_ratings::analysis::timeline(
-            &map_bytes(&conn, &md5)?,
-            p,
-            &options.system,
-            options.window,
-            options.hop,
-        )
-    })
-    .await
-    .map(Json)
+    let local = options.system == "etterna";
+    let window = options.window.unwrap_or(if local { 12.0 } else { 1.0 });
+    let hop = options.hop.unwrap_or(if local { 1.0 } else { 0.25 });
+    app.work(move |conn| cached_timeline(&conn, &md5, p, &options.system, window, hop))
+        .await
+        .map(Json)
+}
+
+fn cached_timeline(
+    conn: &rusqlite::Connection,
+    md5: &str,
+    p: Params,
+    system: &str,
+    window: f32,
+    hop: f32,
+) -> std::result::Result<Value, String> {
+    use rusqlite::OptionalExtension;
+    let key = format!(
+        "{}:{system}:{:08x}:{:08x}:centered-rebased-v1",
+        p.key(md5),
+        window.to_bits(),
+        hop.to_bits()
+    );
+    let stored: Option<String> = conn
+        .query_row("SELECT result FROM timelines WHERE key=?1", [&key], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some(value) = stored {
+        return serde_json::from_str(&value).map_err(|e| e.to_string());
+    }
+    let result = vosu_ratings::analysis::timeline(&map_bytes(conn, md5)?, p, system, window, hop)?;
+    let serialized = serde_json::to_string(&result).map_err(|e| e.to_string())?;
+    conn.execute(
+        "INSERT OR REPLACE INTO timelines(key,result) VALUES(?1,?2)",
+        rusqlite::params![key, serialized],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(result)
 }
 async fn section(
     State(app): State<App>,
@@ -288,7 +312,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all(&env.data_dir)?;
     let database = env.data_dir.join("ratings.sqlite3");
     let conn = rusqlite::Connection::open(&database)?;
-    conn.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS maps(checksum TEXT PRIMARY KEY,bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS ratings(key TEXT PRIMARY KEY,result TEXT NOT NULL);")?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS maps(checksum TEXT PRIMARY KEY,bytes BLOB NOT NULL); CREATE TABLE IF NOT EXISTS ratings(key TEXT PRIMARY KEY,result TEXT NOT NULL); CREATE TABLE IF NOT EXISTS timelines(key TEXT PRIMARY KEY,result TEXT NOT NULL);")?;
     drop(conn);
     let app = App {
         database,
@@ -336,6 +360,45 @@ mod tests {
         assert_eq!(
             cached(&conn, "missing", None, p).unwrap_err(),
             "not calculated"
+        );
+    }
+    #[test]
+    fn timeline_cache_is_durable_and_separates_rate_window_hop_system() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("cache.sqlite3");
+        let conn = db(&path).unwrap();
+        conn.execute_batch("CREATE TABLE maps(checksum TEXT PRIMARY KEY,bytes BLOB NOT NULL); CREATE TABLE ratings(key TEXT PRIMARY KEY,result TEXT NOT NULL); CREATE TABLE timelines(key TEXT PRIMARY KEY,result TEXT NOT NULL);").unwrap();
+        let bytes = include_bytes!("../tests/fixtures/mixed7.osu");
+        let hash = checksum(bytes);
+        let p = Params::new(1.0, None).unwrap();
+        cached(&conn, &hash, Some(bytes), p).unwrap();
+        let first = cached_timeline(&conn, &hash, p, "etterna", 12.0, 1.0).unwrap();
+        drop(conn);
+        let conn = db(&path).unwrap();
+        assert_eq!(
+            first,
+            cached_timeline(&conn, &hash, p, "etterna", 12.0, 1.0).unwrap()
+        );
+        for (rate, system, window, hop) in [
+            (1.5, "etterna", 12.0, 1.0),
+            (1.0, "etterna", 8.0, 1.0),
+            (1.0, "etterna", 12.0, 2.0),
+            (1.0, "etterna-native", 12.0, 1.0),
+        ] {
+            cached_timeline(
+                &conn,
+                &hash,
+                Params::new(rate, None).unwrap(),
+                system,
+                window,
+                hop,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM timelines", [], |r| r.get::<_, u32>(0))
+                .unwrap(),
+            5
         );
     }
 }
