@@ -10,7 +10,7 @@ use axum::{
     routing::{get, post},
 };
 use discovery::{Discovery, Library};
-use model::{Mapset, Search, Settings};
+use model::{Mapset, Search, Workspace};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -52,40 +52,55 @@ struct Task {
 #[derive(Clone)]
 struct App {
     discovery: Discovery,
+    workspace: Arc<Mutex<Workspace>>,
     tasks: Arc<Mutex<BTreeMap<String, Task>>>,
     next: Arc<std::sync::atomic::AtomicU64>,
+}
+/// Loads saved searches/presets. Before tool settings moved to vosu's
+/// `settings.json`, they shared `settings.json` in the data directory with
+/// mirrors and API credentials; keep the workspace part and delete the rest so
+/// no credential copy lingers outside vosu's settings store.
+fn load_workspace(data: &std::path::Path) -> Result<Workspace, String> {
+    let path = data.join("workspace.json");
+    let legacy = data.join("settings.json");
+    if !path.exists() && legacy.exists() {
+        let workspace: Workspace = store::load(&legacy)?;
+        store::save(&path, &workspace)?;
+        std::fs::remove_file(&legacy).map_err(|_| "cannot remove legacy settings file")?;
+    }
+    let workspace: Workspace = store::load(&path)?;
+    workspace.validate()?;
+    Ok(workspace)
 }
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let env = vosu_tool_sdk::ToolEnv::from_env()?;
     std::fs::create_dir_all(&env.data_dir)?;
-    let settings: Settings = store::load(&env.data_dir.join("settings.json"))?;
-    settings.validate()?;
+    let workspace = load_workspace(&env.data_dir)?;
     let mut queue: Queue = store::load(&env.data_dir.join("queue.json"))?;
     queue.recover();
-    let store = Store {
-        queue: Arc::new(Mutex::new(queue)),
-        settings: Arc::new(Mutex::new(settings)),
-        data: env.data_dir.clone(),
-        network: net::Network::new(env.cache_dir.join("metadata"))?,
-    };
+    let store = Store::new(
+        queue,
+        env.data_dir.clone(),
+        net::Network::new(env.cache_dir.join("metadata"))?,
+        env.client(),
+    );
     store.persist().await?;
     let app = App {
         discovery: Discovery {
             store: store.clone(),
             host: env.client(),
-            library: Arc::new(Mutex::new(Library {
-                warnings: vec!["Library snapshot not loaded: ownership is unknown until you refresh local context.".into()],
-                ..Library::default()
-            })),
+            library: Arc::new(Mutex::new(Library::default())),
         },
+        workspace: Arc::new(Mutex::new(workspace)),
         tasks: Arc::default(),
         next: Arc::default(),
     };
     tokio::spawn(store.worker());
     let router = Router::new()
         .route("/v1/state", get(state))
-        .route("/v1/settings", post(update_settings))
+        .route("/v1/lookup/{md5}", get(lookup))
+        .route("/v1/workspace", post(update_workspace))
         .route("/v1/search", post(search))
         .route("/v1/library", post(library))
         .route("/v1/queue", post(enqueue))
@@ -98,27 +113,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 async fn state(State(a): State<App>) -> ApiResult {
-    let s = a.discovery.store.settings.lock().await.public();
+    let (config, config_error) = match a.discovery.store.config().await {
+        Ok(c) => (c.public(), Value::Null),
+        Err(e) => (Value::Null, e.into()),
+    };
+    let workspace = a.workspace.lock().await.clone();
     let q = a.discovery.store.queue.lock().await;
-    let lib = a.discovery.library.lock().await;
-    Ok(Json(
-        json!({"settings":s,"queue":&*q,"library":{"maps":lib.maps.len(),"scores":lib.scores.len(),"collections":lib.collections,"warnings":lib.warnings}}),
-    ))
+    let lib = a.discovery.library.lock().await.summary();
+    Ok(Json(json!({
+        "config": config,
+        "config_error": config_error,
+        "workspace": workspace,
+        "queue": &*q,
+        "library": lib,
+    })))
 }
-async fn update_settings(State(a): State<App>, Json(mut s): Json<Settings>) -> ApiResult {
-    s.validate()?;
-    let mut old = a.discovery.store.settings.lock().await;
-    // Blank credential fields preserve saved credentials; values never read back.
-    if s.client_secret.is_empty() {
-        s.client_secret = old.client_secret.clone();
-    }
-    if s.client_id.is_empty() {
-        s.client_id = old.client_id.clone();
-    }
-    store::save(&a.discovery.store.data.join("settings.json"), &s)?;
-    *old = s;
-    a.discovery.store.network.clear_token().await;
-    Ok(Json(old.public()))
+/// Read route: anyone may resolve a difficulty MD5 (e.g. a replay's map) to
+/// its set. Requests are paced and cached like every other mirror request.
+async fn lookup(State(a): State<App>, Path(md5): Path<String>) -> ApiResult {
+    Ok(Json(a.discovery.lookup(&md5).await?))
+}
+async fn update_workspace(State(a): State<App>, Json(w): Json<Workspace>) -> ApiResult {
+    w.validate()?;
+    let mut current = a.workspace.lock().await;
+    store::save(&a.discovery.store.data.join("workspace.json"), &w)?;
+    *current = w;
+    Ok(Json(json!(*current)))
 }
 async fn start_task(a: App, input: Option<Search>) -> (StatusCode, Json<Value>) {
     use std::sync::atomic::Ordering;
@@ -248,9 +268,8 @@ async fn enqueue(
     let source = a
         .discovery
         .store
-        .settings
-        .lock()
-        .await
+        .config()
+        .await?
         .source(input.source.as_deref())?;
     let mut q = a.discovery.store.queue.lock().await;
     let before = serde_json::to_vec(&*q).unwrap();
@@ -389,4 +408,24 @@ fn open_file(path: &std::path::Path) -> Result<(), ApiError> {
     result
         .map(|_| ())
         .map_err(|_| "cannot open .osz file handler".into())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn legacy_settings_keep_workspace_and_drop_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("settings.json"),
+            r#"{"sources":[],"concurrency":2,"client_id":"1","client_secret":"s3cret",
+                "saved_searches":{"mania":{"query":"x","mode":3}},"presets":{}}"#,
+        )
+        .unwrap();
+        let w = load_workspace(dir.path()).unwrap();
+        assert_eq!(w.saved_searches["mania"].query, "x");
+        assert!(!dir.path().join("settings.json").exists());
+        let saved = std::fs::read_to_string(dir.path().join("workspace.json")).unwrap();
+        assert!(!saved.contains("s3cret"));
+        assert_eq!(load_workspace(dir.path()).unwrap().saved_searches.len(), 1);
+    }
 }
