@@ -76,7 +76,14 @@ async function openMap(text: string, audioSource?: string): Promise<void> {
   if (!map.objects.length)
     throw new Error("This beatmap contains no hit objects");
   if (!renderer) {
-    renderer = await createRenderer({ canvas, skin: selectedSkin });
+    renderer = await createRenderer({
+      canvas,
+      skin: selectedSkin,
+      presentation:
+        new URLSearchParams(location.search).get("presentation") === "bitmap"
+          ? "bitmap"
+          : "direct",
+    });
     if (!selectedSkin) await currentSkin();
   }
   refreshScene();

@@ -580,6 +580,7 @@ export function scrollPosition(
   timing: readonly TimingPoint[],
   time: number,
   mode: "mania" | "taiko" = "mania",
+  baseBeatLength?: number,
 ): number {
   let previous = 0,
     position = 0,
@@ -587,7 +588,14 @@ export function scrollPosition(
     beat = 500;
   for (const t of timing) {
     if (t.time > time) break;
-    position += (t.time - previous) * sv * (mode === "taiko" ? 500 / beat : 1);
+    position +=
+      (t.time - previous) *
+      sv *
+      (mode === "taiko"
+        ? 500 / beat
+        : baseBeatLength === undefined
+          ? 1
+          : baseBeatLength / beat);
     previous = t.time;
     if (t.uninherited) {
       beat = t.beatLength;
@@ -595,6 +603,13 @@ export function scrollPosition(
     } else sv = Math.max(0.1, Math.min(10, -100 / t.beatLength));
   }
   return (
-    position + (time - previous) * sv * (mode === "taiko" ? 500 / beat : 1)
+    position +
+    (time - previous) *
+      sv *
+      (mode === "taiko"
+        ? 500 / beat
+        : baseBeatLength === undefined
+          ? 1
+          : baseBeatLength / beat)
   );
 }

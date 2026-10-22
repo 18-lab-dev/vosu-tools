@@ -14,8 +14,10 @@ export type { RenderOptions, Scene } from "./scene";
 export interface FrameState {
   target?: GPUTextureView;
   timestampWrites?: GPURenderPassTimestampWrites;
+  captureTarget?: GPUTexture;
   cursor?: { x: number; y: number; pressed?: boolean };
   keys?: readonly boolean[];
+  failed?: boolean;
   judgements?: readonly {
     x: number;
     y: number;
@@ -30,6 +32,7 @@ export interface RendererOptions {
   width?: number;
   height?: number;
   skin?: Skin;
+  presentation?: "direct" | "bitmap";
 }
 /** renderAt receives absolute beatmap milliseconds, never wall-clock time. */
 export interface Renderer {
@@ -51,10 +54,29 @@ export async function createRenderer(
       (options.canvas
         ? navigator.gpu.getPreferredCanvasFormat()
         : "rgba8unorm");
-  const context = options.canvas?.getContext(
+  const presentation =
+    options.canvas && options.presentation === "bitmap"
+      ? new OffscreenCanvas(
+          options.width ?? options.canvas.width,
+          options.height ?? options.canvas.height,
+        )
+      : undefined;
+  const bitmap = presentation
+    ? (options.canvas!.getContext(
+        "bitmaprenderer",
+      ) as ImageBitmapRenderingContext)
+    : null;
+  if (presentation && !bitmap)
+    throw new Error("Bitmap presentation is unavailable");
+  const context = (presentation ?? options.canvas)?.getContext(
     "webgpu",
   ) as GPUCanvasContext | null;
-  context?.configure({ device, format, alphaMode: "opaque" });
+  context?.configure({
+    device,
+    format,
+    alphaMode: "opaque",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
   let width = options.width ?? options.canvas?.width ?? 1920,
     height = options.height ?? options.canvas?.height ?? 1080,
     skin = options.skin,
@@ -63,6 +85,26 @@ export async function createRenderer(
     map: Beatmap | undefined,
     original: Beatmap | undefined,
     settings: RenderOptions = {};
+  let keyIntervals: { start: number; end: number }[][] = [];
+  let holdIntervals: { start: number; end: number }[][] = [];
+  function activeMask(
+    columns: readonly (readonly { start: number; end: number }[])[],
+    time: number,
+  ): number {
+    let result = 0;
+    for (let lane = 0; lane < columns.length; lane++) {
+      const intervals = columns[lane];
+      let lo = 0,
+        hi = intervals.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (intervals[mid].start <= time) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo && intervals[lo - 1].end >= time) result |= 1 << lane;
+    }
+    return result;
+  }
   const uniforms = new Float32Array(20),
     uniformBuffer = device.createBuffer({
       size: 80,
@@ -95,6 +137,11 @@ export async function createRenderer(
       },
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.VERTEX,
+        buffer: { type: "read-only-storage" },
+      },
     ],
   });
   const pipeline = await device.createRenderPipelineAsync({
@@ -129,6 +176,15 @@ export async function createRenderer(
     },
     primitive: { topology: "triangle-list" },
   });
+  function makeRegions(): GPUBuffer {
+    const buffer = device.createBuffer({
+      size: Math.max(16, atlas.frames.byteLength),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(buffer, 0, atlas.frames);
+    return buffer;
+  }
+  let regionBuffer = makeRegions();
   function makeBindings(): GPUBindGroup {
     return device.createBindGroup({
       layout,
@@ -136,6 +192,7 @@ export async function createRenderer(
         { binding: 0, resource: { buffer: uniformBuffer } },
         { binding: 1, resource: atlas.texture.createView() },
         { binding: 2, resource: sampler },
+        { binding: 3, resource: { buffer: regionBuffer } },
       ],
     });
   }
@@ -166,6 +223,30 @@ export async function createRenderer(
       settings = opts;
       map = applyMods(source, opts.mods ?? [], { ar: opts.ar, cs: opts.cs });
       scene = compileScene(map, opts, atlas.regions, skin);
+      keyIntervals =
+        map.mode === 3
+          ? Array.from({ length: Math.round(map.difficulty.cs) }, () => [])
+          : [];
+      holdIntervals = keyIntervals.map(() => []);
+      if (map.mode === 3)
+        for (const object of map.objects) {
+          const lane = Math.min(
+              keyIntervals.length - 1,
+              Math.floor((object.x * keyIntervals.length) / 512),
+            ),
+            intervals = keyIntervals[lane],
+            last = intervals[intervals.length - 1];
+          if (last && last.end >= object.time)
+            last.end = Math.max(last.end, object.endTime + 45);
+          else intervals.push({ start: object.time, end: object.endTime + 45 });
+          if (object.endTime > object.time) {
+            const holds = holdIntervals[lane],
+              previous = holds[holds.length - 1];
+            if (previous && previous.end >= object.time)
+              previous.end = Math.max(previous.end, object.endTime);
+            else holds.push({ start: object.time, end: object.endTime });
+          }
+        }
       instances?.destroy();
       instances = device.createBuffer({
         size: Math.max(96, scene.data.byteLength),
@@ -177,9 +258,12 @@ export async function createRenderer(
       const previous = atlas;
       skin = next;
       atlas = buildAtlas(device, next);
+      const previousRegions = regionBuffer;
+      regionBuffer = makeRegions();
       bindings = makeBindings();
       if (original) renderer.setBeatmap(original, settings);
       previous.texture.destroy();
+      previousRegions.destroy();
     },
     resize(w, h) {
       width = Math.max(1, Math.round(w));
@@ -187,6 +271,10 @@ export async function createRenderer(
       if (options.canvas) {
         options.canvas.width = width;
         options.canvas.height = height;
+        if (presentation) {
+          presentation.width = width;
+          presentation.height = height;
+        }
       }
     },
     renderAt(time, frame) {
@@ -214,16 +302,17 @@ export async function createRenderer(
         cursorX = p.x + (q.x - p.x) * f;
         cursorY = (p.y ?? 350) + ((q.y ?? 350) - (p.y ?? 350)) * f;
       }
-      let mask = 0;
+      let mask = frame?.keys ? 0 : activeMask(keyIntervals, time);
       if (frame?.keys)
-        for (let i = 0; i < Math.min(31, frame.keys.length); i++)
-          if (frame.keys[i]) mask |= 1 << i;
+        for (let lane = 0; lane < Math.min(31, frame.keys.length); lane++)
+          if (frame.keys[lane]) mask |= 1 << lane;
+      uniforms[13] = activeMask(holdIntervals, time) & mask;
       uniforms[0] = time;
       uniforms[1] = width;
       uniforms[2] = height;
       uniforms[3] = map.mode;
       uniforms[4] = scene.speed;
-      uniforms[5] = scrollPosition(map.timing, time);
+      uniforms[5] = scrollPosition(map.timing, time, "mania", scene.scrollBase);
       uniforms[6] = scene.preempt;
       uniforms[7] = 0;
       uniforms[8] = cursorX;
@@ -234,9 +323,22 @@ export async function createRenderer(
       uniforms[16] = map.visualMods.includes("HD") ? 1 : 0;
       uniforms[17] = map.visualMods.includes("FI") ? 1 : 0;
       uniforms[18] = map.visualMods.includes("UD") ? 1 : 0;
+      let timingIndex = 0;
+      while (
+        timingIndex + 1 < map.timing.length &&
+        map.timing[timingIndex + 1].time <= time
+      )
+        timingIndex++;
+      uniforms[19] = frame?.failed
+        ? 2
+        : (map.timing[timingIndex]?.effects ?? 0) & 1
+          ? 1
+          : 0;
       device.queue.writeBuffer(uniformBuffer, 0, uniforms);
-      attachment.view =
-        frame?.target ?? context?.getCurrentTexture().createView()!;
+      const swapchain = frame?.target
+        ? undefined
+        : context?.getCurrentTexture();
+      attachment.view = frame?.target ?? swapchain?.createView()!;
       if (!attachment.view)
         throw new Error("Offscreen rendering requires frame.target");
       passDescriptor.timestampWrites = frame?.timestampWrites;
@@ -303,8 +405,16 @@ export async function createRenderer(
         pass.draw(6, count);
       }
       pass.end();
+      if (frame?.captureTarget && swapchain)
+        encoder.copyTextureToTexture(
+          { texture: swapchain },
+          { texture: frame.captureTarget },
+          [width, height],
+        );
       commands[0] = encoder.finish();
       device.queue.submit(commands);
+      if (!frame?.target && presentation && bitmap)
+        bitmap.transferFromImageBitmap(presentation.transferToImageBitmap());
     },
     destroy() {
       if (disposed) return;
@@ -312,6 +422,7 @@ export async function createRenderer(
       instances?.destroy();
       uniformBuffer.destroy();
       overlayBuffer.destroy();
+      regionBuffer.destroy();
       atlas.texture.destroy();
       context?.unconfigure();
       gpu?.dispose();
