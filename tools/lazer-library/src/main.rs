@@ -172,17 +172,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(Ok(index)) => {
                             s.status.available = true;
                             s.status.realm_schema = Some(index.schema);
+                            s.status.missing_properties = index.missing_properties.clone();
                             s.status.refreshed_at = Some(chrono::Utc::now().to_rfc3339());
                             s.status.error = None;
                             s.index = Some(Arc::new(index));
                         }
-                        other => {
+                        Ok(Err(error)) => {
                             s.status.available = false;
-                            s.status.error = Some(match other {
-                                Ok(Err(e)) => e,
-                                Err(e) => e.to_string(),
-                                _ => unreachable!(),
-                            });
+                            s.status.realm_schema = error.schema;
+                            s.status.missing_properties = error.missing_properties;
+                            s.status.error = Some(error.message);
+                            s.index = None;
+                        }
+                        Err(error) => {
+                            s.status.available = false;
+                            s.status.realm_schema = None;
+                            s.status.missing_properties.clear();
+                            s.status.error = Some(error.to_string());
                             s.index = None;
                         }
                     }

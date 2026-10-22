@@ -2,6 +2,7 @@
 #include <realm/table.hpp>
 #include <realm/obj.hpp>
 #include <realm/list.hpp>
+#include <realm/uuid.hpp>
 #include <realm/db.hpp>
 #include <realm/transaction.hpp>
 #include <thread>
@@ -52,6 +53,13 @@ protected:
 extern "C" int vosu_realm_scan(const char* path, int (*row)(void*, const char*, const char*, size_t), void* ctx, char* error, size_t cap) noexcept {
     try {
         realm::Group group(path);
+        for (auto key : group.get_table_keys()) {
+            RowBuffer buffer;
+            std::ostream out(&buffer);
+            group.get_table(key)->schema_to_json(out);
+            if (!out || row(ctx, "__schema", buffer.text.data(), buffer.text.size()) != 0)
+                throw std::runtime_error("Realm schema exceeds configured memory limit");
+        }
         const char* names[] = {"metadata", "class_BeatmapSet", "class_Beatmap", "class_Skin", "class_Score", "class_Ruleset", "class_BeatmapMetadata"};
         for (auto name : names) {
             auto table = group.get_table(name);
@@ -76,12 +84,12 @@ extern "C" int vosu_realm_scan(const char* path, int (*row)(void*, const char*, 
 }
 
 // Reproducible, deliberately tiny fixture. Only callable through Rust's test API.
-extern "C" int vosu_realm_fixture(const char* path, int generation) noexcept {
+extern "C" int vosu_realm_fixture(const char* path, int generation, int variant) noexcept {
     try {
         realm::Group g;
         auto meta = g.add_table("metadata");
         auto version = meta->add_column(realm::type_Int, "version");
-        meta->create_object().set(version, int64_t(52));
+        meta->create_object().set(version, int64_t(variant ? 1052 + variant : 52));
         auto rules = g.add_table_with_primary_key("class_Ruleset", realm::type_String, "ShortName");
         auto rule = rules->create_object_with_primary_key("mania");
         auto files = g.add_table_with_primary_key("class_File", realm::type_String, "Hash");
@@ -101,14 +109,14 @@ extern "C" int vosu_realm_fixture(const char* path, int generation) noexcept {
         auto usage = g.add_table("class_RealmNamedFileUsage", realm::Table::Type::Embedded);
         auto filename = usage->add_column(realm::type_String, "Filename");
         auto filelink = usage->add_column(*files, "File");
-        auto sets = g.add_table_with_primary_key("class_BeatmapSet", realm::type_Int, "ID");
+        auto sets = g.add_table_with_primary_key("class_BeatmapSet", realm::type_UUID, "ID");
         auto online = sets->add_column(realm::type_Int, "OnlineID");
         auto setfiles = sets->add_column_list(*usage, "Files");
-        auto set = sets->create_object_with_primary_key(int64_t(1)).set(online, int64_t(123));
+        auto set = sets->create_object_with_primary_key(realm::UUID("00000000-0000-0000-0000-000000000001")).set(online, int64_t(123));
         set.get_linklist(setfiles).create_and_insert_linked_object(0).set(filename, "fixture.osu").set(filelink, file.get_key());
         set.get_linklist(setfiles).create_and_insert_linked_object(1).set(filename, "audio.mp3").set(filelink, audio.get_key());
         set.get_linklist(setfiles).create_and_insert_linked_object(2).set(filename, "background.jpg").set(filelink, background.get_key());
-        auto maps = g.add_table_with_primary_key("class_Beatmap", realm::type_Int, "ID");
+        auto maps = g.add_table_with_primary_key("class_Beatmap", realm::type_UUID, "ID");
         auto md5 = maps->add_column(realm::type_String, "MD5Hash");
         auto hash = maps->add_column(realm::type_String, "Hash");
         auto difficulty = maps->add_column(realm::type_String, "DifficultyName");
@@ -116,20 +124,24 @@ extern "C" int vosu_realm_fixture(const char* path, int generation) noexcept {
         auto setlink = maps->add_column(*sets, "BeatmapSet");
         auto rulelink = maps->add_column(*rules, "Ruleset");
         auto metadata_link = maps->add_column(*metadata, "Metadata");
-        maps->create_object_with_primary_key(int64_t(1)).set(md5, "0123456789abcdef0123456789abcdef").set(hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").set(pathcol, "fixture.osu").set(difficulty, generation ? "Generation B" : "Generation A").set(setlink, set.get_key()).set(rulelink, rule.get_key()).set(metadata_link, map_metadata.get_key());
-        auto skins = g.add_table_with_primary_key("class_Skin", realm::type_String, "ID");
+        maps->create_object_with_primary_key(realm::UUID("00000000-0000-0000-0000-000000000002")).set(md5, "0123456789abcdef0123456789abcdef").set(hash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").set(pathcol, "fixture.osu").set(difficulty, generation ? "Generation B" : "Generation A").set(setlink, set.get_key()).set(rulelink, rule.get_key()).set(metadata_link, map_metadata.get_key());
+        auto skins = g.add_table_with_primary_key("class_Skin", realm::type_UUID, "ID");
         auto skinname = skins->add_column(realm::type_String, "Name");
         auto skinfiles = skins->add_column_list(*usage, "Files");
-        auto skin = skins->create_object_with_primary_key("fixture-skin").set(skinname, "Fixture\x01skin");
+        auto skin = skins->create_object_with_primary_key(realm::UUID("00000000-0000-0000-0000-000000000003")).set(skinname, "Fixture\x01skin");
         skin.get_linklist(skinfiles).create_and_insert_linked_object(0).set(filename, "Skin.INI").set(filelink, file.get_key());
-        auto scores = g.add_table_with_primary_key("class_Score", realm::type_String, "ID");
+        auto scores = g.add_table_with_primary_key("class_Score", realm::type_UUID, "ID");
         auto scorehash = scores->add_column(realm::type_String, "BeatmapHash");
         auto total = scores->add_column(realm::type_Int, "TotalScore");
         auto score_date = scores->add_column(realm::type_Timestamp, "Date");
         auto score_user = scores->add_column(*users, "User");
         auto score_mods = scores->add_column(realm::type_String, "Mods");
-        auto score = scores->create_object_with_primary_key("fixture-score").set(scorehash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").set(total, int64_t(generation ? 200 : 100)).set(score_date, realm::Timestamp(1700000000, 123456000)).set(score_mods, "[{\"acronym\":\"DT\"}]");
+        auto score = scores->create_object_with_primary_key(realm::UUID("00000000-0000-0000-0000-000000000004")).set(scorehash, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").set(total, int64_t(generation ? 200 : 100)).set(score_date, realm::Timestamp(1700000000, 123456000)).set(score_mods, "[{\"acronym\":\"DT\"}]");
         score.create_and_set_linked_object(score_user).set(username, "Fixture player");
+        if (variant == 1) maps->add_column(realm::type_String, "FutureUnknownProperty");
+        if (variant == 2) metadata->remove_column(artist);
+        if (variant == 3 || variant == 4) maps->remove_column(md5);
+        if (variant == 4) maps->add_column(realm::type_Int, "MD5Hash");
         g.write(path);
         return 0;
     } catch (...) { return -1; }

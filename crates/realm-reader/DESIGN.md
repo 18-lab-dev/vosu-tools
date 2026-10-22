@@ -9,7 +9,9 @@ The target is osu!lazer **2026.1005.0-lazer**, ppy/osu revision
 is realm-core **20.1.2**, revision
 [`3aba889bd9c93c91ea7906b9ec4b60a5c5dcab45`](https://github.com/realm/realm-core/tree/3aba889bd9c93c91ea7906b9ec4b60a5c5dcab45),
 whose `Group::g_current_file_format_version` is **24**. Application schema and
-file format are separate numbers. Unknown application schemas fail closed.
+file format are separate numbers. Application versions are informational, not an
+allowlist: older/newer versions are accepted when the consumed properties remain
+compatible. File-format checks remain bounded by the pinned native core.
 
 These models were checked at that osu revision (paths relative to `osu.Game/`):
 
@@ -31,6 +33,26 @@ representation, including for skins, so list IDs round-trip to file routes.
 Soft-deleted sets/skins/scores are excluded. Online IDs <= 0 become null or
 are excluded from the owned-set list. Unsupported custom rulesets are omitted
 from the four-ruleset beatmap API.
+
+## Schema compatibility policy
+
+The native bridge enumerates the file's actual table schemas before scanning
+objects. The provider resolves each consumed class/property by name and checks
+its scalar/link type, collection shape, link target and nullability. Only
+required storage identities, MD5/SHA-256 fields, file usages and lookup links
+must exist. Optional display metadata, online IDs, deletion flags, score details
+and replay-file lists may be absent; incompatible optional fields are discarded
+(including embedded fields) and read as null rather than guessed/coerced.
+Unknown classes/properties are ignored. Nullable source properties that already
+have a null-safe consumer may also become non-null without breaking compatibility.
+
+`/v1/status` retains the observed `realm_schema` even when property validation
+fails. Its additive `missing_properties` array names every missing/incompatible
+consumed property as `class_Name.Property`; `error` names and explains required
+property failures. Optional gaps do not make the library unavailable. Tests
+generate future/older schema numbers, an unknown property, a missing optional
+property and missing/wrong-type required properties using real Realm files.
+
 
 ## Decision: small FFI boundary to pinned Realm core
 

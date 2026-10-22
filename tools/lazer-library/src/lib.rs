@@ -1,3 +1,5 @@
+mod schema;
+
 use axum::{
     Json, Router,
     extract::{Path as RoutePath, State},
@@ -78,24 +80,59 @@ pub struct Index {
     pub metadata: HashMap<String, Value>,
     pub online_ids: Vec<i64>,
     pub counts: [usize; 4],
+    pub missing_properties: Vec<String>,
 }
+
+#[derive(Debug)]
+pub struct LoadError {
+    pub schema: Option<i64>,
+    pub missing_properties: Vec<String>,
+    pub message: String,
+}
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+impl std::error::Error for LoadError {}
 impl Index {
-    pub fn load(base: &Path) -> Result<Self, String> {
+    pub fn load(base: &Path) -> Result<Self, LoadError> {
         let mut tables = realm_reader::read(&base.join("client.realm"))
-            .map_err(|e| e.to_string())?
+            .map_err(|e| LoadError {
+                schema: None,
+                missing_properties: vec![],
+                message: e.to_string(),
+            })?
             .rows;
-        let schema = tables
+        let version = tables
             .get("metadata")
             .and_then(|r| r.first())
-            .and_then(|v| v["version"].as_i64())
-            .ok_or("Missing Realm schema version")?;
-        if schema != 52 {
-            return Err(format!(
-                "Unsupported lazer Realm schema {schema}; expected 52"
-            ));
+            .and_then(|v| v["version"].as_i64());
+        let compatibility = schema::inspect(
+            tables
+                .get("__schema")
+                .map(Vec::as_slice)
+                .unwrap_or_default(),
+        );
+        if !compatibility.errors.is_empty() {
+            return Err(LoadError {
+                schema: version,
+                missing_properties: compatibility.missing,
+                message: format!(
+                    "Incompatible Realm properties: {}",
+                    compatibility.errors.join("; ")
+                ),
+            });
         }
+        let schema = version.ok_or_else(|| LoadError {
+            schema: None,
+            missing_properties: vec!["metadata.version".into()],
+            message: "metadata.version: missing schema version value".into(),
+        })?;
+        compatibility.project(&mut tables);
         let mut index = Self {
             schema,
+            missing_properties: compatibility.missing,
             ..Self::default()
         };
         for v in tables.remove("class_BeatmapMetadata").unwrap_or_default() {
@@ -203,7 +240,7 @@ impl Index {
                 .map(|f| f.path.clone())
         };
         Some(
-            json!({"md5":text(v,"MD5Hash").to_ascii_lowercase(),"beatmap_id":positive(&v["OnlineID"]),"beatmapset_id":positive(&set["OnlineID"]),"ruleset":v["Ruleset"],"difficulty_name":v["DifficultyName"],"artist":text(metadata,"Artist"),"title":text(metadata,"Title"),"creator":text(&metadata["Author"],"Username"),"files":fs,"osu_path":osu.path,"audio_path":named(&text(metadata,"AudioFile")),"background_path":named(&text(metadata,"BackgroundFile"))}),
+            json!({"md5":text(v,"MD5Hash").to_ascii_lowercase(),"beatmap_id":positive(&v["OnlineID"]),"beatmapset_id":positive(&set["OnlineID"]),"ruleset":v["Ruleset"],"difficulty_name":v["DifficultyName"],"artist":metadata["Artist"],"title":metadata["Title"],"creator":metadata["Author"]["Username"],"files":fs,"osu_path":osu.path,"audio_path":named(&text(metadata,"AudioFile")),"background_path":named(&text(metadata,"BackgroundFile"))}),
         )
     }
     pub fn skin_list(&self) -> Value {
@@ -229,6 +266,7 @@ pub struct Status {
     pub realm_schema: Option<i64>,
     pub refreshed_at: Option<String>,
     pub error: Option<String>,
+    pub missing_properties: Vec<String>,
 }
 #[derive(Default)]
 pub struct Library {
@@ -356,6 +394,65 @@ async fn skin_file(
 mod tests {
     use super::*;
     #[test]
+    fn schema_compatible_future_and_older_versions() {
+        for variant in [1, -1001] {
+            let dir = tempfile::tempdir().unwrap();
+            realm_reader::fixture_schema(&dir.path().join("client.realm"), false, variant).unwrap();
+            let index = Index::load(dir.path()).unwrap();
+            assert_eq!(index.schema, i64::from(1052 + variant));
+            assert!(index.beatmap("0123456789abcdef0123456789abcdef").is_some());
+        }
+    }
+    #[test]
+    fn schema_missing_optional_degrades_to_null() {
+        let dir = tempfile::tempdir().unwrap();
+        realm_reader::fixture_schema(&dir.path().join("client.realm"), false, 2).unwrap();
+        let index = Index::load(dir.path()).unwrap();
+        assert_eq!(index.schema, 1054);
+        assert!(
+            index
+                .missing_properties
+                .iter()
+                .any(|p| p == "class_BeatmapMetadata.Artist")
+        );
+        let map = index.beatmap("0123456789abcdef0123456789abcdef").unwrap();
+        assert!(map["artist"].is_null());
+        assert_eq!(map["title"], "Fixture title");
+    }
+    #[test]
+    fn schema_missing_or_changed_required_is_named() {
+        for variant in [3, 4] {
+            let dir = tempfile::tempdir().unwrap();
+            realm_reader::fixture_schema(&dir.path().join("client.realm"), false, variant).unwrap();
+            let error = Index::load(dir.path())
+                .err()
+                .expect("incompatible required property");
+            assert_eq!(error.schema, Some(i64::from(1052 + variant)));
+            assert!(error.message.contains("class_Beatmap.MD5Hash"));
+            assert!(
+                error
+                    .missing_properties
+                    .iter()
+                    .any(|p| p == "class_Beatmap.MD5Hash")
+            );
+            let status = Status {
+                available: false,
+                realm_schema: error.schema,
+                error: Some(error.message),
+                missing_properties: error.missing_properties,
+                ..Status::default()
+            };
+            let value = serde_json::to_value(status).unwrap();
+            assert_eq!(value["realm_schema"], 1052 + variant);
+            assert!(
+                value["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains("class_Beatmap.MD5Hash")
+            );
+        }
+    }
+    #[test]
     fn synthetic_api() {
         let d = tempfile::tempdir().unwrap();
         realm_reader::fixture(&d.path().join("client.realm"), false).unwrap();
@@ -394,7 +491,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         realm_reader::fixture(&dir.path().join("client.realm"), false).unwrap();
         let index = Index::load(dir.path()).unwrap();
-        let asset = &index.skin_files["fixture-skin"][0].path;
+        let asset = &index.skin_files["00000000-0000-0000-0000-000000000003"][0].path;
         std::fs::create_dir_all(asset.parent().unwrap()).unwrap();
         std::fs::write(asset, b"[General]\nName: synthetic\n").unwrap();
         let shared = Arc::new(RwLock::new(Library {
@@ -412,7 +509,7 @@ mod tests {
             "/v1/beatmaps/by-md5/0123456789ABCDEF0123456789ABCDEF",
             "/v1/beatmapsets/online-ids",
             "/v1/skins",
-            "/v1/skins/fixture-skin/files",
+            "/v1/skins/00000000-0000-0000-0000-000000000003/files",
             "/v1/scores/by-beatmap/0123456789abcdef0123456789abcdef",
         ] {
             let response = app
@@ -430,7 +527,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/v1/skins/fixture-skin/file/sKiN.iNi")
+                    .uri("/v1/skins/00000000-0000-0000-0000-000000000003/file/sKiN.iNi")
                     .body(Body::empty())
                     .unwrap(),
             )

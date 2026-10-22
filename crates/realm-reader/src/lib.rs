@@ -26,7 +26,7 @@ unsafe extern "C" {
         error: *mut c_char,
         cap: usize,
     ) -> i32;
-    fn vosu_realm_fixture(path: *const c_char, generation: i32) -> i32;
+    fn vosu_realm_fixture(path: *const c_char, generation: i32, variant: i32) -> i32;
     #[cfg(test)]
     fn vosu_realm_test_commits(path: *const c_char, count: i32) -> i32;
 }
@@ -255,12 +255,17 @@ pub fn read(source: &Path) -> Result<Tables> {
 
 /// Synthetic fixture generator for integration/concurrency tests; never accepts an existing path.
 pub fn fixture(path: &Path, generation: bool) -> Result<()> {
+    fixture_schema(path, generation, 0)
+}
+/// Compatibility fixture variants: 1 future extra field, 2 absent optional,
+/// 3 absent required, 4 changed required type; all use a different schema number.
+pub fn fixture_schema(path: &Path, generation: bool, variant: i32) -> Result<()> {
     if path.exists() {
         return Err(Error::Invalid("Fixture destination already exists".into()));
     }
     let path = CString::new(path.to_string_lossy().as_bytes())
         .map_err(|e| Error::Invalid(e.to_string()))?;
-    if unsafe { vosu_realm_fixture(path.as_ptr(), i32::from(generation)) } != 0 {
+    if unsafe { vosu_realm_fixture(path.as_ptr(), i32::from(generation), variant) } != 0 {
         return Err(Error::Invalid("Native fixture creation failed".into()));
     }
     Ok(())
