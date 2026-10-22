@@ -1,0 +1,34 @@
+osu file format v14
+
+[General]
+AudioFilename: audio.ogg
+Mode: 3
+
+[Metadata]
+Title: Golden
+Artist: Test
+Creator: Test
+Version: Native
+BeatmapID:123
+
+[Difficulty]
+HPDrainRate:5
+CircleSize:4
+OverallDifficulty:5
+ApproachRate:5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[Events]
+2,1500,1800
+
+[TimingPoints]
+0,500,4,2,1,70,1,0
+
+[HitObjects]
+448,192,1000,1,0,0:0:0:0:
+320,192,1100,1,0,0:0:0:0:
+192,192,1200,1,0,0:0:0:0:
+64,192,1300,1,0,0:0:0:0:
+448,192,2000,128,0,2400:0:0:0:0:
+320,192,2100,1,0,0:0:0:0:
