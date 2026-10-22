@@ -35,15 +35,18 @@ struct Args {
     lock_ar: bool,
     #[arg(long)]
     lock_od: bool,
-    /// Comma-separated mods: IN,HO,MR,RD,SW,DA,HT,DC,DT,NC. Ruleset restrictions apply.
+    /// Comma-separated mods: IN,HO,MR,RD,SW,CS,DA,HT,DC,DT,NC. Ruleset restrictions apply.
     #[arg(long, value_delimiter = ',')]
     mods: Vec<String>,
-    /// Seed for lazer-compatible mania / taiko Random.
+    /// Seed for lazer-compatible osu!, mania and taiko Random.
     #[arg(long, default_value_t = 0, allow_hyphen_values = true)]
     seed: i32,
     /// osu! Mirror axis.
     #[arg(long, default_value="horizontal", value_parser=["horizontal","vertical","both"])]
     mirror: String,
+    /// osu! Random angle sharpness (1–10, default 7).
+    #[arg(long, default_value_t = 7.0)]
+    angle_sharpness: f32,
     #[arg(long, global = true)]
     json: bool,
 }
@@ -86,6 +89,7 @@ pub async fn run() -> anyhow::Result<()> {
                 mods: args.mods.iter().map(|m| m.to_uppercase()).collect(),
                 seed: args.seed,
                 mirror: args.mirror,
+                angle_sharpness: args.angle_sharpness,
             };
             let job: Value =
                 send_json(client.own(Method::POST, "v1/generate").json(&options)).await?;

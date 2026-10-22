@@ -16,6 +16,7 @@ pub struct Options {
     pub mods: Vec<String>,
     pub seed: i32,
     pub mirror: String,
+    pub angle_sharpness: f32,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -32,6 +33,7 @@ impl Default for Options {
             mods: Vec::new(),
             seed: 0,
             mirror: "horizontal".into(),
+            angle_sharpness: 7.0,
         }
     }
 }
@@ -98,6 +100,7 @@ pub fn bpm(text: &str) -> Result<f64> {
 pub fn effective(options: &Options, text: &str) -> Result<Options> {
     let mut o = options.clone();
     crate::mods::validate(&o, text)?;
+    o.angle_sharpness = (o.angle_sharpness / 0.1).round_ties_even() * 0.1;
     if o.rate == 1.0 && o.target_bpm.is_none() {
         if o.mods.iter().any(|m| matches!(m.as_str(), "DT" | "NC")) {
             o.rate = 1.5;
@@ -205,6 +208,12 @@ fn retime(text: &str, o: &Options, audio: &str) -> Result<String> {
     }
     if o.mods.iter().any(|m| m == "MR") {
         name.push_str(&format!(" mirror={}", o.mirror));
+    }
+    if mode == "0" && o.mods.iter().any(|m| m == "RD") {
+        name.push_str(&format!(
+            " sharpness={}",
+            number(f64::from(o.angle_sharpness))
+        ));
     }
     let variables = variables(text);
     for raw in text.lines() {
