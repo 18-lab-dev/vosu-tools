@@ -9,9 +9,9 @@ A source is either:
 - a GitHub repository written `owner/repo` (optionally `owner/repo@tag`), resolved to `https://github.com/owner/repo/releases/latest/download/catalog.json` (or `/releases/download/<tag>/catalog.json`), or
 - any HTTPS URL of a `catalog.json`.
 
-vosu ships two default sources, enabled by default and removable or disableable like any other: `shiruviaa/vosu-tools` and `shiruviaa/vosu-overlays` (the organisation moves to `18-lab-dev` with vosu 1.2.0; GitHub redirects renamed repositories). Users add, remove, disable, and reorder sources in the dashboard settings. Every catalog entry is shown with its source. When two sources offer the same id, the earlier source wins and the later entry is marked as shadowed.
+vosu ships three default sources, enabled by default and removable or disableable like any other: `shiruviaa/vosu-tools`, `shiruviaa/vosulay`, and `shiruviaa/vosu-overlays` (the organisation moves to `18-lab-dev` with vosu 1.2.0; GitHub redirects renamed repositories). Users add, remove, disable, and reorder sources in the dashboard settings. Every catalog entry is shown with its source. When two sources offer the same id, the earlier source wins and the later entry is marked as shadowed.
 
-Trust: tools from the default official source install as source `official` and are trusted. Tools from any other source install as source `user` and stay untrusted until approved on the dashboard, exactly like manually installed tools. Overlays have no trust gate (installed overlays are third-party JavaScript on the overlay origin; see vosu ADR 0013/0016), and the dashboard keeps its existing third-party disclosure.
+Trust: tools from the exact default `shiruviaa/vosu-tools` or `shiruviaa/vosulay` source install as source `official` and are trusted, including if that identical source string is removed and re-added. Tagged, differently cased, or HTTPS-URL variants, and all other sources, install tools as `user`, untrusted until approved. Overlays have no trust gate (installed overlays are third-party JavaScript on the overlay origin; see vosu ADR 0013/0016), and the dashboard keeps its existing third-party disclosure.
 
 ## Packages
 
@@ -68,3 +68,22 @@ Supported tool targets: `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`. A 
 ```
 
 `tools` and `overlays` are both optional. Every `url` must be HTTPS. `sha256` is of the ZIP bytes. Tool `requires` mirrors the manifest so vosu can offer dependencies in one install; overlay `requires_tools` lets vosu offer the tools an overlay needs (resolved across all enabled sources).
+
+## Building and merging catalogs
+
+`python scripts/package.py --target <triple> --base-url https://…/releases/download/<tag>` builds every native tool with `cargo build --release --locked --target <triple> -p <package>` and every UI with `bun run build --sourcemap hidden`. Run `bun install --frozen-lockfile` first. The source manifest's UI root must be `web/dist`; Windows packages rewrite service/CLI executable names to `.exe`. UI-only tools use the `any` target. Each archive is validated before replacement, with sorted regular-file entries, 1980 timestamps and explicit Unix modes (0755 for `bin/*`, 0644 otherwise).
+
+`--out` selects the output directory, `--name` and `--published` set catalog metadata, and `SOURCE_DATE_EPOCH` supplies the default publication timestamp for reproducible runs. `--dry-run` validates manifests and prints commands without building/writing. `--skip-build` consumes already-built release binaries and hidden-sourcemap UI output. `--native-only` omits universal UI-only packages so release CI publishes those once, from Linux.
+
+Merge platform catalogs with:
+
+```sh
+python scripts/package.py --merge-catalogs linux/catalog.json windows/catalog.json \
+  --base-url https://github.com/shiruviaa/vosu-tools/releases/download/v0.1.0
+```
+
+Conflicting tool metadata or different packages for an already-present target fail the merge. No target package is silently replaced.
+
+Every package includes project license texts, the retained notices, tool-specific `licenses/`, and generated `licenses/dependencies.json`. Rust notices use `cargo metadata` license expressions/files and only package identities present in `cargo tree -e normal --target <triple> -p <package>`; build/dev-only crates are not included. Bundled JavaScript packages are identified from hidden source maps, checked against `bun.lock`, and retain their installed package license texts (for example Monaco and vgpu). Hidden source maps are not shipped. Unknown/disallowed license alternatives or missing license texts fail packaging, rather than emitting an incomplete notice inventory. The release workflows use pinned action commits and native Linux/Windows runners; they publish ZIPs and the merged catalog on a `v*` tag.
+
+The registry tarballs for the pinned dasp family and vorbis_rs omit their upstream monorepo-root license files. Packaging uses source-verified retained texts for those exact versions, checks their published VCS revisions (and dasp's upstream license blob), and records the upstream license URL in the generated inventory. See [the retained-license notice](../THIRD_PARTY_NOTICES.md#packaging-license-retention).
