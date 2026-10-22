@@ -1,0 +1,13 @@
+manifest_version = 1
+id = "map-preview"
+name = "Map preview"
+version = "0.1.0"
+description = "Preview the selected beatmap in all four rulesets, with audio, skins, and visual mods."
+author = "18-LAB"
+
+[ui]
+root = "web/dist"
+entry = "index.html"
+
+[permissions]
+host = ["context"]

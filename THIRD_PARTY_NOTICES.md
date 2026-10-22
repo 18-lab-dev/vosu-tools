@@ -51,3 +51,7 @@ extended with collection metadata and ownership identifiers.
 No code from mirror implementations or osu-web is included.
 Downloader Rust dependencies and their selected permissive license texts
 are shipped by the package license generator; see `tools/downloader/Cargo.toml`.
+## Map preview and shared render-core
+
+- vgpu 0.6.0 and its bundled @vgpu runtime modules: MIT, Copyright (c) 2025 Vercel, Inc.; https://github.com/vercel-labs/vgpu. License shipped in `tools/map-preview/licenses/vgpu-MIT.txt`. Used for WebGPU device initialization and lifecycle; rendering uses an original WGSL instance pipeline.
+- No third-party skin images, audio, beatmaps, or fonts are distributed by this tool. User-selected skin and map data remain user-owned.

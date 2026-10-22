@@ -8,7 +8,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 | Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots, with official pp comparison |
 | Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
 | skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for stable skins: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; read-only without a dashboard session; lazer unsupported |
-| Map preview | `map-preview` | UI | Render any map in the browser before playing it, with lazer mods and custom settings |
+| Map preview | `map-preview` | UI | WebGPU previews for all four rulesets, audio-synced seeking/rate, visual mods, AR/CS, scroll controls and current/custom skins; [shared renderer API](packages/render-core/README.md) |
 | Replay renderer | `replay-renderer` | CLI, UI | Render one or more replays to video with your choice of skin, settings and overlays |
 | Beatmap downloader | `downloader` | service, UI | Context-aware discovery, read-only stable library/history, and a polite validated mirror queue |
 
