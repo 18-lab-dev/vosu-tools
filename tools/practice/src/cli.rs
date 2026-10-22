@@ -47,6 +47,22 @@ struct Args {
     /// osu! Random angle sharpness (1–10, default 7).
     #[arg(long, default_value_t = 7.0)]
     angle_sharpness: f32,
+    /// Keep only this part of the map, as START-END in seconds or m:ss
+    /// (e.g. 1:05-1:40). Repeat for several sections.
+    #[arg(long = "trim", value_parser = trim_range)]
+    trims: Vec<osu_file::trim::Range>,
+    /// Lead-in before each section's first object, ms (default: tool setting).
+    #[arg(long, value_parser = padding)]
+    lead_in: Option<f64>,
+    /// Time kept after each section's last object, ms (default: tool setting).
+    #[arg(long, value_parser = padding)]
+    lead_out: Option<f64>,
+    /// Silence between sections, ms (default: tool setting).
+    #[arg(long, value_parser = padding)]
+    gap: Option<f64>,
+    /// Audio fade at section edges, ms; 0 cuts hard (default: tool setting).
+    #[arg(long, value_parser = padding)]
+    fade: Option<f64>,
     #[arg(long, global = true)]
     json: bool,
 }
@@ -65,6 +81,36 @@ fn bpm(s: &str) -> Result<f64, String> {
     let n = range(s, f64::MIN_POSITIVE, f64::MAX)?;
     Ok(n)
 }
+fn padding(s: &str) -> Result<f64, String> {
+    range(s, 0., 30_000.)
+}
+fn seconds(s: &str) -> Result<f64, String> {
+    let value = match s.split_once(':') {
+        Some((m, rest)) => {
+            let m: f64 = m.parse().map_err(|_| format!("invalid time {s}"))?;
+            let rest: f64 = rest.parse().map_err(|_| format!("invalid time {s}"))?;
+            m * 60.0 + rest
+        }
+        None => s.parse().map_err(|_| format!("invalid time {s}"))?,
+    };
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!("invalid time {s}"));
+    }
+    Ok(value * 1000.0)
+}
+fn trim_range(s: &str) -> Result<osu_file::trim::Range, String> {
+    let (start, end) = s
+        .split_once('-')
+        .ok_or_else(|| format!("expected START-END, got {s}"))?;
+    let range = osu_file::trim::Range {
+        start_ms: seconds(start.trim())?,
+        end_ms: seconds(end.trim())?,
+    };
+    if range.end_ms <= range.start_ms {
+        return Err(format!("{s} ends before it starts"));
+    }
+    Ok(range)
+}
 pub async fn run() -> anyhow::Result<()> {
     let args = Args::parse_from(
         std::iter::once("vosux practice".to_owned()).chain(std::env::args().skip(2)),
@@ -76,6 +122,10 @@ pub async fn run() -> anyhow::Result<()> {
             send_json(client.own(Method::POST, &format!("v1/delete/{id}"))).await?
         }
         None => {
+            // Unset padding follows the tool's dashboard settings.
+            let defaults: crate::map::Options = serde_json::from_value(
+                client.own_json::<Value>("v1/profiles").await?["defaults"].clone(),
+            )?;
             let options = crate::map::Options {
                 rate: args.rate.unwrap_or(1.),
                 target_bpm: args.bpm,
@@ -90,6 +140,11 @@ pub async fn run() -> anyhow::Result<()> {
                 seed: args.seed,
                 mirror: args.mirror,
                 angle_sharpness: args.angle_sharpness,
+                trims: args.trims,
+                lead_in_ms: args.lead_in.unwrap_or(defaults.lead_in_ms),
+                lead_out_ms: args.lead_out.unwrap_or(defaults.lead_out_ms),
+                gap_ms: args.gap.unwrap_or(defaults.gap_ms),
+                fade_ms: args.fade.unwrap_or(defaults.fade_ms),
             };
             let job: Value =
                 send_json(client.own(Method::POST, "v1/generate").json(&options)).await?;

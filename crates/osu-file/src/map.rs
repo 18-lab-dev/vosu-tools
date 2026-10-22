@@ -17,6 +17,16 @@ pub struct Options {
     pub seed: i32,
     pub mirror: String,
     pub angle_sharpness: f32,
+    /// Source-time ranges to keep. Empty keeps the whole map.
+    pub trims: Vec<crate::trim::Range>,
+    /// Silence kept before the first object of each trimmed section.
+    pub lead_in_ms: f64,
+    /// Time kept after the last object (including tails) of each section.
+    pub lead_out_ms: f64,
+    /// Silent break inserted between consecutive sections.
+    pub gap_ms: f64,
+    /// Audio fade at each section edge; 0 cuts hard.
+    pub fade_ms: f64,
 }
 impl Default for Options {
     fn default() -> Self {
@@ -34,6 +44,11 @@ impl Default for Options {
             seed: 0,
             mirror: "horizontal".into(),
             angle_sharpness: 7.0,
+            trims: Vec::new(),
+            lead_in_ms: 2000.0,
+            lead_out_ms: 1000.0,
+            gap_ms: 2000.0,
+            fade_ms: 0.0,
         }
     }
 }
@@ -121,6 +136,7 @@ pub fn effective(options: &Options, text: &str) -> Result<Options> {
             "stats must be 0–10"
         );
     }
+    crate::trim::validate(&o)?;
     Ok(o)
 }
 pub fn csv(line: &str) -> Vec<String> {
@@ -144,10 +160,26 @@ fn scale(parts: &mut [String], i: usize, rate: f64) -> Result<()> {
     *p = number((p.trim().parse::<f64>().context("invalid timestamp")? / rate).round());
     Ok(())
 }
-pub fn transform(text: &str, o: &Options, audio: &str) -> Result<String> {
-    let o = effective(o, text)?;
+/// A transformed map with its trim windows (source time; empty when untrimmed).
+pub struct Output {
+    pub text: String,
+    pub windows: Vec<crate::trim::Window>,
+    pub warnings: Vec<String>,
+}
+/// Mods first (on the whole map, so a trimmed section matches the same section
+/// of an untrimmed copy), then trims, then the rate change.
+pub fn transform(text: &str, o: &Options, audio: &str) -> Result<Output> {
+    let mut o = effective(o, text)?;
+    // The rate is resolved against the source map's BPM; trimming changes the
+    // first red line, so the target must not be re-resolved later.
+    o.target_bpm = None;
     let changed = crate::mods::apply(text, &o)?;
-    retime(&changed, &o, audio)
+    let (trimmed, windows, warnings) = crate::trim::apply(&changed, &o)?;
+    Ok(Output {
+        text: retime(&trimmed, &o, audio)?,
+        windows,
+        warnings,
+    })
 }
 
 fn retime(text: &str, o: &Options, audio: &str) -> Result<String> {
@@ -187,14 +219,21 @@ fn retime(text: &str, o: &Options, audio: &str) -> Result<String> {
             }
         })
         .clamp(0.0, 10.0);
-    let name = format!(
-        "[{}] {}x ({}bpm) AR{} OD{}",
+    // The name shows only the stats the ruleset uses (no AR for mania/taiko, no
+    // OD for catch), to one decimal; the [Difficulty] values stay exact.
+    let short = |v: f64| number((v * 10.0).round() / 10.0);
+    let mut name = format!(
+        "[{}] {}x ({}bpm)",
         value(text, "[Metadata]", "Version").unwrap_or_default(),
         number(o.rate),
         number(bpm(text)? * o.rate),
-        number(ar),
-        number(od)
     );
+    if matches!(mode.as_str(), "0" | "2" | "") {
+        name.push_str(&format!(" AR{}", short(ar)));
+    }
+    if mode != "2" {
+        name.push_str(&format!(" OD{}", short(od)));
+    }
     let mut name = if o.mods.is_empty() {
         name
     } else {
@@ -214,6 +253,9 @@ fn retime(text: &str, o: &Options, audio: &str) -> Result<String> {
             " sharpness={}",
             number(f64::from(o.angle_sharpness))
         ));
+    }
+    if !o.trims.is_empty() {
+        name.push_str(&format!(" trim {}", crate::trim::label(&o)));
     }
     let variables = variables(text);
     for raw in text.lines() {

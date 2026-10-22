@@ -176,10 +176,14 @@ pub fn change(
             window: WindowFunction::BlackmanHarris2,
         };
         let mut r = SincFixedIn::<f32>::new(1.0 / rate, 1.0, params, 1024, count)?;
-        let delay = r.output_delay();
+        // SincFixedIn starts its read position half a sinc length before the
+        // first input sample, so its output is already aligned with the input;
+        // dropping `output_delay()` frames as well made every resampled map
+        // early by sinc_len / 2 / rate samples (measured; see
+        // `resampled_clicks_stay_on_time`).
         let mut pos = 0;
         let mut block = r.output_buffer_allocate(true);
-        while output[0].len() < target + delay {
+        while output[0].len() < target {
             check(cancel)?;
             let (_, written) = if pos + 1024 <= n {
                 let input = [
@@ -203,7 +207,6 @@ pub fn change(
             progress((pos as f64 / n as f64).min(1.0));
         }
         for out in &mut output {
-            out.drain(..delay);
             out.truncate(target);
         }
     }

@@ -3,6 +3,7 @@ use crate::{
     map::{self, Options},
 };
 use anyhow::{Context, Result};
+use osu_file::trim::Window;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -49,9 +50,17 @@ fn hash_parts(parts: &[&[u8]]) -> String {
     }
     out
 }
-pub fn audio_name(bytes: &[u8], options: &Options) -> String {
+/// Content-derived audio name: source hash, rate, pitch mode and, for trimmed
+/// maps, a hash of the cut (windows and fade) so different cuts never collide.
+pub fn audio_name(bytes: &[u8], options: &Options, windows: &[Window]) -> String {
+    let cut = if windows.is_empty() {
+        String::new()
+    } else {
+        let spec = serde_json::to_vec(&(windows, options.fade_ms)).expect("serializable windows");
+        format!("-cut{}", &hash(&spec)[..12])
+    };
     format!(
-        "vosu-practice-{}-{}-{}.ogg",
+        "vosu-practice-{}-{}-{}{cut}.ogg",
         &hash(bytes)[..16],
         map::number(options.rate),
         if options.mods.iter().any(|m| m == "NC") {
@@ -164,8 +173,11 @@ fn asset_files(folder: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     }
     Ok(())
 }
+/// Generates the practice map. Stable: a new difficulty in the beatmap folder.
+/// Lazer: an .osz in `export_dir` (or the tool's `exports` folder).
 pub fn generate(
     data: &Path,
+    export_dir: Option<&Path>,
     ctx: &HostContext,
     options: &Options,
     cancel: &AtomicBool,
@@ -176,7 +188,9 @@ pub fn generate(
     let o = map::effective(options, &text)?;
     let source = b.audio.as_ref().context("selected map has no audio")?;
     let original = fs::read(source)?;
-    let audio_name = audio_name(&original, &o);
+    // The audio name depends on the cut, which depends on the transformed map.
+    let windows = map::transform(&text, &o, "")?.windows;
+    let audio_name = audio_name(&original, &o, &windows);
     let location = serde_json::to_vec(&(&ctx.client, &b.folder, &b.file))?;
     let id = hash_parts(&[
         text.as_bytes(),
@@ -201,7 +215,10 @@ pub fn generate(
         "unsupported client"
     );
     let root = if lazer {
-        let p = data.join("exports");
+        let p = match export_dir {
+            Some(dir) => dir.to_owned(),
+            None => data.join("exports"),
+        };
         fs::create_dir_all(&p)?;
         p.canonicalize()?
     } else {
@@ -235,6 +252,12 @@ pub fn generate(
         progress(0.05, "Decoding audio");
         if !audio_path.exists() {
             let decoded = audio::decode(source, cancel)?;
+            let decoded = if windows.is_empty() {
+                decoded
+            } else {
+                progress(0.15, "Cutting sections");
+                osu_file::trim::cut(&decoded, &windows, o.fade_ms)?
+            };
             progress(0.2, "Processing audio");
             let changed = audio::change_options(&decoded, &o, cancel, |v| {
                 progress(0.2 + v * 0.55, "Processing audio")
@@ -253,7 +276,20 @@ pub fn generate(
             );
         }
         anyhow::ensure!(!cancel.load(Ordering::Relaxed), "cancelled");
-        let mut output = map::transform(&text, &o, &audio_name)?;
+        let transformed = map::transform(&text, &o, &audio_name)?;
+        warnings.extend(transformed.warnings);
+        let mut output = transformed.text;
+        if !windows.is_empty()
+            && fs::read_dir(&b.folder)?
+                .flatten()
+                .any(|f| f.path().extension().is_some_and(|ext| ext == "osb"))
+        {
+            warnings.push(if lazer {
+                "The map's .osb storyboard was left out of the trimmed export.".into()
+            } else {
+                "The beatmap folder's shared .osb storyboard still plays untrimmed with this difficulty; disable storyboards in osu! if it distracts.".into()
+            });
+        }
         // Lazer may expose the background as a hash-named file; give the archive
         // its referenced asset name rather than writing into the managed store.
         if lazer
@@ -317,6 +353,10 @@ pub fn generate(
             for file in fs::read_dir(&b.folder)? {
                 let file = file?;
                 if file.path().extension().is_some_and(|ext| ext == "osb") {
+                    if !windows.is_empty() {
+                        // Trimmed maps drop storyboards (see the .osu warning).
+                        continue;
+                    }
                     let storyboard = match confined(&b.folder, &file.path())
                         .and_then(|p| Ok(fs::read_to_string(p)?))
                         .and_then(|s| map::storyboard(&s, o.rate))

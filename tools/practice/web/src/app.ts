@@ -4,244 +4,589 @@ import '@fontsource-variable/instrument-sans/wdth.css';
 import '@fontsource/dm-mono/400.css';
 import '@fontsource/dm-mono/500.css';
 import './style.css';
+import { Preview } from './preview';
+import { Timeline, type TimelineData } from './timeline';
+import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
 
 // The tool owns its look: follow the dashboard's scheme when the bridge passes it,
-// otherwise the system preference. `color-scheme` in style.css keys off this attribute
-// so native controls (select popups, number spinners, scrollbars) match the page.
+// otherwise the system preference. `color-scheme` in style.css keys off this attribute.
 document.documentElement.dataset.scheme =
   vosu.colorScheme ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 
+type Ruleset = 'osu' | 'taiko' | 'fruits' | 'mania';
 type Options = {
-  rate: number; seed: number; mirror: string; angle_sharpness: number; mods: string[]; pitch_preserving: boolean;
+  rate: number; target_bpm: number | null; pitch_preserving: boolean;
   hp: number | null; cs: number | null; ar: number | null; od: number | null; lock_ar: boolean; lock_od: boolean;
+  mods: string[]; seed: number; mirror: string; angle_sharpness: number;
+  trims: Range[]; lead_in_ms: number; lead_out_ms: number; gap_ms: number; fade_ms: number;
 };
-type Entry = { id: string; name: string; files: { path: string }[]; warnings: string[] };
+type Stats = { ruleset: Ruleset; objects: number; length_ms: number; bpm: number; hp: number; cs: number; ar: number; od: number; keys: number | null };
 type Current = {
-  client: string;
-  beatmap: null | { title: string; artist: string; version: string; mode: string; bpm: number };
-  ratings: { msd?: { overall: number }; unsupported?: string } | null;
+  client: string | null;
+  beatmap: null | { md5: string; title: string; artist: string; creator: string; version: string; played_ruleset: string; background: boolean; stats: Stats };
+  ratings: { msd?: { overall: number } } | null;
 };
-type Preview = { objects: number; duration_ms: number; bpm: number; ar: number; od: number; hp: number; cs: number };
+type PreviewResult = { stats: Stats; version: string; rate: number; windows: Window[]; warnings: string[]; osu: string };
+type Profiles = { active: string | null; profiles: Record<string, Options>; defaults: Options };
+type Entry = { name: string; files: { path: string }[]; warnings: string[]; export: boolean };
 
-const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const form = $<HTMLFormElement>('form');
-const status = $('status');
-const slider = $<HTMLInputElement>('rate-slider');
-let job: string | null = null;
+const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
+
+// Transforms each ruleset can bake into a stable map, and the stats it uses.
+const TRANSFORMS: Record<Ruleset, [string, string][]> = {
+  osu: [['MR', 'Mirror'], ['RD', 'Random']],
+  taiko: [['SW', 'Swap'], ['RD', 'Random'], ['CS', 'Constant Speed']],
+  fruits: [['MR', 'Mirror']],
+  mania: [['IN', 'Invert'], ['HO', 'Hold Off'], ['MR', 'Mirror'], ['RD', 'Random'], ['CS', 'Constant Speed']],
+};
+const EXCLUSIVE: [string, string][] = [['IN', 'HO'], ['SW', 'RD']];
+const DIFFICULTY: Record<Ruleset, ('hp' | 'cs' | 'ar' | 'od')[]> = {
+  osu: ['hp', 'cs', 'ar', 'od'], taiko: ['hp', 'od'], fruits: ['hp', 'cs', 'ar'], mania: ['hp', 'od'],
+};
+const STAT_LABEL = { hp: 'HP', cs: 'CS', ar: 'AR', od: 'OD' } as const;
+const RULESET_NAME: Record<Ruleset, string> = { osu: 'osu!', taiko: 'osu!taiko', fruits: 'osu!catch', mania: 'osu!mania' };
+const HINTS: Partial<Record<Ruleset, string>> = {
+  taiko: 'Constant Speed removes scroll-speed changes but keeps every sample, kiai and roll length.',
+  mania: 'Constant Speed removes scroll-speed changes but keeps every sample and kiai.',
+  fruits: 'Banana showers are placed by the game at runtime, so Mirror does not move them.',
+};
+
+let current: Current | null = null;
+let ruleset: Ruleset | null = null;
+let options: Options;
+let profiles: Profiles = { active: null, profiles: {}, defaults: {} as Options };
+let latest: PreviewResult | null = null;
+const trimsByMap = new Map<string, Range[]>();
 let busy = false;
-
-const groups: [string, string[], string[]][] = [
-  ['All rulesets', ['HT', 'DC', 'DT', 'NC', 'DA'], ['Half Time', 'Daycore', 'Double Time', 'Nightcore', 'Difficulty Adjust']],
-  ['osu!', ['MR', 'RD'], ['Mirror', 'Random']],
-  ['taiko', ['SW', 'RD', 'CS'], ['Swap', 'Random', 'Constant Speed']],
-  ['catch', ['MR'], ['Mirror']],
-  ['mania', ['IN', 'HO', 'MR', 'RD', 'CS'], ['Invert', 'Hold Off', 'Mirror', 'Random', 'Constant Speed']],
-];
-const selectors: { input: HTMLInputElement; group: string }[] = [];
-for (const [group, ids, names] of groups) {
-  const field = document.createElement('fieldset');
-  const legend = document.createElement('legend');
-  legend.textContent = group;
-  field.append(legend);
-  ids.forEach((id, i) => {
-    const label = document.createElement('label');
-    label.className = 'mod';
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.value = id;
-    input.name = `mod-${group}-${id}`;
-    const code = document.createElement('span');
-    code.className = 'mod-code';
-    code.textContent = id;
-    const name = document.createElement('span');
-    name.textContent = names[i];
-    label.append(input, code, name);
-    field.append(label);
-    selectors.push({ input, group });
-  });
-  $('mods').append(field);
-}
-
-function control(name: string): HTMLInputElement {
-  return form.elements.namedItem(name) as HTMLInputElement;
-}
-
-function options(): Options {
-  const number = (name: string) => (control(name).value === '' ? null : Number(control(name).value));
-  return {
-    rate: Number(control('rate').value), seed: Number(control('seed').value), mirror: control('mirror').value,
-    angle_sharpness: Number(control('angle_sharpness').value),
-    mods: selectors.filter((x) => x.input.checked && !x.input.disabled).map((x) => x.input.value),
-    pitch_preserving: !control('pitch').checked, hp: number('hp'), cs: number('cs'), ar: number('ar'), od: number('od'),
-    lock_ar: control('lock_ar').checked, lock_od: control('lock_od').checked,
-  };
-}
-
-function setOptions(o: Options) {
-  for (const key of ['rate', 'seed', 'mirror', 'angle_sharpness', 'hp', 'cs', 'ar', 'od'] as const) {
-    control(key).value = o[key] === null ? '' : String(o[key]);
-  }
-  control('pitch').checked = !o.pitch_preserving;
-  control('lock_ar').checked = o.lock_ar;
-  control('lock_od').checked = o.lock_od;
-  for (const x of selectors) x.input.checked = o.mods.includes(x.input.value);
-  tempo();
-}
-
-// Mirrors the service's rate rule (see the tempo hint): a literal 1.0 with a rate mod
-// selects that mod's default, any other rate overrides it.
-const rateDefaults: Record<string, number> = { HT: 0.75, DC: 0.75, DT: 1.5, NC: 1.5 };
-function tempo() {
-  const rate = Number(control('rate').value);
-  if (Number.isFinite(rate) && rate >= 0.5 && rate <= 2) slider.value = String(rate);
-  const mod = selectors.find((x) => x.input.checked && !x.input.disabled && x.input.value in rateDefaults)?.input.value;
-  let effective = rate;
-  let note = rate === 1 ? 'original speed' : 'custom rate';
-  if (mod && rate === 1) {
-    effective = rateDefaults[mod];
-    note = `${mod} default`;
-  } else if (mod) {
-    note = `custom rate · ${mod}`;
-  }
-  $('rate-readout').textContent = Number.isFinite(effective) ? `${effective.toFixed(2)}×` : '—';
-  $('rate-note').textContent = note;
-}
-slider.addEventListener('input', () => {
-  control('rate').value = Number(slider.value).toFixed(2);
-  tempo();
-});
-form.addEventListener('input', (event) => {
-  if (event.target !== slider) tempo();
-});
+let job: string | null = null;
 
 async function api<T>(path: string, body?: unknown, method?: string): Promise<T> {
   const r = await vosu.fetch(path, body === undefined
     ? { method: method ?? 'GET' }
     : { method: method ?? 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const v = await r.json();
+  const v = await r.json().catch(() => ({ error: r.statusText }));
   if (!r.ok) throw new Error(v.error ?? r.statusText);
   return v as T;
 }
-
 function say(text: string, tone: 'info' | 'error' = 'info') {
-  status.textContent = text;
-  status.dataset.tone = tone;
+  $('status').textContent = text;
+  $('status').dataset.tone = tone;
 }
-function fail(e: unknown) {
-  say(e instanceof Error ? e.message : String(e), 'error');
+const fail = (e: unknown) => say(e instanceof Error ? e.message : String(e), 'error');
+const debounce = (fn: () => void, ms: number) => {
+  let timer = 0;
+  return () => { clearTimeout(timer); timer = window.setTimeout(fn, ms); };
+};
+const num = (v: number, digits = 2) => (Number.isInteger(v) && digits === 0 ? String(v) : v.toFixed(digits));
+
+// ---- Options ↔ form ------------------------------------------------------
+
+const trims = (): Range[] => (current?.beatmap ? trimsByMap.get(current.beatmap.md5) ?? [] : []);
+
+/** What the service receives: only the current ruleset's transforms and stats. */
+function outgoing(): Options {
+  const r = ruleset ?? 'osu';
+  const relevant = DIFFICULTY[r];
+  const pick = (k: 'hp' | 'cs' | 'ar' | 'od') => (relevant.includes(k) ? options[k] : null);
+  return {
+    ...options,
+    target_bpm: null,
+    mods: options.mods.filter((m) => TRANSFORMS[r].some(([id]) => id === m)),
+    mirror: r === 'osu' ? options.mirror : 'horizontal',
+    hp: pick('hp'), cs: pick('cs'), ar: pick('ar'), od: pick('od'),
+    lock_ar: relevant.includes('ar') && options.lock_ar,
+    lock_od: relevant.includes('od') && options.lock_od,
+    trims: trims(),
+  };
 }
 
-function writable() {
-  for (const id of ['generate', 'save', 'preview-button']) $<HTMLButtonElement>(id).disabled = !vosu.canWrite || busy;
-}
-
-async function refresh() {
-  const v = await api<Current>(`v1/current?rate=${Number(control('rate').value) || 1}`);
-  const b = v.beatmap;
-  $('title').textContent = b ? `${b.artist} — ${b.title}` : 'No selected beatmap';
-  $('map').textContent = b ? `${b.version} / ${b.mode} / ${b.bpm.toFixed(2)} BPM / ${v.client}` : 'Select a beatmap in osu! to begin.';
-  $('ratings').textContent = v.ratings?.msd
-    ? `Source-map MSD at selected rate: ${v.ratings.msd.overall.toFixed(2)} (before map transforms)` : '';
-  for (const x of selectors) {
-    const ruleset = x.group === 'osu!' ? 'osu' : x.group === 'catch' ? 'fruits' : x.group;
-    const allowed = x.group === 'All rulesets' || ruleset === b?.mode;
-    x.input.disabled = !allowed;
-    x.input.closest('label')?.classList.toggle('unavailable', !allowed);
+function readForm() {
+  const rate = Number(field('rate').value);
+  if (Number.isFinite(rate)) options.rate = rate;
+  options.pitch_preserving = !field('pitch').checked;
+  for (const key of ['lead_in_ms', 'lead_out_ms', 'gap_ms', 'fade_ms'] as const) {
+    const v = Number(field(key).value);
+    if (field(key).value !== '' && Number.isFinite(v)) options[key] = v;
   }
-  control('cs').disabled = b?.mode === 'mania';
-  if (b?.mode === 'mania') control('cs').value = '';
+  for (const key of ['hp', 'cs', 'ar', 'od'] as const) {
+    const input = form.elements.namedItem(key) as HTMLInputElement | null;
+    if (input) options[key] = input.value === '' ? null : Number(input.value);
+  }
+  for (const key of ['lock_ar', 'lock_od'] as const) {
+    const input = form.elements.namedItem(key) as HTMLInputElement | null;
+    if (input) options[key] = input.checked;
+  }
+  const seed = form.elements.namedItem('seed') as HTMLInputElement | null;
+  if (seed && seed.value !== '') options.seed = Math.trunc(Number(seed.value));
+  const sharpness = form.elements.namedItem('angle_sharpness') as HTMLInputElement | null;
+  if (sharpness && sharpness.value !== '') options.angle_sharpness = Number(sharpness.value);
+  const mirror = form.elements.namedItem('mirror') as HTMLSelectElement | null;
+  if (mirror) options.mirror = mirror.value;
+  if (ruleset) {
+    const shown = TRANSFORMS[ruleset].map(([id]) => id);
+    const checked = [...form.querySelectorAll<HTMLInputElement>('#transforms input:checked')].map((i) => i.value);
+    options.mods = [...options.mods.filter((m) => !shown.includes(m)), ...checked];
+  }
+}
+
+function writeForm() {
+  field('rate').value = num(options.rate);
+  field('pitch').checked = !options.pitch_preserving;
+  for (const key of ['lead_in_ms', 'lead_out_ms', 'gap_ms', 'fade_ms'] as const) field(key).value = String(options[key]);
+  renderRuleset();
   tempo();
 }
 
-async function generated() {
-  const { maps } = await api<{ maps: Entry[] }>('v1/generated');
-  const container = $('generated');
-  container.replaceChildren();
-  if (!maps.length) {
+function input(name: string, label: string, attrs: Record<string, string>, value: string, placeholder = ''): HTMLLabelElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'field';
+  wrap.append(label);
+  const el = document.createElement('input');
+  el.name = name;
+  el.type = 'number';
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  el.value = value;
+  el.placeholder = placeholder;
+  wrap.append(el);
+  return wrap;
+}
+function toggle(name: string, label: string, checked: boolean): HTMLLabelElement {
+  const wrap = document.createElement('label');
+  wrap.className = 'toggle';
+  const el = document.createElement('input');
+  el.type = 'checkbox';
+  el.name = name;
+  el.checked = checked;
+  wrap.append(el, ` ${label}`);
+  return wrap;
+}
+
+/** Transforms, their options and the difficulty fields for the map's ruleset. */
+function renderRuleset() {
+  const mods = $('transforms');
+  const extra = $('transform-options');
+  const difficulty = $('difficulty');
+  mods.replaceChildren();
+  extra.replaceChildren();
+  difficulty.replaceChildren();
+  const hint = $('transform-hint');
+  if (!ruleset) {
     const empty = document.createElement('p');
-    empty.className = 'empty';
-    empty.textContent = 'No practice copies yet. Generated copies appear here with their files, and can be deleted without touching the original map.';
-    container.append(empty);
+    empty.className = 'hint';
+    empty.textContent = 'Transforms for the selected map’s ruleset appear here.';
+    mods.append(empty);
+    hint.hidden = true;
     return;
   }
-  for (const entry of maps) {
-    const row = document.createElement('article');
-    row.className = 'copy';
-    const text = document.createElement('div');
-    const name = document.createElement('h3');
-    name.textContent = entry.name;
-    const path = document.createElement('p');
-    path.className = 'copy-path';
-    path.textContent = entry.files.find((f) => /\.(osu|osz)$/.test(f.path))?.path ?? '';
-    text.append(name, path);
-    for (const warning of entry.warnings) {
-      const p = document.createElement('p');
-      p.className = 'copy-warning';
-      p.textContent = warning;
-      text.append(p);
+  for (const [id, name] of TRANSFORMS[ruleset]) {
+    const label = document.createElement('label');
+    label.className = 'mod';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = id;
+    box.checked = options.mods.includes(id);
+    const code = document.createElement('span');
+    code.className = 'mod-code';
+    code.textContent = id;
+    label.append(box, code, name);
+    mods.append(label);
+  }
+  const has = (id: string) => options.mods.includes(id);
+  if (ruleset === 'osu' && has('MR')) {
+    const wrap = document.createElement('label');
+    wrap.className = 'field';
+    wrap.append('Mirror axis');
+    const select = document.createElement('select');
+    select.name = 'mirror';
+    for (const [value, text] of [['horizontal', 'Horizontal'], ['vertical', 'Vertical'], ['both', 'Both']]) {
+      const option = new Option(text, value, false, options.mirror === value);
+      select.append(option);
     }
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'danger';
-    button.textContent = 'Delete copy';
-    button.disabled = !vosu.canWrite || busy;
-    button.onclick = () => {
-      void (async () => {
-        if (!confirm(`Delete this generated copy and its unmodified owned assets?\n${entry.name}`)) return;
-        await api(`v1/delete/${encodeURIComponent(entry.id)}`, {});
-        await generated();
-      })().catch(fail);
-    };
-    row.append(text, button);
-    container.append(row);
+    wrap.append(select);
+    extra.append(wrap);
+  }
+  if (has('RD') && ruleset !== 'fruits') {
+    extra.append(input('seed', 'Random seed', { min: '-2147483648', max: '2147483647', step: '1' }, String(options.seed)));
+    if (ruleset === 'osu') extra.append(input('angle_sharpness', 'Angle sharpness', { min: '1', max: '10', step: '0.1' }, String(options.angle_sharpness)));
+  }
+  hint.textContent = HINTS[ruleset] ?? '';
+  hint.hidden = !HINTS[ruleset] || !(has('CS') || (ruleset === 'fruits' && has('MR')));
+  const source = current?.beatmap?.stats;
+  for (const key of DIFFICULTY[ruleset]) {
+    const original = source ? num(source[key], 1) : '';
+    const placeholder = key === 'ar' || key === 'od' ? 'Rate adjusted' : `Original${original ? ` (${original})` : ''}`;
+    difficulty.append(input(key, STAT_LABEL[key], { min: '0', max: '10', step: '0.1' }, options[key] === null ? '' : String(options[key]), placeholder));
+  }
+  if (DIFFICULTY[ruleset].includes('ar')) difficulty.append(toggle('lock_ar', 'Keep original AR', options.lock_ar));
+  if (DIFFICULTY[ruleset].includes('od')) difficulty.append(toggle('lock_od', 'Keep original OD', options.lock_od));
+  exclusive();
+}
+
+function exclusive() {
+  for (const [a, b] of EXCLUSIVE) {
+    const ea = form.querySelector<HTMLInputElement>(`#transforms input[value="${a}"]`);
+    const eb = form.querySelector<HTMLInputElement>(`#transforms input[value="${b}"]`);
+    if (!ea || !eb) continue;
+    eb.disabled = ea.checked;
+    ea.disabled = eb.checked;
+    for (const [el, other] of [[ea, b], [eb, a]] as const) {
+      el.closest('label')!.classList.toggle('unavailable', el.disabled);
+      el.closest('label')!.title = el.disabled ? `Not combinable with ${other}` : '';
+    }
   }
 }
 
-async function preview() {
-  const v = await api<Preview>('v1/preview', options());
-  const stats: [string, string][] = [
-    ['Objects', String(v.objects)], ['Map end', `${(v.duration_ms / 1000).toFixed(1)} s`], ['BPM', v.bpm.toFixed(2)],
-    ['HP', v.hp.toFixed(2)], ['CS', v.cs.toFixed(2)], ['AR', v.ar.toFixed(2)], ['OD', v.od.toFixed(2)],
-  ];
-  const list = document.createElement('dl');
-  list.className = 'stats';
-  for (const [term, value] of stats) {
+function tempo() {
+  const rate = options.rate;
+  const slider = $<HTMLInputElement>('rate-slider');
+  if (Number.isFinite(rate) && rate >= 0.5 && rate <= 2) slider.value = String(rate);
+  $('rate-readout').textContent = Number.isFinite(rate) ? `${rate.toFixed(2)}×` : '—';
+}
+
+// ---- Stats banner ---------------------------------------------------------
+
+function renderStats() {
+  const list = $('stats');
+  list.replaceChildren();
+  const source = current?.beatmap?.stats;
+  if (!source || !ruleset) return;
+  const result = latest?.stats;
+  const rows: [string, (s: Stats) => string][] = [];
+  if (ruleset === 'mania') rows.push(['Keys', (s) => String(s.keys ?? '')]);
+  rows.push(['Objects', (s) => s.objects.toLocaleString()]);
+  rows.push(['Length', (s) => clock(s.length_ms)]);
+  rows.push(['BPM', (s) => num(s.bpm, Number.isInteger(s.bpm) ? 0 : 1)]);
+  for (const key of DIFFICULTY[ruleset]) rows.push([STAT_LABEL[key], (s) => num(s[key], 1)]);
+  for (const [label, format] of rows) {
     const item = document.createElement('div');
     const dt = document.createElement('dt');
-    dt.textContent = term;
+    dt.textContent = label;
     const dd = document.createElement('dd');
-    dd.textContent = value;
+    const from = format(source);
+    const to = result ? format(result) : null;
+    dd.textContent = from;
+    if (to !== null && to !== from) {
+      const arrow = document.createElement('span');
+      arrow.className = 'to';
+      arrow.textContent = ` → ${to}`;
+      dd.append(arrow);
+    }
     item.append(dt, dd);
     list.append(item);
   }
-  $('preview').replaceChildren(list);
+  const msd = current?.ratings?.msd?.overall;
+  if (ruleset === 'mania' && msd !== undefined) {
+    const item = document.createElement('div');
+    item.className = 'stat-msd';
+    item.innerHTML = '<dt>MSD at rate</dt><dd></dd>';
+    item.querySelector('dd')!.textContent = msd.toFixed(2);
+    item.title = 'Mania ratings, source map at the selected rate, before transforms';
+    list.append(item);
+  }
 }
 
-$('preview-button').onclick = () => void preview().catch(fail);
-$('refresh').onclick = () => void refresh().catch(fail);
-$('save').onclick = () => void api('v1/settings', options()).then(() => say('Settings saved.')).catch(fail);
-$('cancel').onclick = () => {
-  if (job) void api(`v1/jobs/${job}`, undefined, 'DELETE').catch(fail);
+// ---- Map, timeline, preview ---------------------------------------------------
+
+const timeline = new Timeline(
+  $('strip'),
+  $('axis'),
+  (ranges) => setTrims(ranges),
+  (sourceMs) => {
+    const t = outputTime(sourceMs, preview.rate, preview.windows);
+    if (t !== null) preview.seek(t);
+  },
+);
+const preview = new Preview(
+  $<HTMLCanvasElement>('canvas'),
+  (t, duration, playing) => {
+    $('clock').textContent = `${clock(t, true)} / ${clock(duration, true)}`;
+    $('play').textContent = playing ? 'Pause' : 'Play';
+    timeline.setPlayhead(duration ? sourceTime(t, preview.rate, preview.windows) : null);
+  },
+  (message) => stageMessage(message),
+);
+
+function stageMessage(text: string | null, tone: 'info' | 'error' = 'info') {
+  const el = $('preview-message');
+  el.hidden = !text;
+  el.textContent = text ?? '';
+  el.dataset.tone = tone;
+}
+
+function setTrims(ranges: Range[]) {
+  if (!current?.beatmap) return;
+  trimsByMap.set(current.beatmap.md5, ranges.map((r) => ({ start_ms: Math.round(r.start_ms), end_ms: Math.round(r.end_ms) })));
+  renderTrims();
+  refreshPreview();
+}
+
+function renderTrims() {
+  const list = $('trim-list');
+  list.replaceChildren();
+  const ranges = trims();
+  $('trim-empty').hidden = ranges.length > 0;
+  $('clear-trims').hidden = ranges.length === 0;
+  timeline.setRanges(ranges);
+  ranges.forEach((range, index) => {
+    const item = document.createElement('li');
+    const edit = (edge: 'start_ms' | 'end_ms', label: string) => {
+      const el = document.createElement('input');
+      el.type = 'text';
+      el.inputMode = 'decimal';
+      el.className = 'time';
+      el.value = clock(range[edge], true);
+      el.setAttribute('aria-label', `Section ${index + 1} ${label}`);
+      el.addEventListener('change', () => {
+        const t = parseClock(el.value);
+        if (t === null) { el.value = clock(range[edge], true); return; }
+        const next = ranges.map((r) => ({ ...r }));
+        next[index][edge] = t;
+        if (next[index].end_ms <= next[index].start_ms) { el.value = clock(range[edge], true); return; }
+        setTrims(next);
+      });
+      return el;
+    };
+    const count = document.createElement('span');
+    count.className = 'trim-count';
+    count.textContent = `${timeline.objectsIn(range).toLocaleString()} objects`;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'quiet';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove section ${index + 1}`);
+    remove.onclick = () => setTrims(ranges.filter((_, i) => i !== index));
+    const dash = document.createElement('span');
+    dash.textContent = '–';
+    item.append(edit('start_ms', 'start'), dash, edit('end_ms', 'end'), count, remove);
+    list.append(item);
+  });
+}
+
+let previewSeq = 0;
+const refreshPreview = debounce(() => void runPreview(), 250);
+async function runPreview() {
+  const seq = ++previewSeq;
+  if (!current?.beatmap) return;
+  const sent = outgoing();
+  try {
+    const result = await api<PreviewResult>(`v1/preview?options=${encodeURIComponent(JSON.stringify(sent))}`);
+    if (seq !== previewSeq) return;
+    latest = result;
+    $('version').textContent = result.version;
+    const warnings = $('warnings');
+    warnings.replaceChildren(...result.warnings.map((w) => Object.assign(document.createElement('li'), { textContent: w })));
+    timeline.setWindows(result.windows);
+    renderStats();
+    stageMessage(null);
+    await preview.show({ osu: result.osu, rate: result.rate, windows: result.windows, pitch: sent.pitch_preserving });
+    $<HTMLButtonElement>('play').disabled = false;
+  } catch (e) {
+    if (seq !== previewSeq) return;
+    latest = null;
+    renderStats();
+    stageMessage(e instanceof Error ? e.message : String(e), 'error');
+  }
+}
+
+let timelineSeq = 0;
+async function loadTimeline() {
+  const seq = ++timelineSeq;
+  $('timeline-label').textContent = 'Loading…';
+  try {
+    const data = await api<TimelineData>(`v1/timeline?rate=${options.rate}`);
+    if (seq !== timelineSeq) return;
+    timeline.setData(data);
+    $('timeline-label').textContent = data.source === 'mania-ratings' ? `${data.label} · Mania ratings at ${options.rate.toFixed(2)}×` : `${data.label} at ${options.rate.toFixed(2)}×`;
+    $('timeline-note').textContent = data.note ?? '';
+    renderTrims();
+  } catch (e) {
+    if (seq !== timelineSeq) return;
+    timeline.setData(null);
+    $('timeline-label').textContent = '';
+    $('timeline-note').textContent = e instanceof Error ? e.message : String(e);
+  }
+}
+const refreshTimeline = debounce(() => void loadTimeline(), 300);
+
+let mapSeq = 0;
+async function loadMap() {
+  const seq = ++mapSeq;
+  const v = await api<Current>(`v1/current?rate=${options.rate}`);
+  if (seq !== mapSeq) return;
+  const changed = v.beatmap?.md5 !== current?.beatmap?.md5;
+  current = v;
+  const b = v.beatmap;
+  ruleset = b?.stats.ruleset ?? null;
+  $('title').textContent = b ? `${b.artist} — ${b.title}` : 'No selected beatmap';
+  $('subtitle').textContent = b
+    ? `${b.version} · mapped by ${b.creator} · ${v.client ?? ''}${b.played_ruleset && b.played_ruleset !== b.stats.ruleset ? ` · played as ${b.played_ruleset}; transforms apply to the native ${RULESET_NAME[b.stats.ruleset]} map` : ''}`
+    : 'Select a beatmap in osu! — this page follows it.';
+  const chip = $('ruleset');
+  chip.hidden = !ruleset;
+  chip.textContent = ruleset ? RULESET_NAME[ruleset] : '';
+  chip.dataset.ruleset = ruleset ?? '';
+  const art = $<HTMLImageElement>('banner-art');
+  if (b?.background) {
+    art.hidden = false;
+    art.src = `/files/beatmap/background?v=${b.md5}`;
+    art.onerror = () => { art.hidden = true; };
+  } else {
+    art.hidden = true;
+    art.removeAttribute('src');
+  }
+  if (changed) {
+    latest = null;
+    preview.clear();
+    $<HTMLButtonElement>('play').disabled = true;
+    $('version').textContent = '';
+    $('warnings').replaceChildren();
+    preview.setAudio(b ? `/files/beatmap/audio?v=${b.md5}` : null);
+    renderRuleset();
+    renderTrims();
+    renderStats();
+    if (b) {
+      void loadTimeline();
+      void runPreview();
+    } else {
+      timeline.setData(null);
+    }
+  } else {
+    renderStats();
+  }
+  writable();
+}
+
+// ---- Profiles ---------------------------------------------------------------
+
+const comparable = (o: Options) => JSON.stringify({ ...o, trims: [] }, Object.keys(o).sort());
+function markDirty() {
+  const saved = profiles.active ? profiles.profiles[profiles.active] : profiles.defaults;
+  $('dirty').hidden = !saved || comparable(saved) === comparable(options);
+}
+function renderProfiles() {
+  const select = $<HTMLSelectElement>('profile');
+  select.replaceChildren(new Option('No profile (defaults)', ''));
+  for (const name of Object.keys(profiles.profiles)) select.append(new Option(name, name));
+  select.value = profiles.active ?? '';
+  $<HTMLButtonElement>('profile-delete').hidden = !profiles.active;
+  writable();
+  markDirty();
+}
+function applyProfile() {
+  const base = profiles.active ? profiles.profiles[profiles.active] : profiles.defaults;
+  options = structuredClone({ ...profiles.defaults, ...base });
+  writeForm();
+  renderProfiles();
+}
+async function profileAction(path: string, body: unknown, done: string) {
+  try {
+    profiles = await api<Profiles>(path, body);
+    renderProfiles();
+    markDirty();
+    say(done);
+  } catch (e) {
+    fail(e);
+  }
+}
+
+$<HTMLSelectElement>('profile').onchange = () => {
+  const name = $<HTMLSelectElement>('profile').value;
+  profiles.active = name || null;
+  applyProfile();
+  refreshAll();
+  if (name && vosu.canWrite) void profileAction('v1/profiles/activate', { name }, `Profile “${name}” loaded.`);
 };
+$('profile-save').onclick = () => {
+  if (profiles.active) void profileAction('v1/profiles', { name: profiles.active, options: outgoingProfile() }, `Saved “${profiles.active}”.`);
+  else openSaveAs();
+};
+/** A profile keeps every ruleset's transforms, but never one map's trims. */
+const outgoingProfile = (): Options => ({ ...options, trims: [] });
+function openSaveAs() {
+  $('profile-new').hidden = false;
+  $<HTMLInputElement>('profile-name').value = '';
+  $<HTMLInputElement>('profile-name').focus();
+}
+$('profile-save-as').onclick = openSaveAs;
+$('profile-new-cancel').onclick = () => { $('profile-new').hidden = true; };
+$<HTMLFormElement>('profile-new').onsubmit = (e) => {
+  e.preventDefault();
+  const name = $<HTMLInputElement>('profile-name').value.trim();
+  if (!name) return;
+  $('profile-new').hidden = true;
+  void profileAction('v1/profiles', { name, options: outgoingProfile() }, `Saved “${name}”.`);
+};
+$('profile-delete').onclick = () => {
+  const name = profiles.active;
+  if (!name || !confirm(`Delete the profile “${name}”?`)) return;
+  void profileAction('v1/profiles/delete', { name }, `Deleted “${name}”.`).then(() => applyProfile());
+};
+
+// ---- Wiring -------------------------------------------------------------------
+
+function writable() {
+  const can = vosu.canWrite;
+  $<HTMLButtonElement>('generate').disabled = !can || busy || !current?.beatmap;
+  for (const id of ['profile-save', 'profile-save-as', 'profile-delete']) $<HTMLButtonElement>(id).disabled = !can;
+}
+function refreshAll() {
+  refreshPreview();
+  refreshTimeline();
+}
+
+$<HTMLInputElement>('rate-slider').addEventListener('input', () => {
+  field('rate').value = Number($<HTMLInputElement>('rate-slider').value).toFixed(2);
+  form.dispatchEvent(new Event('input'));
+});
+form.addEventListener('input', () => {
+  const before = options.rate;
+  readForm();
+  tempo();
+  markDirty();
+  refreshPreview();
+  if (options.rate !== before) {
+    refreshTimeline();
+    void loadMap().catch(fail);
+  }
+});
+form.addEventListener('change', (event) => {
+  // Transform checkboxes change which extra fields exist.
+  if ((event.target as HTMLElement).closest('#transforms')) {
+    readForm();
+    renderRuleset();
+    markDirty();
+  }
+});
+$('clear-trims').onclick = () => setTrims([]);
+$('play').onclick = () => preview.toggle();
+$('cancel').onclick = () => { if (job) void api(`v1/jobs/${job}`, undefined, 'DELETE').catch(fail); };
+
 form.onsubmit = (e) => {
   e.preventDefault();
-  if (!vosu.canWrite || busy) return;
+  if (!vosu.canWrite || busy || !current?.beatmap) return;
   void (async () => {
     busy = true;
     writable();
-    await generated();
-    say('Starting job…');
+    say('Starting…');
     try {
-      await preview();
-      const result = await api<{ job: string }>('v1/generate', options());
+      const result = await api<{ job: string }>('v1/generate', outgoing());
       job = result.job;
       $('cancel').hidden = false;
       $('progress').hidden = false;
       for (;;) {
-        const state = await api<{ state: string; message: string; progress: number }>(`v1/jobs/${job}`);
-        say(state.message, state.state === 'failed' ? 'error' : 'info');
+        const state = await api<{ state: string; message: string; progress: number; result: Entry | null }>(`v1/jobs/${job}`);
         $<HTMLProgressElement>('progress').value = state.progress;
-        if (['done', 'failed', 'cancelled'].includes(state.state)) break;
+        if (state.state === 'done' && state.result) {
+          const path = state.result.files[0]?.path ?? '';
+          say(`${state.message} ${path}`);
+          const warnings = $('warnings');
+          warnings.replaceChildren(...state.result.warnings.map((w) => Object.assign(document.createElement('li'), { textContent: w })));
+          break;
+        }
+        say(state.message, state.state === 'failed' ? 'error' : 'info');
+        if (['failed', 'cancelled'].includes(state.state)) break;
         const { promise, resolve } = Promise.withResolvers<void>();
         setTimeout(resolve, 250);
         await promise;
@@ -250,8 +595,8 @@ form.onsubmit = (e) => {
       job = null;
       busy = false;
       $('cancel').hidden = true;
+      $('progress').hidden = true;
       writable();
-      await generated();
     }
   })().catch(fail);
 };
@@ -261,11 +606,26 @@ void (async () => {
   await vosu.ready;
   const access = $('access');
   access.dataset.state = vosu.canWrite ? 'write' : 'read';
-  access.textContent = vosu.canWrite
-    ? 'Write session · local practice generation enabled'
-    : 'Read only · open from the vosu dashboard to generate';
-  writable();
-  setOptions(await api<Options>('v1/settings'));
-  await refresh();
-  await generated();
+  access.textContent = vosu.canWrite ? 'Write session' : 'Read only · open from the dashboard to generate or save';
+  profiles = await api<Profiles>('v1/profiles');
+  applyProfile();
+  await loadMap();
+  // Follow the game: reload when the selected beatmap changes. The bridge
+  // reconnects by itself and reports its state for the top bar.
+  const live = $('live');
+  const states = { connecting: 'Connecting', open: 'Following osu!', closed: 'Not following — vosu is unreachable' } as const;
+  vosu.subscribe(
+    [{ field: 'beatmap', keys: ['checksum'] }],
+    (frame) => {
+      live.dataset.state = 'open';
+      live.textContent = states.open;
+      const beatmap = frame && typeof frame === 'object' && 'beatmap' in frame ? frame.beatmap : null;
+      const checksum = beatmap && typeof beatmap === 'object' && 'checksum' in beatmap && typeof beatmap.checksum === 'string' ? beatmap.checksum : undefined;
+      if (checksum !== undefined && checksum !== current?.beatmap?.md5) void loadMap().catch(fail);
+    },
+    (state) => {
+      live.dataset.state = state;
+      live.textContent = states[state];
+    },
+  );
 })().catch(fail);
