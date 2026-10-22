@@ -1,0 +1,23 @@
+{
+  "name": "@vosu-tools/skin-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "check": "tsc --noEmit",
+    "test": "bun test test"
+  },
+  "dependencies": {
+    "@fontsource-variable/instrument-sans": "5.3.0",
+    "@fontsource-variable/jetbrains-mono": "5.3.0",
+    "@fontsource/instrument-serif": "5.3.0",
+    "@vosu-tools/skin-spec": "workspace:*",
+    "@vosu-tools/tool-web": "workspace:*",
+    "monaco-editor": "0.52.2"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0",
+    "typescript": "^5.7.3"
+  }
+}

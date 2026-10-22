@@ -1,0 +1,50 @@
+[
+  {
+    "uniqueID": "skin",
+    "type": "options",
+    "title": "Skin",
+    "description": "Follow the osu! client's current skin, or always use one of the client built-in looks.",
+    "options": ["client", "argon", "argon-pro", "triangles", "legacy"],
+    "value": "client"
+  },
+  {
+    "uniqueID": "mania_scroll_speed",
+    "type": "number",
+    "title": "Mania scroll speed",
+    "description": "Scroll speed for the preview (1-40, the clients' scale). 0 follows the client's own setting.",
+    "options": "",
+    "value": 0
+  },
+  {
+    "uniqueID": "note_speed",
+    "type": "number",
+    "title": "Taiko and mania note speed",
+    "description": "Multiplies how fast taiko and mania notes move. Scroll velocity changes stay intact. 1 matches the client.",
+    "options": "",
+    "value": 1
+  },
+  {
+    "uniqueID": "show_bar",
+    "type": "checkbox",
+    "title": "Show the top bar",
+    "description": "Map title, follow status, time and the tool's buttons. Turn off for a playfield-only view.",
+    "options": "",
+    "value": true
+  },
+  {
+    "uniqueID": "show_progress",
+    "type": "checkbox",
+    "title": "Show map progress",
+    "description": "A thin progress line under the playfield while following the game.",
+    "options": "",
+    "value": true
+  },
+  {
+    "uniqueID": "controls_open",
+    "type": "checkbox",
+    "title": "Open the controls panel on start",
+    "description": "Start with display, mods and skin controls visible beside the playfield.",
+    "options": "",
+    "value": false
+  }
+]

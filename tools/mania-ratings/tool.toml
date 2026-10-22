@@ -1,0 +1,26 @@
+manifest_version = 1
+id = "mania-ratings"
+name = "Mania ratings"
+version = "0.1.0"
+description = "Live osu!mania difficulty dashboard for a second monitor: MinaCalc, Quaver, Interlude and osu!mania stars, rate curve, timelines and experimental Reform estimates for the selected map and rate."
+author = "18-LAB"
+icon = "assets/icon.svg"
+banner = "assets/banner.svg"
+
+[service]
+command = ["bin/vosu-mania-ratings"]
+startup = "on-demand"
+
+[api]
+read = ["/v1/beatmap"]
+write = ["/v1/calculate"]
+
+[permissions]
+host = ["context"]
+
+[cli]
+command = ["bin/vosu-mania-ratings", "cli"]
+summary = "Compare mania ratings, rate curves, timelines and selected sections"
+
+[ui]
+root = "web/dist"

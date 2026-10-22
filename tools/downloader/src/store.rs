@@ -1,5 +1,5 @@
 use crate::{
-    model::{Mapset, Settings, Source},
+    model::{Config, Mapset, Source},
     net::Network,
 };
 use md5::Md5;
@@ -108,14 +108,43 @@ impl Queue {
         Ok(id)
     }
 }
+/// How long effective settings are reused before asking vosu again. Edits in
+/// the dashboard apply within this window without restarting the service.
+const CONFIG_TTL: std::time::Duration = std::time::Duration::from_secs(2);
+type CachedConfig = Option<(tokio::time::Instant, Result<Config, String>)>;
 #[derive(Clone)]
 pub struct Store {
     pub queue: Arc<Mutex<Queue>>,
-    pub settings: Arc<Mutex<Settings>>,
     pub data: PathBuf,
     pub network: Network,
+    pub host: vosu_tool_sdk::Client,
+    config: Arc<Mutex<CachedConfig>>,
 }
 impl Store {
+    pub fn new(queue: Queue, data: PathBuf, network: Network, host: vosu_tool_sdk::Client) -> Self {
+        Self {
+            queue: Arc::new(Mutex::new(queue)),
+            data,
+            network,
+            host,
+            config: Arc::default(),
+        }
+    }
+    /// Effective settings from `settings.json`, as edited in the dashboard.
+    pub async fn config(&self) -> Result<Config, String> {
+        let mut cached = self.config.lock().await;
+        if let Some((at, config)) = &*cached
+            && at.elapsed() < CONFIG_TTL
+        {
+            return config.clone();
+        }
+        let config = match self.host.settings::<serde_json::Value>().await {
+            Ok(v) => Config::from_settings(v),
+            Err(e) => Err(format!("cannot read tool settings from vosu: {e}")),
+        };
+        *cached = Some((tokio::time::Instant::now(), config.clone()));
+        config
+    }
     pub fn queue_path(&self) -> PathBuf {
         self.data.join("queue.json")
     }
@@ -132,10 +161,12 @@ impl Store {
     }
     pub async fn worker(self) {
         loop {
-            let (limit, cap) = {
-                let s = self.settings.lock().await;
-                (s.concurrency, s.max_file_mb * 1024 * 1024)
+            // Invalid or unreadable settings start nothing; /v1/state reports why.
+            let Ok(config) = self.config().await else {
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                continue;
             };
+            let (limit, cap) = (config.concurrency, config.max_file_mb * 1024 * 1024);
             let jobs = {
                 let mut q = self.queue.lock().await;
                 if q.paused {
@@ -465,12 +496,22 @@ mod tests {
             )
             .unwrap();
         let job = queue.jobs[0].clone();
-        let store = Store {
-            queue: Arc::new(Mutex::new(queue)),
-            settings: Arc::new(Mutex::new(Settings::default())),
-            data: dir.path().to_owned(),
-            network: Network::new(dir.path().join("cache")).unwrap(),
-        };
+        // No vosu is running in tests; recovery must not need settings or network.
+        let host = vosu_tool_sdk::ToolEnv {
+            id: "downloader".into(),
+            token: "0".repeat(64).into(),
+            vosu_url: "http://127.0.0.1:9".into(),
+            data_dir: dir.path().to_owned(),
+            cache_dir: dir.path().join("cache"),
+            interface: vosu_tool_sdk::Interface::Service,
+        }
+        .client();
+        let store = Store::new(
+            queue,
+            dir.path().to_owned(),
+            Network::new(dir.path().join("cache")).unwrap(),
+            host,
+        );
         let (recovered, hash) = store.download(&job, 1024 * 1024).await.unwrap();
         assert_eq!(recovered, file);
         assert_eq!(

@@ -1,0 +1,54 @@
+osu file format v14
+
+[General]
+AudioFilename: audio.ogg
+AudioLeadIn: 0
+PreviewTime: 10000
+Mode: 0
+
+[Editor]
+Bookmarks: 2000,6000,11000
+
+[Metadata]
+Title:Trim fixture
+Artist:vosu-tools
+Creator:practice
+Version:Normal
+BeatmapID:123
+BeatmapSetID:45
+
+[Difficulty]
+HPDrainRate:5
+CircleSize:4
+OverallDifficulty:7
+ApproachRate:8
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[Events]
+//Background and Video events
+0,0,"bg.jpg",0,0
+Video,0,"video.mp4"
+//Break Periods
+2,7500,9500
+//Storyboard Layer 0 (Background)
+Sprite,Background,Centre,"sb/dot.png",320,240
+ F,0,1000,2000,0,1
+
+[TimingPoints]
+100,500,4,2,1,70,1,0
+4000,-200,4,2,1,60,0,0
+10000,400,3,2,0,80,1,1
+
+[HitObjects]
+64,64,1000,1,0,0:0:0:0:
+128,64,1500,1,0,0:0:0:0:
+192,64,2000,1,0,0:0:0:0:
+256,192,3000,2,0,L|396:192,1,140
+320,192,4500,1,0,0:0:0:0:
+384,192,5000,2,0,L|454:192,1,70
+256,192,6000,12,0,7000,0:0:0:0:
+64,320,10000,5,0,0:0:0:0:
+128,320,10400,1,0,0:0:0:0:
+192,320,10800,1,0,0:0:0:0:
+256,320,12000,1,0,0:0:0:0:

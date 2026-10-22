@@ -4,13 +4,14 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 
 | Tool | id | Interfaces | Purpose |
 | --- | --- | --- | --- |
-| osu! practice tool | `practice` | CLI, UI, service | Offline rates, Constant Speed, seeded Random and ruleset-specific map transforms; see [scope and provenance](tools/practice/PROVENANCE.md) |
+| osu! practice tool | `practice` | CLI, UI, service | Offline rates, ruleset-specific transforms (Constant Speed, seeded Random, Mirror…), trims to chosen sections with cut audio, a render-core playfield preview of the result and named profiles; see [scope and provenance](tools/practice/PROVENANCE.md) |
 | Server pp calculator | `server-pp` | service, CLI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots and run user-supplied WebAssembly pp calculators, with official pp comparison |
-| Ratings | `ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
-| skin.ini editor | `skin-editor` | service, UI | Offline Monaco editor for skin.ini: wiki-revisioned validation, completion, colours, external-change detection and atomic saves with backups; stable Skins plus folders added by path (including lazer's "Edit externally" folder); lazer's current skin is viewable read-only; read-only without a dashboard session |
-| Map preview | `map-preview` | UI | WebGPU previews for all four rulesets, audio-synced seeking/rate, visual mods, AR/CS and scroll controls; skins from the client's current skin (stable, or lazer via vosu's `/files/skin/` report, with built-in lazer skins falling back to defaults), an `.osk` file, or a skin folder; [shared renderer API](packages/render-core/README.md) |
+| Mania ratings | `mania-ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
+| Skin studio | `skin-studio` | service, CLI, UI | Browse stable, added and lazer skins (via `lazer-library`); preview images, @2x, animations (cached APNG at AnimationFramerate) and hitsounds; mix element groups per ruleset into a new stable skin (atomic, never overwrites without confirmation) or a lazer `.osk`; Monaco skin.ini editor with wiki-revisioned checks and backups. [Details](tools/skin-studio/README.md) |
+| Map preview | `map-preview` | UI | Opens on the game's current map at the current time and follows map, mods, clock and skin live; hidden during the player's own gameplay. All four rulesets with the client's skin (stable or lazer, files or built-in Argon / Triangles / classic look), an `.osk` file or a skin folder; manual `.osu` preview with audio; settings in the dashboard; [shared renderer API](packages/render-core/README.md) |
 | Replay renderer | `replay-renderer` | service, CLI, UI | Deterministic multi-replay studio with player presets and per-ruleset render settings; browser WebM and native MP4 using a SHA-256-pinned managed browser plus external FFmpeg, without Node. [Settings/runtime contract](tools/replay-renderer/README.md). Judgement HUD appears only when stored counts verify. |
 | Beatmap downloader | `downloader` | service, UI | Context-aware discovery, read-only stable library/history, and a polite validated mirror queue |
+| Lazer library | `lazer-library` | service, CLI | Read-only, consistent Realm snapshots for MD5 map lookup, owned sets, skins and replay files; [schema and concurrency design](crates/realm-reader/DESIGN.md) |
 
 ## Layout
 

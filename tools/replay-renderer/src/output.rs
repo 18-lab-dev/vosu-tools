@@ -1,0 +1,287 @@
+//! Output frame sizes, saved size presets, and where videos and FFmpeg live.
+use super::*;
+
+/// Longest side and pixel budget accepted for one output frame (8K UHD).
+const MAX_SIDE: u32 = 7680;
+const MAX_PIXELS: u64 = 7680 * 4320;
+const MAX_SAVED: usize = 32;
+
+/// Parses `WIDTHxHEIGHT` and checks the encoder limits: even sides of
+/// 64–7680 px within the 7680×4320 pixel budget, landscape or portrait.
+pub(super) fn parse_size(text: &str) -> Result<(u32, u32), Error> {
+    let (width, height) = text
+        .split_once(['x', 'X', '×'])
+        .ok_or_else(|| error("Resolution must be WIDTHxHEIGHT"))?;
+    let width: u32 = width
+        .trim()
+        .parse()
+        .map_err(|_| error("Width must be a whole number"))?;
+    let height: u32 = height
+        .trim()
+        .parse()
+        .map_err(|_| error("Height must be a whole number"))?;
+    check_size(width, height)?;
+    Ok((width, height))
+}
+
+pub(super) fn check_size(width: u32, height: u32) -> Result<(), Error> {
+    if !(64..=MAX_SIDE).contains(&width)
+        || !(64..=MAX_SIDE).contains(&height)
+        || u64::from(width) * u64::from(height) > MAX_PIXELS
+    {
+        return Err(error(
+            "Each side must be 64–7680 px and the frame at most 7680×4320 pixels",
+        ));
+    }
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
+        return Err(error("Video width and height must be even"));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub(super) struct Sizes {
+    #[serde(default)]
+    saved: Vec<Saved>,
+    /// Last size picked in the studio, `WIDTHxHEIGHT`.
+    #[serde(default)]
+    last: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub(super) struct Saved {
+    name: String,
+    width: u32,
+    height: u32,
+}
+
+static SIZES_LOCK: Mutex<()> = Mutex::const_new(());
+
+async fn load(app: &App) -> Result<Sizes, Error> {
+    match tokio::fs::read(app.env.data_dir.join("sizes.json")).await {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(error),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Sizes::default()),
+        Err(e) => Err(error(e)),
+    }
+}
+async fn store(app: &App, sizes: &Sizes) -> Result<(), Error> {
+    let path = app.env.data_dir.join("sizes.json");
+    let temporary = path.with_extension("json.new");
+    tokio::fs::write(&temporary, serde_json::to_vec_pretty(sizes).map_err(error)?)
+        .await
+        .map_err(error)?;
+    tokio::fs::rename(temporary, path).await.map_err(error)
+}
+
+pub(super) async fn get_sizes(State(app): State<App>) -> Result<Json<Sizes>, Error> {
+    Ok(Json(load(&app).await?))
+}
+
+#[derive(Deserialize)]
+pub(super) struct SaveSize {
+    name: String,
+    width: u32,
+    height: u32,
+}
+pub(super) async fn save_size(
+    State(app): State<App>,
+    Json(input): Json<SaveSize>,
+) -> Result<Json<Sizes>, Error> {
+    let name = input.name.trim();
+    if name.is_empty() || name.chars().count() > 48 || name.chars().any(char::is_control) {
+        return Err(error("Preset names need 1–48 printable characters"));
+    }
+    check_size(input.width, input.height)?;
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    sizes.saved.retain(|s| s.name != name);
+    if sizes.saved.len() >= MAX_SAVED {
+        return Err(error("At most 32 saved sizes; delete one first"));
+    }
+    sizes.saved.push(Saved {
+        name: name.to_owned(),
+        width: input.width,
+        height: input.height,
+    });
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
+}
+
+pub(super) async fn delete_size(
+    State(app): State<App>,
+    Path(name): Path<String>,
+) -> Result<Json<Sizes>, Error> {
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    let before = sizes.saved.len();
+    sizes.saved.retain(|s| s.name != name);
+    if sizes.saved.len() == before {
+        return Err(error("No saved size with that name"));
+    }
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
+}
+
+#[derive(Deserialize)]
+pub(super) struct LastSize {
+    width: u32,
+    height: u32,
+}
+pub(super) async fn set_last(
+    State(app): State<App>,
+    Json(input): Json<LastSize>,
+) -> Result<Json<Sizes>, Error> {
+    check_size(input.width, input.height)?;
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    sizes.last = Some(format!("{}x{}", input.width, input.height));
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
+}
+
+fn setting<'a>(settings: &'a Value, key: &str) -> Option<&'a str> {
+    settings[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+/// Where videos go: the `output_dir` setting, else the user's Videos folder.
+pub(super) fn output_dir(settings: &Value) -> Option<PathBuf> {
+    if let Some(dir) = setting(settings, "output_dir") {
+        return Some(PathBuf::from(dir));
+    }
+    if cfg!(windows) {
+        return std::env::var_os("USERPROFILE").map(|home| PathBuf::from(home).join("Videos"));
+    }
+    let home = PathBuf::from(std::env::var_os("HOME")?);
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    let videos = std::fs::read_to_string(config.join("user-dirs.dirs"))
+        .ok()
+        .and_then(|dirs| {
+            dirs.lines().find_map(|line| {
+                let value = line
+                    .trim()
+                    .strip_prefix("XDG_VIDEOS_DIR=")?
+                    .trim_matches('"');
+                Some(match value.strip_prefix("$HOME") {
+                    Some(rest) => home.join(rest.trim_start_matches('/')),
+                    None => PathBuf::from(value),
+                })
+            })
+        });
+    Some(videos.unwrap_or_else(|| home.join("Videos")))
+}
+
+/// An absolute `.mp4` path stays as is; a bare file name goes into the output folder.
+pub(super) fn resolve_out(out: &FsPath, settings: &Value) -> Result<PathBuf, Error> {
+    if out
+        .extension()
+        .is_none_or(|e| !e.eq_ignore_ascii_case("mp4"))
+    {
+        return Err(error("Output must be an .mp4 file"));
+    }
+    if out.is_absolute() {
+        return Ok(out.to_path_buf());
+    }
+    let mut parts = out.components();
+    if !matches!(
+        (parts.next(), parts.next()),
+        (Some(std::path::Component::Normal(_)), None)
+    ) {
+        return Err(error("Give an absolute path or a plain file name"));
+    }
+    let dir = output_dir(settings)
+        .ok_or_else(|| error("No output folder; set one in the tool's settings"))?;
+    if !dir.is_absolute() {
+        return Err(error("The output folder setting must be an absolute path"));
+    }
+    Ok(dir.join(out))
+}
+
+/// FFmpeg executable: the `ffmpeg_path` setting, `VOSU_RENDER_FFMPEG`, then `ffmpeg` on PATH.
+pub(super) fn ffmpeg(settings: &Value) -> String {
+    setting(settings, "ffmpeg_path")
+        .map(str::to_owned)
+        .or_else(|| std::env::var("VOSU_RENDER_FFMPEG").ok())
+        .unwrap_or_else(|| "ffmpeg".into())
+}
+
+/// Studio defaults editable from the dashboard (settings.json).
+pub(super) fn defaults(settings: &Value) -> Value {
+    let number = |key: &str| {
+        settings[key]
+            .as_f64()
+            .or_else(|| settings[key].as_str().and_then(|s| s.trim().parse().ok()))
+    };
+    let fps = number("fps")
+        .filter(|f| (1.0..=240.0).contains(f))
+        .map_or(60, |f| f.round() as u32);
+    let resolution = setting(settings, "resolution")
+        .and_then(|r| parse_size(r).ok())
+        .map_or_else(|| "1920x1080".to_owned(), |(w, h)| format!("{w}x{h}"));
+    json!({"fps": fps, "resolution": resolution, "output_dir": output_dir(settings)})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn sizes_cover_wide_tall_and_reject_bad_input() {
+        for ok in [
+            "1920x1080",
+            "1080x1920",
+            "5120x1440",
+            "3440X1440",
+            "1440×1080",
+            "7680x4320",
+            "4320x7680",
+        ] {
+            assert!(parse_size(ok).is_ok(), "{ok}");
+        }
+        for bad in [
+            "1921x1080",
+            "62x64",
+            "7682x100",
+            "7680x7680",
+            "abc",
+            "1920",
+            "-2x4",
+        ] {
+            assert!(parse_size(bad).is_err(), "{bad}");
+        }
+    }
+    #[test]
+    fn output_names_resolve_into_the_output_folder() {
+        let settings = json!({"output_dir": "/videos/osu"});
+        assert_eq!(
+            resolve_out(FsPath::new("take 1.mp4"), &settings).unwrap(),
+            PathBuf::from("/videos/osu/take 1.mp4")
+        );
+        assert_eq!(
+            resolve_out(FsPath::new("/abs/x.mp4"), &settings).unwrap(),
+            PathBuf::from("/abs/x.mp4")
+        );
+        assert!(resolve_out(FsPath::new("../x.mp4"), &settings).is_err());
+        assert!(resolve_out(FsPath::new("sub/x.mp4"), &settings).is_err());
+        assert!(resolve_out(FsPath::new("x.webm"), &settings).is_err());
+        assert!(resolve_out(FsPath::new("x.mp4"), &json!({"output_dir":"relative"})).is_err());
+    }
+    #[test]
+    fn defaults_fall_back_when_settings_are_invalid() {
+        let value = defaults(&json!({"fps": 500, "resolution": "123x45", "output_dir": "/v"}));
+        assert_eq!(value["fps"], 60);
+        assert_eq!(value["resolution"], "1920x1080");
+        assert_eq!(value["output_dir"], "/v");
+        let value = defaults(
+            &json!({"fps": "30", "resolution": "2560x1440", "ffmpeg_path": "/opt/ffmpeg"}),
+        );
+        assert_eq!(value["fps"], 30);
+        assert_eq!(value["resolution"], "2560x1440");
+        assert_eq!(
+            ffmpeg(&json!({"ffmpeg_path": " /opt/ffmpeg "})),
+            "/opt/ffmpeg"
+        );
+    }
+}

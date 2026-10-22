@@ -11,6 +11,7 @@ Each section records third-party code, data, or assets included in this reposito
 - Slider curve parsing/calculation: rosu-map 0.2.1, MaxOhn, MIT. License: `tools/practice/licenses/rosu-map-MIT.txt`.
 - Fast vector-length reference formula: osuTK/OpenTK MathHelper, MIT, copyright Stefanos Apostolopoulos. License: `tools/practice/licenses/osuTK-MIT.txt`. No graphics/runtime library is linked.
 - UI fonts bundled into `tools/practice/web/dist` via Fontsource npm packages (woff2/woff subsets): Bricolage Grotesque (`@fontsource-variable/bricolage-grotesque` 5.3.0, The Bricolage Grotesque Project Authors), Instrument Sans (`@fontsource-variable/instrument-sans` 5.3.0, The Instrument Sans Project Authors) and DM Mono (`@fontsource/dm-mono` 5.3.0, The DM Mono Project Authors), all SIL Open Font License 1.1. Licenses: `tools/practice/licenses/font-{bricolage-grotesque,instrument-sans,dm-mono}-OFL.txt`. The tool icon and banner (`tools/practice/assets/`) are original artwork.
+- The practice UI's playfield preview bundles the workspace `packages/render-core` and `packages/osu-parse` (project code) and their npm dependencies (see "Map preview and shared render-core"); packaging records the bundled packages and their license texts from the UI's source maps.
 ## server-pp calculators
 
 - Akatsuki `akatsuki-pp`, MIT, revision `c0e499ec3ac138c7cc329771fc70992de39fbb77`: https://github.com/osuAkatsuki/akatsuki-pp-rs.
@@ -21,38 +22,40 @@ Each section records third-party code, data, or assets included in this reposito
 - Custom calculators: wasmi 2.0.0 (MIT OR Apache-2.0, Robin Freyler, https://github.com/wasmi-labs/wasmi) runs user modules; its dependencies (wasmparser, libm, spin and others) are MIT, Apache-2.0 or dual-licensed and resolved in Cargo.lock. The published wasmi, wasmi_core, wasmi_ir, wasmi_collections 2.0.0 and wasmparser 0.228.0 crates include no license file. Their upstream MIT texts are retained in `tools/server-pp/licenses/wasmi-MIT.txt` (wasmi revision `2970aa871cc1001b57b267ccecdcd1e42306199e`) and `tools/server-pp/licenses/wasm-tools-MIT.txt` (wasm-tools revision `e66235859a6ec0502bf6f9dcc358953eda4cafcc`). `scripts/package.py` binds them to those versions, revisions and text blobs. rosu-pp 4.0.1 (MIT, Max) supplies the difficulty attributes and score states handed to modules. The test-only `wat` crate (Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT) is not shipped.
 - `tools/server-pp/examples/rosu-reference` ports rosu-pp 4.0.1's stable performance formulas (MIT, Copyright (c) 2021 Max; text in `tools/server-pp/examples/rosu-reference/LICENSE-rosu-pp`) as a fidelity test module; the compiled copy lives only under `tests/fixtures`. The AssemblyScript example builds with AssemblyScript 0.28.20 (Apache-2.0, dev dependency, not shipped).
 
-## skin.ini editor
+## Skin studio
 
-- Monaco Editor 0.52.2, Microsoft Corporation, MIT: https://github.com/microsoft/monaco-editor. License: `tools/skin-editor/licenses/monaco-editor-MIT.txt`. Editor and worker are bundled offline.
-- Bundled fonts, SIL Open Font License 1.1, served offline from the tool package: Instrument Serif and Instrument Sans (Copyright 2022 The Instrument Serif / Instrument Sans Project Authors, https://github.com/Instrument), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono), via the Fontsource 5.3.0 packages. Licenses: `tools/skin-editor/licenses/{instrument-serif,instrument-sans,jetbrains-mono}-OFL.txt`.
+- Monaco Editor 0.52.2, Microsoft Corporation, MIT: https://github.com/microsoft/monaco-editor. License: `tools/skin-studio/licenses/monaco-editor-MIT.txt`. Editor and worker are bundled offline.
+- Bundled fonts, SIL Open Font License 1.1, served offline from the tool package: Instrument Serif and Instrument Sans (Copyright 2022 The Instrument Serif / Instrument Sans Project Authors, https://github.com/Instrument), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono), via the Fontsource 5.3.0 packages. Licenses: `tools/skin-studio/licenses/{instrument-serif,instrument-sans,jetbrains-mono}-OFL.txt`.
+- Mixing behaviour (per-element source skins, `@2x`/animation-frame matching, transparent "blank" elements, skin.ini values travelling with their elements) follows osu!SkinMixer by rednir (MIT), revision `091fb50e91b89e2b28e45f3190b093192ba113ed`: https://github.com/rednir/OsuSkinMixer. It was consulted as a behavioural reference only; no code or assets are copied. Element group lists are authored from the osu! wiki skinning reference.
+- Native dependencies `png` (MIT OR Apache-2.0) for APNG animation previews and `zip` (MIT) for `.osk` export, resolved in Cargo.lock.
 - `packages/skin-spec/spec.json` contains interoperability facts extracted from the osu! wiki skin.ini reference at revision `c9fa3ff277dba4c620d4731fd2c3fbb74770c20b`: https://github.com/ppy/osu-wiki/blob/c9fa3ff277dba4c620d4731fd2c3fbb74770c20b/wiki/Skinning/skin.ini/en.md. Wiki prose and images (CC-BY-NC-4.0) are not redistributed; hover wording is independently authored. Regenerate factual fields with `bun packages/skin-spec/generate.ts`.
 
-## Ratings
+## Mania ratings
 
 - MinaCalc 527: Etterna `2d706147cc4bcf95a8ceb24dc4f4129be207f803`,
   copyright 2016–2023 Etterna, MIT. Vendored in `crates/minacalc/vendor`;
-  package license `tools/ratings/licenses/MinaCalc.txt`.
+  package license `tools/mania-ratings/licenses/MinaCalc.txt`.
 - Quaver.API calculator 0.0.5: Quaver/Quaver.API
   `a921d561b2ece7f6bf3682446696c06c17b81649`,
   copyright 2017–2018 Swan & The Quaver Team, MPL-2.0. Separate port
-  `tools/ratings/src/quaver.rs` and unmodified test reference source.
+  `tools/mania-ratings/src/quaver.rs` and unmodified test reference source.
   Covered source is available in this repository; license
-  `tools/ratings/licenses/Quaver-MPL-2.0.txt`.
+  `tools/mania-ratings/licenses/Quaver-MPL-2.0.txt`.
 - Interlude/YAVSRG Prelude calculator:
   `1fe55766ae1fece3d433c966bf25822647bc8af6`, copyright 2024 percyqaz,
-  MIT. Separate port `tools/ratings/src/interlude.rs` and unmodified test
-  reference files; license `tools/ratings/licenses/Interlude-MIT.txt`.
+  MIT. Separate port `tools/mania-ratings/src/interlude.rs` and unmodified test
+  reference files; license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
 - osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
-  and checksums are in `tools/ratings/calibration-sources.json`. No third-party
+  and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.
 - UI fonts, bundled unmodified as WOFF2 latin/latin-ext subsets from
-  Fontsource 5.3.0 in `tools/ratings/web/src/fonts`: Newsreader (copyright
+  Fontsource 5.3.0 in `tools/mania-ratings/web/src/fonts`: Newsreader (copyright
   2020 The Newsreader Project Authors) and Martian Mono (copyright 2020 The
   Martian Mono Project Authors), both SIL OFL 1.1; licenses
-  `tools/ratings/licenses/Newsreader-OFL.txt` and
-  `tools/ratings/licenses/MartianMono-OFL.txt`.
-- Icon and banner art (`tools/ratings/assets`) are original to this project.
+  `tools/mania-ratings/licenses/Newsreader-OFL.txt` and
+  `tools/mania-ratings/licenses/MartianMono-OFL.txt`.
+- Icon and banner art (`tools/mania-ratings/assets`) are original to this project.
 
 ## Beatmap downloader / osu-db
 
@@ -80,6 +83,7 @@ The icon and banner artwork in `tools/downloader/assets/` is original.
 ## Map preview and shared render-core
 
 - vgpu 0.6.0 and its bundled @vgpu runtime modules: MIT, Copyright (c) 2025 Vercel, Inc.; https://github.com/vercel-labs/vgpu. License shipped in `tools/map-preview/licenses/vgpu-MIT.txt`. Used for WebGPU device initialization and lifecycle; rendering uses an original WGSL instance pipeline.
+- osu! (lazer) by ppy Pty Ltd: MIT, Copyright (c) 2025 ppy Pty Ltd; https://github.com/ppy/osu at tag 2026.1005.0-lazer (commit 9a10d935b05a3b896f4bd811d620f2023331db93). `packages/render-core/src/builtin.ts` is an original Canvas 2D/WGSL reimplementation of the look of the clients' built-in skins (Argon, Argon Pro, Triangles, classic) using measurements, colours and colour formulas read from that MIT source (for example `ArgonMainCirclePiece`, `ManiaArgonSkinTransformer`, `LegacySliderBody`, `DrawableSliderPath`); no source code or textures are copied, and nothing from osu-resources (CC BY-NC) is used. Details in `packages/render-core/PROVENANCE.md`; license shipped in `tools/map-preview/licenses/ppy-osu-MIT.txt`.
 - Familjen Grotesk (variable, Latin and Latin Extended subsets): SIL Open Font License 1.1, Copyright 2021 The Familjen Grotesk Project Authors; https://github.com/Familjen-Sthlm/Familjen-Grotesk. WOFF2 files from Fontsource 5.3.0, unmodified, in `tools/map-preview/web/src/fonts/`; license shipped in `tools/map-preview/licenses/FamiljenGrotesk-OFL.txt`.
 - Martian Mono (variable, Latin and Latin Extended subsets): SIL Open Font License 1.1, Copyright 2020 The Martian Mono Project Authors; https://github.com/evilmartians/mono. WOFF2 files from Fontsource 5.3.0, unmodified, in `tools/map-preview/web/src/fonts/`; license shipped in `tools/map-preview/licenses/MartianMono-OFL.txt`.
 - The Map preview icon and banner (`tools/map-preview/art/`) are original artwork under the project license. No third-party skin images, audio, or beatmaps are distributed by this tool. User-selected skin and map data remain user-owned.
@@ -89,7 +93,7 @@ The icon and banner artwork in `tools/downloader/assets/` is original.
 - LZMA-JS (`lzma` 2.3.2): MIT, Copyright (c) 2015 Nathan Rugg; https://github.com/nmrugg/LZMA-JS. Unmodified decompression dependency.
 - webm-muxer 5.1.4: MIT, Copyright (c) Vanilagy; https://github.com/Vanilagy/webm-muxer. WebCodecs chunk muxing; no encoders or codecs are bundled.
 - Native dependencies: clap (MIT OR Apache-2.0), uuid (MIT OR Apache-2.0), md-5 (MIT OR Apache-2.0), walkdir (Unlicense OR MIT; choose MIT), plus the shared vosu-tool-sdk. Release packaging includes the selected permissive dependency license texts.
-- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-ratings library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
+- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-mania-ratings library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
 - Chrome Headless Shell 156.0.8078.47 is downloaded as an external subprocess runtime from Google's [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) archive, SHA-256-pinned for Linux/Windows x86_64. Its entire upstream `LICENSE.headless_shell` and other archive notices remain beside the executable in the tool cache. It is not bundled into the tool package or linked into Rust code. `VOSU_RENDER_CHROMIUM` supports an explicit external runtime override. FFmpeg remains user-installed (`VOSU_RENDER_FFMPEG` override); MP4 uses VP9 (libvpx) and AAC, not libx264. Prefer an LGPL-only external FFmpeg distribution.
 - Studio typefaces, bundled into the web UI as WOFF2 files from Fontsource 5.3.0 variable packages: Bodoni Moda (Copyright 2020 The Bodoni Moda Project Authors), Hanken Grotesk (Copyright 2021 The Hanken Grotesk Project Authors) and Martian Mono (Copyright 2020 The Martian Mono Project Authors), all SIL Open Font License 1.1. Full texts ship in `tools/replay-renderer/licenses/*-OFL.txt`. The tool icon and banner are original artwork.
 - No beatmaps, replays, skins, audio or third-party overlay content are distributed. Tests use synthetic inputs or explicit temporary copies of locally installed user files.
@@ -99,3 +103,10 @@ The icon and banner artwork in `tools/downloader/assets/` is original.
 The published `dasp` family 0.11.0 crates and `dasp_window` 0.11.1 omit the upstream monorepo's root license texts. Packaging selects MIT and retains the exact `Copyright (c) 2016 RustAudio Developers` text at `scripts/licenses/dasp-MIT.txt` (upstream Git blob `b35b54912ac435a64227b09c9347475caefa1cbd`). It is identical at their published VCS revisions [`221b8103`](https://github.com/RustAudio/dasp/blob/221b81038c528bf3fc364a8ab5cc4b2e52f7dbfc/LICENSE-MIT), [`97c3bb9b`](https://github.com/RustAudio/dasp/blob/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT), and [`e4d53532`](https://github.com/RustAudio/dasp/blob/e4d535324f8b6c83d16c4f006a9ba3f07f3f147d/LICENSE-MIT). Each exception checks the exact crate version and `.cargo_vcs_info.json` revision before use.
 
 `vorbis_rs` 0.5.6 likewise omits its repository-root BSD-3-Clause text; the already-retained `tools/practice/licenses/audio.txt` carries Alejandro González's notice and terms. Its packaging exception checks published revision `6934784e7188e98dd053370c79604c72b201e97a`. All other dependency notices come directly from their resolved source packages; missing or disallowed licenses fail the build.
+
+## Lazer library / realm-reader
+
+- Realm core 20.1.2, commit `3aba889bd9c93c91ea7906b9ec4b60a5c5dcab45` (the native pin in Realm .NET 20.1.0): Apache-2.0. Vendored build source in `crates/realm-reader/native/realm-core-20.1.2.tar.gz`; package text in `tools/lazer-library/licenses/realm-core-Apache-2.0.txt`. Two portability patches preserve integer-min constant semantics for clang-cl and use core's scalar implementations for clang-cl rather than raising the CPU baseline.
+- Native bundled dependencies: S2 geometry (Apache-2.0), Intel RDFP Math 20U2 (BSD-3-Clause), mpark variant, nlohmann JSON and jsonsl (MIT), SHA-1 by Steve Reid and kalven SHA-2 (public domain). Their original source notices remain in the archive; redistribution texts ship in `tools/lazer-library/licenses/`. SHA-1 pin `d9ae30f34095107ece9dceb224839f0dc2f9c1c7`; SHA-2 pin `0e9aebf34101c6aa89355fd76ac9cd886735dee1`.
+- Rust dependencies are permissively licensed: cmake, notify, chrono, tempfile, clap, serde/serde_json, thiserror, axum, tokio, libc, unicase, tower, md-5 and the existing SDK; release packaging collects their resolved dependency texts. No osu! client assets or private Realm data ship.
+- The teal catalog-table icon and three-to-one banner are original project artwork.

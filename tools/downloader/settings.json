@@ -1,0 +1,86 @@
+[
+  {
+    "uniqueID": "downloads_header",
+    "type": "header",
+    "title": "Downloads",
+    "description": "",
+    "value": ""
+  },
+  {
+    "uniqueID": "concurrency",
+    "type": "number",
+    "title": "Concurrent downloads",
+    "description": "Archives downloaded at the same time, 1–3. Each source is still paced separately.",
+    "value": 1
+  },
+  {
+    "uniqueID": "max_file_mb",
+    "type": "number",
+    "title": "Maximum archive size (MiB)",
+    "description": "Larger archives are refused while downloading, 1–128.",
+    "value": 64
+  },
+  {
+    "uniqueID": "no_video",
+    "type": "checkbox",
+    "title": "Prefer no-video archives",
+    "description": "Default for new queue entries. Mirrors honour it only when a no-video archive exists.",
+    "value": true
+  },
+  {
+    "uniqueID": "songs_dir",
+    "type": "text",
+    "title": "Stable Songs folder",
+    "description": "Absolute folder for stable imports. Leave empty to use the Songs folder vosu reports for the attached client. Every import still asks for confirmation.",
+    "value": ""
+  },
+  {
+    "uniqueID": "discovery_header",
+    "type": "header",
+    "title": "Discovery",
+    "description": "",
+    "value": ""
+  },
+  {
+    "uniqueID": "hide_owned",
+    "type": "checkbox",
+    "title": "Hide sets you already have",
+    "description": "Default for the results filter. Stable ownership comes from a read-only osu!.db copy; lazer ownership needs the Lazer library tool. Sets this tool already downloaded are hidden too.",
+    "value": true
+  },
+  {
+    "uniqueID": "follow_current_map",
+    "type": "checkbox",
+    "title": "Follow the current map",
+    "description": "Re-run \"same mapper\" and \"similar\" searches when you select another beatmap in osu!.",
+    "value": true
+  },
+  {
+    "uniqueID": "sources",
+    "type": "textarea",
+    "title": "Mirror sources (JSON)",
+    "description": "Array of sources implementing the osu.direct API: name, base (HTTPS origin), enabled, priority (lower first), interval_ms (2000–60000), terms_url, automation_permitted. Enable a source only after checking its operator allows automated downloads. There is no automatic failover.",
+    "value": "[\n  {\n    \"name\": \"osu.direct\",\n    \"base\": \"https://osu.direct\",\n    \"enabled\": true,\n    \"priority\": 0,\n    \"interval_ms\": 2000,\n    \"terms_url\": \"https://osu.direct/tos\",\n    \"automation_permitted\": true\n  }\n]"
+  },
+  {
+    "uniqueID": "api_header",
+    "type": "header",
+    "title": "osu! API (optional)",
+    "description": "",
+    "value": ""
+  },
+  {
+    "uniqueID": "client_id",
+    "type": "text",
+    "title": "osu! API client ID",
+    "description": "Your own OAuth client from osu! account settings. Needed only for the official metadata provider and beatmap packs.",
+    "value": ""
+  },
+  {
+    "uniqueID": "client_secret",
+    "type": "password",
+    "title": "osu! API client secret",
+    "description": "Write-only: vosu passes it only to this tool's service, never to a browser page.",
+    "value": ""
+  }
+]

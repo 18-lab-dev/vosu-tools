@@ -1,0 +1,10 @@
+SHA-1 in C
+By Steve Reid <steve@edmweb.com>
+100% Public Domain
+Source: https://github.com/clibs/sha1/tree/d9ae30f34095107ece9dceb224839f0dc2f9c1c7
+
+Sha-2
+Public domain SHA-224/256/384/512 processors in C++ without external dependencies.
+Adapted from LibTomCrypt.
+Sha-2 is public domain.
+Source: https://github.com/kalven/sha-2/tree/0e9aebf34101c6aa89355fd76ac9cd886735dee1

@@ -1,0 +1,1 @@
+{"name":"@vosu-tools/mania-ratings","private":true,"type":"module","scripts":{"build":"tsc --noEmit && vite build"},"dependencies":{"@vosu-tools/tool-web":"workspace:*"},"devDependencies":{"vite":"^7.2.2","typescript":"^5.9.3"}}

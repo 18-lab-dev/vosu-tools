@@ -49,13 +49,26 @@ const host: typeof fetch = Object.assign(
 );
 
 test("lazer skin with files loads by filename from the host", async () => {
-  report = { client: "lazer", name: "Stand-in", files: true, builtin: null };
+  report = {
+    client: "lazer",
+    name: "Stand-in",
+    files: true,
+    builtin: null,
+    base: "legacy",
+  };
   routeStatus = 200;
   const current = await readCurrentSkin(host);
   expect(current).toEqual({
     kind: "files",
     name: "Stand-in",
-    info: { client: "lazer", name: "Stand-in", files: true, builtin: null },
+    fallback: "legacy",
+    info: {
+      client: "lazer",
+      name: "Stand-in",
+      files: true,
+      builtin: null,
+      base: "legacy",
+    },
   });
   // Bun has no createImageBitmap; record which blobs became bitmaps.
   const decoded: string[] = [];
@@ -78,27 +91,62 @@ test("lazer skin with files loads by filename from the host", async () => {
   expect(requests).toContain("/files/skin/skin.ini");
 });
 
-test("lazer built-in skins fall back to defaults and name the skin", async () => {
-  report = { client: "lazer", name: null, files: false, builtin: "argon-pro" };
-  const current = await readCurrentSkin(host);
-  expect(current.kind).toBe("defaults");
-  expect(current.kind === "defaults" && current.message).toBe(
-    "lazer built-in skin “Argon Pro”: using default elements. Built-in skins have no files to load.",
-  );
+test("lazer built-in skins use the preview's drawing of that skin", async () => {
   report = {
     client: "lazer",
-    name: "triangles",
+    name: null,
     files: false,
-    builtin: "triangles",
+    builtin: "argon-pro",
+    base: "argon-pro",
   };
-  const named = await readCurrentSkin(host);
-  expect(named.kind === "defaults" && named.message).toContain("“triangles”");
+  const current = await readCurrentSkin(host);
+  expect(current.kind === "builtin" && current.look).toBe("argon-pro");
+  expect(current.kind === "builtin" && current.name).toBe("Argon Pro");
+  report = {
+    client: "lazer",
+    name: "osu! (classic)",
+    files: false,
+    builtin: "legacy",
+  };
+  const classic = await readCurrentSkin(host);
+  expect(classic.kind === "builtin" && classic.look).toBe("legacy");
+  report = { client: "lazer", name: null, files: false, builtin: "retro" };
+  const retro = await readCurrentSkin(host);
+  expect(retro.kind === "builtin" && retro.look).toBe("legacy");
+  expect(retro.kind === "builtin" && retro.message).toContain("classic look");
+});
+
+test("Argon- and Triangles-based user skins keep their family's look", async () => {
+  report = {
+    client: "lazer",
+    name: "Mine",
+    files: true,
+    builtin: null,
+    base: "argon",
+  };
+  expect(await readCurrentSkin(host)).toMatchObject({
+    kind: "builtin",
+    look: "argon",
+    name: "Mine",
+    coloursFromFiles: true,
+  });
+  report = {
+    client: "lazer",
+    name: "Old",
+    files: true,
+    builtin: null,
+    base: "triangles",
+  };
+  expect(await readCurrentSkin(host)).toMatchObject({
+    kind: "builtin",
+    look: "triangles",
+  });
 });
 
 test("skins whose files vosu cannot serve say so", async () => {
   report = { client: "lazer", name: "Broken", files: false, builtin: null };
   const current = await readCurrentSkin(host);
-  expect(current.kind === "defaults" && current.message).toContain(
+  expect(current.kind === "unavailable" && current.message).toContain(
     "vosu reports that the files of “Broken” are unavailable",
   );
 });
@@ -106,28 +154,27 @@ test("skins whose files vosu cannot serve say so", async () => {
 test("no connected client, older vosu, and unreachable hosts are explained", async () => {
   report = { client: null, name: null, files: false, builtin: null };
   const none = await readCurrentSkin(host);
-  expect(none.kind === "defaults" && none.message).toContain(
+  expect(none.kind === "unavailable" && none.message).toContain(
     "No osu! client is connected",
   );
   routeStatus = 404;
   const old = await readCurrentSkin(host);
-  expect(old.kind === "defaults" && old.message).toContain(
+  expect(old.kind === "unavailable" && old.message).toContain(
     "does not report the current skin",
   );
   routeStatus = 500;
   const broken = await readCurrentSkin(host);
-  expect(broken.kind === "defaults" && broken.message).toContain(
+  expect(broken.kind === "unavailable" && broken.message).toContain(
     "does not report the current skin",
   );
   routeStatus = 200;
   const offline = await readCurrentSkin(async () => {
     throw new TypeError("fetch failed");
   });
-  expect(offline.kind === "defaults" && offline.message).toContain(
+  expect(offline.kind === "unavailable" && offline.message).toContain(
     "Could not reach vosu",
   );
 });
-
 test("host errors other than 404 are counted as failures", async () => {
   const files = hostSkinFiles(
     async () => new Response("boom", { status: 500 }),

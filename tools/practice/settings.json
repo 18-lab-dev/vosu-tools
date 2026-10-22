@@ -1,0 +1,51 @@
+[
+  {
+    "uniqueID": "lead_in_ms",
+    "type": "number",
+    "title": "Trim lead-in (ms)",
+    "description": "Time kept before the first object of each trimmed section. Used until a profile sets its own value.",
+    "value": 2000
+  },
+  {
+    "uniqueID": "lead_out_ms",
+    "type": "number",
+    "title": "Trim lead-out (ms)",
+    "description": "Time kept after the last object of each trimmed section.",
+    "value": 1000
+  },
+  {
+    "uniqueID": "gap_ms",
+    "type": "number",
+    "title": "Gap between sections (ms)",
+    "description": "Silent break placed between trimmed sections.",
+    "value": 2000
+  },
+  {
+    "uniqueID": "fade_ms",
+    "type": "number",
+    "title": "Section audio fade (ms)",
+    "description": "Fade-in and fade-out at the edges of each trimmed section. 0 cuts hard.",
+    "value": 0
+  },
+  {
+    "uniqueID": "pitch_with_rate",
+    "type": "checkbox",
+    "title": "Change pitch with rate",
+    "description": "Default for new profiles: rate changes also shift pitch (like Nightcore/Daycore) instead of keeping it.",
+    "value": false
+  },
+  {
+    "uniqueID": "export_dir",
+    "type": "text",
+    "title": "Lazer export folder",
+    "description": "Existing absolute folder for lazer .osz exports. Empty keeps them in the tool's data folder. Stable maps are always written next to the original difficulty.",
+    "value": ""
+  },
+  {
+    "uniqueID": "mania_ratings_timeline",
+    "type": "checkbox",
+    "title": "Use Mania ratings for the trim timeline",
+    "description": "For mania maps, draw the trim strip from the Mania ratings tool's local MSD when it is installed; otherwise notes per second.",
+    "value": true
+  }
+]

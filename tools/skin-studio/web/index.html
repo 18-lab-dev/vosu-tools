@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Skin studio</title>
+  </head>
+  <body>
+    <div class="studio">
+      <header class="bar">
+        <svg class="reg" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="6.5" />
+          <path d="M12 1v22M1 12h22" />
+        </svg>
+        <strong class="tool-name">Skin studio</strong>
+        <div class="views" role="tablist" aria-label="Workspace">
+          <button
+            id="tab-elements"
+            role="tab"
+            type="button"
+            aria-selected="true"
+            aria-controls="elements-view"
+          >
+            Elements
+          </button>
+          <button
+            id="tab-ini"
+            role="tab"
+            type="button"
+            aria-selected="false"
+            aria-controls="ini-view"
+          >
+            skin.ini
+          </button>
+        </div>
+        <p id="status" class="status" role="status">Connecting to vosu…</p>
+        <span id="live" class="live" hidden></span>
+        <span id="mode" class="mode"></span>
+      </header>
+
+      <aside class="library" aria-label="Skin library">
+        <input
+          id="filter"
+          type="search"
+          placeholder="Filter skins"
+          aria-label="Filter skins"
+          autocomplete="off"
+        />
+        <div id="skins" class="skins"></div>
+        <details class="add-folder">
+          <summary>Add a skin folder</summary>
+          <form id="add-folder">
+            <div class="field">
+              <input
+                id="folder-path"
+                type="text"
+                spellcheck="false"
+                autocomplete="off"
+                placeholder="/path/to/skin"
+                aria-label="Skin folder path"
+                aria-describedby="folder-hint"
+              />
+              <button type="submit">Add</button>
+            </div>
+            <p id="folder-hint" class="hint">
+              Absolute path of a folder with skin.ini (or lazer's skininfo.json,
+              from lazer's Edit externally). Only its skin.ini is ever written.
+            </p>
+          </form>
+        </details>
+      </aside>
+
+      <main class="work">
+        <div class="focus-bar">
+          <div class="focus-title">
+            <h1 id="focus-name">No skin selected</h1>
+            <p id="focus-meta" class="focus-meta"></p>
+          </div>
+          <ol id="colour-bar" class="colour-bar" aria-label="Skin colours"></ol>
+          <div class="focus-actions">
+            <button id="use-base" type="button" class="quiet" disabled>
+              Use as mix base
+            </button>
+          </div>
+        </div>
+
+        <section
+          id="elements-view"
+          class="elements-view"
+          role="tabpanel"
+          aria-labelledby="tab-elements"
+        >
+          <nav id="cats" class="cats" aria-label="Element categories"></nav>
+          <div id="groups" class="groups"></div>
+        </section>
+
+        <section
+          id="ini-view"
+          class="ini-view"
+          role="tabpanel"
+          aria-labelledby="tab-ini"
+          hidden
+        >
+          <div class="ini-bar">
+            <div class="segmented" role="group" aria-label="skin.ini source">
+              <button id="ini-focus" type="button" aria-pressed="true">
+                Selected skin
+              </button>
+              <button id="ini-mix" type="button" aria-pressed="false">
+                Mix draft
+              </button>
+            </div>
+            <span id="ini-note" class="ini-note"></span>
+            <button id="ini-reset" type="button" class="quiet" hidden>
+              Recompose
+            </button>
+            <button id="reload" type="button" class="quiet" disabled>
+              Reload
+            </button>
+            <button id="save" type="button" class="primary" disabled>
+              Save <kbd>Ctrl S</kbd>
+            </button>
+          </div>
+          <div class="ini-body">
+            <div id="editor" aria-label="skin.ini source"></div>
+            <section class="corrections" aria-labelledby="corrections-title">
+              <h2 id="corrections-title">
+                Corrections <span id="issue-count"></span>
+              </h2>
+              <ol id="diagnostics" class="diagnostics"></ol>
+              <p id="revision" class="fine"></p>
+            </section>
+          </div>
+        </section>
+
+        <section id="guide" class="guide" aria-live="polite"></section>
+      </main>
+
+      <aside class="mix" aria-labelledby="mix-title">
+        <div class="mix-head">
+          <h2 id="mix-title">Mix</h2>
+          <label class="mix-name" for="mix-name">Name</label>
+          <input
+            id="mix-name"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            value="My mix"
+          />
+          <div class="mix-base">
+            <span class="label">Base</span>
+            <span id="mix-base" class="value"
+              >None, start from osu!'s defaults</span
+            >
+            <button id="mix-base-clear" type="button" class="link" hidden>
+              Clear
+            </button>
+          </div>
+        </div>
+        <div class="mix-body">
+          <ol id="mix-picks" class="mix-picks"></ol>
+          <p id="mix-summary" class="mix-summary"></p>
+        </div>
+        <div class="mix-foot">
+          <div class="mix-actions">
+            <button id="build-stable" type="button" class="primary" disabled>
+              Create stable skin
+            </button>
+            <button id="build-osk" type="button" disabled>
+              Export .osk for lazer
+            </button>
+            <div class="mix-secondary">
+              <button id="mix-ini" type="button" class="link">
+                Review skin.ini
+              </button>
+              <button id="mix-plan" type="button" class="link">
+                Download plan
+              </button>
+              <button id="mix-reset" type="button" class="link">
+                Clear mix
+              </button>
+            </div>
+          </div>
+          <div id="mix-result" class="mix-result" aria-live="polite"></div>
+          <p class="fine credit">by 18-LAB</p>
+        </div>
+      </aside>
+    </div>
+    <audio id="player" preload="none"></audio>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

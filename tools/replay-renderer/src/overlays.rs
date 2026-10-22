@@ -42,7 +42,7 @@ pub struct Image {
 }
 struct Native {
     bytes: Arc<[u8]>,
-    path: PathBuf,
+    files: crate::library::MapFiles,
     pp: rosu_pp::GradualPerformance,
     passed: u32,
     current_pp: f64,
@@ -102,7 +102,7 @@ impl Overlays {
     }
     pub async fn configure(
         &self,
-        path: PathBuf,
+        files: crate::library::MapFiles,
         bytes: Vec<u8>,
         rate: f64,
         mods: u32,
@@ -112,7 +112,7 @@ impl Overlays {
         let difficulty = rosu_pp::Difficulty::new().clock_rate(rate).mods(mods);
         *self.native.lock().await = Some(Native {
             bytes: bytes.into(),
-            path,
+            files,
             pp: rosu_pp::GradualPerformance::checked_new(difficulty, &map).map_err(error)?,
             passed: 0,
             current_pp: 0.0,
@@ -233,7 +233,7 @@ pub fn routes(state: Arc<Overlays>) -> Router {
         .route("/websocket/commands", get(commands))
         .route("/overlays/{id}/{*path}", get(file))
         .route("/files/beatmap/{kind}", get(beatmap_file))
-        .route("/tools/ratings/api/{*path}", get(ratings))
+        .route("/tools/mania-ratings/api/{*path}", get(ratings))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             same_origin,
@@ -400,13 +400,7 @@ async fn beatmap_file(
         .as_str()
         .ok_or_else(|| error("Replay map asset is unavailable"))?
         .to_owned();
-    let file = confined(
-        native
-            .path
-            .parent()
-            .ok_or_else(|| error("Map has no folder"))?,
-        &filename,
-    )?;
+    let file = native.files.asset(&filename)?;
     Response::builder()
         .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
         .map_err(error)
@@ -442,14 +436,14 @@ async fn ratings(
     if (rate - configured_rate).abs() > 0.000001 {
         return Err(error("Replay ratings use the render's fixed playback rate"));
     }
-    let params = vosu_ratings::Params::new(rate, None).map_err(error)?;
+    let params = vosu_mania_ratings::Params::new(rate, None).map_err(error)?;
     let mut native = state.native.lock().await;
     let native = native.as_mut().ok_or_else(|| error("No replay map"))?;
     if path == "v1/beatmap/current" {
         if native.rating.is_none() {
             native.rating = Some(
                 serde_json::to_value(
-                    vosu_ratings::calculate(&native.bytes, params).map_err(error)?,
+                    vosu_mania_ratings::calculate(&native.bytes, params).map_err(error)?,
                 )
                 .map_err(error)?,
             );
@@ -471,8 +465,9 @@ async fn ratings(
     let hop = query.get("hop").and_then(|s| s.parse().ok()).unwrap_or(1.0);
     let key = format!("{rate}:{system}:{window}:{hop}");
     if !native.timelines.contains_key(&key) {
-        let timeline = vosu_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
-            .map_err(error)?;
+        let timeline =
+            vosu_mania_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
+                .map_err(error)?;
         native.timelines.insert(key.clone(), timeline);
     }
     Ok(Json(native.timelines[&key].clone()))
