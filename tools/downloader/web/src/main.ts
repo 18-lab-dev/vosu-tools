@@ -816,7 +816,19 @@ settingsLink.href = new URL(
   vosu.dashboardUrl,
 ).href;
 updateBadges();
-vosu.subscribe(POINTERS, onFrame);
+// Bridges from vosu 1.2.0 reconnect by themselves and report the connection;
+// older ones never call onStatus, so the indicator stays hidden there.
+vosu.subscribe(POINTERS, onFrame, (state) => {
+  const live = el("live");
+  live.hidden = false;
+  live.dataset.state = state;
+  live.textContent =
+    state === "open" ? "Live" : state === "connecting" ? "Reconnecting…" : "Offline";
+  live.title =
+    state === "open"
+      ? "Following the map selected in osu!"
+      : "Not receiving map changes from vosu right now";
+});
 await refresh();
 await openLink();
 setInterval(() => void refresh(), 1500);

@@ -161,6 +161,32 @@ body {
   gap: 8px;
   font-size: 0.93rem;
 }
+.live {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--data);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+.live::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+.live[data-state="open"] {
+  color: var(--delivered);
+}
+.live[data-state="open"]::before {
+  background: currentColor;
+}
+.live[data-state="closed"] {
+  color: var(--stamp);
+}
 .now .k,
 .based-on .k {
   flex: none;
