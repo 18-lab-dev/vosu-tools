@@ -62,6 +62,9 @@ def validate_files(files, kind, identity=None):
         manifest = tomllib.loads(files['tool.toml'].decode('utf-8'))
         if manifest.get('manifest_version') != 1 or (manifest.get('id'), manifest.get('version')) != identity:
             raise ValueError('tool manifest id/version differs from catalog')
+        for role in ('icon', 'banner'):
+            if not isinstance(manifest.get(role), str) or manifest[role] not in files:
+                raise ValueError(f'tool {role} is missing from package')
         if 'ui' in manifest:
             if manifest['ui']['root'] != 'web/dist' or 'web/dist/index.html' not in files:
                 raise ValueError('tool UI must contain web/dist/index.html')
