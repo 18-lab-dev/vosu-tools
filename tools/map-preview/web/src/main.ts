@@ -4,7 +4,9 @@ import {
   parseSkinIni,
   type Beatmap,
   type Mod,
+  type Ruleset,
 } from "@vosu-tools/osu-parse";
+import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
   builtinSkin,
   createRenderer,
@@ -66,11 +68,19 @@ const canvas = $<HTMLCanvasElement>("playfield"),
   noteSpeedInput = $<HTMLInputElement>("note-speed"),
   modInputs = [...document.querySelectorAll<HTMLInputElement>("#mods input")],
   overrideInputs = ["seed", "ar", "cs"].map((id) => $<HTMLInputElement>(id)),
+  rulesetSelect = $<HTMLSelectElement>("ruleset"),
+  keysSelect = $<HTMLSelectElement>("keys"),
+  dualInput = $<HTMLInputElement>("dual"),
+  rulesetNote = $("ruleset-note"),
   audio = new Audio();
 
 let renderer: Renderer | undefined,
   rendererReady: Promise<Renderer> | undefined,
+  /** The beatmap as parsed. */
+  source: Beatmap | undefined,
+  /** What is shown: `source`, or its conversion to the played ruleset. */
   map: Beatmap | undefined,
+  conversionKey = "",
   mapKey = "",
   sceneKey = "",
   loadSequence = 0,
@@ -164,6 +174,30 @@ function resize(): void {
 }
 new ResizeObserver(resize).observe(stage);
 
+const rulesetNames = ["osu!", "taiko", "catch", "mania"];
+const conversionModPattern = /^(?:(?:10|[1-9])K|DS)$/i;
+
+/** The ruleset the map is played in: the client's while following, else the drawer's choice. */
+function playedRuleset(): Ruleset {
+  if (!source || source.mode !== 0) return source?.mode ?? 0;
+  if (following) return (game.selectedMode ?? 0) as Ruleset;
+  return rulesetSelect.value === ""
+    ? 0
+    : (Number(rulesetSelect.value) as Ruleset);
+}
+/** Key-count mods and Dual Stages: they decide how a mania convert is generated. */
+function conversionMods(): Mod[] {
+  if (following)
+    return game.mods
+      .filter((mod) => conversionModPattern.test(mod.acronym))
+      .map((mod) => ({ acronym: mod.acronym.toUpperCase() }));
+  const mods: Mod[] = [];
+  if (keysSelect.value) mods.push({ acronym: `${keysSelect.value}K` });
+  if (dualInput.checked) mods.push({ acronym: "DS" });
+  return mods;
+}
+const maniaConvert = () => source?.mode === 0 && playedRuleset() === 3;
+
 /** Everything that changes the compiled scene. */
 function renderOptions(): RenderOptions {
   const manualMods: Mod[] = modInputs
@@ -194,7 +228,11 @@ function renderOptions(): RenderOptions {
   return {
     mods: following ? liveMods : manualMods,
     ar: !following && arInput.value !== "" ? Number(arInput.value) : undefined,
-    cs: !following && csInput.value !== "" ? Number(csInput.value) : undefined,
+    // A mania convert's key count comes from the conversion, never from CS.
+    cs:
+      !following && csInput.value !== "" && !maniaConvert()
+        ? Number(csInput.value)
+        : undefined,
     scrollSpeed: scroll,
     noteSpeed: Number(noteSpeedInput.value) || settings.noteSpeed,
     maniaScrollUp: game.mania.scrollUp,
@@ -203,11 +241,36 @@ function renderOptions(): RenderOptions {
     snakingIn: game.visual.snakingIn ?? undefined,
   };
 }
+/** Re-converts when the played ruleset or key mods change. */
+function updateConversion(): void {
+  if (!source) return;
+  const ruleset = playedRuleset(),
+    mods = ruleset === 3 ? conversionMods() : [],
+    key = JSON.stringify([ruleset, mods]);
+  if (key === conversionKey) return;
+  conversionKey = key;
+  sceneKey = "";
+  try {
+    map = convertBeatmap(source, ruleset, mods);
+  } catch (error) {
+    map = undefined;
+    throw error;
+  } finally {
+    describeMap();
+  }
+}
 function refreshScene(force = false): void {
-  if (!renderer || !map) return;
+  if (!renderer || !source) return;
+  try {
+    updateConversion();
+  } catch (error) {
+    // e.g. lazer's "not enough columns" for impossible key layouts.
+    showError(error);
+    return;
+  }
   const options = renderOptions(),
     key = JSON.stringify(options);
-  if (!force && key === sceneKey) return;
+  if (!map || (!force && key === sceneKey)) return;
   sceneKey = key;
   try {
     renderer.setBeatmap(map, options);
@@ -222,8 +285,9 @@ function currentTime(): number {
 }
 function tick(): void {
   requestAnimationFrame(tick);
-  if (hidden || !renderer || !map) return;
+  if (hidden || !renderer || !source) return;
   refreshScene();
+  if (!map) return;
   const now = currentTime();
   try {
     renderer.renderAt(now);
@@ -240,24 +304,74 @@ requestAnimationFrame(tick);
 
 /* ------------------------------------------------------------ beatmap */
 
+let mapLabel = "",
+  /** lazer's own mania key count for the open osu! map (0 for other rulesets). */
+  automaticKeys = 0;
 async function openMap(text: string, label: string): Promise<void> {
   const parsed = parseOsu(text);
   if (!parsed.objects.length)
     throw new Error("This beatmap contains no hit objects.");
   await ensureRenderer();
-  map = parsed;
-  overrideInputs[2].max = map.mode === 3 ? "18" : "11";
-  overrideInputs[2].step = map.mode === 3 ? "1" : "0.1";
-  refreshScene(true);
-  seek.max = String(map.duration + 2000);
+  source = parsed;
+  map = undefined;
+  mapLabel = label;
+  automaticKeys = parsed.mode === 0 ? maniaKeys(parsed).columns : 0;
+  conversionKey = "";
   $("title").textContent =
-    `${map.metadata.Artist ?? ""} — ${map.metadata.Title ?? "Untitled"}`;
-  $("detail").textContent =
-    `[${map.metadata.Version ?? ""}] ${map.metadata.Creator ?? ""} · ${map.objects.length.toLocaleString()} objects · ${label}`;
-  const mode = $("mode");
-  mode.textContent = ["osu!", "taiko", "catch", "mania"][map.mode];
-  mode.dataset.mode = String(map.mode);
+    `${source.metadata.Artist ?? ""} — ${source.metadata.Title ?? "Untitled"}`;
+  refreshScene(true);
   updateFollowNotice();
+}
+/** Title line, ruleset badge and the drawer's ruleset controls for what is shown. */
+function describeMap(): void {
+  if (!source) return;
+  const shown = map ?? source,
+    convert = shown.mode !== source.mode,
+    keys = shown.mode === 3 ? ` · ${Math.round(shown.difficulty.cs)}K` : "";
+  overrideInputs[2].max = shown.mode === 3 ? "18" : "11";
+  overrideInputs[2].step = shown.mode === 3 ? "1" : "0.1";
+  seek.max = String(shown.duration + 2000);
+  $("detail").textContent =
+    `[${source.metadata.Version ?? ""}] ${source.metadata.Creator ?? ""} · ${shown.objects.length.toLocaleString()} objects${keys}${convert ? " · converted from osu!" : ""} · ${mapLabel}`;
+  const mode = $("mode");
+  mode.textContent = rulesetNames[shown.mode];
+  mode.dataset.mode = String(shown.mode);
+  if (convert) mode.dataset.convert = "";
+  else delete mode.dataset.convert;
+  mode.title = convert
+    ? `Converted from osu! to ${rulesetNames[shown.mode]}`
+    : "";
+  updateRulesetControls();
+}
+/** The drawer's ruleset section: editable in manual mode, a mirror of the client while following. */
+function updateRulesetControls(): void {
+  const osuMap = source?.mode === 0,
+    ruleset = playedRuleset(),
+    mods = conversionMods();
+  if (following || !osuMap) {
+    rulesetSelect.value = osuMap ? String(ruleset) : "";
+    const keyMod = mods.find((mod) => mod.acronym.endsWith("K"));
+    keysSelect.value = keyMod ? keyMod.acronym.slice(0, -1) : "";
+    dualInput.checked = mods.some((mod) => mod.acronym === "DS");
+  }
+  rulesetSelect.disabled = following || !osuMap;
+  keysSelect.disabled = dualInput.disabled =
+    following || !osuMap || ruleset !== 3;
+  overrideInputs[2].disabled = following || (osuMap && ruleset === 3);
+  keysSelect.options[0].textContent = automaticKeys
+    ? `Automatic (${automaticKeys}K)`
+    : "Automatic";
+  const dual =
+    osuMap && ruleset === 3 && mods.some((mod) => mod.acronym === "DS");
+  rulesetNote.textContent =
+    source && !osuMap
+      ? `Only osu! maps convert; this one is written for ${rulesetNames[source.mode]}.`
+      : (following
+          ? "Following the game: the client's ruleset, key mods and Dual Stages apply. Converts follow osu!lazer."
+          : "Converts follow osu!lazer: the same patterns, key count and scroll speed.") +
+        (dual
+          ? " Dual Stages is drawn as one wide stage; the client shows two."
+          : "");
 }
 /** Loads the game's selected map when it changes. */
 async function followMap(force = false): Promise<void> {
@@ -284,12 +398,16 @@ async function followMap(force = false): Promise<void> {
 let followNotice = "";
 /** Explains where following the game cannot match the client exactly. */
 function updateFollowNotice(): void {
-  if (!map) return;
+  if (!source) return;
   const notes: string[] = [];
-  const selected = game.selectedMode;
-  if (following && map.mode === 0 && selected !== null && selected !== 0)
+  if (
+    following &&
+    game.client === "stable" &&
+    source.mode === 0 &&
+    playedRuleset() !== 0
+  )
     notes.push(
-      `The client converts this map to ${["osu!", "taiko", "catch", "mania"][selected]}; the preview shows the original osu! map.`,
+      "Converted the way osu!lazer converts; osu!stable's conversion can differ in places.",
     );
   if (
     following &&
@@ -315,6 +433,7 @@ function setFollowing(next: boolean): void {
   transport.hidden = next;
   progress.hidden = !next || !settings.showProgress;
   for (const input of [...modInputs, ...overrideInputs]) input.disabled = next;
+  updateRulesetControls();
   $("mods-note").textContent = next
     ? "Following the game: the client's selected mods apply."
     : "Manual preview: choose mods here.";
@@ -372,6 +491,7 @@ function onGame(state: GameState): void {
   if (following) {
     void followMap();
     updateFollowNotice();
+    updateRulesetControls();
     // The disabled chips mirror the client's selection while following.
     for (const input of modInputs)
       input.checked = game.mods.some(
@@ -575,6 +695,9 @@ builtinSelect.onchange = () => {
   builtinSelect.value = "";
   if (value) useBuiltin(value, "chosen in this tab");
 };
+// Ruleset, key count and Dual Stages re-convert on the next frame.
+for (const control of [rulesetSelect, keysSelect, dualInput])
+  control.addEventListener("change", updateRulesetControls);
 for (const input of [
   scrollInput,
   noteSpeedInput,

@@ -115,6 +115,42 @@
             here last for this tab. Scroll velocity changes always apply.
           </p>
         </section>
+        <section aria-labelledby="ruleset-heading">
+          <h2 id="ruleset-heading">Ruleset</h2>
+          <label class="field select"
+            >Play as
+            <select id="ruleset">
+              <option value="">The map's own</option>
+              <option value="0">osu!</option>
+              <option value="1">osu!taiko</option>
+              <option value="2">osu!catch</option>
+              <option value="3">osu!mania</option>
+            </select></label
+          >
+          <label class="field select"
+            >Mania keys
+            <select id="keys">
+              <option value="">Automatic</option>
+              <option value="1">1K</option>
+              <option value="2">2K</option>
+              <option value="3">3K</option>
+              <option value="4">4K</option>
+              <option value="5">5K</option>
+              <option value="6">6K</option>
+              <option value="7">7K</option>
+              <option value="8">8K</option>
+              <option value="9">9K</option>
+              <option value="10">10K</option>
+            </select></label
+          >
+          <fieldset aria-label="Mania stages">
+            <label class="mod"
+              ><input id="dual" type="checkbox" value="DS" /><b>DS</b>Dual
+              stages</label
+            >
+          </fieldset>
+          <p class="footnote" id="ruleset-note"></p>
+        </section>
         <section aria-labelledby="mods-heading">
           <h2 id="mods-heading">Mods</h2>
           <p class="footnote" id="mods-note">
