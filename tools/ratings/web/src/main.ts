@@ -3,12 +3,20 @@ import './style.css';
 type Rating = {checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:{label:string;value:number}|null};
 type Point = {time:number;value:number;nps:number};
 type Timeline = {duration:number;units:string;mode?:string;overall?:number;window:number;hop:number;points:Point[]};
+type RatePoint = {rate:number;msd:{overall:number}|null};
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 const input = (id:string) => $<HTMLInputElement>(id);
-const status = (message:string) => $('status').textContent = message;
+const status = (message:string,state:'busy'|'ready'|'error'='ready') => {const el=$('status');el.textContent=message;el.dataset.state=state;};
 const fmt = (n:number|null|undefined) => n == null ? '—' : n.toFixed(2);
-let rating:Rating|undefined, timeline:Timeline|undefined, selection:number|undefined, generation=0;
+const lightQuery = matchMedia('(prefers-color-scheme: light)');
+// The dashboard's mode wins; older bridges lack colorScheme, so follow the OS.
+document.documentElement.dataset.scheme = vosu.colorScheme ?? (lightQuery.matches ? 'light' : 'dark');
+let rating:Rating|undefined, timeline:Timeline|undefined, curve:RatePoint[]|undefined, selection:number|undefined, generation=0;
 let selectedFile:File|undefined;
+// Canvas cannot read light-dark() tokens, so resolve them through a probe.
+const probe=document.createElement('i');probe.hidden=true;document.body.append(probe);
+function paint(token:string){probe.style.color=`var(--${token})`;return getComputedStyle(probe).color;}
+const MONO='"Martian Mono", ui-monospace, monospace';
 async function api<T>(path:string,init?:RequestInit):Promise<T> {
  const response = await vosu.fetch(path,init);
  const result = await response.json();
@@ -17,8 +25,9 @@ async function api<T>(path:string,init?:RequestInit):Promise<T> {
 }
 function cards(r:Rating) {
  const target=$('summary'); target.replaceChildren();
- for(const [label,value,unit] of [['Etterna',r.msd?.overall,'MSD / HEADS'],['Quaver',r.quaver,'DIFFICULTY'],['Interlude',r.interlude,'PHYSICAL'],['osu!mania',r.stars,'STARS / REFERENCE']] as const) {
-  const card=document.createElement('article'); const name=document.createElement('h3'); name.textContent=label;
+ for(const [system,label,value,unit] of [['etterna','Etterna',r.msd?.overall,'MSD / HEADS'],['quaver','Quaver',r.quaver,'DIFFICULTY'],['interlude','Interlude',r.interlude,'PHYSICAL'],['osu','osu!mania',r.stars,'STARS / REFERENCE']] as const) {
+  const card=document.createElement('article'); card.dataset.system=system;
+  const name=document.createElement('h3'); name.textContent=label;
   const number=document.createElement('strong'); number.textContent=fmt(value);
   const caption=document.createElement('small'); caption.textContent=unit;
   card.append(name,number,caption);target.append(card);
@@ -40,39 +49,71 @@ function draw(canvas:HTMLCanvasElement,points:Point[],field:'value'|'nps',range?
  const w=rect.width,h=canvas.height/dpr,peak=Math.max(1,...points.map(p=>p[field])),duration=timeline?.duration||1;
  const local=field==='value'&&timeline?.mode==='local_msd';
  const max=local?Math.max(40,Math.ceil(Math.max(peak,timeline?.overall||0)/10)*10):peak;
- ctx.clearRect(0,0,w,h);ctx.strokeStyle='#47484b';ctx.fillStyle='#92959b';ctx.font='11px monospace';
- for(let i=1;i<4;i++){const y=15+i*(h-35)/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
- ctx.globalAlpha=.85;
+ const top=15,plot=h-35,y=(v:number)=>h-20-v/max*plot;
+ const ink=paint('ink'),muted=paint('muted'),rule=paint('rule-strong'),bands=[0,1,2,3,4].map(i=>paint(`band-${i}`)),nps=paint('sys-nps');
+ ctx.clearRect(0,0,w,h);ctx.font=`400 10px ${MONO}`;ctx.lineWidth=1;
+ // Data-aligned rules: every 10 MSD in local mode (the colour band edges), quarters otherwise.
+ const steps=local?Array.from({length:max/10-1},(_,i)=>(i+1)*10):[1,2,3].map(i=>i*max/4);
+ ctx.strokeStyle=rule;ctx.globalAlpha=.7;
+ for(const v of steps){const ly=Math.round(y(v))+.5;ctx.beginPath();ctx.moveTo(0,ly);ctx.lineTo(w,ly);ctx.stroke();}
+ ctx.globalAlpha=1;
  for(const p of points){
   const x=p.time/duration*w,bar=Math.max(1,(timeline?.hop||1)/duration*w);
-  ctx.fillStyle=field==='nps'?'#858c98':p.value<10?'#665447':p.value<20?'#9b6845':p.value<30?'#d87b3e':p.value<40?'#ff963f':'#ffd3a3';
-  ctx.fillRect(x,h-20-p[field]/max*(h-35),bar,p[field]/max*(h-35));
+  ctx.fillStyle=field==='nps'?nps:bands[p.value<10?0:p.value<20?1:p.value<30?2:p.value<40?3:4];
+  ctx.fillRect(x,y(p[field]),bar,p[field]/max*plot);
  }
- ctx.globalAlpha=1;
+ // Labels sit on a paper chip so they stay legible over dense bars.
+ const surface=paint('surface');
+ const chip=(text:string,x:number,baseline:number,color:string)=>{const width=ctx.measureText(text).width;ctx.fillStyle=surface;ctx.globalAlpha=.85;ctx.fillRect(x-3,baseline-10,width+6,14);ctx.globalAlpha=1;ctx.fillStyle=color;ctx.fillText(text,x,baseline);};
+ for(const v of steps)chip(local?String(v):v.toFixed(1),5,Math.max(top,y(v)-4),muted);
  if(local&&timeline?.overall!==undefined){
-  const y=h-20-timeline.overall/max*(h-35);ctx.setLineDash([3,4]);ctx.strokeStyle='#f2f1ec';ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();ctx.setLineDash([]);
-  ctx.fillStyle='#f2f1ec';ctx.fillText(`MAP ${timeline.overall.toFixed(2)} MSD`,Math.max(5,w-145),Math.max(12,y-6));
+  const ly=y(timeline.overall);ctx.setLineDash([3,4]);ctx.strokeStyle=ink;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,ly);ctx.lineTo(w,ly);ctx.stroke();ctx.setLineDash([]);
+  const label=`MAP ${timeline.overall.toFixed(2)} MSD`;
+  chip(label,Math.max(5,w-ctx.measureText(label).width-8),Math.max(12,ly-6),ink);
  }
- ctx.fillStyle='#a6a9af';ctx.fillText(`0:00 · ${local?`0–${max} MSD · `:''}peak ${peak.toFixed(1)}`,5,h-5);ctx.fillText(`${Math.floor(duration/60)}:${Math.floor(duration%60).toString().padStart(2,'0')}`,w-45,h-5);
- if(range){ctx.fillStyle='#ffffff30';ctx.fillRect(range[0]/duration*w,0,(range[1]-range[0])/duration*w,h);}
+ ctx.fillStyle=muted;
+ const end=`${Math.floor(duration/60)}:${Math.floor(duration%60).toString().padStart(2,'0')}`;
+ ctx.fillText(`0:00 · ${local?`0–${max} MSD · `:''}peak ${peak.toFixed(1)}`,5,h-6);ctx.fillText(end,w-ctx.measureText(end).width-6,h-6);
+ if(range){
+  const x0=range[0]/duration*w,x1=range[1]/duration*w;
+  ctx.fillStyle=paint('pen');ctx.globalAlpha=.16;ctx.fillRect(x0,0,x1-x0,h);ctx.globalAlpha=1;
+  ctx.strokeStyle=paint('pen');ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x0,0);ctx.lineTo(x0,h);ctx.moveTo(x1,0);ctx.lineTo(x1,h);ctx.stroke();
+ }
+}
+function redraw(){
+ if(timeline){draw(canvas,timeline.points,'value');draw($<HTMLCanvasElement>('density'),timeline.points,'nps');}
 }
 async function loadTimeline(id:number) {
  if(!rating)return;
  const system=$<HTMLSelectElement>('system').value;
  const t=await api<Timeline>(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${system}&window=${input('window').value}&hop=${input('hop').value}`);
  if(id!==generation)return;
- timeline=t;draw($<HTMLCanvasElement>('timeline'),t.points,'value');draw($<HTMLCanvasElement>('density'),t.points,'nps');
+ timeline=t;redraw();
  $('timeline-caption').textContent=`${t.units} · ${t.window}s ${t.mode==='local_msd'?'centered, reset-context ':''}window / ${t.hop}s hop / no smoothing · chart-time axis. ${t.mode==='local_msd'?'Dotted line = whole-map MSD. Colour bands: <10 / 10–20 / 20–30 / 30–40 / 40+. ':''}Drag a phrase to rate it.`;
 }
-function rateCurve(rates:{rate:number;msd:{overall:number}|null}[]) {
- const svg=$('curve');svg.replaceChildren();
+function svg<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<string,string|number>,text?:string) {
+ const node=document.createElementNS('http://www.w3.org/2000/svg',tag);
+ for(const [key,value] of Object.entries(attributes))node.setAttribute(key,String(value));
+ if(text!==undefined)node.textContent=text;
+ return node;
+}
+function rateCurve(rates:RatePoint[]) {
+ curve=rates;
+ const target=$('curve');target.replaceChildren();
  const max=Math.max(1,...rates.map(p=>p.msd?.overall||0));
- const line=document.createElementNS('http://www.w3.org/2000/svg','polyline');line.setAttribute('points',rates.map(p=>`${35+(p.rate-.5)/1.5*540},${195-(p.msd?.overall||0)/max*170}`).join(' '));line.setAttribute('fill','none');line.setAttribute('stroke','#ff963f');line.setAttribute('stroke-width','3');svg.append(line);
- for(const r of rates.filter((_,i)=>i%5===0)){const text=document.createElementNS('http://www.w3.org/2000/svg','text');text.setAttribute('x',String(20+(r.rate-.5)/1.5*540));text.setAttribute('y','224');text.textContent=`${r.rate.toFixed(2)}×`;svg.append(text);}
+ const x=(rate:number)=>44+(rate-.5)/1.5*516,y=(v:number)=>200-v/max*175;
+ for(const fraction of [.25,.5,.75,1]){
+  const value=max*fraction;
+  target.append(svg('line',{class:'grid',x1:44,x2:560,y1:y(value),y2:y(value)}),svg('text',{x:4,y:y(value)+4},value.toFixed(0)));
+ }
+ target.append(svg('polyline',{class:'trace',points:rates.map(p=>`${x(p.rate)},${y(p.msd?.overall||0)}`).join(' ')}));
+ for(const r of rates.filter((_,i)=>i%5===0))target.append(svg('text',{x:x(r.rate),y:230,'text-anchor':'middle'},`${r.rate.toFixed(2)}×`));
+ const current=rating&&rates.find(p=>Math.abs(p.rate-rating!.rate)<1e-6);
+ if(current?.msd)target.append(svg('circle',{class:'marker',cx:x(current.rate),cy:y(current.msd.overall),r:5.5}));
 }
 async function analyze(file:File|undefined=selectedFile) {
  selectedFile=file;
- const id=++generation;status('Calculating native models…');
+ const id=++generation;status('Calculating native models…','busy');
  try {
   const rate=Number(input('rate').value);
   const r=await api<Rating>(file?`v1/calculate?rate=${rate}`:`v1/beatmap/current?rate=${rate}`,file?{method:'POST',body:await file.arrayBuffer()}:undefined);
@@ -80,9 +121,9 @@ async function analyze(file:File|undefined=selectedFile) {
   if(r.unsupported)throw Error(r.unsupported);
   $('title').textContent=file?.name || `${r.artist} — ${r.title} [${r.version}]`;
   await loadTimeline(id);
-  const curve=await api<{rates:{rate:number;msd:{overall:number}|null}[]}>(`v1/beatmap/${r.checksum}/rates?step=0.05`);
-  if(id!==generation)return;rateCurve(curve.rates);status('Analysis ready · models have independent scales and cannot be compared numerically.');
- }catch(e){if(id===generation)status(String(e));}
+  const result=await api<{rates:RatePoint[]}>(`v1/beatmap/${r.checksum}/rates?step=0.05`);
+  if(id!==generation)return;rateCurve(result.rates);status('Analysis ready · models have independent scales and cannot be compared numerically.');
+ }catch(e){if(id===generation)status(String(e),'error');}
 }
 async function section() {
  if(!rating)return;
@@ -98,13 +139,17 @@ canvas.addEventListener('pointermove',e=>{if(selection!==undefined&&timeline)dra
 canvas.addEventListener('pointerup',e=>{if(selection===undefined)return;const a=Math.min(selection,position(e)),b=Math.max(selection,position(e));selection=undefined;input('start').value=a.toFixed(2);input('end').value=b.toFixed(2);void section();});
 $('refresh').onclick=()=>{selectedFile=undefined;void analyze();};$('section').onclick=()=>void section();
 input('file').onchange=()=>{const file=input('file').files?.[0];if(file)void analyze(file);};
-for(const id of ['window','hop'])$(id).onchange=()=>void loadTimeline(generation).catch(e=>status(String(e)));
+for(const id of ['window','hop'])$(id).onchange=()=>void loadTimeline(generation).catch(e=>status(String(e),'error'));
 $('system').onchange=()=>{
  const local=$<HTMLSelectElement>('system').value==='etterna';input('window').value=local?'12':'1';input('hop').value=local?'1':'0.25';
- void loadTimeline(generation).catch(e=>status(String(e)));
+ void loadTimeline(generation).catch(e=>status(String(e),'error'));
 };
 input('rate').onchange=()=>void analyze();
-new ResizeObserver(()=>{if(timeline){draw(canvas,timeline.points,'value');draw($<HTMLCanvasElement>('density'),timeline.points,'nps');}}).observe(canvas);
+new ResizeObserver(redraw).observe(canvas);
+// Canvas text needs the bundled mono face; repaint once it has loaded.
+void document.fonts.ready.then(redraw);
+// Without a dashboard hint the palette follows the OS live; repaint canvases with it.
+lightQuery.addEventListener('change',()=>{if(vosu.colorScheme)return;document.documentElement.dataset.scheme=lightQuery.matches?'light':'dark';redraw();if(curve)rateCurve(curve);});
 await vosu.ready;
 $<HTMLAnchorElement>('dashboard').href=vosu.dashboardUrl;
 input('file').disabled=!vosu.canWrite;
