@@ -60,6 +60,18 @@ test("skin-defined stage, normal/pressed keys, lighting and tiled hold body use 
   ).find((instance) => instance[12] === 13)!;
   expect(light[1] + light[3] / 2).toBe(392);
   expect(light[23]).toBe(60);
+  const unlit = compileScene(
+    parseOsu(source),
+    { hitLighting: false },
+    regions,
+    skin,
+  );
+  expect(
+    Array.from({ length: unlit.count }, (_, i) => unlit.data[i * 24 + 12]).some(
+      (motion) => motion === 13 || motion === 18 || motion === 19,
+    ),
+  ).toBe(false);
+  expect(unlit.count).toBeLessThan(scene.count);
 });
 test("all catcher states select separate skinned sprites", () => {
   const map = parseOsu(source);
