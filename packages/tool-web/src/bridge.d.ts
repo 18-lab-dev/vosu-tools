@@ -24,8 +24,16 @@ export interface VosuBridge {
   readonly colorScheme?: "dark" | "light";
   /** Fetch relative to /tools/<id>/api/, adding the UI session header. */
   fetch(path: string, init?: RequestInit): Promise<Response>;
-  /** Selected-field /websocket/v2/subscribe helper; returns an unsubscribe function. */
-  subscribe(fields: unknown, onFrame: (frame: unknown) => void): () => void;
+  /**
+   * Selected-field /websocket/v2/subscribe helper; returns an unsubscribe
+   * function. Bridges from vosu 1.2.0 reconnect with backoff and report the
+   * connection through `onStatus`; older bridges ignore it and do not reconnect.
+   */
+  subscribe(
+    fields: unknown,
+    onFrame: (frame: unknown) => void,
+    onStatus?: (state: "connecting" | "open" | "closed") => void,
+  ): () => void;
   /**
    * Effective tool settings (defaults applied) from `GET /tools/<id>/_settings`.
    * Settings of type "password" are never included. Bridges from before this
