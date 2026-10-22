@@ -534,6 +534,16 @@ fn scale_scroll(text: &str, ratio: f64) -> Result<String> {
 
 /// Parsed object count and final playable timestamp, including hold/slider tails.
 pub fn summary(text: &str) -> Result<(usize, f64)> {
+    let spans = spans(text)?;
+    Ok((
+        spans.len(),
+        spans.iter().fold(0.0_f64, |last, span| last.max(span.1)),
+    ))
+}
+
+/// `(start, end)` of every hit object in file order; `end` includes hold, spinner
+/// and slider tails (slider duration from length, repeats, beat length and SV).
+pub fn spans(text: &str) -> Result<Vec<(f64, f64)>> {
     let notes = objects(text)?;
     let control_points = all_timing_points(text)?;
     let timing = timings(text)?;
@@ -545,9 +555,10 @@ pub fn summary(text: &str) -> Result<(usize, f64)> {
     let slider_multiplier = value(text, "[Difficulty]", "SliderMultiplier")
         .unwrap_or_else(|| "1.4".into())
         .parse::<f64>()?;
-    let mut last = 0.0_f64;
+    let mut out = Vec::with_capacity(notes.len());
     for p in &notes {
-        let mut end = start(p);
+        let begin = start(p);
+        let mut end = begin;
         let k = kind(p)?;
         if k & 128 != 0 {
             end = p
@@ -572,9 +583,9 @@ pub fn summary(text: &str) -> Result<(usize, f64)> {
             });
             end += length * repeats * beat_at(&timing, end) / (100.0 * slider_multiplier * sv);
         }
-        last = last.max(end);
+        out.push((begin, end.max(begin)));
     }
-    Ok((notes.len(), last))
+    Ok(out)
 }
 
 #[cfg(test)]

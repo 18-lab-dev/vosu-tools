@@ -7,114 +7,133 @@
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
 </head>
 <body>
-<main class="page">
-<header class="masthead">
-  <svg class="mark" viewBox="0 0 256 256" aria-hidden="true" focusable="false">
-    <rect width="256" height="256" rx="56" class="mark-plate mark-edge"/>
-    <path d="M44.9 198A96 96 0 1 1 211.1 198" class="mark-arc"/>
-    <g class="mark-ticks"><line x1="44.9" y1="198" x2="63.9" y2="187"/><line x1="33.5" y1="133.3" x2="55.1" y2="137.2"/><line x1="66.3" y1="76.5" x2="80.4" y2="93.3"/><line x1="128" y1="54" x2="128" y2="76"/><line x1="189.7" y1="76.5" x2="175.6" y2="93.3"/><line x1="222.5" y1="133.3" x2="200.9" y2="137.2"/><line x1="211.1" y1="198" x2="192.1" y2="187"/></g>
-    <line x1="128" y1="150" x2="76.6" y2="88.7" class="mark-ghost"/>
-    <line x1="128" y1="150" x2="179.4" y2="88.7" class="mark-live"/>
-    <rect x="79.6" y="101.2" width="30" height="18" rx="6.9" class="mark-ghost-weight" transform="rotate(320 94.6 110.2)"/>
-    <rect x="146.4" y="101.2" width="30" height="18" rx="6.9" class="mark-live-weight" transform="rotate(400 161.4 110.2)"/>
-    <circle cx="128" cy="150" r="17" class="mark-pivot"/><circle cx="128" cy="150" r="6.1" class="mark-plate"/>
-  </svg>
-  <div class="masthead-text">
-    <h1>osu! practice tool</h1>
-    <p class="tagline">Change the map. Keep the original.</p>
-  </div>
-  <p id="access" class="access" role="status" data-state="pending">Connecting to vosu…</p>
-</header>
+<div class="app">
+  <header class="topbar">
+    <svg class="mark" viewBox="0 0 256 256" aria-hidden="true" focusable="false">
+      <rect width="256" height="256" rx="56" class="mark-plate mark-edge"/>
+      <path d="M44.9 198A96 96 0 1 1 211.1 198" class="mark-arc"/>
+      <g class="mark-ticks"><line x1="44.9" y1="198" x2="63.9" y2="187"/><line x1="33.5" y1="133.3" x2="55.1" y2="137.2"/><line x1="66.3" y1="76.5" x2="80.4" y2="93.3"/><line x1="128" y1="54" x2="128" y2="76"/><line x1="189.7" y1="76.5" x2="175.6" y2="93.3"/><line x1="222.5" y1="133.3" x2="200.9" y2="137.2"/><line x1="211.1" y1="198" x2="192.1" y2="187"/></g>
+      <line x1="128" y1="150" x2="76.6" y2="88.7" class="mark-ghost"/>
+      <line x1="128" y1="150" x2="179.4" y2="88.7" class="mark-live"/>
+      <rect x="79.6" y="101.2" width="30" height="18" rx="6.9" class="mark-ghost-weight" transform="rotate(320 94.6 110.2)"/>
+      <rect x="146.4" y="101.2" width="30" height="18" rx="6.9" class="mark-live-weight" transform="rotate(400 161.4 110.2)"/>
+      <circle cx="128" cy="150" r="17" class="mark-pivot"/><circle cx="128" cy="150" r="6.1" class="mark-plate"/>
+    </svg>
+    <span class="tool-name">Practice</span>
+    <div class="profiles" role="group" aria-label="Profiles">
+      <label for="profile" class="profile-label">Profile</label>
+      <select id="profile"></select>
+      <span id="dirty" class="dirty" hidden>modified</span>
+      <button type="button" id="profile-save" class="quiet">Save</button>
+      <button type="button" id="profile-save-as" class="quiet">Save as…</button>
+      <button type="button" id="profile-delete" class="quiet">Delete</button>
+      <form id="profile-new" class="profile-new" hidden>
+        <input id="profile-name" maxlength="40" required placeholder="Profile name" aria-label="New profile name" autocomplete="off">
+        <button type="submit">Save</button>
+        <button type="button" id="profile-new-cancel" class="quiet">Cancel</button>
+      </form>
+    </div>
+    <p id="live" class="live" data-state="connecting" role="status" title="Connection to vosu for following the selected map">Connecting</p>
+    <p id="access" class="access" data-state="pending" role="status">Connecting…</p>
+    <span class="credit">by 18-LAB</span>
+  </header>
 
-<form id="form" class="workbench">
-  <div class="rail">
-    <section class="block now" aria-labelledby="now-heading">
-      <div class="block-head">
-        <h2 id="now-heading">Selected map</h2>
-        <button id="refresh" type="button" class="quiet">Refresh</button>
+  <section class="banner" aria-labelledby="title">
+    <img id="banner-art" class="banner-art" alt="" hidden>
+    <div class="banner-text">
+      <p class="ruleset" id="ruleset" hidden></p>
+      <h1 id="title">Waiting for osu!</h1>
+      <p id="subtitle" class="subtitle">Select a beatmap in osu! — this page follows it.</p>
+    </div>
+    <dl id="stats" class="stats" aria-label="Source and result statistics"></dl>
+  </section>
+
+  <main class="workspace">
+    <form id="form" class="controls" novalidate>
+      <div class="controls-scroll">
+        <section class="block tempo" aria-labelledby="tempo-heading">
+          <div class="block-head">
+            <h2 id="tempo-heading">Tempo</h2>
+            <p class="readout"><span id="rate-readout">1.00×</span></p>
+          </div>
+          <div class="ruler">
+            <input id="rate-slider" type="range" min="0.5" max="2" step="0.01" value="1" aria-label="Playback rate">
+            <div class="ruler-ticks" aria-hidden="true"></div>
+            <span class="ruler-original" aria-hidden="true">original</span>
+            <div class="ruler-scale" aria-hidden="true"><span style="--at:0">0.5×</span><span style="--at:1">0.75×</span><span style="--at:2">1.0×</span><span style="--at:3">1.25×</span><span style="--at:4">1.5×</span><span style="--at:5">1.75×</span><span style="--at:6">2.0×</span></div>
+          </div>
+          <div class="pair">
+            <label class="field">Exact rate <input name="rate" type="number" min="0.5" max="2" step="0.01" value="1"></label>
+            <label class="toggle"><input name="pitch" type="checkbox"> Change pitch with rate</label>
+          </div>
+        </section>
+
+        <section class="block" aria-labelledby="transforms-heading">
+          <h2 id="transforms-heading">Transforms</h2>
+          <div id="transforms" class="mods"></div>
+          <div id="transform-options" class="grid"></div>
+          <p id="transform-hint" class="hint" hidden></p>
+        </section>
+
+        <section class="block" aria-labelledby="difficulty-heading">
+          <h2 id="difficulty-heading">Difficulty</h2>
+          <div id="difficulty" class="grid"></div>
+        </section>
+
+        <section class="block" aria-labelledby="trim-heading">
+          <div class="block-head">
+            <h2 id="trim-heading">Trim</h2>
+            <button type="button" id="clear-trims" class="quiet" hidden>Clear</button>
+          </div>
+          <ol id="trim-list" class="trim-list"></ol>
+          <p id="trim-empty" class="hint">The whole map is kept. Drag across the timeline below to keep only the sections you want to practise.</p>
+          <div class="grid">
+            <label class="field">Lead-in (ms) <input name="lead_in_ms" type="number" min="0" max="30000" step="100"></label>
+            <label class="field">Lead-out (ms) <input name="lead_out_ms" type="number" min="0" max="30000" step="100"></label>
+            <label class="field">Gap (ms) <input name="gap_ms" type="number" min="0" max="30000" step="100"></label>
+            <label class="field">Audio fade (ms) <input name="fade_ms" type="number" min="0" max="10000" step="10"></label>
+          </div>
+        </section>
       </div>
-      <p id="title" class="map-title">Waiting for osu! context</p>
-      <p id="map" class="map-meta"></p>
-      <p id="ratings" class="map-ratings"></p>
-    </section>
-
-    <section class="block result" aria-labelledby="result-heading">
-      <h2 id="result-heading">Result</h2>
-      <div id="preview" class="preview"><p class="preview-empty">Choose transforms, then preview the resulting map.</p></div>
-      <div class="actions">
-        <button class="primary" id="generate" type="submit">Generate practice copy</button>
-        <div class="actions-row">
-          <button type="button" id="preview-button">Preview</button>
-          <button type="button" id="save" class="quiet">Save settings</button>
-          <button id="cancel" type="button" hidden>Cancel job</button>
+      <div class="controls-foot">
+        <div class="generate-row">
+          <button class="primary" id="generate" type="submit">Generate map</button>
+          <button id="cancel" type="button" hidden>Cancel</button>
         </div>
+        <progress id="progress" max="1" value="0" hidden></progress>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
       </div>
-      <progress id="progress" max="1" value="0" hidden></progress>
-      <p id="status" class="status" role="status" aria-live="polite"></p>
-      <p class="hint">Stable: a new difficulty in the same beatmap folder, BeatmapID 0. Lazer: an .osz export. These are local unranked practice maps, not equivalent lazer scores.</p>
+    </form>
+
+    <section class="preview" aria-labelledby="preview-heading">
+      <h2 id="preview-heading" class="visually-hidden">Result preview</h2>
+      <div class="stage">
+        <canvas id="canvas" aria-label="Playfield preview of the generated map"></canvas>
+        <p id="preview-message" class="stage-message" hidden></p>
+      </div>
+      <div class="transport">
+        <button type="button" id="play" disabled>Play</button>
+        <output id="clock" class="clock">0:00.0 / 0:00.0</output>
+        <p id="version" class="version"></p>
+      </div>
+      <ul id="warnings" class="warnings"></ul>
     </section>
-  </div>
+  </main>
 
-  <div class="bench">
-    <section class="block tempo" aria-labelledby="tempo-heading">
-      <div class="block-head">
-        <h2 id="tempo-heading">Tempo</h2>
-        <p class="readout"><span id="rate-readout">1.00×</span> <span id="rate-note" class="readout-note">original speed</span></p>
-      </div>
-      <div class="ruler">
-        <input id="rate-slider" type="range" min="0.5" max="2" step="0.01" value="1" aria-label="Playback rate" aria-describedby="rate-note">
-        <div class="ruler-ticks" aria-hidden="true"></div>
-        <span class="ruler-original" aria-hidden="true">original</span>
-        <div class="ruler-scale" aria-hidden="true"><span style="--at:0">0.5×</span><span style="--at:1">0.75×</span><span style="--at:2">1.0×</span><span style="--at:3">1.25×</span><span style="--at:4">1.5×</span><span style="--at:5">1.75×</span><span style="--at:6">2.0×</span></div>
-      </div>
-      <div class="tempo-controls">
-        <label class="field">Exact rate <input name="rate" type="number" min="0.5" max="2" step="0.01" value="1"></label>
-        <label class="toggle"><input name="pitch" type="checkbox"> Adjust pitch with rate (HT / DT)</label>
-      </div>
-      <p class="hint">HT / DC default to 0.75×; DT / NC default to 1.5× when rate is 1. NC / DC keep the default pitch shift at custom rates. Nightcore percussion is not exported.</p>
-    </section>
-
-    <section class="block" aria-labelledby="mods-heading">
-      <h2 id="mods-heading">Mods</h2>
-      <div id="mods" class="mods"></div>
-      <p class="hint">Constant Speed removes authored SV changes and normalizes BPM changes without removing samples or kiai. Catch Mirror reflects fruit and juice-stream paths; banana-shower positions remain runtime-generated by stable and are not guaranteed mirrored.</p>
-    </section>
-
-    <section class="block" aria-labelledby="options-heading">
-      <h2 id="options-heading">Map options</h2>
-      <div class="grid">
-        <label class="field">Random seed <input name="seed" type="number" min="-2147483648" max="2147483647" step="1" value="0"></label>
-        <label class="field">Mirror axes <select name="mirror"><option value="horizontal">Horizontal</option><option value="vertical">Vertical · osu!</option><option value="both">Both · osu!</option></select></label>
-        <label class="field">Angle sharpness · osu! Random <input name="angle_sharpness" type="number" min="1" max="10" step="0.1" value="7"></label>
-      </div>
-      <details>
-        <summary>Difficulty Adjust</summary>
-        <div class="grid">
-          <label class="field">HP <input name="hp" type="number" min="0" max="10" step="0.1" placeholder="Original"></label>
-          <label class="field">CS / keys <input name="cs" type="number" min="0" max="10" step="0.1" placeholder="Original"></label>
-          <label class="field">AR <input name="ar" type="number" min="0" max="10" step="0.1" placeholder="Rate adjusted"></label>
-          <label class="field">OD <input name="od" type="number" min="0" max="10" step="0.1" placeholder="Rate adjusted"></label>
-          <label class="toggle"><input name="lock_ar" type="checkbox"> Keep original AR</label>
-          <label class="toggle"><input name="lock_od" type="checkbox"> Keep original OD</label>
-        </div>
-      </details>
-      <details>
-        <summary>Gameplay-only / not baked</summary>
-        <p>Hidden, Fade In, Flashlight, Traceable, Blinds, Cover, No Fail, Sudden Death, Perfect, Relax, Autopilot, Spun Out, Autoplay, Cinema, No Release, Alternate, Single Tap, Adaptive Speed and other scoring, input and visibility mods cannot be encoded in an osu!stable map.</p>
-        <p>This release does not offer Dual Stages, key conversion, Wind Up / Down or stats beyond 0–10. Wind Up / Down require nonlinear slider/tick restructuring and variable-rate audio; a start-time-only approximation is not faithful and is not shipped. Unsupported transforms are rejected rather than approximated.</p>
-      </details>
-    </section>
-  </div>
-</form>
-
-<section class="copies" aria-labelledby="copies-heading">
-  <h2 id="copies-heading">Practice copies</h2>
-  <div id="generated" class="copy-list"></div>
-  <p class="hint">Deletion removes only indexed files with unchanged hashes. Original maps and shared assets are preserved.</p>
-</section>
-
-<footer class="credit">by 18-LAB</footer>
-</main>
+  <section class="timeline" aria-labelledby="timeline-heading">
+    <div class="timeline-head">
+      <h2 id="timeline-heading">Timeline</h2>
+      <p id="timeline-label" class="timeline-label"></p>
+      <p id="timeline-note" class="timeline-note"></p>
+    </div>
+    <div id="strip" class="strip">
+      <svg class="graph" preserveAspectRatio="none" aria-hidden="true"></svg>
+      <div class="ranges"></div>
+      <div class="playhead" hidden></div>
+    </div>
+    <div id="axis" class="axis" aria-hidden="true"></div>
+  </section>
+</div>
 <script type="module" src="/src/app.ts"></script>
 </body>
 </html>

@@ -31,7 +31,7 @@ fn compatible_combination_and_incompatibilities() {
         rate: 0.9,
         ..options(&["IN", "MR"])
     };
-    let output = map::transform(MANIA, &o, "output.ogg").unwrap();
+    let output = map::transform(MANIA, &o, "output.ogg").unwrap().text;
     assert!(output.contains("448,192,1111,128,0,2083:"));
     assert!(output.contains("BeatmapID:0"));
     assert!(output.contains("+IN+MR seed1"));
@@ -149,7 +149,8 @@ fn audio_lead_in_and_preview_sentinels() {
         },
         "out.ogg",
     )
-    .unwrap();
+    .unwrap()
+    .text;
     assert!(output.contains("AudioLeadIn:2000"));
     assert!(output.contains("PreviewTime:-1"));
 }

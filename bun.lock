@@ -95,9 +95,12 @@
         "@fontsource-variable/bricolage-grotesque": "^5.3.0",
         "@fontsource-variable/instrument-sans": "^5.3.0",
         "@fontsource/dm-mono": "^5.3.0",
+        "@vosu-tools/osu-parse": "workspace:*",
+        "@vosu-tools/render-core": "workspace:*",
         "@vosu-tools/tool-web": "workspace:*",
       },
       "devDependencies": {
+        "@webgpu/types": "latest",
         "typescript": "^5.9.3",
         "vite": "^7.2.4",
       },

@@ -2,7 +2,7 @@ manifest_version = 1
 id = "practice"
 name = "osu! practice tool"
 version = "0.1.0"
-description = "Generate unranked practice copies with offline rate, difficulty and map transforms."
+description = "Practice maps: change rate, difficulty and ruleset transforms, trim to the sections you want to grind, and preview the result before generating it."
 author = "18-LAB"
 icon = "assets/icon.svg"
 banner = "assets/banner.svg"
@@ -12,11 +12,8 @@ root = "web/dist"
 command = ["bin/vosu-practice"]
 startup = "on-demand"
 [api]
-read = ["/v1/current", "/v1/generated", "/v1/jobs", "/v1/settings"]
-write = ["/v1/generate", "/v1/preview", "/v1/settings", "/v1/jobs", "/v1/delete"]
-[[requires]]
-id = "ratings"
-version = ">=0.1.0"
+read = ["/v1/current", "/v1/timeline", "/v1/preview", "/v1/profiles", "/v1/generated", "/v1/jobs"]
+write = ["/v1/generate", "/v1/profiles", "/v1/jobs", "/v1/delete"]
 [permissions]
 host = ["context", "songs:write"]
 [cli]
