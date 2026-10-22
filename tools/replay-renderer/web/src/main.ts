@@ -10,6 +10,7 @@ import {
 } from "./studio";
 import "./style.css";
 import settingSchema from "../../render-settings.json";
+import { OverlayEditor } from "./overlay-layout";
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const notice = el("notice");
@@ -203,6 +204,7 @@ async function refreshInstalled() {
   for (const name of names) select.add(new Option(name, name));
 }
 await vosu.ready;
+const overlayEditor = new OverlayEditor(el("overlay-layout"));
 if (!vosu.canWrite) {
   report(
     "Read-only session. Open this studio from the vosu dashboard to load local assets and save presets.",
@@ -315,6 +317,7 @@ el("queue").onclick = async () => {
       fps: Number(el<HTMLInputElement>("fps").value),
       resolution: el<HTMLSelectElement>("resolution").value,
       layout: el<HTMLSelectElement>("layout").value,
+      overlays: overlayEditor.read(),
       out: el<HTMLInputElement>("out").value,
     };
     const { job } = await (
@@ -367,6 +370,10 @@ el("webm").onclick = async () => {
   ].map((control) => [control, control.disabled] as const);
   try {
     if (!composition) throw new Error("Add a replay first");
+    if (overlayEditor.configured)
+      throw new Error(
+        "Installed overlay pages require the native MP4 queue; browser-only WebM cannot capture independent pages.",
+      );
     playing = false;
     composition.validate();
     button.disabled = true;
