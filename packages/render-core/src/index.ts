@@ -8,8 +8,10 @@ import {
 import { buildAtlas, type Skin } from "./skin";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
-export { loadSkin, assetNames } from "./skin";
-export type { Skin } from "./skin";
+export { loadSkin, assetNames, legacySliderStyle } from "./skin";
+export type { Skin, SkinStyle } from "./skin";
+export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
+export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene } from "./scene";
 export interface FrameState {
   target?: GPUTextureView;
@@ -357,7 +359,9 @@ export async function createRenderer(
       uniforms[12] = mask;
       uniforms[16] = map.visualMods.includes("HD") ? 1 : 0;
       uniforms[17] = map.visualMods.includes("FI") ? 1 : 0;
-      uniforms[18] = map.visualMods.includes("UD") ? 1 : 0;
+      uniforms[18] =
+        Number(map.visualMods.includes("UD")) ^
+        Number(settings.maniaScrollUp === true);
       let timingIndex = 0;
       while (
         timingIndex + 1 < map.timing.length &&

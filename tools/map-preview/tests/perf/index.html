@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Map preview render benchmark</title>
+    <style>
+      body {
+        margin: 0;
+        background: #000;
+      }
+      canvas {
+        display: block;
+        width: 1920px;
+        height: 1080px;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="playfield" width="1920" height="1080"></canvas>
+    <script type="module" src="./perf.ts"></script>
+  </body>
+</html>
