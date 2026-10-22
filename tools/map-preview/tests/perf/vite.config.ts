@@ -13,6 +13,7 @@ export default {
       "@vosu-tools/render-core": `${packages}render-core/src/index.ts`,
       "@vosu-tools/osu-parse": `${packages}osu-parse/src/index.ts`,
       "@vosu-tools/skin-spec": `${packages}skin-spec/index.ts`,
+      "@vosu-tools/ruleset-convert": `${packages}ruleset-convert/src/index.ts`,
     },
   },
   build: { target: "es2023", emptyOutDir: true },

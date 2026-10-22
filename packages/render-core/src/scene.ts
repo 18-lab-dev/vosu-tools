@@ -7,6 +7,7 @@ import {
   taikoVelocity,
 } from "@vosu-tools/osu-parse";
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
+import { catchObjects } from "@vosu-tools/ruleset-convert";
 import { legacySliderStyle, type Skin, type AtlasRegion } from "./skin";
 export interface RenderOptions {
   mods?: Mod[];
@@ -1260,72 +1261,24 @@ export function compileScene(
       );
     }
   } else {
-    const fruits: { time: number; x: number; kind: number }[] = [];
-    for (const o of map.objects) {
-      if (o.type & 8) {
-        for (
-          let time = o.time, n = 0;
-          time < o.endTime;
-          time += Math.max(35, (o.endTime - o.time) / 100), n++
-        ) {
-          const x =
-            ((Math.imul(n + Math.round(o.time), 1664525) + 1013904223) >>> 0) %
-            512;
-          fruits.push({ time, x, kind: 3 });
-        }
-      } else if (o.type & 2) {
-        for (let span = 0; span < o.repeats; span++) {
-          const reverse = !!(span % 2),
-            start = o.time + span * o.span;
-          fruits.push({
-            time: start,
-            x: pathPosition(o.path, reverse ? 1 : 0).x,
-            kind: 0,
-          });
-          const tickTimes = [0, ...o.ticks, 1];
-          for (const tick of o.ticks)
-            fruits.push({
-              time: start + (reverse ? 1 - tick : tick) * o.span,
-              x: pathPosition(o.path, tick).x,
-              kind: 1,
-            });
-          for (let i = 1; i < tickTimes.length; i++) {
-            const a = tickTimes[i - 1],
-              b = tickTimes[i],
-              n = Math.ceil(((b - a) * o.span) / 100);
-            for (let j = 1; j < n; j++) {
-              const progress = a + ((b - a) * j) / n;
-              fruits.push({
-                time: start + (reverse ? 1 - progress : progress) * o.span,
-                x: pathPosition(o.path, progress).x,
-                kind: 2,
-              });
-            }
-          }
-        }
-        fruits.push({
-          time: o.endTime,
-          x: pathPosition(o.path, o.repeats % 2 ? 1 : 0).x,
-          kind: 0,
-        });
-      } else fruits.push({ time: o.time, x: o.x, kind: 0 });
-    }
-    fruits.sort((a, b) => a.time - b.time);
+    // Fruits, droplets, tiny droplets and bananas exactly as lazer builds them
+    // (seeded offsets, Hard Rock offsets and hyper-dash marking included).
+    const kinds = { fruit: 0, droplet: 1, tiny: 2, banana: 3 } as const;
+    const fruits = catchObjects(map)
+      .map((o) => ({
+        time: o.time,
+        x: o.x,
+        kind: kinds[o.kind],
+        hyper: o.hyper,
+      }))
+      .sort((a, b) => a.time - b.time);
     const size = Math.max(
       8,
       (106.75 * (1 - (0.7 * (map.difficulty.cs - 5)) / 5)) / 2,
     );
     for (let index = 0; index < fruits.length; index++) {
-      const fruit = fruits[index];
-      let next = index + 1;
-      while (next < fruits.length && fruits[next].kind === 2) next++;
-      const target = fruits[next];
-      const hyper =
-        fruit.kind < 2 &&
-        !!target &&
-        target.kind < 2 &&
-        Math.abs(target.x - fruit.x) >
-          Math.max(0, target.time - fruit.time) + size;
+      const fruit = fruits[index],
+        hyper = fruit.hyper;
       if (fruit.kind !== 2) catcher.push({ time: fruit.time, x: fruit.x });
       const r =
         fruit.kind === 0

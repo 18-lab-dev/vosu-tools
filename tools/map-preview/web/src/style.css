@@ -143,6 +143,14 @@ p {
   border-color: var(--line-strong);
   color: var(--muted);
 }
+/* A converted osu! map: dashed like a projection of the original. */
+.mode-badge[data-convert] {
+  border-style: dashed;
+}
+.mode-badge[data-convert]::after {
+  content: " · convert";
+  color: var(--muted);
+}
 .map {
   flex: 1;
   min-width: 0;

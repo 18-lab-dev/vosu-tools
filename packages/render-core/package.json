@@ -13,7 +13,8 @@
   "dependencies": {
     "@vosu-tools/osu-parse": "workspace:*",
     "@vosu-tools/skin-spec": "workspace:*",
-    "vgpu": "0.6.0"
+    "vgpu": "0.6.0",
+    "@vosu-tools/ruleset-convert": "workspace:*"
   },
   "devDependencies": {
     "@webgpu/types": "latest",

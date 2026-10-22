@@ -33,6 +33,8 @@ export interface TimingPoint {
   volume: number;
   uninherited: boolean;
   effects: number;
+  /** Position in the file's [TimingPoints] section; lazer resolves out-of-order lines in file order. */
+  order?: number;
 }
 export interface HitObject extends Point {
   time: number;
@@ -43,6 +45,8 @@ export interface HitObject extends Point {
   number: number;
   stack: number;
   path: Point[];
+  /** Absolute slider control points, repeated "red anchor" points merged as lazer does (sliders only). */
+  controlPoints?: Point[];
   repeats: number;
   length: number;
   span: number;
@@ -91,141 +95,376 @@ export function csv(line: string): string[] {
       ?.map((v) => v.trim().replace(/^"|"$/g, "").replace(/""/g, '"')) ?? []
   );
 }
-function bezier(points: Point[]): Point[] {
-  const out: Point[] = [];
-  const subdivide = (p: Point[], depth: number): void => {
-    const a = p[0],
-      b = p[p.length - 1];
-    const d = distance(a, b);
-    let error = 0;
-    for (let i = 1; i < p.length - 1; i++)
-      error = Math.max(
-        error,
-        d
-          ? Math.abs(
-              (b.y - a.y) * p[i].x -
-                (b.x - a.x) * p[i].y +
-                b.x * a.y -
-                b.y * a.x,
-            ) / d
-          : distance(a, p[i]),
-      );
-    if (error < 0.2 || depth >= 16) {
-      if (!out.length) out.push(a);
-      out.push(b);
-      return;
+/*
+ * Slider paths follow osu!lazer (ppy/osu 2026.1005.0-lazer `SliderPath` and
+ * `ConvertHitObjectParser`, osu!framework 2026.921.1 `PathApproximator`; MIT):
+ * the same segment splitting, curve flattening and length fitting, so path
+ * positions (catch fruit, slider ends) agree with the client to sub-pixel.
+ */
+type CurveKind = "L" | "P" | "B" | "C";
+interface CurveType {
+  kind: CurveKind;
+  /** B-spline degree (lazer-format "B3"); plain Bézier when absent. */
+  degree?: number;
+}
+interface ControlPoint extends Point {
+  type?: CurveType;
+}
+/** First lazer-only .osu format version (`LegacyBeatmapEncoder.FIRST_LAZER_VERSION`). */
+const firstLazerVersion = 128;
+const bezierTolerance = 0.25;
+const catmullDetail = 50;
+const circularArcTolerance = 0.1;
+
+function curveType(letter: string): CurveType {
+  switch (letter[0]) {
+    case "B": {
+      const degree = Number(letter.slice(1));
+      return letter.length > 1 && Number.isInteger(degree) && degree > 0
+        ? { kind: "B", degree }
+        : { kind: "B" };
     }
-    let level = p;
-    const left = [p[0]],
-      right = [p[p.length - 1]];
-    while (level.length > 1) {
-      const next: Point[] = [];
-      for (let i = 0; i < level.length - 1; i++)
-        next.push(lerp(level[i], level[i + 1], 0.5));
-      left.push(next[0]);
-      right.push(next[next.length - 1]);
-      level = next;
-    }
-    subdivide(left, depth + 1);
-    subdivide(right.reverse(), depth + 1);
-  };
-  subdivide(points, 0);
+    case "L":
+      return { kind: "L" };
+    case "P":
+      return { kind: "P" };
+    default:
+      return { kind: "C" };
+  }
+}
+const isLinear = (p0: Point, p1: Point, p2: Point) =>
+  Math.abs((p1.y - p0.y) * (p2.x - p0.x) - (p1.x - p0.x) * (p2.y - p0.y)) <=
+  1e-3;
+
+/** One typed run of control points, split at repeated points ("red anchors"). */
+function convertPoints(
+  type: CurveType,
+  points: readonly Point[],
+  endPoint: Point | undefined,
+  format: number,
+): ControlPoint[] {
+  const vertices: ControlPoint[] = points.map((p) => ({ x: p.x, y: p.y }));
+  if (type.kind === "P") {
+    const endPointLength = endPoint ? 1 : 0;
+    if (format < firstLazerVersion) {
+      if (vertices.length + endPointLength !== 3) type = { kind: "B" };
+      else if (isLinear(points[0], points[1], endPoint ?? points[2]))
+        type = { kind: "L" };
+    } else if (vertices.length + endPointLength > 3) type = { kind: "B" };
+  }
+  if (!vertices.length) return [];
+  vertices[0].type = type;
+  const out: ControlPoint[] = [];
+  let start = 0,
+    end = 0;
+  while (++end < vertices.length) {
+    if (!same(vertices[end], vertices[end - 1])) continue;
+    if (type.kind === "C" && end > 1 && format < firstLazerVersion) continue;
+    if (end === vertices.length - 1) continue;
+    vertices[end - 1].type = type;
+    out.push(...vertices.slice(start, end));
+    start = end + 1;
+  }
+  if (start < end) out.push(...vertices.slice(start, end));
   return out;
 }
-/** Flatten slider curves to subpixel accuracy, then trim/extend to the declared distance. */
+
+/** `ConvertHitObjectParser.convertPathString`: absolute, typed control points. */
+function curveControlPoints(
+  curve: string,
+  start: Point,
+  format: number,
+): ControlPoint[] {
+  const points: Point[] = [],
+    segments: { type: CurveType; start: number }[] = [];
+  for (const token of curve.split("|")) {
+    if (/^\p{L}/u.test(token)) {
+      segments.push({ type: curveType(token), start: points.length });
+      if (!points.length) points.push({ x: start.x, y: start.y });
+    } else {
+      const [x, y] = token.split(":").map(Number);
+      points.push(
+        format >= firstLazerVersion
+          ? { x, y }
+          : { x: Math.trunc(x), y: Math.trunc(y) },
+      );
+    }
+  }
+  const out: ControlPoint[] = [];
+  segments.forEach((segment, i) => {
+    const next = segments[i + 1];
+    out.push(
+      ...convertPoints(
+        segment.type,
+        points.slice(segment.start, next?.start),
+        next ? points[next.start] : undefined,
+        format,
+      ),
+    );
+  });
+  return out;
+}
+
+function bezierSubdivide(points: readonly Point[], count: number) {
+  const mid = points.slice(0, count).map((p) => ({ x: p.x, y: p.y })),
+    left: Point[] = new Array(count),
+    right: Point[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    left[i] = mid[0];
+    right[count - i - 1] = mid[count - i - 1];
+    for (let j = 0; j < count - i - 1; j++)
+      mid[j] = {
+        x: (mid[j].x + mid[j + 1].x) / 2,
+        y: (mid[j].y + mid[j + 1].y) / 2,
+      };
+  }
+  return { left, right };
+}
+function bezierIsFlatEnough(points: readonly Point[]): boolean {
+  for (let i = 1; i < points.length - 1; i++) {
+    const x = points[i - 1].x - 2 * points[i].x + points[i + 1].x,
+      y = points[i - 1].y - 2 * points[i].y + points[i + 1].y;
+    if (x * x + y * y > bezierTolerance * bezierTolerance * 4) return false;
+  }
+  return true;
+}
+function bezierApproximate(points: readonly Point[], output: Point[]): void {
+  const count = points.length,
+    { left, right } = bezierSubdivide(points, count),
+    l = [...left, ...right.slice(1)];
+  output.push(points[0]);
+  for (let i = 1; i < count - 1; i++) {
+    const index = 2 * i;
+    output.push({
+      x: 0.25 * (l[index - 1].x + 2 * l[index].x + l[index + 1].x),
+      y: 0.25 * (l[index - 1].y + 2 * l[index].y + l[index + 1].y),
+    });
+  }
+}
+/** `PathApproximator.BSplineToPiecewiseLinear` (Bézier when degree = n - 1). */
+function bSplineToPiecewiseLinear(
+  controlPoints: readonly Point[],
+  degree: number,
+): Point[] {
+  if (controlPoints.length < 2) return controlPoints.slice(0, 1);
+  degree = Math.min(degree, controlPoints.length - 1);
+  const pointCount = controlPoints.length - 1,
+    points = controlPoints.map((p) => ({ x: p.x, y: p.y }));
+  const beziers: Point[][] = [];
+  if (degree === pointCount) beziers.push(points);
+  else {
+    for (let i = 0; i < pointCount - degree; i++) {
+      const sub: Point[] = new Array(degree + 1);
+      sub[0] = { ...points[i] };
+      for (let j = 0; j < degree - 1; j++) {
+        sub[j + 1] = { ...points[i + 1] };
+        for (let k = 1; k < degree - j; k++) {
+          const l = Math.min(k, pointCount - degree - i);
+          points[i + k] = {
+            x: (l * points[i + k].x + points[i + k + 1].x) / (l + 1),
+            y: (l * points[i + k].y + points[i + k + 1].y) / (l + 1),
+          };
+        }
+      }
+      sub[degree] = { ...points[i + 1] };
+      beziers.push(sub);
+    }
+    beziers.push(points.slice(pointCount - degree));
+  }
+  // Depth-first: the earliest, left-most piece is always flattened next.
+  const toFlatten = beziers.reverse(),
+    output: Point[] = [];
+  while (toFlatten.length) {
+    const parent = toFlatten.pop()!;
+    if (bezierIsFlatEnough(parent)) {
+      bezierApproximate(parent, output);
+      continue;
+    }
+    const { left, right } = bezierSubdivide(parent, degree + 1);
+    toFlatten.push(right, left);
+  }
+  output.push({ ...controlPoints[pointCount] });
+  return output;
+}
+function catmullPoint(
+  v1: Point,
+  v2: Point,
+  v3: Point,
+  v4: Point,
+  t: number,
+): Point {
+  const t2 = t * t,
+    t3 = t * t2,
+    axis = (a: number, b: number, c: number, d: number) =>
+      0.5 *
+      (2 * b +
+        (-a + c) * t +
+        (2 * a - 5 * b + 4 * c - d) * t2 +
+        (-a + 3 * b - 3 * c + d) * t3);
+  return { x: axis(v1.x, v2.x, v3.x, v4.x), y: axis(v1.y, v2.y, v3.y, v4.y) };
+}
+function catmullToPiecewiseLinear(points: readonly Point[]): Point[] {
+  const out: Point[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const v1 = i > 0 ? points[i - 1] : points[i],
+      v2 = points[i],
+      v3 = points[i + 1],
+      v4 =
+        i < points.length - 2
+          ? points[i + 2]
+          : { x: 2 * v3.x - v2.x, y: 2 * v3.y - v2.y };
+    for (let c = 0; c < catmullDetail; c++) {
+      out.push(catmullPoint(v1, v2, v3, v4, c / catmullDetail));
+      out.push(catmullPoint(v1, v2, v3, v4, (c + 1) / catmullDetail));
+    }
+  }
+  return out;
+}
+/** `CircularArcProperties` + `CircularArcToPiecewiseLinear`; undefined → Bézier. */
+function circularArc(points: readonly Point[]): Point[] | undefined {
+  const [a, b, c] = points;
+  if (isLinear(a, b, c)) return undefined;
+  const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y)),
+    aSq = a.x * a.x + a.y * a.y,
+    bSq = b.x * b.x + b.y * b.y,
+    cSq = c.x * c.x + c.y * c.y,
+    centre = {
+      x: (aSq * (b.y - c.y) + bSq * (c.y - a.y) + cSq * (a.y - b.y)) / d,
+      y: (aSq * (c.x - b.x) + bSq * (a.x - c.x) + cSq * (b.x - a.x)) / d,
+    },
+    radius = distance(a, centre),
+    thetaStart = Math.atan2(a.y - centre.y, a.x - centre.x);
+  let thetaEnd = Math.atan2(c.y - centre.y, c.x - centre.x);
+  while (thetaEnd < thetaStart) thetaEnd += 2 * Math.PI;
+  let direction = 1,
+    thetaRange = thetaEnd - thetaStart;
+  // Which side of AC is B on?
+  if ((c.y - a.y) * (b.x - a.x) - (c.x - a.x) * (b.y - a.y) < 0) {
+    direction = -1;
+    thetaRange = 2 * Math.PI - thetaRange;
+  }
+  const amount =
+    2 * radius <= circularArcTolerance
+      ? 2
+      : Math.max(
+          2,
+          Math.ceil(
+            thetaRange / (2 * Math.acos(1 - circularArcTolerance / radius)),
+          ),
+        );
+  if (amount >= 1000) return undefined;
+  return Array.from({ length: amount }, (_, i) => {
+    const theta = thetaStart + (direction * i * thetaRange) / (amount - 1);
+    return {
+      x: centre.x + Math.cos(theta) * radius,
+      y: centre.y + Math.sin(theta) * radius,
+    };
+  });
+}
+function subPath(points: readonly Point[], type: CurveType): Point[] {
+  switch (type.kind) {
+    case "L":
+      return points.map((p) => ({ x: p.x, y: p.y }));
+    case "P":
+      if (points.length === 3) {
+        const arc = circularArc(points);
+        if (arc) return arc;
+      }
+      break;
+    case "C":
+      return catmullToPiecewiseLinear(points);
+  }
+  return bSplineToPiecewiseLinear(points, type.degree ?? points.length);
+}
+/** `SliderPath.calculatePath`: flatten each typed segment and join them. */
+function flattenControlPoints(controls: readonly ControlPoint[]): Point[] {
+  const path: Point[] = [];
+  let start = 0;
+  for (let i = 0; i < controls.length; i++) {
+    if (!controls[i].type && i < controls.length - 1) continue;
+    const segment = controls.slice(start, i + 1);
+    if (segment.length === 1) path.push({ x: segment[0].x, y: segment[0].y });
+    else if (segment.length > 1) {
+      const sub = subPath(segment, controls[start].type ?? { kind: "L" });
+      const skipFirst =
+        path.length > 0 &&
+        sub.length > 0 &&
+        same(path[path.length - 1], sub[0]);
+      for (let j = skipFirst ? 1 : 0; j < sub.length; j++) path.push(sub[j]);
+    }
+    start = i;
+  }
+  return path;
+}
+/** `SliderPath.calculateLength`: trim or extend the path to the declared length. */
+function fitLength(path: Point[], expectedLength?: number): Point[] {
+  if (expectedLength === undefined || path.length < 1) return path;
+  const cumulative = [0];
+  for (let i = 1; i < path.length; i++)
+    cumulative.push(cumulative[i - 1] + distance(path[i - 1], path[i]));
+  const length = cumulative[cumulative.length - 1];
+  if (length === expectedLength) return path;
+  // osu!stable never extends a path whose last two points coincide.
+  if (
+    path.length >= 2 &&
+    same(path[path.length - 1], path[path.length - 2]) &&
+    expectedLength > length
+  )
+    return path;
+  cumulative.pop();
+  let end = path.length - 1;
+  if (length > expectedLength)
+    while (
+      cumulative.length &&
+      cumulative[cumulative.length - 1] >= expectedLength
+    ) {
+      cumulative.pop();
+      path.pop();
+      end--;
+    }
+  if (end <= 0) return path;
+  const from = path[end - 1],
+    span = distance(from, path[end]),
+    remaining = expectedLength - cumulative[cumulative.length - 1];
+  path[end] =
+    span > 0
+      ? {
+          x: from.x + ((path[end].x - from.x) / span) * remaining,
+          y: from.y + ((path[end].y - from.y) / span) * remaining,
+        }
+      : { ...path[end] };
+  return path;
+}
+/**
+ * Flatten one slider curve (`kind` + absolute points, start first) and fit it
+ * to the declared pixel length, as osu!lazer does. A missing or zero length
+ * keeps the curve's own length.
+ */
 export function sliderPath(
   kind: string,
   points: Point[],
   expectedLength?: number,
+  formatVersion = 14,
 ): Point[] {
-  if (!points.length) return [];
-  let out: Point[] = [];
-  if (kind === "L") out = points.map((p) => ({ ...p }));
-  else if (kind === "P" && points.length === 3) {
-    const [a, b, c] = points;
-    const d = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
-    if (Math.abs(d) < 1e-7) out = points.map((p) => ({ ...p }));
-    else {
-      const aa = a.x * a.x + a.y * a.y,
-        bb = b.x * b.x + b.y * b.y,
-        cc = c.x * c.x + c.y * c.y;
-      const cx = (aa * (b.y - c.y) + bb * (c.y - a.y) + cc * (a.y - b.y)) / d,
-        cy = (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x)) / d;
-      const start = Math.atan2(a.y - cy, a.x - cx);
-      let middle = Math.atan2(b.y - cy, b.x - cx) - start,
-        end = Math.atan2(c.y - cy, c.x - cx) - start;
-      const tau = Math.PI * 2;
-      middle = (middle + tau) % tau;
-      end = (end + tau) % tau;
-      if (middle > end) end -= tau;
-      const r = Math.hypot(a.x - cx, a.y - cy),
-        steps = Math.max(2, Math.ceil(Math.abs(end) * Math.sqrt(r / 0.4)));
-      for (let i = 0; i <= steps; i++) {
-        const t = start + (end * i) / steps;
-        out.push({ x: cx + Math.cos(t) * r, y: cy + Math.sin(t) * r });
-      }
-    }
-  } else if (kind === "C") {
-    for (let i = 0; i < points.length - 1; i++) {
-      const a = points[Math.max(0, i - 1)],
-        b = points[i],
-        c = points[i + 1],
-        d = points[Math.min(points.length - 1, i + 2)];
-      const n = Math.max(8, Math.ceil(distance(b, c) / 3));
-      for (let j = 0; j < n; j++) {
-        const t = j / n,
-          t2 = t * t,
-          t3 = t2 * t;
-        out.push({
-          x:
-            0.5 *
-            (2 * b.x +
-              (-a.x + c.x) * t +
-              (2 * a.x - 5 * b.x + 4 * c.x - d.x) * t2 +
-              (-a.x + 3 * b.x - 3 * c.x + d.x) * t3),
-          y:
-            0.5 *
-            (2 * b.y +
-              (-a.y + c.y) * t +
-              (2 * a.y - 5 * b.y + 4 * c.y - d.y) * t2 +
-              (-a.y + 3 * b.y - 3 * c.y + d.y) * t3),
-        });
-      }
-    }
-    out.push({ ...points[points.length - 1] });
-  } else {
-    let segment = [points[0]];
-    for (let i = 1; i < points.length; i++) {
-      segment.push(points[i]);
-      if (i === points.length - 1 || same(points[i], points[i + 1])) {
-        if (segment.length > 1) out.push(...bezier(segment));
-        segment = [points[i]];
-      }
-    }
-    if (!out.length) out = [{ ...points[0] }];
-  }
-  out = out.filter((p, i) => !i || !same(p, out[i - 1]));
-  if (expectedLength === undefined || out.length < 2) return out;
-  let length = 0;
-  for (let i = 1; i < out.length; i++) {
-    const d = distance(out[i - 1], out[i]);
-    if (length + d >= expectedLength) {
-      out[i] = lerp(
-        out[i - 1],
-        out[i],
-        Math.max(0, (expectedLength - length) / d),
-      );
-      out.length = i + 1;
-      return out;
-    }
-    length += d;
-  }
-  const last = out[out.length - 1],
-    prev = out[out.length - 2],
-    d = distance(prev, last);
-  if (d > 0 && expectedLength > length)
-    out.push(lerp(prev, last, 1 + (expectedLength - length) / d));
-  return out;
+  const controls = convertPoints(
+    curveType(kind),
+    points,
+    undefined,
+    formatVersion,
+  );
+  return fitLength(flattenControlPoints(controls), expectedLength || undefined);
+}
+/** As `sliderPath`, from a whole curve field (`B|x:y|…`, including lazer's multi-segment form). */
+export function sliderCurvePath(
+  curve: string,
+  start: Point,
+  expectedLength?: number,
+  formatVersion = 14,
+): Point[] {
+  return fitLength(
+    flattenControlPoints(curveControlPoints(curve, start, formatVersion)),
+    expectedLength || undefined,
+  );
 }
 export function pathPosition(path: readonly Point[], progress: number): Point {
   if (!path.length) return { x: 256, y: 192 };
@@ -413,6 +652,7 @@ export function parseOsu(text: string): Beatmap {
         volume: n[5] ?? 100,
         uninherited: p[6] === undefined || n[6] === 1,
         effects: n[7] || 0,
+        order: map.timing.length,
       });
     }
     if (section === "HitObjects") {
@@ -442,18 +682,16 @@ export function parseOsu(text: string): Beatmap {
         sample: p[p.length - 1] ?? "",
       };
       if (type & 2) {
-        const curve = p[5].split("|");
-        const controls = [
-          { x, y },
-          ...curve.slice(1).map((v) => {
-            const [x, y] = v.split(":").map(Number);
-            return { x, y };
-          }),
-        ];
+        const controls = curveControlPoints(p[5], { x, y }, map.format);
         o.length = Math.max(0, Number(p[7]) || 0);
-        o.path = sliderPath(curve[0], controls, o.length);
+        o.path = fitLength(
+          flattenControlPoints(controls),
+          o.length || undefined,
+        );
+        o.controlPoints = controls.map((point) => ({ x: point.x, y: point.y }));
         o.repeats = Math.max(1, Number(p[6]) || 1);
-        o.edgeSounds = p[8]?.split("|").map(Number) ?? [];
+        // An empty field means "no per-node sounds" (the clients fall back to the object's own).
+        o.edgeSounds = p[8] ? p[8].split("|").map(Number) : [];
       } else if (type & 8) o.endTime = Number(p[5]) || time;
       else if (type & 128) o.endTime = Number(p[5]?.split(":")[0]) || time;
       map.objects.push(o);
@@ -549,7 +787,7 @@ export function applyMods(
   };
   for (const o of map.objects) {
     transform(o);
-    for (const p of o.path) transform(p);
+    for (const p of [...o.path, ...(o.controlPoints ?? [])]) transform(p);
     if (map.mode === 3) {
       let lane = Math.min(keys - 1, Math.floor((o.x * keys) / 512));
       if (has("RD")) lane = lanes[lane];
@@ -566,7 +804,7 @@ export function applyMods(
         ty = Math.max(-minY, Math.min(384 - maxY, dy));
       o.x += tx;
       o.y += ty;
-      for (const p of o.path) {
+      for (const p of [...o.path, ...(o.controlPoints ?? [])]) {
         p.x += tx;
         p.y += ty;
       }

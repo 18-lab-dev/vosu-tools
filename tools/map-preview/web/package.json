@@ -11,7 +11,8 @@
   "dependencies": {
     "@vosu-tools/tool-web": "workspace:*",
     "@vosu-tools/render-core": "workspace:*",
-    "@vosu-tools/osu-parse": "workspace:*"
+    "@vosu-tools/osu-parse": "workspace:*",
+    "@vosu-tools/ruleset-convert": "workspace:*"
   },
   "devDependencies": {
     "vite": "^7.1.7",

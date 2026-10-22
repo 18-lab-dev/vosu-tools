@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Test oracle only: references osu!lazer's projects from a local checkout of
+       ppy/osu at 2026.1005.0-lazer (pass -p:OsuSource=/path/to/osu). Needs the .NET 10 SDK. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <OsuSource Condition="'$(OsuSource)' == ''">/tmp/ppy-osu-full</OsuSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Taiko/osu.Game.Rulesets.Taiko.csproj" />
+    <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Mania/osu.Game.Rulesets.Mania.csproj" />
+    <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Catch/osu.Game.Rulesets.Catch.csproj" />
+  </ItemGroup>
+</Project>
