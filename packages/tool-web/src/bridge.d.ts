@@ -26,6 +26,12 @@ export interface VosuBridge {
   fetch(path: string, init?: RequestInit): Promise<Response>;
   /** Selected-field /websocket/v2/subscribe helper; returns an unsubscribe function. */
   subscribe(fields: unknown, onFrame: (frame: unknown) => void): () => void;
+  /**
+   * Effective tool settings (defaults applied) from `GET /tools/<id>/_settings`.
+   * Settings of type "password" are never included. Bridges from before this
+   * route existed do not provide it; fall back to fetching the route directly.
+   */
+  settings?(): Promise<Record<string, unknown>>;
 }
 
 export declare const vosu: VosuBridge;
