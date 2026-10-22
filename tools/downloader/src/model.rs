@@ -25,48 +25,130 @@ impl Default for Source {
         }
     }
 }
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Settings {
+/// Effective tool settings from vosu (`settings.json`, edited in the dashboard).
+/// `client_secret` is a password setting: vosu returns it only to this service.
+#[derive(Clone)]
+pub struct Config {
     pub sources: Vec<Source>,
     pub concurrency: usize,
     pub max_file_mb: u64,
-    pub saved_searches: BTreeMap<String, Search>,
-    pub presets: BTreeMap<String, Search>,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    pub no_video: bool,
+    pub hide_owned: bool,
+    pub follow_current_map: bool,
+    pub songs_dir: String,
     pub client_id: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub client_secret: String,
 }
-impl Default for Settings {
+impl Default for Config {
     fn default() -> Self {
         Self {
             sources: vec![Source::default()],
             concurrency: 1,
             max_file_mb: 64,
-            saved_searches: BTreeMap::new(),
-            presets: BTreeMap::new(),
+            no_video: true,
+            hide_owned: true,
+            follow_current_map: true,
+            songs_dir: String::new(),
             client_id: String::new(),
             client_secret: String::new(),
         }
     }
 }
-impl Settings {
+#[derive(Deserialize)]
+#[serde(default)]
+struct RawConfig {
+    sources: serde_json::Value,
+    concurrency: serde_json::Value,
+    max_file_mb: serde_json::Value,
+    no_video: bool,
+    hide_owned: bool,
+    follow_current_map: bool,
+    songs_dir: String,
+    client_id: serde_json::Value,
+    client_secret: String,
+}
+impl Default for RawConfig {
+    fn default() -> Self {
+        let d = Config::default();
+        Self {
+            sources: serde_json::to_value(&d.sources).unwrap(),
+            concurrency: d.concurrency.into(),
+            max_file_mb: d.max_file_mb.into(),
+            no_video: d.no_video,
+            hide_owned: d.hide_owned,
+            follow_current_map: d.follow_current_map,
+            songs_dir: d.songs_dir,
+            client_id: d.client_id.into(),
+            client_secret: d.client_secret,
+        }
+    }
+}
+fn whole(v: &serde_json::Value, name: &str, min: u64, max: u64) -> Result<u64, String> {
+    let n = match v {
+        serde_json::Value::String(s) => s.trim().parse::<f64>().ok(),
+        v => v.as_f64(),
+    };
+    n.filter(|n| n.fract() == 0.0 && *n >= min as f64 && *n <= max as f64)
+        .map(|n| n as u64)
+        .ok_or_else(|| format!("{name} must be a whole number from {min} to {max}"))
+}
+impl Config {
+    /// Parses `GET /tools/_host/v1/settings`. `sources` is the JSON text of
+    /// the "Mirror sources" textarea (an array is accepted too).
+    pub fn from_settings(v: serde_json::Value) -> Result<Self, String> {
+        let raw: RawConfig =
+            serde_json::from_value(v).map_err(|e| format!("invalid tool settings: {e}"))?;
+        let sources = match raw.sources {
+            serde_json::Value::String(s) if s.trim().is_empty() => Vec::new(),
+            serde_json::Value::String(s) => serde_json::from_str(&s)
+                .map_err(|e| format!("Mirror sources is not valid JSON: {e}"))?,
+            v => serde_json::from_value(v)
+                .map_err(|e| format!("Mirror sources has an invalid shape: {e}"))?,
+        };
+        let client_id = match raw.client_id {
+            serde_json::Value::Number(n) => match n.as_f64() {
+                Some(f) if f.fract() == 0.0 && f > 0.0 => format!("{f:.0}"),
+                _ => n.to_string(),
+            },
+            serde_json::Value::String(s) => s.trim().to_owned(),
+            _ => String::new(),
+        };
+        let config = Self {
+            sources,
+            concurrency: whole(&raw.concurrency, "Concurrent downloads", 1, 3)? as usize,
+            max_file_mb: whole(&raw.max_file_mb, "Maximum archive size", 1, 128)?,
+            no_video: raw.no_video,
+            hide_owned: raw.hide_owned,
+            follow_current_map: raw.follow_current_map,
+            songs_dir: raw.songs_dir.trim().to_owned(),
+            client_id,
+            client_secret: raw.client_secret,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+    pub fn credentials(&self) -> bool {
+        !self.client_id.is_empty() && !self.client_secret.is_empty()
+    }
+    /// Everything the browser may see: never the credentials themselves.
     pub fn public(&self) -> serde_json::Value {
-        let mut s = self.clone();
-        s.client_id.clear();
-        s.client_secret.clear();
-        let mut v = serde_json::to_value(s).unwrap();
-        v["credentials_configured"] =
-            (!self.client_id.is_empty() && !self.client_secret.is_empty()).into();
-        v
+        serde_json::json!({
+            "sources": self.sources,
+            "concurrency": self.concurrency,
+            "max_file_mb": self.max_file_mb,
+            "no_video": self.no_video,
+            "hide_owned": self.hide_owned,
+            "follow_current_map": self.follow_current_map,
+            "songs_dir": self.songs_dir,
+            "credentials_configured": self.credentials(),
+        })
     }
     pub fn validate(&self) -> Result<(), String> {
-        if !(1..=3).contains(&self.concurrency) || !(1..=128).contains(&self.max_file_mb) {
-            return Err("concurrency must be 1–3; file cap 1–128 MiB".into());
+        if self.sources.len() > 8 {
+            return Err("at most 8 mirror sources".into());
         }
-        if self.sources.len() > 8 || self.saved_searches.len() > 100 || self.presets.len() > 100 {
-            return Err("settings limit exceeded".into());
+        if !self.client_id.is_empty() && !self.client_id.bytes().all(|b| b.is_ascii_digit()) {
+            return Err("osu! API client ID must be numeric".into());
         }
         for s in &self.sources {
             let u = reqwest::Url::parse(&s.base).map_err(|_| "invalid source URL")?;
@@ -95,6 +177,32 @@ impl Settings {
             .min_by_key(|s| s.priority)
             .cloned()
             .ok_or("no enabled source (there is no automatic failover)".into())
+    }
+}
+/// Saved searches and filter presets: page workspace kept by the service.
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Workspace {
+    pub saved_searches: BTreeMap<String, Search>,
+    pub presets: BTreeMap<String, Search>,
+}
+impl Workspace {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.saved_searches.len() > 100 || self.presets.len() > 100 {
+            return Err("at most 100 saved searches and 100 presets".into());
+        }
+        if self
+            .saved_searches
+            .keys()
+            .chain(self.presets.keys())
+            .any(|k| k.trim().is_empty() || k.chars().count() > 80)
+        {
+            return Err("names must be 1–80 characters".into());
+        }
+        for q in self.saved_searches.values().chain(self.presets.values()) {
+            q.validate()?;
+        }
+        Ok(())
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -294,12 +402,17 @@ pub struct Mapset {
     pub submitted_date: String,
     pub bpm: Option<f64>,
     pub beatmaps: Vec<Difficulty>,
+    /// Present in the local stable/lazer library snapshot.
     pub owned: bool,
+    /// Completed by this tool's queue (validated archive on disk).
+    pub downloaded: bool,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum Id {
     Set(u32),
     Map(u32),
+    /// A difficulty's `.osu` MD5, e.g. from a replay.
+    Md5(String),
 }
 pub fn parse_ids(input: &str) -> Result<Vec<Id>, String> {
     let mut out = Vec::new();
@@ -307,6 +420,16 @@ pub fn parse_ids(input: &str) -> Result<Vec<Id>, String> {
         .split(|c: char| c.is_whitespace() || c == ',')
         .filter(|s| !s.is_empty())
     {
+        if part.len() == 32 && part.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let id = Id::Md5(part.to_ascii_lowercase());
+            if !out.contains(&id) {
+                out.push(id);
+            }
+            if out.len() > 50 {
+                return Err("at most 50 IDs per search".into());
+            }
+            continue;
+        }
         let (map, n) = if part.chars().all(|c| c.is_ascii_digit()) {
             (false, part.to_owned())
         } else {
@@ -364,6 +487,55 @@ mod tests {
         );
         assert!(parse_ids("https://evil.com/42").is_err());
         assert!(parse_ids("0").is_err());
+    }
+    #[test]
+    fn md5_ids() {
+        let h = "0123456789ABCDEF0123456789abcdef";
+        assert_eq!(
+            parse_ids(&format!("{h} 7")).unwrap(),
+            vec![Id::Md5(h.to_ascii_lowercase()), Id::Set(7)]
+        );
+    }
+    #[test]
+    fn host_settings() {
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/settings.json"))
+                .unwrap(),
+        )
+        .unwrap();
+        let defaults = settings
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|s| s["type"] != "header")
+            .map(|s| {
+                (
+                    s["uniqueID"].as_str().unwrap().to_owned(),
+                    s["value"].clone(),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        let c = Config::from_settings(defaults.clone().into()).unwrap();
+        assert_eq!(c.sources.len(), 1);
+        assert_eq!(c.sources[0].name, "osu.direct");
+        assert_eq!((c.concurrency, c.max_file_mb), (1, 64));
+        assert!(c.no_video && c.hide_owned && c.follow_current_map && !c.credentials());
+        let mut v = defaults.clone();
+        v.insert("client_id".into(), 1234.0.into());
+        v.insert("client_secret".into(), "s3cret".into());
+        let c = Config::from_settings(v.into()).unwrap();
+        assert!(c.credentials());
+        assert!(!c.public().to_string().contains("s3cret"));
+        let mut v = defaults.clone();
+        v.insert("concurrency".into(), 4.into());
+        assert!(Config::from_settings(v.into()).is_err());
+        let mut v = defaults;
+        v.insert("sources".into(), "[{".into());
+        // Config deliberately has no Debug impl: it carries the client secret.
+        assert!(matches!(
+            Config::from_settings(v.into()),
+            Err(e) if e.contains("not valid JSON")
+        ));
     }
     #[test]
     fn local_filters() {

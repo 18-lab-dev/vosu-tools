@@ -1,4 +1,4 @@
-use crate::model::Settings;
+use crate::model::Config;
 use reqwest::{Client, Response, StatusCode};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -43,7 +43,9 @@ pub struct Network {
     pub http: Client,
     pub limiter: Arc<RateLimiter>,
     cache: PathBuf,
-    token: Arc<Mutex<Option<(String, Instant)>>>,
+    /// (credential fingerprint, access token, expiry). A credential change in
+    /// the dashboard settings invalidates the token on the next request.
+    token: Arc<Mutex<Option<(String, String, Instant)>>>,
 }
 impl Network {
     pub fn new(cache: PathBuf) -> Result<Self, String> {
@@ -63,9 +65,6 @@ impl Network {
             cache,
             token: Arc::default(),
         })
-    }
-    pub async fn clear_token(&self) {
-        *self.token.lock().await = None;
     }
     pub async fn request(
         &self,
@@ -155,16 +154,23 @@ impl Network {
         &self,
         path: &str,
         params: &[(String, String)],
-        settings: &Settings,
+        settings: &Config,
     ) -> Result<Value, String> {
-        if settings.client_id.is_empty() || settings.client_secret.is_empty() {
+        if !settings.credentials() {
             return Err("configure your own osu! API client ID and secret in tool settings".into());
         }
+        let fingerprint = format!(
+            "{:x}",
+            Sha256::digest(format!(
+                "{}\0{}",
+                settings.client_id, settings.client_secret
+            ))
+        );
         let token = {
             let mut token = self.token.lock().await;
             if token
                 .as_ref()
-                .is_none_or(|(_, expiry)| *expiry <= Instant::now())
+                .is_none_or(|(key, _, expiry)| *key != fingerprint || *expiry <= Instant::now())
             {
                 self.limiter
                     .wait("osu.ppy.sh", Duration::from_secs(1))
@@ -183,9 +189,9 @@ impl Network {
                     .unwrap_or(60)
                     .saturating_sub(30)
                     .min(86400);
-                *token = Some((t, Instant::now() + Duration::from_secs(expiry)));
+                *token = Some((fingerprint, t, Instant::now() + Duration::from_secs(expiry)));
             }
-            token.as_ref().unwrap().0.clone()
+            token.as_ref().unwrap().1.clone()
         };
         let mut url = reqwest::Url::parse(&format!("https://osu.ppy.sh/api/v2/{path}"))
             .map_err(|_| "invalid API path")?;

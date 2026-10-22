@@ -15,8 +15,8 @@ command = ["bin/vosu-downloader"]
 startup = "on-demand"
 
 [api]
-read = ["/v1/state", "/v1/jobs"]
-write = ["/v1/settings", "/v1/search", "/v1/library", "/v1/queue", "/v1/jobs", "/v1/import"]
+read = ["/v1/state", "/v1/jobs", "/v1/lookup"]
+write = ["/v1/workspace", "/v1/search", "/v1/library", "/v1/queue", "/v1/jobs", "/v1/import"]
 
 [permissions]
 host = ["context", "songs:write"]
