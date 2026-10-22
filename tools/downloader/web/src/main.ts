@@ -1,5 +1,13 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import "./style.css";
+
+function applyScheme() {
+  document.documentElement.dataset.scheme =
+    vosu.colorScheme ??
+    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+}
+applyScheme();
+
 type Mapset = {
   id: number;
   artist: string;
@@ -148,9 +156,14 @@ function showResults(sets: Mapset[]) {
     title.rel = "noopener noreferrer";
     const meta = node(
       "p",
-      `${s.creator} / ${s.status.toUpperCase()} / #${s.id}${s.owned ? " / OWNED" : ""}`,
+      `${s.creator} / ${s.status.toUpperCase()} / #${s.id}`,
     );
-    meta.className = "mono";
+    meta.className = "data";
+    if (s.owned) {
+      const owned = node("span", "OWNED");
+      owned.className = "owned";
+      meta.append(owned);
+    }
     content.append(title, meta);
     const diffs = node("div");
     diffs.className = "diffs";
@@ -394,6 +407,7 @@ async function refresh(fill = false) {
     for (const j of v.queue.jobs as Job[]) {
       const row = node("article");
       row.className = "queue-job";
+      row.dataset.state = j.state;
       const head = node("div");
       head.className = "section-head";
       head.append(
@@ -471,9 +485,18 @@ async function refresh(fill = false) {
   }
 }
 await vosu.ready;
-el("access").textContent = vosu.canWrite
-  ? "AUTHORIZED WORKSPACE"
-  : "READ-ONLY · Open this tool from the vosu dashboard to search, queue or import.";
+applyScheme();
+const access = el("access");
+access.dataset.state = vosu.canWrite ? "write" : "read";
+access.replaceChildren(
+  node("strong", vosu.canWrite ? "AUTHORIZED" : "READ-ONLY"),
+  node(
+    "span",
+    vosu.canWrite
+      ? "Opened from the vosu dashboard: search, queue and import are enabled."
+      : "Open this tool from the vosu dashboard to search, queue or import.",
+  ),
+);
 writeAccess();
 await refresh(true);
 setInterval(() => void refresh(), 1500);

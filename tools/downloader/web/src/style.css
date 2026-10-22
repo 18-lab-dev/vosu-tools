@@ -1,318 +1,799 @@
-:root {
-  font-family: var(--font-body, "Barlow", sans-serif);
-  color: var(--text, #e9e7e2);
-  background: var(--bg, #111214);
-  --ink: #e9e7e2;
-  --paper: #111214;
-  --panel: #191b1e;
-  --line: #34363a;
-  --accent: #ff963f;
-  --muted: #a1a3a8;
-  color-scheme: dark;
+/* Beatmap downloader — "dispatch desk" identity.
+ * A shipping-waybill motif: manila paper and stamp red in light mode,
+ * carbon-copy paper and vermilion in dark mode. Fields are ruled form boxes,
+ * results are manifest lines, queued sets are parcels with status stamps.
+ * Fonts are bundled (OFL-1.1, see ../../licenses): Saira Stencil One for
+ * stencilled headings, Archivo for interface text, Courier Prime for data. */
+
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url("./fonts/archivo-latin-standard-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
 }
-html[data-theme="light"] {
-  --ink: #202630;
-  --paper: #f2f1ec;
-  --panel: #e9e8e1;
-  --line: #c8cac7;
-  --accent: #175fad;
-  --muted: #59636e;
+@font-face {
+  font-family: "Archivo";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  src: url("./fonts/archivo-latin-ext-standard-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Saira Stencil One";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./fonts/saira-stencil-one-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Courier Prime";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./fonts/courier-prime-latin-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Courier Prime";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("./fonts/courier-prime-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Courier Prime";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url("./fonts/courier-prime-latin-700-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Scheme: follows prefers-color-scheme until main.ts applies
+ * vosu.colorScheme as data-scheme; `color-scheme` drives light-dark() and
+ * native control rendering (select popups, pickers, scrollbars). */
+:root {
+  color-scheme: light dark;
+  --paper: light-dark(#ebe2cc, #17140f);
+  --sheet: light-dark(#f6f0e1, #211c16);
+  --ink: light-dark(#231d15, #ede3cd);
+  --muted: light-dark(#5d5241, #a99a80);
+  --rule: light-dark(#b3a586, #40372b);
+  --edge: light-dark(#857659, #7a6d57);
+  --stamp: light-dark(#a92d1b, #ff6f52);
+  --on-stamp: light-dark(#f8f1e1, #1b0f09);
+  --transit: light-dark(#234f86, #93b6ec);
+  --delivered: light-dark(#2c6235, #8fd09a);
+  --hover: light-dark(#e2d6ba, #2a241c);
+  --display: "Saira Stencil One", "Archivo", sans-serif;
+  --text: "Archivo", "Noto Sans", "Segoe UI", sans-serif;
+  --data: "Courier Prime", "Courier New", monospace;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
+  scrollbar-color: var(--edge) var(--paper);
+  -webkit-text-size-adjust: 100%;
+}
+:root[data-scheme="light"] {
   color-scheme: light;
 }
-* {
+:root[data-scheme="dark"] {
+  color-scheme: dark;
+}
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 body {
   margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
-header,
-footer {
-  padding: 28px 40px;
-  border-bottom: 1px solid var(--line);
+::selection {
+  background: var(--stamp);
+  color: var(--on-stamp);
 }
-.brand,
-.mono,
-.revision,
-.section-head > span,
-footer,
-#access {
-  font-family: var(--font-mono, "IBM Plex Mono", monospace);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-}
-.brand {
-  color: var(--accent);
-  font-size: 16px;
-  font-weight: 700;
-}
-.brand span {
-  color: var(--muted);
-  margin-left: 24px;
-  font-size: 10px;
-}
-h1,
-h2,
-.empty strong {
-  font-family: var(--font-display, "Barlow Condensed", sans-serif);
-  font-weight: 600;
-}
-h1 {
-  font-size: 48px;
-  margin: 18px 0 8px;
-  letter-spacing: -0.03em;
-}
-.revision {
-  margin-left: 25px;
-  color: var(--muted);
-  vertical-align: middle;
-}
-header p {
-  color: var(--muted);
-  margin: 8px 0 20px;
-}
-#access {
-  color: var(--accent);
-}
-main {
+
+/* ── Waybill header ─────────────────────────────────────────────── */
+.waybill {
+  border-bottom: 2px dashed var(--ink);
+  padding: 22px clamp(18px, 4vw, 48px) 26px;
   display: grid;
-  grid-template-columns: 330px minmax(0, 1fr);
-  max-width: 1700px;
-  margin: auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "mark title access"
+    "mark lede  access";
+  column-gap: 22px;
+  align-items: start;
+}
+.waybill .mark {
+  grid-area: mark;
+  width: 64px;
+  height: 64px;
+  display: block;
+}
+.waybill h1 {
+  grid-area: title;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(34px, 5vw, 58px);
+  line-height: 0.95;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.waybill h1 span {
+  color: var(--stamp);
+}
+.lede {
+  grid-area: lede;
+  margin: 10px 0 0;
+  max-width: 62ch;
+  color: var(--muted);
+}
+.access {
+  grid-area: access;
+  justify-self: end;
+  max-width: 34ch;
+  font-family: var(--data);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: right;
+}
+.access strong {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 3px 9px;
+  border: 2px solid currentColor;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  transform: rotate(-2deg);
+}
+.access[data-state="write"] {
+  color: var(--delivered);
+}
+.access[data-state="read"] {
+  color: var(--stamp);
+}
+.access span {
+  display: block;
+  color: var(--muted);
+}
+
+/* ── Desk layout ────────────────────────────────────────────────── */
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  width: 100%;
+  max-width: 1640px;
+  margin: 0 auto;
 }
 aside {
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--rule);
 }
 section {
-  padding: 25px;
-  border-bottom: 1px solid var(--line);
+  padding: 26px clamp(18px, 2.4vw, 34px) 30px;
+}
+section + section {
+  border-top: 1px solid var(--rule);
 }
 h2 {
-  font-size: 19px;
-  letter-spacing: 0.04em;
-  margin: 0 0 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 18px;
+  font-size: 15px;
+  font-weight: 700;
+  font-stretch: 82%;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+h2 .code {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 2px solid var(--ink);
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 18px;
+}
+.section-head h2 {
+  margin: 0;
+}
+.tally {
+  font-family: var(--data);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+/* ── Ruled form boxes ───────────────────────────────────────────── */
+.form-grid,
+.pair {
+  display: grid;
+  gap: 1px;
+  background: var(--rule);
+}
+.form-grid {
+  border: 1px solid var(--edge);
+}
+.pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 12px;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px 10px 4px;
+  background: var(--sheet);
+  font-size: 11px;
+  font-weight: 600;
+  font-stretch: 85%;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
-  margin: 12px 0;
+}
+label:focus-within {
+  outline: 2px solid var(--stamp);
+  outline-offset: -2px;
+}
+.standalone {
+  border: 1px solid var(--edge);
+}
+.standalone + .standalone {
+  margin-top: 10px;
 }
 input,
 select,
 textarea,
 button {
   font: inherit;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  padding: 10px;
-  background: var(--paper);
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--ink);
+}
+label > input:not([type="checkbox"]),
+label > select,
+label > textarea {
+  width: 100%;
   min-width: 0;
+  margin: 0;
+  padding: 3px 0 5px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--data);
+  font-size: 15px;
+  font-weight: 400;
+  outline: none;
+}
+label > select {
+  cursor: pointer;
+}
+/* Option lists are drawn by the platform; give them explicit colours so a
+ * transparent select can never produce light text on a light popup. */
+option {
+  background: var(--sheet);
+  color: var(--ink);
+}
+option:checked {
+  background: var(--stamp);
+  color: var(--on-stamp);
 }
 textarea {
   resize: vertical;
-  font-family: var(--font-mono, "IBM Plex Mono", monospace);
-  font-size: 12px;
+  min-height: 64px;
+  line-height: 1.4;
 }
-button {
+::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+::-webkit-calendar-picker-indicator {
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
 }
-button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.primary {
-  background: var(--accent);
-  color: var(--paper);
-  border-color: var(--accent);
-}
-form > .primary {
-  width: 100%;
-  margin: 12px 0;
-}
-.pair {
+fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--rule);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-.pair label {
+  gap: 1px;
   min-width: 0;
+}
+legend {
+  float: left;
+  width: 100%;
+  padding: 8px 10px 6px;
+  background: var(--paper);
+  font-size: 11px;
+  font-weight: 700;
+  font-stretch: 85%;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
 }
 .check {
   flex-direction: row;
   align-items: center;
-  gap: 8px;
-  margin: 10px 0;
-}
-.check input {
-  accent-color: var(--accent);
-}
-fieldset {
-  border: 1px solid var(--line);
-  padding: 4px 10px;
-}
-legend {
-  font-size: 11px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-p {
+  gap: 10px;
+  padding: 10px;
   font-size: 13px;
-  line-height: 1.6;
+  font-weight: 500;
+  font-stretch: 100%;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  cursor: pointer;
 }
-p.muted {
-  font-size: 12px;
+input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  flex: none;
+  accent-color: var(--stamp);
+  cursor: pointer;
+}
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+
+/* ── Buttons: stamped primary, ruled secondary ───────────────────── */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1.5px solid var(--ink);
+  border-radius: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  font-stretch: 85%;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    color 140ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+button:hover:not(:disabled) {
+  background: var(--hover);
+}
+button:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+button:disabled {
+  border-style: dashed;
   color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.7;
 }
-.section-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
+.primary {
+  border-color: var(--stamp);
+  background: var(--stamp);
+  color: var(--on-stamp);
 }
-.section-head > span {
-  color: var(--accent);
+.primary:hover:not(:disabled) {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+.primary:disabled {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--edge);
+}
+.form-grid > button {
+  min-height: 48px;
+  border: 0;
+}
+.form-grid > button.primary:disabled {
+  background: var(--sheet);
+}
+.row-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
 }
 .toolbar {
   display: flex;
-  gap: 9px;
-  align-items: center;
   flex-wrap: wrap;
-  margin: 15px 0;
+  align-items: stretch;
+  gap: 8px;
+  margin: 14px 0;
 }
-.toolbar label {
-  margin: 0;
+.toolbar .check {
+  border: 1px solid var(--rule);
+  background: transparent;
 }
-.toolbar select {
-  max-width: 160px;
+.toolbar .source {
+  flex: 0 1 220px;
+  border: 1px solid var(--edge);
 }
+.toolbar .push {
+  margin-left: auto;
+}
+
+/* ── Copy ───────────────────────────────────────────────────────── */
+p {
+  margin: 12px 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.fine {
+  font-size: 13px;
+  color: var(--muted);
+}
+a {
+  color: var(--stamp);
+  text-underline-offset: 3px;
+}
+a:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: 2px;
+}
+.pager {
+  justify-content: flex-end;
+}
+.data,
+#library-state {
+  font-family: var(--data);
+}
+#library-state {
+  margin: 14px 0 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--edge);
+  font-size: 14px;
+}
+
+/* Status slip: a carbon copy pinned above the manifest. */
 #notice {
-  border-left: 2px solid var(--accent);
-  padding: 12px 15px;
-  background: var(--panel);
-  min-height: 60px;
-  color: var(--muted);
+  margin: 0;
+  padding: 12px 14px 12px 16px;
+  min-height: 52px;
+  border: 1px solid var(--rule);
+  border-left: 6px solid var(--stamp);
+  background: var(--sheet);
+  font-family: var(--data);
+  font-size: 14px;
 }
-.empty {
-  padding: 65px 30px;
-  border: 1px dashed var(--line);
-  text-align: center;
-  color: var(--muted);
-}
-.empty strong {
-  font-size: 34px;
-  color: var(--ink);
+
+/* ── Manifest (results) ─────────────────────────────────────────── */
+.results {
+  counter-reset: line;
+  border-top: 2px solid var(--ink);
 }
 .map {
+  counter-increment: line;
   display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 14px;
-  border-top: 1px solid var(--line);
-  padding: 19px 0;
+  grid-template-columns: 34px 22px minmax(0, 1fr);
+  gap: 4px 12px;
+  align-items: start;
+  padding: 16px 4px 16px 0;
+  border-bottom: 1px solid var(--rule);
 }
-.map input {
-  align-self: start;
-  margin-top: 5px;
+.map::before {
+  content: counter(line, decimal-leading-zero);
+  padding-top: 2px;
+  font-family: var(--data);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.map > input[type="checkbox"] {
+  margin-top: 3px;
+}
+.map:has(> input:checked) {
+  background: var(--hover);
 }
 .map a {
-  font-size: 18px;
-  font-weight: 600;
-  text-decoration: none;
   color: var(--ink);
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
-.map a:hover,
-a {
-  color: var(--accent);
+.map a:hover {
+  color: var(--stamp);
+  text-decoration: underline;
 }
 .map p {
+  margin: 4px 0 10px;
+  font-size: 13px;
   color: var(--muted);
-  margin: 8px 0;
+}
+.map .owned {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border: 1.5px solid var(--delivered);
+  color: var(--delivered);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  transform: rotate(-3deg);
+}
+.map > button {
+  grid-column: 2 / -1;
+  justify-self: start;
+}
+.map > button + p {
+  grid-column: 2 / -1;
 }
 .diffs {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 8px;
 }
+/* Difficulty tags: notched like a luggage tag. */
 .diffs span {
-  font-size: 11px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  padding: 5px 8px;
-}
-.queue-job {
-  border-top: 1px solid var(--line);
-  padding: 18px 0;
-}
-.queue-job p {
-  color: var(--muted);
-}
-progress {
-  width: 100%;
-  height: 5px;
-  accent-color: var(--accent);
-  margin-top: 15px;
-}
-.hash {
-  overflow-wrap: anywhere;
-  font: 10px var(--font-mono, "IBM Plex Mono", monospace);
-  color: var(--muted);
-}
-details {
-  margin: 18px 0;
-}
-summary {
-  cursor: pointer;
-  color: var(--accent);
+  position: relative;
+  padding: 3px 9px 3px 19px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 8px 100%, 0 50%);
+  font-family: var(--data);
   font-size: 13px;
 }
-footer {
-  border-bottom: 0;
-  border-top: 1px solid var(--line);
+.diffs span::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: calc(50% - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--edge);
+}
+.empty {
+  padding: 48px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid var(--rule);
+}
+.empty strong {
+  display: block;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(26px, 3vw, 34px);
+  text-transform: uppercase;
+}
+.empty p {
+  max-width: 58ch;
   color: var(--muted);
+}
+.results > p {
+  padding: 16px 0;
+  margin: 0;
+  color: var(--muted);
+}
+
+/* ── Dispatch queue (parcels with stamps) ───────────────────────── */
+#queue {
+  border-top: 2px solid var(--ink);
+}
+.queue-job {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.queue-job .section-head {
+  align-items: start;
+  margin-bottom: 10px;
+}
+.queue-job strong {
+  font-size: 16px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.queue-job .section-head > span {
+  flex: none;
+  padding: 2px 8px;
+  border: 2px solid currentColor;
+  font-family: var(--data);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  transform: rotate(-3deg);
+}
+.queue-job[data-state="running"] .section-head > span {
+  color: var(--transit);
+}
+.queue-job[data-state="done"] .section-head > span {
+  color: var(--delivered);
+}
+.queue-job[data-state="failed"] .section-head > span,
+.queue-job[data-state="cancelled"] .section-head > span {
+  color: var(--stamp);
+}
+.queue-job p {
+  margin: 8px 0;
+  font-family: var(--data);
+  font-size: 13px;
+  color: var(--muted);
+}
+.queue-job .toolbar {
+  margin: 8px 0 0;
+}
+progress {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 8px;
+  border: 1px solid var(--edge);
+  background: var(--sheet);
+  color: var(--transit);
+}
+progress::-webkit-progress-bar {
+  background: var(--sheet);
+}
+progress::-webkit-progress-value {
+  background: var(--transit);
+}
+progress::-moz-progress-bar {
+  background: var(--transit);
+}
+.queue-job[data-state="done"] progress::-webkit-progress-value {
+  background: var(--delivered);
+}
+.queue-job[data-state="done"] progress::-moz-progress-bar {
+  background: var(--delivered);
+}
+.hash {
+  align-self: center;
+  overflow-wrap: anywhere;
+  font-family: var(--data);
+  font-size: 12px;
+  color: var(--muted);
+}
+#queue > p {
+  margin: 0;
+  padding: 16px 0;
+  color: var(--muted);
+}
+
+/* ── Disclosures ────────────────────────────────────────────────── */
+details {
+  margin: 18px 0 0;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+details[open] {
+  padding-bottom: 14px;
+}
+summary {
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  font-stretch: 85%;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+summary:hover {
+  color: var(--stamp);
+}
+summary:focus-visible {
+  outline: 2px solid var(--stamp);
+  outline-offset: -2px;
+}
+details > :not(summary) {
+  margin-left: 14px;
+  margin-right: 14px;
+}
+details label,
+details .form-grid {
+  background: var(--paper);
+}
+details .form-grid {
+  background: var(--rule);
+}
+details .form-grid label {
+  background: var(--paper);
+}
+#settings > .primary {
+  margin-top: 14px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
+  gap: 6px 24px;
+  padding: 16px clamp(18px, 4vw, 48px);
+  border-top: 2px dashed var(--ink);
+  font-family: var(--data);
+  font-size: 12px;
+  color: var(--muted);
 }
-input:focus,
-textarea:focus,
-select:focus,
-button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-@media (max-width: 850px) {
+
+@media (max-width: 900px) {
   main {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   aside {
     border-right: 0;
+    border-bottom: 1px solid var(--rule);
   }
-  h1 {
-    font-size: 36px;
+  .waybill {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "mark title"
+      "lede lede"
+      "access access";
+    row-gap: 4px;
   }
-  .revision {
-    display: block;
-    margin: 12px 0;
+  .waybill .mark {
+    width: 48px;
+    height: 48px;
   }
-  header,
-  footer {
-    padding: 24px;
+  .access {
+    justify-self: start;
+    max-width: none;
+    margin-top: 14px;
+    text-align: left;
   }
-  footer {
-    display: block;
+  .toolbar .push {
+    margin-left: 0;
   }
-  footer span {
-    display: block;
-    margin-top: 10px;
+}
+@media (max-width: 480px) {
+  .toolbar > * {
+    flex: 1 1 calc(50% - 8px);
+  }
+  .toolbar .source,
+  .toolbar .check {
+    flex-basis: 100%;
+  }
+  .map {
+    grid-template-columns: 26px 20px minmax(0, 1fr);
+    gap: 4px 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
   }
 }
