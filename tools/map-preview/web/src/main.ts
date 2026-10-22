@@ -6,18 +6,34 @@ import {
   type Renderer,
   type Skin,
 } from "@vosu-tools/render-core";
+import { openOsk } from "./osk";
+import { hostSkinFiles, readCurrentSkin } from "./skin-source";
 import "./style.css";
+
+// The tool owns its look; the dashboard's mode is only a hint.
+const applyScheme = () => {
+  document.documentElement.dataset.scheme =
+    vosu.colorScheme ??
+    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+};
+applyScheme();
+
 const canvas = document.querySelector<HTMLCanvasElement>("#playfield")!,
   status = document.querySelector<HTMLElement>("#status")!,
   play = document.querySelector<HTMLButtonElement>("#play")!,
   seek = document.querySelector<HTMLInputElement>("#seek")!,
   rate = document.querySelector<HTMLInputElement>("#rate")!,
+  skinPanel = document.getElementById("skin-panel")!,
+  skinName = document.getElementById("skin-name")!,
+  skinSource = document.getElementById("skin-source")!,
+  skinMessage = document.getElementById("skin-message")!,
   audio = new Audio();
 let renderer: Renderer | undefined,
   map: Beatmap | undefined,
   selectedSkin: Skin | undefined,
   objectUrl: string | undefined,
   loadSequence = 0,
+  skinSequence = 0,
   animation = 0,
   manualTime = 0;
 const inputs = Object.fromEntries(
@@ -29,11 +45,116 @@ const inputs = Object.fromEntries(
 function showError(error: unknown): void {
   status.textContent = error instanceof Error ? error.message : String(error);
 }
-function installSkin(skin: Skin): void {
+function skinNotice(
+  message: string,
+  tone: "info" | "notice" | "error" = "info",
+): void {
+  skinMessage.textContent = message;
+  skinMessage.dataset.tone = tone;
+}
+/** Installs a skin (or the built-in defaults when `skin` is undefined). */
+function installSkin(
+  skin: Skin | undefined,
+  label: string,
+  source: string,
+): void {
   renderer?.setSkin(skin);
   const previous = selectedSkin;
   selectedSkin = skin;
   if (previous) for (const bitmap of previous.assets.values()) bitmap.close();
+  skinName.textContent = label;
+  skinSource.textContent = source;
+}
+const useDefaults = () =>
+  installSkin(undefined, "Default elements", "Built into Map preview");
+/** Runs a skin load; a later choice always wins over one still loading. */
+async function loadSkinFrom(
+  pending: string,
+  load: (isCurrent: () => boolean) => Promise<void>,
+): Promise<void> {
+  const seq = ++skinSequence;
+  skinPanel.setAttribute("aria-busy", "true");
+  skinNotice(pending);
+  try {
+    await load(() => seq === skinSequence);
+  } catch (error) {
+    if (seq === skinSequence)
+      skinNotice(
+        error instanceof Error ? error.message : String(error),
+        "error",
+      );
+  } finally {
+    if (seq === skinSequence) skinPanel.removeAttribute("aria-busy");
+  }
+}
+const fileCount = (count: number) =>
+  `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
+function currentSkin(): Promise<void> {
+  return loadSkinFrom(
+    "Asking vosu for the current skin…",
+    async (isCurrent) => {
+      const current = await readCurrentSkin();
+      if (!isCurrent()) return;
+      if (current.kind === "defaults") {
+        useDefaults();
+        skinNotice(current.message, "notice");
+        return;
+      }
+      const client = current.info.client!;
+      skinNotice(`Loading “${current.name}” from ${client}…`);
+      const host = hostSkinFiles(),
+        skin = await loadSkin(host.resolve, current.name);
+      if (!isCurrent()) {
+        for (const bitmap of skin.assets.values()) bitmap.close();
+        return;
+      }
+      if (!host.served) {
+        useDefaults();
+        skinNotice(
+          host.failures
+            ? `vosu could not serve the files of “${current.name}”, so default elements are shown. Load an .osk file or a skin folder instead.`
+            : `“${current.name}” has no skin.ini or gameplay elements that Map preview draws, so default elements are shown.`,
+          "notice",
+        );
+        return;
+      }
+      installSkin(
+        skin,
+        current.name,
+        `${client} · current skin · ${fileCount(host.served)}`,
+      );
+      skinNotice(
+        `Loaded the current ${client} skin. Elements it lacks use defaults.`,
+      );
+    },
+  );
+}
+async function userSkin(
+  name: string,
+  source: string,
+  resolve: (path: string) => Promise<Blob | null>,
+  isCurrent: () => boolean,
+): Promise<void> {
+  let used = 0;
+  const skin = await loadSkin(async (path) => {
+    const blob = await resolve(path);
+    if (blob) used++;
+    return blob;
+  }, name);
+  if (!isCurrent()) {
+    for (const bitmap of skin.assets.values()) bitmap.close();
+    return;
+  }
+  if (!used) {
+    useDefaults();
+    skinNotice(
+      `“${name}” contains no skin.ini or gameplay elements that Map preview draws, so default elements are shown.`,
+      "notice",
+    );
+    return;
+  }
+  installSkin(skin, name, `${source} · ${fileCount(used)} used`);
+  skinNotice(`Loaded “${name}”. Elements it lacks use defaults.`);
 }
 function refreshScene(): void {
   if (!map || !renderer) return;
@@ -76,15 +197,18 @@ async function openMap(text: string, audioSource?: string): Promise<void> {
   if (!map.objects.length)
     throw new Error("This beatmap contains no hit objects");
   if (!renderer) {
+    // The current skin loads alongside the map; one installed while the
+    // renderer was being created must still reach it.
+    const skin = selectedSkin;
     renderer = await createRenderer({
       canvas,
-      skin: selectedSkin,
+      skin,
       presentation:
         new URLSearchParams(location.search).get("presentation") === "bitmap"
           ? "bitmap"
           : "direct",
     });
-    if (!selectedSkin) await currentSkin();
+    if (selectedSkin !== skin) renderer.setSkin(selectedSkin);
   }
   refreshScene();
   if (audioSource) {
@@ -96,13 +220,10 @@ async function openMap(text: string, audioSource?: string): Promise<void> {
   document.getElementById("title")!.textContent =
     `${map.metadata.Artist ?? ""} — ${map.metadata.Title ?? "Untitled"}`;
   document.getElementById("detail")!.textContent =
-    `${map.metadata.Version ?? ""} / ${map.metadata.Creator ?? ""} / ${map.objects.length.toLocaleString()} objects`;
-  document.getElementById("mode")!.textContent = [
-    "OSU!",
-    "TAIKO",
-    "CATCH",
-    "MANIA",
-  ][map.mode];
+    `${map.metadata.Version ?? ""} · mapped by ${map.metadata.Creator ?? "unknown"} · ${map.objects.length.toLocaleString()} objects`;
+  const mode = document.getElementById("mode")!;
+  mode.textContent = ["OSU!", "TAIKO", "CATCH", "MANIA"][map.mode];
+  mode.dataset.mode = String(map.mode);
   status.textContent = audioSource
     ? ""
     : "Choose the map’s audio file to enable synchronized playback.";
@@ -120,20 +241,6 @@ async function currentMap(): Promise<void> {
     const text = await response.text();
     if (seq !== loadSequence) return;
     await openMap(text, `/files/beatmap/audio?v=${Date.now()}`);
-  } catch (error) {
-    showError(error);
-  }
-}
-async function currentSkin(): Promise<void> {
-  status.textContent = "Loading current skin…";
-  try {
-    const skin = await loadSkin(async (name) => {
-      const response = await fetch(`/files/skin/${encodeURIComponent(name)}`);
-      return response.ok ? response.blob() : null;
-    });
-    installSkin(skin);
-    document.getElementById("skin-name")!.textContent = "Client’s current skin";
-    status.textContent = "";
   } catch (error) {
     showError(error);
   }
@@ -214,30 +321,41 @@ document.querySelector<HTMLInputElement>("#audio-file")!.onchange = (event) => {
   play.disabled = !map;
   status.textContent = "";
 };
-document.querySelector<HTMLInputElement>("#skin-folder")!.onchange = async (
+document.querySelector<HTMLInputElement>("#skin-osk")!.onchange = (event) => {
+  const input = event.target as HTMLInputElement,
+    file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const name = file.name.replace(/\.(osk|zip)$/i, "");
+  void loadSkinFrom(`Reading “${file.name}”…`, async (isCurrent) => {
+    const archive = await openOsk(file);
+    if (!isCurrent()) return;
+    await userSkin(name, ".osk file", archive.resolve, isCurrent);
+  });
+};
+document.querySelector<HTMLInputElement>("#skin-folder")!.onchange = (
   event,
 ) => {
-  const files = (event.target as HTMLInputElement).files;
-  if (!files?.length) return;
-  status.textContent = "Loading selected skin…";
-  try {
-    const lookup = new Map<string, File>();
-    for (const file of files)
-      lookup.set(
-        file.webkitRelativePath.split("/").slice(1).join("/").toLowerCase(),
-        file,
-      );
-    const name = files[0].webkitRelativePath.split("/")[0],
-      skin = await loadSkin(
-        async (name) => lookup.get(name.toLowerCase()) ?? null,
-        name,
-      );
-    installSkin(skin);
-    document.getElementById("skin-name")!.textContent = name;
-    status.textContent = "";
-  } catch (error) {
-    showError(error);
-  }
+  const input = event.target as HTMLInputElement,
+    chosen = [...(input.files ?? [])];
+  input.value = "";
+  if (!chosen.length) return;
+  const lookup = new Map<string, File>();
+  for (const file of chosen)
+    lookup.set(
+      file.webkitRelativePath.split("/").slice(1).join("/").toLowerCase(),
+      file,
+    );
+  const name = chosen[0].webkitRelativePath.split("/")[0];
+  void loadSkinFrom(`Reading folder “${name}”…`, (isCurrent) =>
+    userSkin(
+      name,
+      "skin folder",
+      async (path) =>
+        lookup.get(path.replace(/\\/g, "/").toLowerCase()) ?? null,
+      isCurrent,
+    ),
+  );
 };
 window.addEventListener("pagehide", () => {
   cancelAnimationFrame(animation);
@@ -249,6 +367,10 @@ window.addEventListener("pagehide", () => {
 });
 try {
   await vosu.ready;
+  applyScheme();
+  document.getElementById("version")!.textContent =
+    `Map preview ${vosu.tool.version}`.trim();
+  void currentSkin();
   await currentMap();
 } catch (error) {
   showError(error);

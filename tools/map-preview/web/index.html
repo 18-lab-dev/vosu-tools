@@ -3,21 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Map preview · 18-LAB</title>
-    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+    <title>Map preview</title>
+    <link rel="icon" href="../art/icon.svg" type="image/svg+xml" />
   </head>
   <body>
-    <header>
-      <span class="brand">18—LAB / VOSU TOOLS</span>
-      <h1>Map preview</h1>
-      <button id="reload">Load selected map</button
-      ><label class="file"
-        >Open .osu<input id="map-file" type="file" accept=".osu"
-      /></label>
+    <header class="masthead">
+      <img class="mark" src="../art/icon.svg" alt="" width="40" height="40" />
+      <div class="masthead-title">
+        <h1>Map preview</h1>
+        <p>Play the selected beatmap in any ruleset, skin and mod set.</p>
+      </div>
+      <div class="masthead-actions">
+        <button id="reload" class="primary">Load selected map</button
+        ><label class="button file"
+          >Open .osu file<input id="map-file" type="file" accept=".osu"
+        /></label>
+      </div>
     </header>
     <main>
-      <section class="viewer">
-        <div class="section-label">01 / PLAYFIELD <span id="mode">—</span></div>
+      <section class="viewer" aria-labelledby="title">
+        <div class="slate">
+          <span id="mode" class="mode-badge" data-mode="">No map</span>
+          <h2 id="title">No beatmap</h2>
+          <p id="detail"></p>
+        </div>
         <div class="screen">
           <canvas
             id="playfield"
@@ -28,8 +37,8 @@
           <div id="status" role="status">Loading selected beatmap…</div>
         </div>
         <div class="transport">
-          <button id="play" disabled>Play</button
-          ><output id="time">0:00.000</output
+          <button id="play" class="primary play" disabled>Play</button
+          ><output id="time" aria-label="Map time">0:00.000</output
           ><input
             id="seek"
             aria-label="Seek"
@@ -38,7 +47,7 @@
             max="1000"
             value="0"
             step="1"
-          /><label
+          /><label class="rate"
             >Rate
             <input
               id="rate"
@@ -47,86 +56,115 @@
               max="3"
               value="1"
               step="0.05"
-            />×</label
-          ><label class="file"
-            >Audio<input id="audio-file" type="file" accept="audio/*"
+            /><span aria-hidden="true">×</span></label
+          ><label class="button file"
+            >Audio file<input id="audio-file" type="file" accept="audio/*"
           /></label>
         </div>
-        <h2 id="title">No beatmap</h2>
-        <p id="detail"></p>
-      </section>
-      <aside>
-        <div class="section-label">02 / DISPLAY</div>
-        <label
-          >Approach rate
-          <input
-            id="ar"
-            type="number"
-            min="0"
-            max="11"
-            step="0.1"
-            placeholder="Map default" /></label
-        ><label
-          >Circle size / keys
-          <input
-            id="cs"
-            type="number"
-            min="1"
-            max="18"
-            step="0.1"
-            placeholder="Map default" /></label
-        ><label
-          >Mania scroll speed
-          <input
-            id="scroll"
-            type="number"
-            min="1"
-            max="100"
-            step="1"
-            value="20" /></label
-        ><label
-          >Taiko / mania note speed
-          <input
-            id="note-speed"
-            type="number"
-            min="0.1"
-            max="5"
-            step="0.1"
-            value="1"
-        /></label>
-        <div class="section-label">03 / VISUAL MODS</div>
-        <fieldset id="mods">
-          <label><input type="checkbox" value="HR" />Hard Rock</label
-          ><label><input type="checkbox" value="EZ" />Easy</label
-          ><label><input type="checkbox" value="HD" />Hidden</label
-          ><label><input type="checkbox" value="FI" />Fade In · mania</label
-          ><label><input type="checkbox" value="FL" />Flashlight</label
-          ><label><input type="checkbox" value="MR" />Mirror</label
-          ><label><input type="checkbox" value="RD" />Random · seeded</label
-          ><label
-            ><input type="checkbox" value="UD" />Upside Down · mania</label
-          >
-        </fieldset>
-        <label
-          >Random seed<input id="seed" type="number" step="1" value="1"
-        /></label>
-        <div class="section-label">04 / SKIN</div>
-        <p id="skin-name">Client’s current skin</p>
-        <button id="current-skin">Use current skin</button
-        ><label class="file"
-          >Choose skin folder<input
-            id="skin-folder"
-            type="file"
-            webkitdirectory
-            multiple
-        /></label>
-        <p class="hint">
-          Folder files stay in this browser. Missing elements use built-in
-          shapes. Audio is the playback clock; seeking and rate changes keep map
-          time aligned.
+        <p class="footnote">
+          Audio is the playback clock; seeking and rate changes keep map time
+          aligned. Without audio, the seek bar still previews map time.
         </p>
+      </section>
+      <aside class="rail">
+        <section aria-labelledby="display-heading">
+          <h3 id="display-heading">Display</h3>
+          <label class="field"
+            >Approach rate
+            <input
+              id="ar"
+              type="number"
+              min="0"
+              max="11"
+              step="0.1"
+              placeholder="Map" /></label
+          ><label class="field"
+            >Circle size / keys
+            <input
+              id="cs"
+              type="number"
+              min="1"
+              max="18"
+              step="0.1"
+              placeholder="Map" /></label
+          ><label class="field"
+            >Mania scroll speed
+            <input
+              id="scroll"
+              type="number"
+              min="1"
+              max="100"
+              step="1"
+              value="20" /></label
+          ><label class="field"
+            >Taiko / mania note speed
+            <input
+              id="note-speed"
+              type="number"
+              min="0.1"
+              max="5"
+              step="0.1"
+              value="1"
+          /></label>
+        </section>
+        <section aria-labelledby="mods-heading">
+          <h3 id="mods-heading">Visual mods</h3>
+          <fieldset id="mods" aria-labelledby="mods-heading">
+            <label class="mod"
+              ><input type="checkbox" value="HR" /><b>HR</b>Hard Rock</label
+            ><label class="mod"
+              ><input type="checkbox" value="EZ" /><b>EZ</b>Easy</label
+            ><label class="mod"
+              ><input type="checkbox" value="HD" /><b>HD</b>Hidden</label
+            ><label class="mod"
+              ><input type="checkbox" value="FI" /><b>FI</b>Fade In
+              <small>mania</small></label
+            ><label class="mod"
+              ><input type="checkbox" value="FL" /><b>FL</b>Flashlight</label
+            ><label class="mod"
+              ><input type="checkbox" value="MR" /><b>MR</b>Mirror</label
+            ><label class="mod"
+              ><input type="checkbox" value="RD" /><b>RD</b>Random</label
+            ><label class="mod"
+              ><input type="checkbox" value="UD" /><b>UD</b>Upside Down
+              <small>mania</small></label
+            >
+          </fieldset>
+          <label class="field"
+            >Random seed<input id="seed" type="number" step="1" value="1"
+          /></label>
+        </section>
+        <section aria-labelledby="skin-heading" id="skin-panel">
+          <h3 id="skin-heading">Skin</h3>
+          <div class="skin-active">
+            <strong id="skin-name">Default elements</strong>
+            <span id="skin-source">Built into Map preview</span>
+          </div>
+          <p id="skin-message" role="status" aria-live="polite"></p>
+          <button id="current-skin" class="wide">Use current skin</button>
+          <div class="skin-files">
+            <label class="button file"
+              >Load .osk file<input
+                id="skin-osk"
+                type="file"
+                accept=".osk,.zip,application/zip"
+            /></label>
+            <label class="button file"
+              >Choose skin folder<input
+                id="skin-folder"
+                type="file"
+                webkitdirectory
+                multiple
+            /></label>
+          </div>
+          <p class="footnote">
+            Skin files you choose stay in this browser. Elements a skin lacks
+            use Map preview’s defaults.
+          </p>
+        </section>
       </aside>
     </main>
+    <footer><span id="version">Map preview</span><span>by 18-LAB</span></footer>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
