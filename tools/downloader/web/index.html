@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Beatmap downloader · 18-LAB</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body>
+    <header>
+      <div class="brand">18—LAB <span>VOSU / TOOLS</span></div>
+      <h1>
+        Beatmap downloader<span class="revision">01 / LIBRARY ACQUISITION</span>
+      </h1>
+      <p>Find your next session. Queue deliberately. Import on your terms.</p>
+      <div id="access"></div>
+    </header>
+    <main>
+      <aside>
+        <section>
+          <h2>01 / Discovery</h2>
+          <form id="search">
+            <label
+              >Discovery mode<select name="discovery">
+                <option value="search">Search all beatmaps</option>
+                <option value="mapper">Same mapper as current map</option>
+                <option value="similar">Similar star difficulty</option>
+                <option value="similar-msd">
+                  Similar mania MSD (cached ratings)
+                </option>
+                <option value="history">From recent play history</option>
+                <option value="ids">IDs or osu! links</option>
+                <option value="packs">Official beatmap packs</option>
+              </select></label
+            ><label
+              >Metadata provider<select name="provider">
+                <option value="mirror">osu.direct / selected mirror</option>
+                <option value="official">osu! API v2 · own credentials</option>
+              </select></label
+            ><label
+              >Search text<input
+                name="query"
+                placeholder="Artist, title, tags…"
+                maxlength="512" /></label
+            ><label
+              >Exact mapper<input
+                name="mapper"
+                placeholder="Optional creator name"
+            /></label>
+            <div class="pair">
+              <label
+                >Ruleset<select name="mode">
+                  <option value="">All modes</option>
+                  <option value="0">osu!</option>
+                  <option value="1">Taiko</option>
+                  <option value="2">Catch</option>
+                  <option value="3">Mania</option>
+                </select></label
+              ><label
+                >Status<select name="status">
+                  <option>any</option>
+                  <option>ranked</option>
+                  <option>approved</option>
+                  <option>qualified</option>
+                  <option>loved</option>
+                  <option>pending</option>
+                  <option>wip</option>
+                  <option>graveyard</option>
+                </select></label
+              >
+            </div>
+            <fieldset>
+              <legend>Skill / pacing</legend>
+              <div class="pair">
+                <label
+                  >Stars · min<input
+                    name="min_stars"
+                    type="number"
+                    min="0"
+                    step="0.1" /></label
+                ><label
+                  >Stars · max<input
+                    name="max_stars"
+                    type="number"
+                    min="0"
+                    step="0.1" /></label
+                ><label
+                  >BPM · min<input
+                    name="min_bpm"
+                    type="number"
+                    min="0" /></label
+                ><label
+                  >BPM · max<input
+                    name="max_bpm"
+                    type="number"
+                    min="0" /></label
+                ><label
+                  >Length · min (s)<input
+                    name="min_length"
+                    type="number"
+                    min="0" /></label
+                ><label
+                  >Length · max (s)<input
+                    name="max_length"
+                    type="number"
+                    min="0"
+                /></label>
+              </div>
+            </fieldset>
+            <div class="pair">
+              <label>Submitted after<input name="after" type="date" /></label
+              ><label
+                >Submitted before<input name="before" type="date"
+              /></label>
+            </div>
+            <label
+              >IDs / links<textarea
+                name="ids"
+                placeholder="12345 or https://osu.ppy.sh/beatmapsets/…"
+              ></textarea></label
+            ><label
+              >Pack tag<input
+                name="pack"
+                placeholder="Leave blank to list official packs"
+            /></label>
+            <div class="pair">
+              <label
+                >Results<input
+                  name="limit"
+                  type="number"
+                  min="1"
+                  max="50"
+                  value="20" /></label
+              ><label
+                >Mirror offset<input
+                  name="offset"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  value="0"
+              /></label>
+            </div>
+            <label class="check"
+              ><input name="hide_owned" type="checkbox" checked /> Hide owned
+              sets (stable DB)</label
+            ><button type="submit" class="primary write">
+              Search beatmaps
+            </button>
+          </form>
+          <div class="pair">
+            <button id="save-search" class="write">Save search</button
+            ><button id="save-preset" class="write">Save filter preset</button>
+          </div>
+          <label
+            >Saved searches<select id="saved">
+              <option value="">Choose a saved search</option>
+            </select></label
+          ><label
+            >Filter presets<select id="presets">
+              <option value="">Choose a preset</option>
+            </select></label
+          >
+        </section>
+        <section>
+          <h2>02 / Local context</h2>
+          <button id="library" class="write">
+            Refresh read-only library snapshot
+          </button>
+          <p id="library-state">
+            Refresh to detect owned stable maps and recent plays.
+          </p>
+          <p class="muted">
+            Lazer ownership is unknown: no supported local enumeration API.
+            Internal Realm storage is never opened. Stable databases are parsed
+            from temporary copies only.
+          </p>
+        </section>
+      </aside>
+      <div class="workspace">
+        <section>
+          <div class="section-head">
+            <h2>03 / Search results</h2>
+            <span id="result-count">NO QUERY</span>
+          </div>
+          <p id="notice" role="status">
+            Choose a discovery mode to begin. Nothing downloads until you
+            explicitly queue and resume.
+          </p>
+          <div class="toolbar">
+            <button id="select-all">Select all</button
+            ><label class="check"
+              ><input type="checkbox" id="no-video" checked /> Prefer no-video
+              if available</label
+            ><select id="download-source" aria-label="Download source"></select
+            ><button id="enqueue" class="primary write">Queue selected</button
+            ><button id="next-page" class="write" disabled>Next page</button
+            ><button id="cancel-search" class="write" disabled>
+              Cancel search
+            </button>
+          </div>
+          <div id="results" class="results">
+            <div class="empty">
+              <strong>A better next map.</strong>
+              <p>
+                Use the selected mapper, a difficulty window, a curated pack, or
+                your own play history.
+              </p>
+            </div>
+          </div>
+        </section>
+        <section>
+          <div class="section-head">
+            <h2>04 / Download queue</h2>
+            <span id="queue-status">PAUSED</span>
+          </div>
+          <div class="toolbar">
+            <button data-control="resume" class="primary write">Resume</button
+            ><button data-control="pause" class="write">Pause</button
+            ><button data-control="retry" class="write">Retry failed</button
+            ><button data-control="clear" class="write">Clear finished</button>
+          </div>
+          <div id="queue"></div>
+          <details>
+            <summary>Import destination</summary>
+            <label
+              >Client<select id="client">
+                <option value="stable">osu!stable · place .osz in Songs</option>
+                <option value="lazer">
+                  osu!(lazer) · open .osz with file handler
+                </option>
+              </select></label
+            ><label
+              >Stable Songs directory<input
+                id="songs"
+                placeholder="Absolute Songs path · confirm before import"
+            /></label>
+            <p>
+              Import only copies validated archives; no game database is
+              modified. Press F5 in stable Song Select or restart stable. For
+              lazer, choose lazer as the file handler or drag the archive into
+              its window.
+            </p>
+          </details>
+        </section>
+        <section>
+          <h2>05 / Tool settings</h2>
+          <details>
+            <summary>Sources, credentials &amp; saved workspace</summary>
+            <p>
+              Downloads use a source whose operator allows automation. No silent
+              failover. Each source is paced at 2 seconds/request or slower;
+              429/Retry-After and transient-server backoff apply.
+              <a
+                href="https://osu.direct/tos"
+                target="_blank"
+                rel="noopener noreferrer"
+                >osu.direct terms</a
+              >
+              ·
+              <a
+                href="https://osu.direct/api/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                >API and budgets</a
+              >
+            </p>
+            <form id="settings">
+              <div class="pair">
+                <label
+                  >Concurrent downloads (1–3)<input
+                    name="concurrency"
+                    type="number"
+                    min="1"
+                    max="3" /></label
+                ><label
+                  >Maximum archive MiB (1–128)<input
+                    name="max_file_mb"
+                    type="number"
+                    min="1"
+                    max="128" /></label
+                ><label
+                  >osu! API client ID<input
+                    name="client_id"
+                    autocomplete="off"
+                    inputmode="numeric"
+                    placeholder="Blank preserves saved value" /></label
+                ><label
+                  >osu! API client secret<input
+                    name="client_secret"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Never read back or logged"
+                /></label>
+              </div>
+              <p id="credential-state"></p>
+              <p class="muted">
+                Credentials stay in private service settings on disk (not an
+                encrypted keychain). No browser storage is used. Official
+                metadata requests are cached for 10 minutes and paced at ≤1
+                request/second. Official OAuth download endpoints are not used.
+              </p>
+              <label
+                >Mirror adapters · JSON<textarea
+                  name="sources"
+                  rows="9"
+                  spellcheck="false"
+                ></textarea>
+              </label>
+              <p class="muted">
+                Custom sources must implement the documented osu.direct API
+                shape. Set enabled, priority (lower first), interval_ms (≥2000),
+                terms_url, and automation_permitted only after checking operator
+                terms. Disabled sources receive no new traffic; queued jobs
+                retain their explicitly chosen source.
+              </p>
+              <button class="primary write" type="submit">Save settings</button>
+            </form>
+          </details>
+        </section>
+      </div>
+    </main>
+    <footer>
+      18-LAB / TOOL PROTOCOL 1
+      <span
+        >Personal use. Respect creators, provider terms and download
+        budgets.</span
+      >
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,28 @@
+[package]
+name = "vosu-downloader"
+version = "0.1.0"
+description = "Context-aware, polite beatmap discovery and download queue"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "vosu-downloader"
+path = "src/main.rs"
+
+[dependencies]
+vosu-tool-sdk = { path = "../../crates/vosu-tool-sdk" }
+osu-db = { path = "../../crates/osu-db" }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio", "query"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["rustls", "json", "stream", "form"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.150"
+tokio = { version = "=1.52.3", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util"] }
+tempfile = "3.27"
+sha2 = "0.10"
+md-5 = "0.10"
+zip = { version = "8", default-features = false, features = ["deflate"] }
+httpdate = "1"
+
+[dev-dependencies]
+tokio = { version = "=1.52.3", features = ["test-util"] }
