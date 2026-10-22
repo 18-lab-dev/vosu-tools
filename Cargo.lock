@@ -2506,7 +2506,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "vosu-ratings"
+name = "vosu-mania-ratings"
 version = "0.1.0"
 dependencies = [
  "axum",
@@ -2540,7 +2540,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
- "vosu-ratings",
+ "vosu-mania-ratings",
  "vosu-tool-sdk",
  "walkdir",
  "zip",

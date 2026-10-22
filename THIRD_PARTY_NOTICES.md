@@ -25,32 +25,32 @@ Each section records third-party code, data, or assets included in this reposito
 - Bundled fonts, SIL Open Font License 1.1, served offline from the tool package: Instrument Serif and Instrument Sans (Copyright 2022 The Instrument Serif / Instrument Sans Project Authors, https://github.com/Instrument), JetBrains Mono (Copyright 2020 The JetBrains Mono Project Authors, https://github.com/JetBrains/JetBrainsMono), via the Fontsource 5.3.0 packages. Licenses: `tools/skin-editor/licenses/{instrument-serif,instrument-sans,jetbrains-mono}-OFL.txt`.
 - `packages/skin-spec/spec.json` contains interoperability facts extracted from the osu! wiki skin.ini reference at revision `c9fa3ff277dba4c620d4731fd2c3fbb74770c20b`: https://github.com/ppy/osu-wiki/blob/c9fa3ff277dba4c620d4731fd2c3fbb74770c20b/wiki/Skinning/skin.ini/en.md. Wiki prose and images (CC-BY-NC-4.0) are not redistributed; hover wording is independently authored. Regenerate factual fields with `bun packages/skin-spec/generate.ts`.
 
-## Ratings
+## Mania ratings
 
 - MinaCalc 527: Etterna `2d706147cc4bcf95a8ceb24dc4f4129be207f803`,
   copyright 2016–2023 Etterna, MIT. Vendored in `crates/minacalc/vendor`;
-  package license `tools/ratings/licenses/MinaCalc.txt`.
+  package license `tools/mania-ratings/licenses/MinaCalc.txt`.
 - Quaver.API calculator 0.0.5: Quaver/Quaver.API
   `a921d561b2ece7f6bf3682446696c06c17b81649`,
   copyright 2017–2018 Swan & The Quaver Team, MPL-2.0. Separate port
-  `tools/ratings/src/quaver.rs` and unmodified test reference source.
+  `tools/mania-ratings/src/quaver.rs` and unmodified test reference source.
   Covered source is available in this repository; license
-  `tools/ratings/licenses/Quaver-MPL-2.0.txt`.
+  `tools/mania-ratings/licenses/Quaver-MPL-2.0.txt`.
 - Interlude/YAVSRG Prelude calculator:
   `1fe55766ae1fece3d433c966bf25822647bc8af6`, copyright 2024 percyqaz,
-  MIT. Separate port `tools/ratings/src/interlude.rs` and unmodified test
-  reference files; license `tools/ratings/licenses/Interlude-MIT.txt`.
+  MIT. Separate port `tools/mania-ratings/src/interlude.rs` and unmodified test
+  reference files; license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
 - osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
-  and checksums are in `tools/ratings/calibration-sources.json`. No third-party
+  and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.
 - UI fonts, bundled unmodified as WOFF2 latin/latin-ext subsets from
-  Fontsource 5.3.0 in `tools/ratings/web/src/fonts`: Newsreader (copyright
+  Fontsource 5.3.0 in `tools/mania-ratings/web/src/fonts`: Newsreader (copyright
   2020 The Newsreader Project Authors) and Martian Mono (copyright 2020 The
   Martian Mono Project Authors), both SIL OFL 1.1; licenses
-  `tools/ratings/licenses/Newsreader-OFL.txt` and
-  `tools/ratings/licenses/MartianMono-OFL.txt`.
-- Icon and banner art (`tools/ratings/assets`) are original to this project.
+  `tools/mania-ratings/licenses/Newsreader-OFL.txt` and
+  `tools/mania-ratings/licenses/MartianMono-OFL.txt`.
+- Icon and banner art (`tools/mania-ratings/assets`) are original to this project.
 
 ## Beatmap downloader / osu-db
 
@@ -87,7 +87,7 @@ The icon and banner artwork in `tools/downloader/assets/` is original.
 - LZMA-JS (`lzma` 2.3.2): MIT, Copyright (c) 2015 Nathan Rugg; https://github.com/nmrugg/LZMA-JS. Unmodified decompression dependency.
 - webm-muxer 5.1.4: MIT, Copyright (c) Vanilagy; https://github.com/Vanilagy/webm-muxer. WebCodecs chunk muxing; no encoders or codecs are bundled.
 - Native dependencies: clap (MIT OR Apache-2.0), uuid (MIT OR Apache-2.0), md-5 (MIT OR Apache-2.0), walkdir (Unlicense OR MIT; choose MIT), plus the shared vosu-tool-sdk. Release packaging includes the selected permissive dependency license texts.
-- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-ratings library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
+- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-mania-ratings library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
 - Chrome Headless Shell 156.0.8078.47 is downloaded as an external subprocess runtime from Google's [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) archive, SHA-256-pinned for Linux/Windows x86_64. Its entire upstream `LICENSE.headless_shell` and other archive notices remain beside the executable in the tool cache. It is not bundled into the tool package or linked into Rust code. `VOSU_RENDER_CHROMIUM` supports an explicit external runtime override. FFmpeg remains user-installed (`VOSU_RENDER_FFMPEG` override); MP4 uses VP9 (libvpx) and AAC, not libx264. Prefer an LGPL-only external FFmpeg distribution.
 - Studio typefaces, bundled into the web UI as WOFF2 files from Fontsource 5.3.0 variable packages: Bodoni Moda (Copyright 2020 The Bodoni Moda Project Authors), Hanken Grotesk (Copyright 2021 The Hanken Grotesk Project Authors) and Martian Mono (Copyright 2020 The Martian Mono Project Authors), all SIL Open Font License 1.1. Full texts ship in `tools/replay-renderer/licenses/*-OFL.txt`. The tool icon and banner are original artwork.
 - No beatmaps, replays, skins, audio or third-party overlay content are distributed. Tests use synthetic inputs or explicit temporary copies of locally installed user files.

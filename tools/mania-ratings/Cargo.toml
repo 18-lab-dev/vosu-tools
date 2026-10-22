@@ -1,5 +1,5 @@
 [package]
-name = "vosu-ratings"
+name = "vosu-mania-ratings"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 publish = false
 
 [[bin]]
-name = "vosu-ratings"
+name = "vosu-mania-ratings"
 path = "src/main.rs"
 
 [dependencies]

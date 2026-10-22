@@ -1,4 +1,4 @@
-# Ratings provenance and semantics
+# Mania ratings provenance and semantics
 
 ## Calculator selection
 
@@ -69,7 +69,7 @@ not interchangeable. This model describes only these v1 course charts.
 
 Reproduce: download `all.zip`, extract `1st Pack - v1.osz` and `2nd Pack - v1.osz`
 as ZIPs, verify each selected `.osu` against `calibration-sources.json`, then run
-`vosux ratings <chart.osu> --rate 1 --json`
+`vosux mania-ratings <chart.osu> --rate 1 --json`
 in ascending dan order. The CLI uses the exact production parser and native
 calculator and prints computed values without changing model files. Calibration
 was independently computed with a standalone C++20 reference driver calling
@@ -132,7 +132,7 @@ Parsing, disk reads, SQLite and native calculation are all off the async runtime
   these are reference stars, not Etterna or Quaver units.
 
 `tests/reference/{quaver,interlude}` retain unmodified upstream calculator files
-and minimal native-chart adapters. Run `python tools/ratings/tests/reference/generate.py`
+and minimal native-chart adapters. Run `python tools/mania-ratings/tests/reference/generate.py`
 from the workspace with .NET 8 installed to reproduce `tests/fixtures/reference.json`.
 The generated fixtures include full strain arrays and overall values at 0.75,
 1.00 and 1.50× on synthetic cyclic 4K and mixed chord/LN/gap 7K charts.
@@ -203,7 +203,7 @@ isolated real vosu dev daemon: **398.71 ms cold HTTP response**, **8.15 ms cache
 12 s centered windows / 1 s hop / rate 1.00. These include HTTP transfer and JSON
 parsing, not just calculator CPU time. A fresh temporary data directory ensured
 the first request had no cached timeline. `tests/smoke.py` reproduces this and
-writes `/tmp/vosu-tools-evidence/ratings/timings.json`. Hardware-load variation
+writes `/tmp/vosu-tools-evidence/mania-ratings/timings.json`. Hardware-load variation
 and release optimization will affect timings; these are observations, not SLAs.
 
 Sections recompute all systems on heads inside `[start,end)`, retain associated
@@ -212,7 +212,17 @@ This last policy preserves initial-note timing in Interlude and ensures a
 whole-map section has identical numerical ratings to the complete map.
 Reset-context section results need not equal plotted contextual strain peaks.
 
-The UI draws Canvas timelines/NPS and an SVG rate curve without chart libraries.
+The UI is a single-screen dashboard (designed for 1920 × 1080, scaling to
+2560 × 1440; it stacks and scrolls below ~1100 px). It subscribes to
+`/websocket/v2/subscribe` (`/beatmap/checksum`, `/play/mods/rate`,
+`/play/mods/name`, `/state/number`, `/beatmap/time/live`, `/beatmap/mode/name`)
+and re-analyses the selected chart at the game's rate, rounded to 0.05×; during
+play it marks the live position. Manual mode (a typed rate or an opened .osu)
+re-rates the chart on screen by checksum and ignores the game until Follow game.
+Non-mania selections keep the last mania analysis dimmed and state why.
+Defaults come from `settings.json` (follow, readouts shown, timeline system,
+window/hop, rate-curve step), read through the bridge or `/tools/<id>/_settings`.
+It draws Canvas timelines/NPS and an SVG rate curve without chart libraries.
 Drag a range or enter explicit times to request section ratings. Reform estimates
 are always experimental. No additional dan model is claimed: Companella's rice
 model needs its trained ONNX and multiple other calculators; its LN calibration

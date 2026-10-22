@@ -1,5 +1,5 @@
 use rosu_map::Beatmap;
-use vosu_ratings::{Params, calculate, checksum, estimate_dan, rows};
+use vosu_mania_ratings::{Params, calculate, checksum, estimate_dan, rows};
 fn chart(mode: u8, keys: u8, objects: &str) -> Vec<u8> {
     format!("osu file format v14\n[General]\nMode:{mode}\n[Difficulty]\nCircleSize:{keys}\n[HitObjects]\n{objects}").into_bytes()
 }

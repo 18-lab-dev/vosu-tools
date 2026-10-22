@@ -50,7 +50,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "banner_url": "https://github.com/…/vosu-tool-practice-banner.svg",
       "protocol": 1,
       "interfaces": ["ui", "service", "cli"],
-      "requires": [{"id": "ratings", "version": ">=0.1.0"}],
+      "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
       "packages": {
         "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.0-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
         "x86_64-unknown-linux-gnu": {"url": "…", "sha256": "…", "size": 1234567}
@@ -60,7 +60,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
   "overlays": [
     {
       "id": "ratings-timeline",
-      "name": "Ratings timeline",
+      "name": "Mania ratings timeline",
       "version": "0.1.0",
       "description": "…",
       "author": "18-LAB",
@@ -69,7 +69,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "preview": "https://…/ratings-timeline.png",
       "icon_url": "https://…/vosu-overlay-ratings-timeline-icon.png",
       "banner_url": "https://…/vosu-overlay-ratings-timeline-banner.png",
-      "requires_tools": [{"id": "ratings", "version": ">=0.1.0"}],
+      "requires_tools": [{"id": "mania-ratings", "version": ">=0.1.0"}],
       "package": {"url": "https://github.com/…/vosu-overlay-ratings-timeline-0.1.0.zip", "sha256": "<64 hex>", "size": 123456}
     }
   ]

@@ -74,6 +74,16 @@
         "vite": "^7.2.4",
       },
     },
+    "tools/mania-ratings/web": {
+      "name": "@vosu-tools/mania-ratings",
+      "dependencies": {
+        "@vosu-tools/tool-web": "workspace:*",
+      },
+      "devDependencies": {
+        "typescript": "^5.9.3",
+        "vite": "^7.2.2",
+      },
+    },
     "tools/map-preview/web": {
       "name": "@vosu-tools/map-preview",
       "version": "0.1.0",
@@ -100,16 +110,6 @@
       "devDependencies": {
         "typescript": "^5.9.3",
         "vite": "^7.2.4",
-      },
-    },
-    "tools/ratings/web": {
-      "name": "@vosu-tools/ratings",
-      "dependencies": {
-        "@vosu-tools/tool-web": "workspace:*",
-      },
-      "devDependencies": {
-        "typescript": "^5.9.3",
-        "vite": "^7.2.2",
       },
     },
     "tools/replay-renderer/web": {
@@ -296,13 +296,13 @@
 
     "@vosu-tools/downloader": ["@vosu-tools/downloader@workspace:tools/downloader/web"],
 
+    "@vosu-tools/mania-ratings": ["@vosu-tools/mania-ratings@workspace:tools/mania-ratings/web"],
+
     "@vosu-tools/map-preview": ["@vosu-tools/map-preview@workspace:tools/map-preview/web"],
 
     "@vosu-tools/osu-parse": ["@vosu-tools/osu-parse@workspace:packages/osu-parse"],
 
     "@vosu-tools/practice": ["@vosu-tools/practice@workspace:tools/practice/web"],
-
-    "@vosu-tools/ratings": ["@vosu-tools/ratings@workspace:tools/ratings/web"],
 
     "@vosu-tools/render-core": ["@vosu-tools/render-core@workspace:packages/render-core"],
 
