@@ -11,6 +11,7 @@ Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each too
 | Map preview | `map-preview` | UI | WebGPU previews for all four rulesets, audio-synced seeking/rate, visual mods, AR/CS and scroll controls; skins from the client's current skin (stable, or lazer via vosu's `/files/skin/` report, with built-in lazer skins falling back to defaults), an `.osk` file, or a skin folder; [shared renderer API](packages/render-core/README.md) |
 | Replay renderer | `replay-renderer` | service, CLI, UI | Deterministic multi-replay studio with player presets and per-ruleset render settings; browser WebM and native MP4 using a SHA-256-pinned managed browser plus external FFmpeg, without Node. [Settings/runtime contract](tools/replay-renderer/README.md). Judgement HUD appears only when stored counts verify. |
 | Beatmap downloader | `downloader` | service, UI | Context-aware discovery, read-only stable library/history, and a polite validated mirror queue |
+| Lazer library | `lazer-library` | service, CLI | Read-only, consistent Realm snapshots for MD5 map lookup, owned sets, skins and replay files; [schema and concurrency design](crates/realm-reader/DESIGN.md) |
 
 ## Layout
 

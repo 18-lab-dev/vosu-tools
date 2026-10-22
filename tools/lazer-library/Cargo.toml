@@ -1,0 +1,24 @@
+[package]
+name = "vosu-lazer-library"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+realm-reader = { path = "../../crates/realm-reader" }
+vosu-tool-sdk = { path = "../../crates/vosu-tool-sdk" }
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+notify = "8"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+clap = { version = "4", features = ["derive"] }
+unicase = "2"
+
+[dev-dependencies]
+tempfile = "3"
+md-5 = "0.10"
+tower = { version = "0.5", features = ["util"] }

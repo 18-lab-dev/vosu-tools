@@ -1,0 +1,3 @@
+[
+  {"uniqueID":"lazer_data_dir","type":"text","title":"Lazer data folder","description":"Optional folder containing client.realm and files. The active lazer client's songs folder takes precedence. storage.ini custom locations are followed. Read-only.","value":""}
+]
