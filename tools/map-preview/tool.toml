@@ -4,6 +4,8 @@ name = "Map preview"
 version = "0.1.0"
 description = "Preview the selected beatmap in all four rulesets, with audio, skins, and visual mods."
 author = "18-LAB"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [ui]
 root = "web/dist"

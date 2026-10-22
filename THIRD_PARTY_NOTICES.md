@@ -56,7 +56,9 @@ are shipped by the package license generator; see `tools/downloader/Cargo.toml`.
 ## Map preview and shared render-core
 
 - vgpu 0.6.0 and its bundled @vgpu runtime modules: MIT, Copyright (c) 2025 Vercel, Inc.; https://github.com/vercel-labs/vgpu. License shipped in `tools/map-preview/licenses/vgpu-MIT.txt`. Used for WebGPU device initialization and lifecycle; rendering uses an original WGSL instance pipeline.
-- No third-party skin images, audio, beatmaps, or fonts are distributed by this tool. User-selected skin and map data remain user-owned.
+- Familjen Grotesk (variable, Latin and Latin Extended subsets): SIL Open Font License 1.1, Copyright 2021 The Familjen Grotesk Project Authors; https://github.com/Familjen-Sthlm/Familjen-Grotesk. WOFF2 files from Fontsource 5.3.0, unmodified, in `tools/map-preview/web/src/fonts/`; license shipped in `tools/map-preview/licenses/FamiljenGrotesk-OFL.txt`.
+- Martian Mono (variable, Latin and Latin Extended subsets): SIL Open Font License 1.1, Copyright 2020 The Martian Mono Project Authors; https://github.com/evilmartians/mono. WOFF2 files from Fontsource 5.3.0, unmodified, in `tools/map-preview/web/src/fonts/`; license shipped in `tools/map-preview/licenses/MartianMono-OFL.txt`.
+- The Map preview icon and banner (`tools/map-preview/art/`) are original artwork under the project license. No third-party skin images, audio, or beatmaps are distributed by this tool. User-selected skin and map data remain user-owned.
 
 ## Replay renderer, replay and render-export
 
