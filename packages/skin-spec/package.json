@@ -1,1 +1,11 @@
-{"name":"@vosu-tools/skin-spec","version":"0.1.0","type":"module","license":"MIT OR Apache-2.0","exports":"./index.ts","scripts":{"test":"bun test","generate":"bun generate.ts"}}
+{
+  "name": "@vosu-tools/skin-spec",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "exports": "./index.ts",
+  "scripts": {
+    "test": "bun test",
+    "generate": "bun generate.ts"
+  }
+}

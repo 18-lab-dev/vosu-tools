@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>skin.ini editor · 18-LAB</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
+  </head>
+  <body>
+    <header>
+      <span>18-LAB / VOSU TOOLS</span>
+      <h1>skin.ini editor</h1>
+      <p>01 / OSU!STABLE SKIN WORKSTATION</p>
+    </header>
+    <nav>
+      <label
+        >Skin
+        <select id="skins" aria-label="Skin"></select></label
+      ><button id="reload">Reload from disk</button
+      ><button id="save" disabled>Save + backup</button><span id="mode"></span>
+    </nav>
+    <p id="status" role="status">Connecting…</p>
+    <main>
+      <div id="editor" aria-label="skin.ini source editor"></div>
+      <aside>
+        <h2>02 / INSPECTION</h2>
+        <p>
+          Ctrl+Space: completion<br />Hover: reference<br />Click a colour
+          swatch: picker<br />Ctrl+.: quick fixes
+        </p>
+        <h3>Diagnostics</h3>
+        <ol id="diagnostics"></ol>
+        <h3>File safety</h3>
+        <p>
+          Save creates a unique backup before atomic replacement. External edits
+          block saving until reload.
+        </p>
+        <p>
+          Only stable skins are supported. Lazer's managed skin database has no
+          safe direct write path here.
+        </p>
+        <p id="revision"></p>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
