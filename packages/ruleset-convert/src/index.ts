@@ -169,8 +169,13 @@ export function convertBeatmap(
  * hyper-dashes and Hard Rock adds its seeded fruit offsets.
  */
 export function catchObjects(map: Beatmap): CatchObject[] {
-  return convertToCatch(legacyBeatmap(map), {
+  const objects = convertToCatch(legacyBeatmap(map), {
     circleSize: map.difficulty.cs,
-    hardRock: map.visualMods.includes("HR"),
+    hardRock: map.catchHardRockOffsets ?? map.visualMods.includes("HR"),
   });
+  // CatchModMirror flips every final position after conversion (native catch
+  // maps; `applyMods` already mirrors osu! maps before they are converted).
+  if (map.mode === 2 && map.visualMods.includes("MR"))
+    for (const o of objects) o.x = 512 - o.x;
+  return objects;
 }

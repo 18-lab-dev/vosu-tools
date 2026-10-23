@@ -71,6 +71,50 @@ struct Native {
     rating: Option<Value>,
     timelines: BTreeMap<String, Value>,
 }
+/// The mods an overlay's pp rating uses.
+pub struct RatingMods {
+    pub rate: f64,
+    pub legacy: u32,
+    pub acronyms: Option<String>,
+    pub overrides: DifficultyOverrides,
+}
+impl RatingMods {
+    /// rosu-pp's difficulty for these mods: lazer's acronyms carry Classic (no
+    /// slider head accuracy) and the rest of its mod list, the legacy bits are
+    /// all osu!stable has; Difficulty Adjust values replace the map's.
+    pub fn difficulty(&self, lazer: bool) -> rosu_pp::Difficulty {
+        let mut difficulty = rosu_pp::Difficulty::new()
+            .clock_rate(self.rate)
+            .lazer(lazer);
+        difficulty = match &self.acronyms {
+            Some(acronyms) => difficulty
+                .mods(rosu_pp::model::mods::rosu_mods::GameModsIntermode::from_acronyms(acronyms)),
+            None => difficulty.mods(self.legacy),
+        };
+        let o = self.overrides;
+        if let Some(ar) = o.ar {
+            difficulty = difficulty.ar(ar, true);
+        }
+        if let Some(cs) = o.cs {
+            difficulty = difficulty.cs(cs, true);
+        }
+        if let Some(od) = o.od {
+            difficulty = difficulty.od(od, true);
+        }
+        if let Some(hp) = o.hp {
+            difficulty = difficulty.hp(hp, true);
+        }
+        difficulty
+    }
+}
+/// Difficulty Adjust values that replace the map's (never adjusted by other mods).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+pub struct DifficultyOverrides {
+    pub ar: Option<f32>,
+    pub cs: Option<f32>,
+    pub od: Option<f32>,
+    pub hp: Option<f32>,
+}
 pub struct Overlays {
     pub layers: Vec<Overlay>,
     source: watch::Sender<Value>,
@@ -158,17 +202,12 @@ impl Overlays {
         &self,
         files: crate::library::MapFiles,
         bytes: Vec<u8>,
-        rate: f64,
-        mods: u32,
+        mods: RatingMods,
         initial: Value,
     ) -> Result<(), Error> {
         let map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
         // osu!stable scores are rated as stable rates them; lazer's need its tick counts (see `frame`).
-        let lazer = initial["__render"]["client"] != "stable";
-        let difficulty = rosu_pp::Difficulty::new()
-            .clock_rate(rate)
-            .mods(mods)
-            .lazer(lazer);
+        let difficulty = mods.difficulty(initial["__render"]["client"] != "stable");
         *self.native.lock().await = Some(Native {
             bytes: bytes.into(),
             files,
@@ -675,5 +714,33 @@ mod tests {
         let mut too_many: Vec<_> = (0..3).map(|_| layer(root.join("folder"))).collect();
         assert!(Overlays::validate(&mut too_many, 11).is_err());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rating_uses_lazer_mods_and_difficulty_adjust() {
+        let mods = RatingMods {
+            rate: 1.25,
+            legacy: 64,
+            acronyms: Some("DTCL".into()),
+            overrides: DifficultyOverrides {
+                od: Some(9.5),
+                ..Default::default()
+            },
+        };
+        let inspected = mods.difficulty(true).inspect();
+        assert_eq!(inspected.clock_rate, Some(1.25));
+        assert_eq!(inspected.lazer, Some(true));
+        let listed = format!("{:?}", inspected.mods);
+        assert!(
+            listed.contains("Classic") && listed.contains("DoubleTime"),
+            "{listed}"
+        );
+        assert!(format!("{:?}", inspected.od).contains("9.5"));
+        // osu!stable replays keep their legacy bits.
+        let stable = RatingMods {
+            acronyms: None,
+            ..mods
+        };
+        assert!(!format!("{:?}", stable.difficulty(false).inspect().mods).contains("Classic"));
     }
 }

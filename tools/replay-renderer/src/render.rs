@@ -334,6 +334,9 @@ struct Begin {
     /// The first track's map: its song is the soundtrack.
     hash: String,
     rate: f64,
+    /// The song's pitch follows the rate (Nightcore, Daycore, DT/HT "adjust pitch").
+    #[serde(default)]
+    pitch: bool,
     frames: u64,
     /// Map time of the first frame; negative during a lead-in before the song.
     #[serde(default)]
@@ -347,6 +350,12 @@ struct TrackBegin {
     hash: String,
     #[serde(default)]
     mods: u32,
+    /// lazer's mod acronyms (with Classic and custom-rate mods), when the replay stores them.
+    #[serde(default)]
+    acronyms: Option<String>,
+    /// Difficulty Adjust's values, which replace the map's.
+    #[serde(default)]
+    overrides: crate::overlays::DifficultyOverrides,
     #[serde(default)]
     initial: Value,
 }
@@ -358,7 +367,8 @@ async fn begin(
     if encoder.is_some() {
         return Err(error("Encoder already started"));
     }
-    if ![0.75, 1.0, 1.5].contains(&input.rate) || input.frames == 0 || !input.start_ms.is_finite() {
+    // lazer's rate mods run from 0.5× to 2×.
+    if !(0.5..=2.0).contains(&input.rate) || input.frames == 0 || !input.start_ms.is_finite() {
         return Err(error("Invalid export clock"));
     }
     let map = crate::library::find_map(&worker.app, &input.hash).await?;
@@ -372,7 +382,17 @@ async fn begin(
         let bytes = tokio::fs::read(files.osu()).await.map_err(error)?;
         instance
             .overlays
-            .configure(files, bytes, input.rate, track.mods, track.initial.clone())
+            .configure(
+                files,
+                bytes,
+                crate::overlays::RatingMods {
+                    rate: input.rate,
+                    legacy: track.mods,
+                    acronyms: track.acronyms.clone(),
+                    overrides: track.overrides,
+                },
+                track.initial.clone(),
+            )
             .await?;
     }
     let audio = text
@@ -419,6 +439,7 @@ async fn begin(
             "-af",
             &audio_filter(
                 input.rate,
+                input.pitch,
                 input.start_ms,
                 input.frames as f64 / f64::from(worker.request.fps),
                 worker.request.fade_ms.unwrap_or(0),
@@ -441,9 +462,10 @@ async fn begin(
     worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":"Rendering frames","total_frames":input.frames,"result":null}));
     Ok(Json(json!({"ready":true})))
 }
-/// The song on the video clock: tempo for the replay rate, silence during a
-/// lead-in (or the map start skipped), lazer's entry fade in and the outro fade out.
-fn audio_filter(rate: f64, start_ms: f64, seconds: f64, fade_ms: u32) -> String {
+/// The song on the video clock: tempo for the replay rate (pitch-shifted when
+/// `pitch`, as Nightcore does), silence during a lead-in (or the map start
+/// skipped), lazer's entry fade in and the outro fade out.
+fn audio_filter(rate: f64, pitch: bool, start_ms: f64, seconds: f64, fade_ms: u32) -> String {
     let mut filters = Vec::new();
     if start_ms > 0.0 {
         filters.push(format!(
@@ -451,7 +473,15 @@ fn audio_filter(rate: f64, start_ms: f64, seconds: f64, fade_ms: u32) -> String 
             start_ms / 1000.0
         ));
     }
-    filters.push(format!("atempo={rate}"));
+    if pitch {
+        // Resample at a fixed rate, then play it back faster or slower.
+        filters.push(format!(
+            "aresample=48000,asetrate={},aresample=48000",
+            (48000.0 * rate).round()
+        ));
+    } else {
+        filters.push(format!("atempo={rate}"));
+    }
     if start_ms < 0.0 {
         filters.push(format!("adelay={:.0}:all=1", -start_ms / rate));
     }
@@ -566,13 +596,18 @@ mod tests {
     fn audio_follows_lead_in_rate_and_fades() {
         // Lead-in two seconds before the song at 1.5×: 1333 ms of silence first.
         assert_eq!(
-            audio_filter(1.5, -2000.0, 60.0, 250),
+            audio_filter(1.5, false, -2000.0, 60.0, 250),
             "atempo=1.5,adelay=1333:all=1,apad,afade=t=in:st=0.250:d=0.250,afade=t=out:st=59.750:d=0.250"
         );
         // A render starting after the song begins skips into it; no fade out requested.
         assert_eq!(
-            audio_filter(1.0, 1500.0, 10.0, 0),
+            audio_filter(1.0, false, 1500.0, 10.0, 0),
             "atrim=start=1.500,asetpts=PTS-STARTPTS,atempo=1,apad,afade=t=in:st=0.250:d=0.250"
+        );
+        // Nightcore at a custom 1.25×: the pitch rises with the tempo.
+        assert_eq!(
+            audio_filter(1.25, true, 0.0, 10.0, 0),
+            "aresample=48000,asetrate=60000,aresample=48000,apad,afade=t=in:st=0.250:d=0.250"
         );
     }
 }

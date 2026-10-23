@@ -1,4 +1,5 @@
 import codec from "lzma/src/lzma-d.js";
+import { replayRate } from "./mods";
 
 export type Mode = 0 | 1 | 2 | 3;
 export interface Counts {
@@ -189,7 +190,8 @@ export async function parseReplay(bytes: Uint8Array): Promise<Replay> {
     timestamp,
     onlineId,
     ...parseFrames(text),
-    rate: mods & (64 | 512) ? 1.5 : mods & 256 ? 0.75 : 1,
+    // lazer's custom speeds (e.g. DT 1.25×) win over the legacy bits.
+    rate: replayRate({ mods, lazer }),
     lazer,
   };
 }
@@ -302,3 +304,8 @@ export * from "./simulation";
 export * from "./scoring";
 export * from "./osu";
 export * from "./catch";
+export * from "./mods";
+export * from "./taiko";
+export * from "./mania";
+export * from "./health";
+export * from "./judge";

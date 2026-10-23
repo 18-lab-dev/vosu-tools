@@ -1,4 +1,5 @@
 import { type Replay, type Counts, healthAt } from "./index";
+import type { HealthPoint } from "./health";
 
 export interface ReplayNote {
   time: number;
@@ -18,8 +19,10 @@ export interface Judgement {
   offset: number;
   /** `false` when `offset` is not a hit error (ticks, catches, spinners). */
   timed?: boolean;
-  /** lazer's result name (`great`, `large_tick_hit`, ...), osu! and catch only. */
+  /** lazer's result name (`great`, `large_tick_hit`, ...), lazer's rules only. */
   kind?: string;
+  /** The judged object (a hold's `head` or `tail`, ...), lazer's rules only. */
+  object?: string;
   x: number;
   y: number;
   combo: number;
@@ -40,8 +43,10 @@ export interface Simulation {
   warnings: string[];
   /** Whose rules judged the replay (osu! and catch). */
   client?: "stable" | "lazer";
-  /** lazer `HitResult` counts (osu! and catch). */
+  /** lazer `HitResult` counts (lazer's rules). */
   statistics?: Record<string, number>;
+  /** lazer's health bar from these judgements (see `health.ts`). */
+  health?: HealthPoint[];
 }
 const empty = (): Counts => ({
   n300: 0,
@@ -112,14 +117,14 @@ export function simulate(
     }
     previous = mask;
   }
+  // Mania Hard Rock and Easy narrow or widen the windows (OD itself is unchanged).
+  const scale =
+    replay.rate * (replay.mode === 3 ? (replay.mods & 16 ? 1 / 1.4 : replay.mods & 2 ? 1.4 : 1) : 1);
   const windows =
     replay.mode === 3
-      ? [16, 64 - 3 * od, 97 - 3 * od, 127 - 3 * od, 151 - 3 * od].map(
-          (value) => value * replay.rate,
-        )
-      : [49.5 - 3 * od, 119.5 - 8 * od].map((value) => value * replay.rate);
-  const missWindow =
-    replay.mode === 3 ? (188 - 3 * od) * replay.rate : windows[1];
+      ? [16, 64 - 3 * od, 97 - 3 * od, 127 - 3 * od, 151 - 3 * od].map((value) => value * scale)
+      : [49.5 - 3 * od, 119.5 - 8 * od].map((value) => value * scale);
+  const missWindow = replay.mode === 3 ? (188 - 3 * od) * scale : windows[1];
   const results: Result[] =
     replay.mode === 3
       ? ["geki", "n300", "katu", "n100", "n50"]
@@ -277,7 +282,12 @@ export function stateAt(replay: Replay, simulation: Simulation, time: number) {
     counts: event?.counts ?? empty(),
     accuracy: event?.accuracy ?? 1,
     score: simulation.scoreVerified ? (event?.score ?? 0) : null,
-    health: healthAt(replay, time),
+    // The recorded life graph, else lazer's simulated bar (verified judgements only).
+    health: replay.life.length
+      ? healthAt(replay, time)
+      : simulation.verified && simulation.health?.length
+        ? healthAt({ life: simulation.health }, time)
+        : null,
     verified: simulation.verified,
   };
 }

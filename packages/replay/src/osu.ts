@@ -20,14 +20,13 @@ import {
   lazerMultiplier,
   legacyMultiplier,
   peppyStars,
-  replayMods,
-  replayRate,
-  tally,
-  verify,
+  type HealthInfo,
   type HitResult,
   type Outcome,
   type Rules,
 } from "./scoring";
+import { replayMods, replayRate } from "./mods";
+import { judgeWithHealth } from "./health";
 import type { Result, Simulation } from "./simulation";
 
 /** `IBeatmapDifficultyInfo.DifficultyRange`: values at difficulty 0, 5 and 10. */
@@ -193,7 +192,7 @@ export interface OsuSimulationOptions {
 
 /**
  * Judges an osu! replay on `map` (mods applied, stacked). Results, combo and
- * score follow the client that set the replay; `verify` compares them with
+ * score follow the client that set the replay; `verify` (via `judgeWithHealth`) compares them with
  * the recorded header and, for lazer, its statistics.
  */
 export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulationOptions): Simulation {
@@ -224,7 +223,25 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   });
   const headMax: HitResult = classic ? "large_tick_hit" : "great";
   const tailMax: HitResult = classic ? "small_tick_hit" : "slider_tail_hit";
-  const perfectOf = (top: Top, max: HitResult) =>
+  // Combo information (`OsuHitObject.UpdateComboInformation`): spinners never
+  // start a combo, and whatever follows one does; nested objects have none.
+  const combos = legacy.objects.map((o, i) => ({
+    newCombo: o.newCombo || i === 0 || legacy.objects[i - 1].kind === "spinner",
+    lastInCombo: false,
+  }));
+  combos.forEach((c, i) => {
+    const next = legacy.objects[i + 1];
+    if (next && next.kind !== "spinner" && (combos[i + 1].newCombo || legacy.objects[i].kind === "spinner"))
+      c.lastInCombo = true;
+  });
+  const topHp = (top: Top): HealthInfo => ({
+    object: top.kind,
+    end: top.end,
+    top: true,
+    ...combos[top.index],
+  });
+  const nestedHp = (object: HealthInfo["object"], end: number): HealthInfo => ({ object, end, top: false });
+  const perfectOf = (top: Top, max: HitResult, hp: HealthInfo) =>
     perfect.push({
       time: top.start,
       note: top.index,
@@ -235,6 +252,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
       x: 0,
       y: 0,
       v1: v1(0, "none"),
+      hp,
     });
   legacy.objects.forEach((o, index) => {
     const stack = map.objects[index]?.stack ?? 0,
@@ -252,7 +270,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
       };
       const top: Circle = { kind: "circle", index, start: o.time, end: o.time, stack, judged: false, circle };
       tops.push(top);
-      perfectOf(top, "great");
+      perfectOf(top, "great", topHp(top));
     } else if (o.kind === "slider") {
       const timing = timingPointAt(legacy.points, o.time);
       const velocity =
@@ -332,9 +350,10 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         lastPressed: [],
       };
       tops.push(top);
-      perfectOf(top, headMax);
-      for (const n of nested) perfectOf(top, n.kind === "tail" ? tailMax : "large_tick_hit");
-      perfectOf(top, classic ? "great" : "ignore_hit");
+      perfectOf(top, headMax, nestedHp("slider_head", top.start));
+      for (const n of nested)
+        perfectOf(top, n.kind === "tail" ? tailMax : "large_tick_hit", nestedHp(`slider_${n.kind}`, n.time));
+      perfectOf(top, classic ? "great" : "ignore_hit", topHp(top));
     } else {
       const end = Math.max(o.time, o.endTime),
         seconds = (end - o.time) / 1000;
@@ -366,8 +385,13 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         history: new SpinHistory(),
       };
       tops.push(top);
-      for (const t of ticks) perfectOf(top, t.bonus ? "large_bonus" : "small_bonus");
-      perfectOf(top, "great");
+      for (const t of ticks)
+        perfectOf(
+          top,
+          t.bonus ? "large_bonus" : "small_bonus",
+          nestedHp(t.bonus ? "spinner_bonus" : "spinner_tick", end),
+        );
+      perfectOf(top, "great", topHp(top));
     }
   });
 
@@ -381,6 +405,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
     at: Point,
     offset: number | null,
     score: Outcome["v1"],
+    hp: HealthInfo,
   ) =>
     outcomes.push({
       time,
@@ -392,6 +417,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
       x: at.x,
       y: at.y,
       v1: score,
+      hp,
     });
   const isHit = (r: HitResult) => r !== "miss" && r !== "large_tick_miss" && r !== "small_tick_miss" && r !== "ignore_miss";
 
@@ -439,10 +465,11 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
     c.judged = true;
     c.hit = isHit(type);
     const owner = tops[c.owner];
+    const hp = c.head ? nestedHp("slider_head", c.start) : topHp(owner);
     if (c.head && classic)
-      record(owner, now, type, "large_tick_hit", c, offset, v1(30, c.hit ? "increase" : "break"));
+      record(owner, now, type, "large_tick_hit", c, offset, v1(30, c.hit ? "increase" : "break"), hp);
     else
-      record(owner, now, type, "great", c, offset, v1(VALUE[type] ?? 0, c.hit ? "increase" : "break", true));
+      record(owner, now, type, "great", c, offset, v1(VALUE[type] ?? 0, c.hit ? "increase" : "break", true), hp);
     if (!c.head) owner.judged = true;
     // `StartTimeOrderedHitPolicy.HandleHit`: earlier circles miss once a later one is judged.
     if (!classic)
@@ -496,6 +523,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         at,
         null,
         v1(30, hit ? "increase" : "none"),
+        nestedHp("slider_tail", n.time),
       );
     else
       record(
@@ -506,6 +534,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         at,
         null,
         v1(n.kind === "tick" ? 10 : 30, hit ? "increase" : "break"),
+        nestedHp(n.kind === "tick" ? "slider_tick" : "slider_repeat", n.time),
       );
   }
   /** `SliderInputManager.PostProcessHeadJudgement`: a late head settles passed ticks. */
@@ -556,10 +585,10 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         hits = s.nested.filter((n) => n.hit).length + (s.circle.hit ? 1 : 0);
       const type: HitResult =
         hits === total ? "great" : hits === 0 ? "miss" : hits / total >= 0.5 ? "ok" : "meh";
-      record(s, now, type, "great", end, null, v1(VALUE[type] ?? 0, "none", true));
+      record(s, now, type, "great", end, null, v1(VALUE[type] ?? 0, "none", true), topHp(s));
     } else {
       const any = s.circle.hit || s.nested.some((n) => n.hit);
-      record(s, now, any ? "ignore_hit" : "ignore_miss", "ignore_hit", end, null, v1(0, "none"));
+      record(s, now, any ? "ignore_hit" : "ignore_miss", "ignore_hit", end, null, v1(0, "none"), topHp(s));
     }
   }
   function updateSpinner(s: Spinner): void {
@@ -579,12 +608,30 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
         if (!tick.judged) {
           tick.judged = true;
           const max: HitResult = tick.bonus ? "large_bonus" : "small_bonus";
-          record(s, now, "ignore_miss", max, CENTRE, null, v1(0, "none", false, true));
+          record(
+            s,
+            now,
+            "ignore_miss",
+            max,
+            CENTRE,
+            null,
+            v1(0, "none", false, true),
+            nestedHp(tick.bonus ? "spinner_bonus" : "spinner_tick", s.end),
+          );
         }
       const type: HitResult =
         progress >= 1 ? "great" : progress > 0.9 ? "ok" : progress > 0.75 ? "meh" : "miss";
       s.judged = true;
-      record(s, now, type, "great", CENTRE, null, v1(VALUE[type] ?? 0, isHit(type) ? "increase" : "break", true));
+      record(
+        s,
+        now,
+        type,
+        "great",
+        CENTRE,
+        null,
+        v1(VALUE[type] ?? 0, isHit(type) ? "increase" : "break", true),
+        topHp(s),
+      );
     }
     const spins = Math.trunc(s.history.total / 360);
     while (s.completedSpins < spins) {
@@ -592,7 +639,16 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
       if (tick) {
         tick.judged = true;
         const type: HitResult = tick.bonus ? "large_bonus" : "small_bonus";
-        record(s, now, type, type, CENTRE, null, v1(tick.bonus ? 1100 : 100, "none", false, true));
+        record(
+          s,
+          now,
+          type,
+          type,
+          CENTRE,
+          null,
+          v1(tick.bonus ? 1100 : 100, "none", false, true),
+          nestedHp(tick.bonus ? "spinner_bonus" : "spinner_tick", s.end),
+        );
       }
       s.completedSpins++;
     }
@@ -649,5 +705,5 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   const warnings: string[] = [];
   const unjudged = tops.filter((t) => !t.judged).length;
   if (unjudged) warnings.push(`${unjudged} objects were never judged (replay ends early)`);
-  return verify(replay, tally(outcomes, perfect, rules), rules, warnings);
+  return judgeWithHealth(replay, { mode: 0, map, mods, classic }, perfect, outcomes, rules, warnings);
 }

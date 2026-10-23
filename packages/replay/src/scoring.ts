@@ -2,11 +2,14 @@ import type { Beatmap } from "@vosu-tools/osu-parse";
 import { roundHalfEven } from "@vosu-tools/ruleset-convert";
 import type { Counts, Replay } from "./index";
 import { FIRST_LAZER_VERSION } from "./index";
+import { speedOf, type ReplayMod } from "./mods";
 import { accuracy, type Judgement, type Result, type Simulation } from "./simulation";
 
 /** lazer `HitResult`, by the names lazer stores in replays. */
 export type HitResult =
+  | "perfect"
   | "great"
+  | "good"
   | "ok"
   | "meh"
   | "miss"
@@ -18,7 +21,46 @@ export type HitResult =
   | "small_bonus"
   | "large_bonus"
   | "ignore_hit"
-  | "ignore_miss";
+  | "ignore_miss"
+  | "combo_break";
+
+/** What a judged object is, for the health processors (see `health.ts`). */
+export interface HealthInfo {
+  /** The judged hit object's class, as lazer's health processors tell them apart. */
+  object:
+    | "circle"
+    | "slider"
+    | "slider_head"
+    | "slider_tick"
+    | "slider_repeat"
+    | "slider_tail"
+    | "spinner"
+    | "spinner_tick"
+    | "spinner_bonus"
+    | "fruit"
+    | "droplet"
+    | "tiny_droplet"
+    | "banana"
+    | "hit"
+    | "strong"
+    | "drumroll_tick"
+    | "drumroll"
+    | "swell"
+    | "note"
+    | "head"
+    | "tail"
+    | "body"
+    | "hold";
+  /** `HitObject.GetEndTime()`: where autoplay's judgement lands. */
+  end: number;
+  /** A top-level object (as opposed to a nested one). */
+  top: boolean;
+  /** The top-level object this belongs to, when not `Outcome.note` (catch: each fruit). */
+  group?: number;
+  /** osu!: the object starts a combo / ends one (`IHasComboInformation`). */
+  newCombo?: boolean;
+  lastInCombo?: boolean;
+}
 
 /** One judgement as a ruleset simulator reports it. */
 export interface Outcome {
@@ -39,6 +81,10 @@ export interface Outcome {
    * whether it is bonus score, and what it does to stable's combo.
    */
   v1: { value: number; multiplied: boolean; bonus: boolean; combo: "increase" | "break" | "none" };
+  /** Taiko: the strong (big) note bonus scale (7, or 3 on a drum roll tick). */
+  scale?: number;
+  /** The judged object, for health. */
+  hp?: HealthInfo;
 }
 
 export type Client = "stable" | "lazer";
@@ -48,28 +94,40 @@ export const clientOf = (replay: Pick<Replay, "version">): Client =>
   replay.version >= FIRST_LAZER_VERSION ? "lazer" : "stable";
 
 const AFFECTS_COMBO: Partial<Record<HitResult, true>> = {
+  perfect: true,
   great: true,
+  good: true,
   ok: true,
   meh: true,
   miss: true,
   large_tick_hit: true,
   large_tick_miss: true,
   slider_tail_hit: true,
+  combo_break: true,
 };
 const affectsCombo = (r: HitResult) => AFFECTS_COMBO[r] === true;
-const isHit = (r: HitResult) =>
-  r !== "miss" && r !== "large_tick_miss" && r !== "small_tick_miss" && r !== "ignore_miss";
-const isBonus = (r: HitResult) => r === "small_bonus" || r === "large_bonus";
-const isScorable = (r: HitResult) => r !== "ignore_hit" && r !== "ignore_miss";
+export const isHit = (r: HitResult) =>
+  r !== "miss" &&
+  r !== "large_tick_miss" &&
+  r !== "small_tick_miss" &&
+  r !== "ignore_miss" &&
+  r !== "combo_break";
+export const isBonus = (r: HitResult) => r === "small_bonus" || r === "large_bonus";
+const isScorable = (r: HitResult) => r !== "ignore_hit" && r !== "ignore_miss" && r !== "combo_break";
 const affectsAccuracy = (r: HitResult) => isScorable(r) && !isBonus(r);
 
-/** `ScoreProcessor.GetBaseScoreForResult` (with catch's equal weighting). */
+/** `ScoreProcessor.GetBaseScoreForResult` (with each ruleset's overrides). */
 function baseScore(mode: number, r: HitResult): number {
   if (mode === 2) {
     if (r === "great" || r === "large_tick_hit" || r === "small_tick_hit") return 300;
     if (r === "large_bonus") return 200;
   }
+  if (mode === 1 && r === "ok") return 150;
   switch (r) {
+    case "perfect":
+      return mode === 3 ? 305 : 315;
+    case "good":
+      return 200;
     case "small_tick_hit":
     case "small_bonus":
       return 10;
@@ -89,8 +147,14 @@ function baseScore(mode: number, r: HitResult): number {
   }
 }
 
-/** `GetComboScoreChange`: catch caps a logarithmic combo bonus; others use √combo. */
+/** `GetComboScoreChange`: catch, taiko and mania cap a logarithmic combo bonus; osu! uses √combo. */
 function comboScore(mode: number, outcome: Outcome, comboAfter: number): number {
+  const log = (n: number, base: number) => Math.log(n) / Math.log(base);
+  if (mode === 1 || mode === 3) {
+    // Both use the result itself (not its maximum); mania counts a perfect as 300.
+    const base = mode === 3 && outcome.type === "perfect" ? 300 : baseScore(mode, outcome.type);
+    return base * Math.min(Math.max(0.5, log(comboAfter, 4)), log(400, 4)) * (outcome.scale ?? 1);
+  }
   if (mode !== 2) return baseScore(mode, outcome.max) * Math.sqrt(comboAfter);
   const base = outcome.type === "great" ? 300 : outcome.type === "large_tick_hit" ? 100 : 0;
   if (!base) return 0;
@@ -135,6 +199,16 @@ function lazerTotal(
   state: { comboPortion: number; accuracyCount: number; accuracy: number; bonus: number; tiny: number },
 ): number {
   const comboProgress = totals.maxComboPortion > 0 ? state.comboPortion / totals.maxComboPortion : 1;
+  const accuracyProgress =
+    totals.maxAccuracyCount > 0 ? state.accuracyCount / totals.maxAccuracyCount : 1;
+  if (mode === 1)
+    return 250000 * comboProgress + 750000 * state.accuracy ** 3.6 * accuracyProgress + state.bonus;
+  if (mode === 3)
+    return (
+      150000 * comboProgress +
+      850000 * state.accuracy ** (2 + 2 * state.accuracy) * accuracyProgress +
+      state.bonus
+    );
   if (mode === 2) {
     const dropletsPortion = 400000 * totals.tinyScale;
     return (
@@ -143,8 +217,6 @@ function lazerTotal(
       state.bonus
     );
   }
-  const accuracyProgress =
-    totals.maxAccuracyCount > 0 ? state.accuracyCount / totals.maxAccuracyCount : 1;
   return (
     500000 * state.accuracy * comboProgress +
     500000 * state.accuracy ** 5 * accuracyProgress +
@@ -152,58 +224,50 @@ function lazerTotal(
   );
 }
 
-type LazerMod = { acronym: string; settings?: Record<string, unknown> };
-const LEGACY_MODS: [number, string][] = [
-  [1, "NF"],
-  [2, "EZ"],
-  [4, "TD"],
-  [8, "HD"],
-  [16, "HR"],
-  [32, "SD"],
-  [512, "NC"],
-  [64, "DT"],
-  [128, "RX"],
-  [256, "HT"],
-  [1024, "FL"],
-  [4096, "SO"],
-  [8192, "AP"],
-  [1 << 29, "SV2"],
-];
-/** The replay's mods: lazer's own list (with settings) when stored, else the legacy bits. */
-export function replayMods(replay: Pick<Replay, "mods" | "lazer">): LazerMod[] {
-  if (replay.lazer) return replay.lazer.mods;
-  const mods: LazerMod[] = [];
-  for (const [bit, acronym] of LEGACY_MODS)
-    if (replay.mods & bit && !(acronym === "DT" && replay.mods & 512)) mods.push({ acronym });
-  return mods;
-}
-
+type LazerMod = ReplayMod;
 const customised = (mod: LazerMod) => !!mod.settings && Object.keys(mod.settings).length > 0;
 /** `rateAdjustMultiplier` (catch, osu! V1): steps of 0.1x speed. */
 const rateV1 = (speed: number) => {
   const value = Math.trunc(speed * 10) / 10 - 1;
   return speed >= 1 ? 1 + value / 5 : 0.6 + value;
 };
-const speedOf = (mod: LazerMod) =>
-  Number(mod.settings?.speed_change ?? (mod.acronym === "DT" || mod.acronym === "NC" ? 1.5 : 0.75));
-
-/** Gameplay rate: lazer's own speed setting when stored, else the legacy DT/HT rate. */
-export function replayRate(replay: Pick<Replay, "rate" | "lazer">): number {
-  const mod = replay.lazer?.mods.find((m) => ["DT", "NC", "HT", "DC"].includes(m.acronym));
-  const speed = mod ? speedOf(mod) : replay.rate;
-  return Number.isFinite(speed) && speed > 0 ? speed : replay.rate;
-}
-
+/** Mania's key mods: 0.9 from client 2025.718 on (`ManiaScoreMultiplierCalculator`). */
+const keyModMultiplier = (clientVersion: string) => {
+  const [year, monthDay] = clientVersion.split(".").map(Number);
+  if (Number.isFinite(year) && Number.isFinite(monthDay))
+    return year < 2025 || (year === 2025 && monthDay < 718) ? 1 : 0.9;
+  return 0.9;
+};
 /**
- * lazer's score multiplier (`Osu/CatchScoreMultiplierCalculator`, default mod
- * settings): osu! uses its V2 table from score version 30000017 onwards.
+ * lazer's score multiplier (`<Ruleset>ScoreMultiplierCalculator`, honouring
+ * customised mods): osu! uses its V2 table from score version 30000017 on.
  */
-export function lazerMultiplier(mode: number, mods: readonly LazerMod[], version: number): number {
+export function lazerMultiplier(
+  mode: number,
+  mods: readonly LazerMod[],
+  version: number,
+  clientVersion = "",
+): number {
   let multiplier = 1;
   const has = (a: string) => mods.some((m) => m.acronym === a);
   for (const mod of mods) {
     const a = mod.acronym;
-    if (mode === 2) {
+    if (a === "WU" || a === "WD" || a === "AS") multiplier *= 0.5;
+    else if (mode === 1 || mode === 3) {
+      if (a === "EZ" || a === "NF" || a === "DA") multiplier *= 0.5;
+      // Mania rewards no difficulty increase: only slowing down changes it.
+      else if (["HT", "DC"].includes(a) || (mode === 1 && ["DT", "NC"].includes(a)))
+        multiplier *= rateV1(speedOf(mod));
+      else if (a === "CL") multiplier *= version < 30000017 ? 0.96 : 1;
+      else if (a === "CS") multiplier *= 0.9;
+      else if (mode === 1) {
+        if (a === "HR" || a === "HD") multiplier *= customised(mod) ? 1 : 1.06;
+        else if (a === "FL") multiplier *= customised(mod) ? 1 : 1.12;
+        else if (a === "SR") multiplier *= 0.6;
+        else if (a === "RX") multiplier *= 0.1;
+      } else if (a === "NR" || a === "HO") multiplier *= 0.9;
+      else if (/^(10|[1-9])K$/.test(a)) multiplier *= keyModMultiplier(clientVersion);
+    } else if (mode === 2) {
       if (a === "EZ" || a === "NF" || a === "DA") multiplier *= 0.5;
       else if (["HT", "DC", "DT", "NC"].includes(a)) multiplier *= rateV1(speedOf(mod));
       else if (a === "HR" || a === "FL") multiplier *= customised(mod) ? 1 : 1.12;
@@ -276,7 +340,7 @@ export function peppyStars(map: Pick<Beatmap, "objects" | "breaks">, base: Beatm
 }
 
 export interface Rules {
-  mode: 0 | 2;
+  mode: 0 | 1 | 2 | 3;
   client: Client;
   /** Combo-bonus multiplier for ScoreV1: difficulty × mods; `null` when stable's score is not ScoreV1. */
   v1Multiplier: number | null;
@@ -329,7 +393,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
       lazer.accuracyCount++;
     }
     if (affectsAccuracy(o.type)) base += baseScore(mode, o.type);
-    if (isBonus(o.type)) lazer.bonus += baseScore(mode, o.type);
+    if (isBonus(o.type)) lazer.bonus += baseScore(mode, o.type) * (o.scale ?? 1);
     else if (isScorable(o.type)) lazer.comboPortion += comboScore(mode, o, combo);
     if (o.type === "small_tick_hit") lazer.tiny++;
     lazer.accuracy = maxBase > 0 ? base / maxBase : 1;
@@ -351,6 +415,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
       offset: o.offset ?? 0,
       timed: o.offset !== null,
       kind: o.type,
+      object: o.hp?.object,
       x: o.x,
       y: o.y,
       combo,
@@ -371,24 +436,38 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
 }
 
 /** Header counters each ruleset grades (stable's geki/katu in osu! are section bonuses). */
-const GRADED: Record<0 | 2, Result[]> = {
+const GRADED: Record<0 | 1 | 2 | 3, Result[]> = {
   0: ["n300", "n100", "n50", "miss"],
+  1: ["n300", "n100", "miss"],
   2: ["n300", "n100", "n50", "katu", "miss"],
+  3: ["geki", "n300", "katu", "n100", "n50", "miss"],
 };
-/** lazer statistics that change accuracy, combo or score. */
-const COMPARED: HitResult[] = [
-  "great",
-  "ok",
-  "meh",
-  "miss",
-  "large_tick_hit",
-  "large_tick_miss",
-  "small_tick_hit",
-  "small_tick_miss",
-  "slider_tail_hit",
-  "small_bonus",
-  "large_bonus",
-];
+/**
+ * lazer statistics that are verified: osu! and catch, everything that changes
+ * accuracy, combo or score; taiko and mania, the graded results (their bonus
+ * and hold-body results are reported as warnings).
+ */
+const COMPARED: Record<0 | 1 | 2 | 3, HitResult[]> = {
+  0: [
+    "great",
+    "ok",
+    "meh",
+    "miss",
+    "large_tick_hit",
+    "large_tick_miss",
+    "small_tick_hit",
+    "small_tick_miss",
+    "slider_tail_hit",
+    "small_bonus",
+    "large_bonus",
+  ],
+  1: ["great", "ok", "miss"],
+  2: [],
+  3: ["perfect", "great", "good", "ok", "meh", "miss"],
+};
+COMPARED[2] = COMPARED[0];
+/** Taiko and mania results outside `COMPARED`, checked as diagnostics. */
+const DIAGNOSED: HitResult[] = ["small_bonus", "large_bonus", "combo_break"];
 
 /** Compares a tally with what the replay recorded. */
 export function verify(replay: Replay, tallied: Tally, rules: Rules, warnings: string[]): Simulation {
@@ -398,12 +477,18 @@ export function verify(replay: Replay, tallied: Tally, rules: Rules, warnings: s
       differences[key] = { expected: replay.counts[key], actual: tallied.counts[key] };
   const info = replay.lazer;
   if (info && rules.client === "lazer") {
-    for (const key of COMPARED) {
+    for (const key of COMPARED[rules.mode]) {
       const expected = info.statistics[key] ?? 0,
         actual = tallied.statistics[key] ?? 0;
       if (expected !== actual) differences[key] = { expected, actual };
     }
-    for (const key of COMPARED) {
+    if (rules.mode === 1 || rules.mode === 3)
+      for (const key of DIAGNOSED) {
+        const expected = info.statistics[key] ?? 0,
+          actual = tallied.statistics[key] ?? 0;
+        if (expected !== actual) warnings.push(`${key}: simulated ${actual} vs recorded ${expected}`);
+      }
+    for (const key of COMPARED[rules.mode]) {
       const expected = info.maximumStatistics[key] ?? 0,
         actual = tallied.maximumStatistics[key] ?? 0;
       if (expected !== actual) differences[`maximum ${key}`] = { expected, actual };

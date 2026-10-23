@@ -1,4 +1,4 @@
-import { frameAt, columnKeys, stateAt, healthAt } from "@vosu-tools/replay";
+import { frameAt, columnKeys, stateAt, replayHealth } from "@vosu-tools/replay";
 import { csv } from "@vosu-tools/osu-parse";
 import type { Track } from "./studio";
 /** Synthetic subset of vosu v2. Unknown/unverified scoring fields stay null. */
@@ -17,23 +17,20 @@ export function telemetry(
     : [];
   // Hit errors come from timed hits only (not ticks, catches or spinners).
   const timed = events.filter((event) => event.timed !== false);
+  // Releases: hold tails under lazer's rules, else stable's whole-hold judgements.
+  const released = (event: (typeof timed)[number]) =>
+    event.object ? event.object === "tail" : !!(map.objects[event.note].type & 128);
   const press = timed
-    .filter(
-      (event) =>
-        event.result !== "miss" && !(map.objects[event.note].type & 128),
-    )
+    .filter((event) => event.result !== "miss" && !released(event))
     .map((event) => event.offset / replay.rate);
   const release = timed
-    .filter(
-      (event) =>
-        event.result !== "miss" && !!(map.objects[event.note].type & 128),
-    )
+    .filter((event) => event.result !== "miss" && released(event))
     .map((event) => event.offset / replay.rate);
   const all = timed
     .filter((event) => event.result !== "miss")
     .map((event) => event.offset / replay.rate);
   const counts = verified ? state!.counts : null,
-    health = healthAt(replay, time);
+    health = replayHealth(replay, simulation, time);
   const mode = {
     number: replay.mode,
     name: ["osu", "taiko", "fruits", "mania"][replay.mode],

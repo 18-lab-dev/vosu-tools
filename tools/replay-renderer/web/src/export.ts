@@ -5,7 +5,7 @@ import {
   type Preset,
   type Track,
 } from "./studio";
-import { parseReplay } from "@vosu-tools/replay";
+import { parseReplay, replayMods, replayPitched } from "@vosu-tools/replay";
 import type { Layout } from "./layout";
 import { telemetry } from "./telemetry";
 import type { InspectedLayer } from "./inspector";
@@ -68,11 +68,13 @@ try {
     body: JSON.stringify({
       hash: tracks[0].replay.beatmapHash,
       rate,
+      pitch: replayPitched(tracks[0].replay),
       frames,
       start_ms: start,
       tracks: tracks.map((track) => ({
         hash: track.replay.beatmapHash,
         mods: track.replay.mods,
+        ...ratingMods(track),
         initial: telemetry(track, start, start),
       })),
     }),
@@ -149,4 +151,20 @@ try {
   document.querySelector("#status")!.textContent = String(error);
 } finally {
   composition?.destroy();
+}
+/** lazer's mods for the overlay's pp rating: acronyms (Classic, custom rates) and Difficulty Adjust values. */
+function ratingMods(track: Track) {
+  if (!track.replay.lazer) return {};
+  const mods = replayMods(track.replay),
+    da = mods.find((m) => m.acronym === "DA")?.settings ?? {};
+  const value = (key: string) => (typeof da[key] === "number" ? da[key] : undefined);
+  return {
+    acronyms: mods.map((m) => m.acronym).join("") || "NM",
+    overrides: {
+      ar: value("approach_rate"),
+      cs: value("circle_size"),
+      od: value("overall_difficulty"),
+      hp: value("drain_rate"),
+    },
+  };
 }
