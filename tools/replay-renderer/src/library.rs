@@ -77,17 +77,13 @@ impl Lazer {
 
 const LAZER_TOOL: &str = "lazer-library";
 
-/// `GET` on a lazer-library read route. Those are public on the overlay
-/// origin; vosu rejects our token there because the library is an optional
-/// companion, not a `[[requires]]` dependency (which would block this tool
-/// whenever it is missing).
+/// `GET` on a lazer-library read route. The library is an optional companion,
+/// not a `[[requires]]` dependency (which would block this tool whenever it is
+/// missing); vosu lets any tool token use another tool's read routes.
 async fn lazer_request(app: &App, path: &str) -> reqwest::Result<reqwest::Response> {
-    reqwest::Client::new()
-        .get(
-            app.env
-                .client()
-                .url(&format!("/tools/{LAZER_TOOL}/api/{path}")),
-        )
+    app.env
+        .client()
+        .tool(Method::GET, LAZER_TOOL, path)
         .send()
         .await
 }

@@ -15,30 +15,39 @@ export class OverlayEditor {
     inputs: Record<string, HTMLInputElement>;
   }[] = [];
   private list = document.createElement("div");
-  /** `root` is a `<details>` panel; its summary carries the heading. */
+  /** Renders into `root`: a section label with an Add action, then the layers. */
   constructor(root: HTMLElement) {
-    const summary = document.createElement("summary"),
-      heading = document.createElement("h2");
-    summary.className = "panel-head";
-    heading.textContent = "Overlay layers";
-    summary.append(heading);
-    const help = document.createElement("p");
-    help.className = "note";
-    help.textContent =
-      "MP4 queue only. Each layer is an installed overlay folder (with index.html) driven by the first track through a private synthetic vosu server, never your live game. Position, page size, scale and opacity are per layer.";
+    const head = document.createElement("div"),
+      label = document.createElement("span"),
+      help = document.createElement("span"),
+      spacer = document.createElement("span");
+    head.className = "subhead";
+    label.className = "v-label";
+    label.textContent = "Overlays";
+    help.className = "v-help";
+    help.tabIndex = 0;
+    help.setAttribute("role", "img");
+    help.dataset.tipPos = "left";
+    const tip = "MP4 only. Installed overlay folders, driven by the first track.";
+    help.setAttribute("aria-label", tip);
+    help.dataset.tip = tip;
+    spacer.className = "v-bar__spacer";
     this.list.className = "layers";
     const add = document.createElement("button");
     add.type = "button";
-    add.textContent = "Add overlay layer";
+    add.className = "v-btn v-btn--sm";
+    add.textContent = "Add";
+    add.setAttribute("aria-label", "Add overlay layer");
     add.onclick = () => this.add();
-    root.append(summary, help, this.list, add);
+    head.append(label, help, spacer, add);
+    root.append(head, this.list);
   }
   private add() {
     const node = document.createElement("div");
     node.className = "layer";
     const inputs: Record<string, HTMLInputElement> = {};
     for (const [key, title, value] of [
-      ["folder", "Overlay folder (absolute path)", ""],
+      ["folder", "Folder", ""],
       ["width", "Page width", "640"],
       ["height", "Page height", "180"],
       ["x", "X", "0"],
@@ -49,8 +58,9 @@ export class OverlayEditor {
       const label = document.createElement("label"),
         caption = document.createElement("span"),
         input = document.createElement("input");
-      label.className = key === "folder" ? "field folder" : "field";
+      label.className = key === "folder" ? "v-field folder" : "v-field";
       caption.textContent = title;
+      input.className = "v-input";
       input.type = key === "folder" ? "text" : "number";
       input.value = value;
       input.dataset.overlay = key;
@@ -63,7 +73,7 @@ export class OverlayEditor {
     }
     const remove = document.createElement("button");
     remove.type = "button";
-    remove.className = "quiet";
+    remove.className = "v-btn v-btn--sm v-btn--ghost";
     remove.textContent = "Remove";
     const layer = { node, inputs };
     remove.onclick = () => {

@@ -3,115 +3,106 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="dark light" />
-    <title>Replay studio</title>
+    <title>Replay renderer</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
   </head>
-  <body>
-    <header class="bar">
-      <span class="tally" id="tally" aria-hidden="true"></span>
-      <h1>Replay <em>studio</em></h1>
-      <p id="notice" role="status" aria-live="polite">Connecting to vosu…</p>
-      <p id="now" class="now" hidden></p>
-      <span id="link" class="link" role="status" hidden></span>
-      <a id="dashboard" href="/tools" rel="noopener">vosu tools ↗</a>
+  <body class="v-app">
+    <header class="v-bar">
+      <span class="v-bar__title">Replay renderer</span>
+      <span class="v-dot" id="link-dot"></span>
+      <span class="v-muted" id="link">Offline</span>
+      <span class="v-muted now" id="now" hidden></span>
+      <span class="v-bar__spacer"></span>
+      <span class="v-dot" id="tally" data-state="busy" hidden></span>
+      <span class="v-muted" id="rendering" hidden>Rendering</span>
+      <button
+        id="mute"
+        type="button"
+        class="v-btn v-btn--ghost v-btn--icon"
+        aria-label="Mute preview audio"
+        aria-pressed="true"
+      ></button>
     </header>
-    <main class="bay">
-      <section class="col library" aria-label="Replays">
-        <div class="panel grow">
-          <div class="panel-head">
-            <h2>Replays</h2>
-            <div class="tabs" role="tablist" aria-label="Replay list">
-              <button id="tab-map" role="tab" type="button" aria-selected="true">
-                This map
-              </button>
-              <button id="tab-all" role="tab" type="button" aria-selected="false">
-                All
-              </button>
-            </div>
-            <button id="refresh" type="button" class="quiet" title="Rescan replay folders">
-              Rescan
-            </button>
+    <main class="v-main studio">
+      <section class="v-panel replays" id="drop" aria-label="Replays">
+        <div class="v-panel__head">
+          <span class="v-label">Replays</span>
+          <div class="v-tabs" role="tablist" aria-label="Replay list">
+            <button id="tab-map" role="tab" type="button" aria-selected="true">This map</button>
+            <button id="tab-all" role="tab" type="button" aria-selected="false" tabindex="-1">All</button>
           </div>
-          <input id="filter" type="search" placeholder="Filter by player or map" aria-label="Filter replays" />
-          <ol id="replays" class="replays scroll" aria-label="Local replays"></ol>
-          <p id="sources" class="note"></p>
-          <label class="drop" id="drop">
-            <span><b>Drop .osr files here</b> or click to choose</span>
-            <input id="files" type="file" accept=".osr" multiple />
-          </label>
+          <button id="refresh" type="button" class="v-btn v-btn--sm v-btn--ghost">Rescan</button>
         </div>
-        <div class="panel timeline">
-          <div class="panel-head"><h2>Timeline</h2></div>
-          <ol id="tracks" class="tracks scroll" aria-label="Timeline tracks"></ol>
+        <div class="replays-body">
+          <div class="v-row">
+            <input id="filter" class="v-input" type="search" placeholder="Filter" aria-label="Filter replays" />
+            <label class="v-btn v-file"><input id="files" type="file" accept=".osr" multiple />Open .osr</label>
+          </div>
+          <div id="replay-region" class="v-scroll">
+            <table class="v-table">
+              <thead>
+                <tr><th>Player</th><th class="v-num">Score</th><th><span class="sr-only">Add</span></th></tr>
+              </thead>
+              <tbody id="replays"></tbody>
+            </table>
+          </div>
         </div>
       </section>
-      <section class="col program" aria-label="Program monitor">
+      <section class="v-panel timeline" aria-label="Timeline">
+        <div class="v-panel__head">
+          <span class="v-label">Timeline</span>
+          <span class="v-badge" id="track-count">0</span>
+        </div>
+        <ol id="tracks" class="v-panel__body v-scroll tracks"></ol>
+      </section>
+      <section class="v-panel program" aria-label="Preview">
         <div id="missing" class="missing" role="alert" hidden></div>
         <div class="stage">
-          <div class="monitor">
-            <div id="preview" class="gate">
-              <p class="empty">
-                <strong>No footage yet.</strong>
-                Add replays from the list. Each one becomes a track on one shared clock.
-              </p>
-            </div>
-          </div>
+          <div id="preview" class="gate"><p class="v-empty">No tracks</p></div>
         </div>
-        <div class="transport">
-          <button id="play" type="button" class="play" aria-label="Play"><span aria-hidden="true"></span></button>
-          <output id="time" class="timecode" aria-label="Playhead">00:00:00:00</output>
-          <input id="seek" class="scrub" aria-label="Timeline position" type="range" min="0" max="1000" value="0" />
-          <output id="duration" class="timecode dim" aria-label="Duration">00:00:00:00</output>
+        <div class="v-toolbar transport">
+          <button id="play" type="button" class="v-btn v-btn--icon" aria-label="Play">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path id="play-icon" d="M4 2.5v11l9-5.5z" fill="currentColor" /></svg>
+          </button>
+          <output id="time" class="v-mono" aria-label="Position">00:00:00:00</output>
+          <input id="seek" class="v-range" aria-label="Position" type="range" min="0" max="1000" value="0" />
+          <output id="duration" class="v-mono v-muted" aria-label="Duration">00:00:00:00</output>
         </div>
       </section>
-      <section class="col output scroll" aria-label="Output">
-        <div class="panel">
-          <div class="panel-head"><h2>Output</h2></div>
-          <div class="field">
+      <section class="v-panel output" aria-label="Output">
+        <div class="v-panel__head"><span class="v-label">Output</span></div>
+        <div class="v-panel__body v-scroll">
+          <div class="v-field">
             <span id="size-label">Resolution</span>
             <div id="size-picker"></div>
           </div>
           <div class="pair">
-            <label class="field"
-              ><span>Frame rate</span><input id="fps" type="number" min="1" max="240" value="60"
-            /></label>
-            <label class="field"
-              ><span>Layout</span
-              ><select id="layout">
+            <label class="v-field"><span>Frame rate</span><input id="fps" class="v-input" type="number" min="1" max="240" value="60" /></label>
+            <label class="v-field"><span>Layout</span>
+              <select id="layout" class="v-select">
                 <option value="side-by-side">Side by side</option>
                 <option value="stacked">Stacked</option>
                 <option value="grid">Grid</option>
-              </select></label
-            >
+              </select>
+            </label>
           </div>
-          <label class="field"
-            ><span>File name or absolute path</span><input id="out" placeholder="replay.mp4" spellcheck="false"
-          /></label>
-          <p id="folder" class="note"></p>
-          <div class="actions">
-            <button id="queue" type="button" class="primary">Queue MP4</button>
-            <button id="webm" type="button">Export WebM here</button>
+          <label class="v-field"><span>File name</span><input id="out" class="v-input" placeholder="replay.mp4" spellcheck="false" /></label>
+          <span id="folder" class="v-mono v-muted folder"></span>
+          <div class="v-row">
+            <button id="queue" type="button" class="v-btn v-btn--primary">Render MP4</button>
+            <button id="webm" type="button" class="v-btn">Export WebM</button>
           </div>
-          <ol id="jobs" class="jobs" aria-label="Render jobs"></ol>
-          <p class="note">
-            MP4 renders in a private headless browser and encodes with FFmpeg (VP9/AAC).
-            WebM encodes in this tab (VP9/Opus). Audio follows the first track.
-          </p>
+          <ol id="jobs" class="jobs"></ol>
+          <div class="subhead"><span class="v-label">Skins</span></div>
+          <p id="current-skin" class="skin-current"></p>
+          <label class="v-btn v-file"><input id="osk" type="file" accept=".osk,.zip" />Import .osk</label>
+          <span id="import-status" class="v-muted" role="status"></span>
+          <ul id="imported" class="imported"></ul>
+          <div id="overlay-layout" class="overlays"></div>
         </div>
-        <details class="panel" id="overlay-layout"></details>
-        <details class="panel" open>
-          <summary class="panel-head"><h2>Skins</h2></summary>
-          <p id="current-skin" class="skin-current">Reading current skin…</p>
-          <label class="import">
-            <span>Import .osk</span>
-            <input id="osk" type="file" accept=".osk,.zip" />
-          </label>
-          <p id="import-status" class="note" role="status"></p>
-          <ul id="imported" class="imported" aria-label="Imported skins"></ul>
-          <p class="note">Imported skins live in this tool's data folder; osu! folders are never modified.</p>
-        </details>
       </section>
     </main>
+    <div id="toast" class="v-toast" role="status" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -13,29 +13,11 @@ import "./style.css";
 import settingSchema from "../../render-settings.json";
 import { OverlayEditor } from "./overlay-layout";
 import { SkinLibrary } from "./skins";
-import { ReplayLibrary, showMissingMap } from "./library";
+import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
 import { SizePicker, parseSize, type SizeStore } from "./sizes";
-
-// The studio owns its look; vosu only hints the dashboard's mode.
-const root = document.documentElement;
-const lightQuery = matchMedia("(prefers-color-scheme: light)");
-function applyScheme() {
-  // Bridges that predate `colorScheme` mark the mode with data-theme instead.
-  const legacy = root.dataset.theme;
-  root.dataset.scheme =
-    vosu.colorScheme ??
-    (legacy === "light" || legacy === "dark"
-      ? legacy
-      : lightQuery.matches
-        ? "light"
-        : "dark");
-}
-applyScheme();
-lightQuery.addEventListener("change", applyScheme);
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
-const notice = el("notice");
 const tracks: Track[] = [];
 let presets: Record<string, Preset> = {};
 let composition: Composition | undefined,
@@ -48,14 +30,26 @@ let previewFrame: Promise<HTMLCanvasElement> | undefined;
 const activeJobs = new Set<string>();
 const fetcher = async (path: string, init?: RequestInit) =>
   checked(await vosu.fetch(path, init));
+
+// Status messages: a toast; info fades, errors stay until the next message or a click.
+const toast = el("toast");
+let toastTimer: number | undefined;
+function show(message: string, tone: "ok" | "error" | "") {
+  toast.textContent = message;
+  if (tone) toast.dataset.tone = tone;
+  else delete toast.dataset.tone;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  if (tone !== "error") toastTimer = window.setTimeout(() => (toast.hidden = true), 4000);
+}
+toast.onclick = () => (toast.hidden = true);
 function report(error: unknown) {
-  notice.textContent = error instanceof Error ? error.message : String(error);
-  notice.classList.add("error");
+  show(error instanceof Error ? error.message : String(error), "error");
 }
 function inform(message: string) {
-  notice.textContent = message;
-  notice.classList.remove("error");
+  show(message, "");
 }
+
 function timecode(ms: number) {
   const fps = Math.max(1, Number(el<HTMLInputElement>("fps").value) || 60);
   const total = Math.max(0, ms) / 1000;
@@ -65,8 +59,13 @@ function timecode(ms: number) {
 const emptyPreview = el("preview").innerHTML;
 function refreshComposition() {
   composition?.releaseTargets();
+  el<HTMLButtonElement>("play").disabled = !tracks.length;
+  el<HTMLInputElement>("seek").disabled = !tracks.length;
   if (!tracks.length) {
     composition = undefined;
+    if (playing) setPlaying(false);
+    time = 0;
+    el<HTMLInputElement>("seek").value = "0";
     el("preview").innerHTML = emptyPreview;
     el("duration").textContent = timecode(0);
     return;
@@ -96,6 +95,64 @@ async function betweenFrames(change: () => void) {
     swapping--;
   }
 }
+
+// Preview audio: the first track's song, muted by default; the choice persists.
+const MUTE_KEY = "vosu-tools.replay-renderer.preview-muted";
+let muted = localStorage.getItem(MUTE_KEY) !== "false";
+const audio = new Audio();
+audio.preload = "auto";
+let audioTrack: Track | undefined,
+  audioUrl = "";
+function renderMute() {
+  const button = el("mute");
+  button.setAttribute("aria-pressed", String(muted));
+  button.title = muted ? "Preview audio muted" : "Preview audio on";
+  button.innerHTML = muted
+    ? '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10L5 10H2z" fill="currentColor"/><path d="m11 6 4 4m0-4-4 4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>'
+    : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h3l4-3v10L5 10H2z" fill="currentColor"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.5 3.5a6 6 0 0 1 0 9" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>';
+}
+el("mute").onclick = () => {
+  muted = !muted;
+  localStorage.setItem(MUTE_KEY, String(muted));
+  renderMute();
+  syncAudio(true);
+};
+renderMute();
+/** Keeps the song on the preview clock; the picture is the master. */
+function syncAudio(force = false) {
+  audio.muted = muted;
+  if (!audio.src || !playing || muted) {
+    if (!audio.paused) audio.pause();
+    return;
+  }
+  const target = time / 1000;
+  if (force || audio.paused || Math.abs(audio.currentTime - target) > 0.08)
+    audio.currentTime = target;
+  if (audio.paused) void audio.play().catch(() => undefined);
+}
+async function loadAudio() {
+  const first = tracks[0];
+  if (first === audioTrack) return;
+  audioTrack = first;
+  audio.pause();
+  audio.removeAttribute("src");
+  if (audioUrl) URL.revokeObjectURL(audioUrl);
+  audioUrl = "";
+  if (!first) return;
+  const blob = await (
+    await fetcher(
+      `v1/assets?${new URLSearchParams({ kind: "map-asset", hash: first.replay.beatmapHash, path: first.map.general.AudioFilename })}`,
+    )
+  ).blob();
+  if (audioTrack !== first) return;
+  audioUrl = URL.createObjectURL(blob);
+  audio.src = audioUrl;
+  audio.playbackRate = first.replay.rate;
+  // Nightcore raises the pitch; DT and HT keep it.
+  audio.preservesPitch = !(first.replay.mods & 512);
+  syncAudio(true);
+}
+
 const skins = new SkinLibrary(
   {
     current: el("current-skin"),
@@ -122,6 +179,7 @@ async function add(bytes: Uint8Array<ArrayBuffer>) {
     bytes,
     { ...preset, settings: { ...preset.settings } },
     fetcher,
+    { currentBuiltin: skins.builtin },
   );
   await betweenFrames(() => {
     tracks.push(track);
@@ -136,10 +194,7 @@ async function add(bytes: Uint8Array<ArrayBuffer>) {
   });
   renderTracks();
   if (track.warning) report(track.warning);
-  else
-    inform(
-      `Added ${replay.player} · ${replay.frames.length.toLocaleString()} replay frames`,
-    );
+  else inform(`Added ${replay.player}`);
 }
 function settingsEditor(track: Track) {
   const details = document.createElement("details"),
@@ -165,10 +220,11 @@ function settingsEditor(track: Track) {
     input.value = String(value);
     input.checked = value !== 0;
     if (rule.control === "toggle") {
-      label.className = "toggle";
+      label.className = "v-check";
       label.append(input, caption);
     } else {
-      label.className = "field";
+      label.className = "v-field";
+      input.className = "v-input";
       label.append(caption, input);
     }
     grid.append(label);
@@ -189,39 +245,49 @@ function settingsEditor(track: Track) {
   };
   return { details, read };
 }
+function button(label: string, className = "v-btn v-btn--sm") {
+  const node = document.createElement("button");
+  node.type = "button";
+  node.className = className;
+  node.textContent = label;
+  return node;
+}
 function renderTracks() {
   const list = el("tracks");
   list.replaceChildren();
+  el("track-count").textContent = String(tracks.length);
+  if (!tracks.length) {
+    const empty = document.createElement("li");
+    empty.className = "v-empty";
+    empty.textContent = "No tracks";
+    list.append(empty);
+  }
   tracks.forEach((track, index) => {
     const row = document.createElement("li");
     row.className = "track";
-    row.style.setProperty("--lane", `var(--lane-${(index % 6) + 1})`);
     const head = document.createElement("div");
     head.className = "track-head";
     const lane = document.createElement("span"),
-      player = document.createElement("strong"),
+      player = document.createElement("span"),
       rate = document.createElement("span");
-    lane.className = "lane-id";
+    lane.className = "v-mono";
     lane.textContent = `V${index + 1}`;
     player.className = "track-player";
     player.textContent = track.replay.player;
-    rate.className = "track-rate";
+    rate.className = "v-mono v-muted";
     rate.textContent = `${track.replay.rate}×`;
     head.append(lane, player, rate);
     const map = document.createElement("p");
-    map.className = "track-map";
+    map.className = "track-map v-muted";
     map.textContent = `${track.map.metadata.Artist} – ${track.map.metadata.Title} [${track.map.metadata.Version}]`;
     const skinField = document.createElement("label"),
       skinCaption = document.createElement("span");
-    skinField.className = "field";
+    skinField.className = "v-field";
     skinCaption.textContent = "Skin";
     const skin = skins.select(track.skin ?? "");
     skinField.append(skinCaption, skin);
     const editor = settingsEditor(track);
-    const apply = document.createElement("button");
-    apply.type = "button";
-    apply.className = "grow";
-    apply.textContent = "Apply";
+    const apply = button("Apply");
     apply.onclick = async () => {
       apply.disabled = true;
       try {
@@ -232,6 +298,7 @@ function renderTracks() {
           ),
           { skin: skin.value || null, settings: editor.read() },
           fetcher,
+          { currentBuiltin: skins.builtin },
         );
         await betweenFrames(() => {
           tracks[tracks.indexOf(track)] = updated;
@@ -245,11 +312,9 @@ function renderTracks() {
         report(error);
       }
     };
-    const save = document.createElement("button");
-    save.type = "button";
-    save.textContent = "Save as preset";
+    const save = button("Save preset");
     save.disabled = !vosu.canWrite;
-    save.title = `Apply this skin and these settings whenever ${track.replay.player} is added`;
+    save.title = `Use for ${track.replay.player}'s replays`;
     save.onclick = async () => {
       try {
         const preset = { skin: skin.value || null, settings: editor.read() };
@@ -264,10 +329,7 @@ function renderTracks() {
         report(error);
       }
     };
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.className = "quiet";
-    remove.textContent = "Remove";
+    const remove = button("Remove", "v-btn v-btn--sm v-btn--ghost");
     remove.onclick = () =>
       betweenFrames(() => {
         tracks.splice(tracks.indexOf(track), 1);
@@ -276,26 +338,21 @@ function renderTracks() {
         renderTracks();
       }).catch(report);
     const actions = document.createElement("div");
-    actions.className = "track-actions";
+    actions.className = "v-row";
     actions.append(apply, save, remove);
     row.append(head, map, skinField);
-    const skinNote = skins.note(track.skin ?? "");
-    if (skinNote) {
-      const note = document.createElement("p");
-      note.className = "track-warning";
-      note.textContent = skinNote;
-      row.append(note);
-    }
-    if (track.warning) {
-      const warning = document.createElement("p");
-      warning.className = "track-warning";
-      warning.textContent = track.warning;
-      row.append(warning);
+    for (const note of [skins.note(track.skin ?? ""), track.warning]) {
+      if (!note) continue;
+      const line = document.createElement("p");
+      line.className = "track-note";
+      line.textContent = note;
+      row.append(line);
     }
     row.append(editor.details, actions);
     list.append(row);
   });
   el<HTMLInputElement>("out").placeholder = outName();
+  void loadAudio().catch(report);
 }
 /** The Beatmap downloader UI answers same-origin when it is installed. */
 const downloaderInstalled = fetch("/tools/downloader/", { method: "HEAD" })
@@ -304,8 +361,8 @@ const downloaderInstalled = fetch("/tools/downloader/", { method: "HEAD" })
 const library = new ReplayLibrary(
   {
     list: el("replays"),
+    region: el("replay-region"),
     filter: el("filter"),
-    sources: el("sources"),
     mapTab: el("tab-map"),
     allTab: el("tab-all"),
     now: el("now"),
@@ -348,7 +405,7 @@ const sizes = new SizePicker(
   },
   report,
 );
-/** The typed output, else `<player> - <title> [<difficulty>].mp4`. */
+/** The typed output, else `<player> - <title> [<difficulty>] <time>.mp4`. */
 function outName() {
   const typed = el<HTMLInputElement>("out").value.trim();
   if (typed) return /\.mp4$/i.test(typed) ? typed : `${typed}.mp4`;
@@ -358,21 +415,21 @@ function outName() {
     : "replay";
   return `${base.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_").trim()} ${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}.mp4`;
 }
-el("dashboard").setAttribute("href", vosu.dashboardUrl);
-el("dashboard").setAttribute("target", "_blank");
+function setLink(state: LinkState) {
+  el("link-dot").dataset.state = state === "open" ? "ok" : state === "connecting" ? "busy" : "warn";
+  el("link").textContent = { connecting: "Connecting", open: "Live", closed: "Offline" }[state];
+}
 await vosu.ready;
-applyScheme();
 const overlayEditor = new OverlayEditor(el("overlay-layout"));
 sizes.canWrite = vosu.canWrite;
+refreshComposition();
+renderTracks();
 if (!vosu.canWrite) {
-  report(
-    "Read-only session. Open this studio from the vosu dashboard to load replays, import skins and save presets.",
-  );
+  show("Read-only. Open the renderer from the vosu dashboard.", "error");
   for (const id of ["files", "refresh", "queue", "webm", "osk"])
     el<HTMLButtonElement>(id).disabled = true;
   skins.describeReadOnly();
-  el("replays").innerHTML =
-    '<li class="list-empty">Replays appear here once the studio is opened from the vosu dashboard.</li>';
+  library.message("Read-only");
 } else {
   try {
     const context = await (await fetcher("v1/context")).json();
@@ -384,26 +441,14 @@ if (!vosu.canWrite) {
       output_dir: string | null;
     };
     el<HTMLInputElement>("fps").value = String(defaults.fps);
-    el("folder").textContent = defaults.output_dir
-      ? `File names save to ${defaults.output_dir} (change in the tool's settings).`
-      : "No output folder: type an absolute .mp4 path, or set a folder in the tool's settings.";
+    el("folder").textContent = defaults.output_dir ?? "No output folder: use an absolute path";
     const store = (await (await fetcher("v1/sizes")).json()) as SizeStore;
     sizes.set(
       parseSize(store.last) ?? parseSize(defaults.resolution) ?? { width: 1920, height: 1080 },
       store,
     );
     presets = await (await fetcher("v1/presets")).json();
-    inform("Ready. Add replays from the list.");
-    library.follow(vosu.subscribe.bind(vosu), (state) => {
-      const link = el("link");
-      link.hidden = false;
-      link.dataset.state = state;
-      link.textContent = { connecting: "Game: connecting…", open: "Game: live", closed: "Game: offline" }[state];
-      link.title =
-        state === "open"
-          ? "Following the map open in osu!"
-          : "Not receiving game state from vosu; the bridge retries automatically.";
-    });
+    library.follow(vosu.subscribe.bind(vosu), setLink);
     library.show("map");
   } catch (error) {
     report(error);
@@ -421,7 +466,7 @@ async function addSafely(load: () => Promise<Uint8Array<ArrayBuffer>>) {
         error.details as { md5: string; searched: string[] },
         await downloaderInstalled,
       );
-      report("This replay's map is not installed; see the note above the monitor.");
+      report("Map not installed");
     } else report(error);
   }
 }
@@ -448,25 +493,29 @@ drop.ondrop = async (event) => {
 };
 el("refresh").onclick = () => void library.refresh();
 el("layout").onchange = () => betweenFrames(refreshComposition).catch(report);
-el("play").onclick = () => {
-  playing = !playing;
-  el("play").classList.toggle("playing", playing);
+function setPlaying(next: boolean) {
+  playing = next;
   el("play").setAttribute("aria-label", playing ? "Pause" : "Play");
+  el("play-icon").setAttribute("d", playing ? "M4 2.5h3v11H4zm5 0h3v11H9z" : "M4 2.5v11l9-5.5z");
+  syncAudio(true);
+}
+el("play").onclick = () => {
   last = performance.now();
+  setPlaying(!playing);
 };
 el<HTMLInputElement>("seek").oninput = () => {
   time = Number(el<HTMLInputElement>("seek").value);
+  syncAudio(true);
 };
 async function animate(now: number) {
   if (playing && composition) {
     time += (now - last) * (tracks[0]?.replay.rate ?? 1);
     if (time > composition.duration) {
       time = 0;
-      playing = false;
-      el("play").classList.remove("playing");
-      el("play").setAttribute("aria-label", "Play");
+      setPlaying(false);
     }
     el<HTMLInputElement>("seek").value = String(time);
+    syncAudio();
   }
   if (composition && !exporting && !swapping) {
     try {
@@ -484,7 +533,9 @@ async function animate(now: number) {
 }
 requestAnimationFrame(animate);
 function setTally() {
-  el("tally").classList.toggle("live", exporting || activeJobs.size > 0);
+  const busy = exporting || activeJobs.size > 0;
+  el("tally").hidden = !busy;
+  el("rendering").hidden = !busy;
 }
 el("queue").onclick = async () => {
   try {
@@ -511,39 +562,36 @@ el("queue").onclick = async () => {
     ).json();
     const row = document.createElement("li");
     row.className = "job";
-    row.dataset.state = "queued";
-    const state = document.createElement("span"),
-      message = document.createElement("p"),
-      progress = document.createElement("progress"),
-      cancel = document.createElement("button");
-    state.className = "job-state";
-    state.textContent = "queued";
+    const dot = document.createElement("span"),
+      message = document.createElement("span"),
+      meter = document.createElement("div"),
+      cancel = button("Cancel", "v-btn v-btn--sm v-btn--ghost");
+    dot.className = "v-dot";
+    dot.dataset.state = "busy";
     message.className = "job-message";
     message.textContent = request.out;
-    progress.max = 1;
-    cancel.type = "button";
-    cancel.className = "quiet";
-    cancel.textContent = "Cancel";
+    meter.className = "v-meter";
+    meter.style.setProperty("--v-value", "0");
     cancel.onclick = () => {
       void fetcher(`v1/jobs/${job}`, { method: "DELETE" }).catch(report);
     };
-    row.append(state, message, cancel, progress);
+    row.append(dot, message, cancel, meter);
     el("jobs").prepend(row);
     activeJobs.add(job);
     setTally();
     const update = async () => {
       try {
         const current = await (await fetcher(`v1/jobs/${job}`)).json();
-        progress.value = current.progress;
+        meter.style.setProperty("--v-value", String(current.progress));
         message.textContent = current.message;
-        row.dataset.state = current.state;
-        state.textContent = current.state;
         if (["done", "failed", "cancelled"].includes(current.state)) {
+          dot.dataset.state =
+            current.state === "done" ? "ok" : current.state === "failed" ? "error" : "warn";
           cancel.remove();
           activeJobs.delete(job);
           setTally();
           if (current.result)
-            message.textContent = `${current.result.out} · ${current.result.render_fps.toFixed(1)} render fps`;
+            message.textContent = `${current.result.out} · ${current.result.render_fps.toFixed(1)} fps`;
         } else
           setTimeout(() => {
             void update();
@@ -568,18 +616,15 @@ el("webm").onclick = async () => {
   try {
     if (!composition) throw new Error("Add a replay first");
     if (overlayEditor.configured)
-      throw new Error(
-        "Overlay layers need the MP4 queue; a WebM export in this tab cannot capture independent pages.",
-      );
-    playing = false;
-    el("play").classList.remove("playing");
+      throw new Error("Overlays need Render MP4");
+    setPlaying(false);
     composition.validate();
     exporting = true;
     setTally();
     for (const [control] of controls) control.disabled = true;
     await previewFrame;
     const first = tracks[0];
-    const audio = await (
+    const song = await (
       await fetcher(
         `v1/assets?${new URLSearchParams({ kind: "map-asset", hash: first.replay.beatmapHash, path: first.map.general.AudioFilename })}`,
       )
@@ -595,10 +640,10 @@ el("webm").onclick = async () => {
         height,
         durationMs: full.duration,
         rate: first.replay.rate,
-        audio,
+        audio: song,
         render: (t) => full.renderOffline(t),
         progress: (p) => {
-          inform(`Encoding WebM · ${(p * 100).toFixed(1)}%`);
+          inform(`Encoding WebM ${(p * 100).toFixed(0)}%`);
         },
       });
       const url = URL.createObjectURL(blob),
@@ -607,7 +652,7 @@ el("webm").onclick = async () => {
       link.download = outName().replace(/\.mp4$/i, ".webm").split(/[\\/]/).pop()!;
       link.click();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
-      inform("WebM export complete");
+      show("WebM exported", "ok");
     } finally {
       full.releaseTargets();
       refreshComposition();

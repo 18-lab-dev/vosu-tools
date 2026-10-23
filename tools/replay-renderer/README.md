@@ -11,11 +11,13 @@ The studio exposes the same settings under each replay's **Render settings** dis
 A replay stores only its beatmap's MD5, so the exact difficulty must be installed locally. The service looks it up in two places, in this order:
 
 1. **stable Songs**: the folder vosu reports for an attached stable client, or the tool's `osu_dir` / `songs_dir` settings. The folder is indexed by MD5 once and cached.
-2. **lazer**: through the optional **Lazer library** tool (`lazer-library`), via `GET /tools/lazer-library/api/v1/beatmaps/by-md5/<md5>`. Files are read from lazer's hashed store, and only after checking that the `.osu` MD5 matches and that every path stays inside `<lazer>/files`. The library is called on its public read routes without a token, so it stays optional; listing it in `[[requires]]` would block the studio whenever it is missing.
+2. **lazer**: through the optional **Lazer library** tool (`lazer-library`), via `GET /tools/lazer-library/api/v1/beatmaps/by-md5/<md5>`. Files are read from lazer's hashed store, and only after checking that the `.osu` MD5 matches and that every path stays inside `<lazer>/files`. The library is an optional dependency: it is used only through its read routes, which any tool token may call, and it is not listed in `[[requires]]`, which would block the studio whenever it is missing.
 
-If neither has the map, the service answers 404 with `{"code":"map_missing","md5","searched":[…]}`. The studio turns that into a note above the monitor. The note names the MD5 and every place it searched, offers Copy MD5, and, when the Beatmap downloader is installed, a **Find in Beatmap downloader** link (`/tools/downloader/#md5=<md5>`).
+If neither has the map, the service answers 404 with `{"code":"map_missing","md5","searched":[…]}`. The studio shows it above the preview: the MD5, every place searched, **Copy MD5**, and, when the Beatmap downloader is installed, **Find in downloader** (`/tools/downloader/#md5=<md5>`).
 
 Replays come from stable's `Replays` folder and lazer's `exports` folder. The lazer folder is found from the attached lazer client, then the library's data folder, then the platform default (honouring `storage.ini`). For a given map, the list also includes lazer scores with replays from `GET …/v1/scores/by-beatmap/<md5>`. `GET /v1/replays` lists every replay, newest first. `GET /v1/replays?md5=` lists one map's replays, and the studio's **This map** tab follows the map open in osu! through `/websocket/v2/subscribe`.
+
+The preview plays the first track's song in sync with the picture. It starts muted; the mute button in the top bar is remembered between visits (`localStorage`, a plain boolean).
 
 ## Output size, defaults and presets
 
@@ -32,9 +34,11 @@ Settings the dashboard can edit without opening the studio:
 
 Each track picks its skin independently:
 
-- **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, triangles, legacy, …) are drawn by the game and have no files; the studio says so and renders those tracks with its own default skin.
+- **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, argon-pro, triangles, legacy) have no files. For those, the studio and the MP4 export use render-core's own drawing of that built-in (`builtinSkin`), and the UI says so. When no current skin is reported, tracks use the classic look.
+
+  File skins of any source fall back to render-core's classic (`legacy`) drawing for elements they do not provide (`withFallback`), as the clients do.
 - **osu! Skins folder**: any folder under the stable installation's `Skins` directory.
-- **Imported .osk**: archives imported in the studio's **Skins** panel or with `vosux replay-renderer skins import <file.osk> [--name NAME]`. They are unpacked into the tool's data directory (`skins/<name>`), never into osu! folders; re-importing a name replaces that copy only after the new one is complete. Presets and `--skin` refer to them as `imported/<name>`; `skins list` and `skins delete` manage them.
+- **Imported .osk**: archives imported with the studio's **Import .osk** button (Output › Skins) or with `vosux replay-renderer skins import <file.osk> [--name NAME]`. They are unpacked into the tool's data directory (`skins/<name>`), never into osu! folders; re-importing a name replaces that copy only after the new one is complete. Presets and `--skin` refer to them as `imported/<name>`; `skins list` and `skins delete` manage them.
 
 vosu forwards at most 1 MiB per request body, so imports are sent as ordered parts: `POST /v1/skins/uploads?name=&size=` (archives up to 512 MiB) returns `{upload, part_size}`, each `POST /v1/skins/uploads/<id>?offset=<n>` appends one part, and `POST /v1/skins/uploads/<id>/finish` validates and unpacks (no unsafe paths or symlinks, at most 20 000 entries and 1 GiB expanded). At most four imports run at once; parts idle for 30 minutes are discarded when the next import starts, and every unfinished upload is cleared when the service restarts.
 
@@ -61,7 +65,7 @@ Browser export uses WebCodecs VP9/Opus and writes WebM, with OfflineAudioContext
 
 ## Installed overlay pages (native MP4)
 
-Add installed overlay folders in the studio's **Overlay layers** section. Each layer has an independent page viewport, output X/Y, scale and opacity. These controls feed the native render queue; they do not iframe or execute an overlay inside the studio. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
+Add installed overlay folders under the studio's **Overlays** section (Output panel). Each layer has an independent page viewport, output X/Y, scale and opacity. These controls feed the native render queue; they do not iframe or execute an overlay inside the studio. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
 
 The CLI accepts repeated `--overlay /absolute/overlay-folder` arguments. Each folder must contain `index.html`; CLI layers default to the full output viewport at (0, 0). The service render request accepts `overlays: [{folder,width,height,x,y,scale,opacity,settings}]` for custom layouts and per-layer setting overrides. Defaults are read from the overlay's own `settings.json`.
 

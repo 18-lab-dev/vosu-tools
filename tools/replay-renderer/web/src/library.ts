@@ -31,7 +31,7 @@ export type LinkState = "connecting" | "open" | "closed";
 
 const SOURCE_LABEL: Record<ReplayEntry["source"], string> = {
   stable: "stable",
-  "lazer-export": "lazer export",
+  "lazer-export": "lazer",
   "lazer-score": "lazer score",
 };
 const MODES = ["osu!", "taiko", "catch", "mania"];
@@ -50,9 +50,11 @@ export class ReplayLibrary {
   private loading = 0;
   constructor(
     private view: {
+      /** `<tbody>` of the replay table. */
       list: HTMLElement;
+      /** Scroll region holding the table; its title lists the folders read. */
+      region: HTMLElement;
       filter: HTMLInputElement;
-      sources: HTMLElement;
       mapTab: HTMLButtonElement;
       allTab: HTMLButtonElement;
       now: HTMLElement;
@@ -106,7 +108,7 @@ export class ReplayLibrary {
       this.now = next;
       this.view.now.hidden = !next;
       this.view.now.textContent = next
-        ? `Now: ${next.artist} – ${next.title} [${next.version}]`
+        ? `${next.artist} – ${next.title} [${next.version}]`
         : "";
       if (this.tab === "map") void this.refresh();
     }, onStatus);
@@ -119,38 +121,40 @@ export class ReplayLibrary {
     this.view.allTab.tabIndex = tab === "all" ? 0 : -1;
     void this.refresh();
   }
+  /** One short line in place of the rows. */
+  message(text: string) {
+    this.entries = [];
+    this.render(text);
+  }
   async refresh() {
     const ticket = ++this.loading;
     if (this.tab === "map" && !this.now) {
-      this.entries = [];
-      this.render(
-        "No map is open in osu!. Pick a beatmap in the game, or switch to All.",
-      );
+      this.message("No map open in osu!.");
       return;
     }
-    this.view.list.setAttribute("aria-busy", "true");
+    this.view.region.setAttribute("aria-busy", "true");
     try {
       const query = this.tab === "map" ? `?md5=${this.now!.md5}` : "";
       const listing = (await (await this.fetcher(`v1/replays${query}`)).json()) as Listing;
       if (ticket !== this.loading) return;
       this.entries = listing.replays;
-      const folders = listing.sources.map((s) => `${SOURCE_LABEL[s.source as ReplayEntry["source"]] ?? s.source}: ${s.folder}`);
-      const scores =
-        this.tab === "map" && listing.lazer_scores !== "available" && listing.lazer_scores
-          ? [`lazer scores: ${listing.lazer_scores}`]
-          : [];
-      this.view.sources.textContent = folders.length || scores.length
-        ? `Reading ${[...folders, ...scores].join(" · ")}`
-        : `No replay folders found. ${listing.lazer}.`;
+      const places = listing.sources.map(
+        (s) => `${SOURCE_LABEL[s.source as ReplayEntry["source"]] ?? s.source}: ${s.folder}`,
+      );
+      if (this.tab === "map" && listing.lazer_scores && listing.lazer_scores !== "available")
+        places.push(`lazer scores: ${listing.lazer_scores}`);
+      this.view.region.title = places.join("\n") || listing.lazer;
       this.render(
-        this.tab === "map"
-          ? "No local replays of this map yet. Play it, or export a replay from lazer's results screen."
-          : "No replays found in stable's Replays or lazer's exports folder.",
+        !listing.sources.length && !listing.replays.length
+          ? "No replay folders found."
+          : this.tab === "map"
+            ? "No replays of this map."
+            : "No replays found.",
       );
     } catch (error) {
       if (ticket === this.loading) this.report(error);
     } finally {
-      if (ticket === this.loading) this.view.list.removeAttribute("aria-busy");
+      if (ticket === this.loading) this.view.region.removeAttribute("aria-busy");
     }
   }
   private render(empty = "") {
@@ -162,40 +166,47 @@ export class ReplayLibrary {
         (e.name ?? "").toLowerCase().includes(filter),
     );
     if (!shown.length) {
-      const note = document.createElement("li");
-      note.className = "list-empty";
-      note.textContent = this.entries.length ? "No replays match the filter." : empty;
-      this.view.list.replaceChildren(note);
+      const row = document.createElement("tr"),
+        cell = document.createElement("td");
+      cell.colSpan = 3;
+      cell.className = "v-empty";
+      cell.textContent = this.entries.length ? "No matches." : empty;
+      row.append(cell);
+      this.view.list.replaceChildren(row);
       return;
     }
     this.view.list.replaceChildren(
       ...shown.map((entry) => {
-        const item = document.createElement("li");
-        item.className = "replay";
-        const text = document.createElement("div");
-        const top = document.createElement("p");
-        const player = document.createElement("strong");
-        player.textContent = entry.player || "Unknown player";
-        const source = document.createElement("span");
-        source.className = `chip ${entry.source}`;
-        source.textContent = SOURCE_LABEL[entry.source];
-        top.append(player, source);
-        const detail = document.createElement("p");
-        detail.className = "replay-detail";
-        detail.textContent = [
-          typeof entry.mode === "number" ? MODES[entry.mode] : LAZER_MODES[entry.mode] ?? entry.mode,
-          entry.score != null ? Number(entry.score).toLocaleString() : "",
-          when(entry.date),
-          this.tab === "all" ? entry.name : "",
-        ]
+        const row = document.createElement("tr");
+        if (entry.name) row.title = entry.name;
+        const player = document.createElement("td");
+        const name = document.createElement("span");
+        name.className = "replay-player";
+        const who = document.createElement("span");
+        who.textContent = entry.player || "Unknown";
+        const mode = document.createElement("span");
+        mode.className = "v-muted";
+        mode.textContent =
+          typeof entry.mode === "number" ? MODES[entry.mode] : LAZER_MODES[entry.mode] ?? String(entry.mode);
+        const badge = document.createElement("span");
+        badge.className = `v-badge${entry.source === "stable" ? "" : " v-badge--accent"}`;
+        badge.textContent = SOURCE_LABEL[entry.source];
+        name.append(who, mode, badge);
+        const detail = document.createElement("span");
+        detail.className = "replay-map v-muted";
+        detail.textContent = [when(entry.date), this.tab === "all" ? entry.name : ""]
           .filter(Boolean)
           .join(" · ");
-        text.append(top, detail);
+        player.append(name, detail);
+        const score = document.createElement("td");
+        score.className = "v-num";
+        score.textContent = entry.score != null ? Number(entry.score).toLocaleString() : "";
+        const action = document.createElement("td");
         const add = document.createElement("button");
         add.type = "button";
-        add.className = "add";
+        add.className = "v-btn v-btn--sm";
         add.textContent = "Add";
-        add.setAttribute("aria-label", `Add ${entry.player}'s replay to the timeline`);
+        add.setAttribute("aria-label", `Add ${entry.player}'s replay`);
         add.onclick = async () => {
           add.disabled = true;
           try {
@@ -204,8 +215,9 @@ export class ReplayLibrary {
             add.disabled = false;
           }
         };
-        item.append(text, add);
-        return item;
+        action.append(add);
+        row.append(player, score, action);
+        return row;
       }),
     );
   }
@@ -216,67 +228,66 @@ function when(date: ReplayEntry["date"]) {
   const time = typeof date === "number" ? date : Date.parse(date);
   if (!Number.isFinite(time)) return "";
   return new Date(time).toLocaleDateString(undefined, {
-    year: "numeric",
+    year: "2-digit",
     month: "short",
     day: "numeric",
   });
 }
 
-/** Explains a replay whose beatmap is not installed, with the MD5 to find it. */
+/** A replay whose beatmap is not installed: its MD5, where we looked, and ways to find it. */
 export function showMissingMap(
   panel: HTMLElement,
   details: { md5: string; searched: string[] },
   downloader: boolean,
 ) {
-  const title = document.createElement("strong");
-  title.textContent = "This replay's map is not installed";
-  const body = document.createElement("p");
-  body.textContent =
-    "Rendering needs the exact difficulty the replay was played on. Install it in osu! stable or lazer, then add the replay again.";
-  const hash = document.createElement("p");
-  hash.className = "hash";
-  const label = document.createElement("span");
-  label.textContent = "Beatmap MD5";
+  const title = document.createElement("span");
+  title.className = "v-title";
+  title.textContent = "Map not installed";
   const code = document.createElement("code");
+  code.className = "v-mono";
   code.textContent = details.md5;
-  hash.append(label, code);
   const searched = document.createElement("ul");
+  searched.className = "v-muted";
   for (const place of details.searched) {
     const item = document.createElement("li");
     item.textContent = place;
     searched.append(item);
   }
   const actions = document.createElement("div");
-  actions.className = "actions";
+  actions.className = "v-row";
   const copy = document.createElement("button");
   copy.type = "button";
+  copy.className = "v-btn v-btn--sm";
   copy.textContent = "Copy MD5";
   copy.onclick = async () => {
     try {
       await navigator.clipboard.writeText(details.md5);
       copy.textContent = "Copied";
     } catch {
-      copy.textContent = "Select and copy the MD5 above";
+      copy.textContent = "Copy failed";
     }
   };
   actions.append(copy);
   if (downloader) {
     const find = document.createElement("a");
-    find.className = "button primary";
+    find.className = "v-btn v-btn--sm v-btn--primary";
     find.href = `/tools/downloader/#md5=${details.md5}`;
     find.target = "_blank";
     find.rel = "noopener";
-    find.textContent = "Find in Beatmap downloader ↗";
+    find.textContent = "Find in downloader";
     actions.append(find);
   }
   const close = document.createElement("button");
   close.type = "button";
-  close.className = "quiet";
+  close.className = "v-btn v-btn--sm v-btn--ghost";
   close.textContent = "Dismiss";
   close.onclick = () => {
     panel.hidden = true;
   };
   actions.append(close);
-  panel.replaceChildren(title, body, hash, searched, actions);
+  const head = document.createElement("div");
+  head.className = "v-row";
+  head.append(title, code);
+  panel.replaceChildren(head, searched, actions);
   panel.hidden = false;
 }

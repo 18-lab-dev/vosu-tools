@@ -48,8 +48,7 @@ export class SkinLibrary {
     this.changed();
   }
   describeReadOnly() {
-    this.view.current.textContent =
-      "Open the studio from the vosu dashboard to use your skins.";
+    this.view.current.textContent = "Read-only";
   }
   /** Whether a preset's skin still exists; empty means the current skin. */
   available(value: string | null | undefined) {
@@ -58,21 +57,19 @@ export class SkinLibrary {
       ? this.imported.includes(value.slice(IMPORTED.length))
       : this.installed.includes(value);
   }
-  /** Explains a skin choice that renders with the studio's default skin. */
+  /** lazer built-in id to draw for Current skin tracks, if any. */
+  get builtin() {
+    return this.current.source === "builtin" ? this.current.builtin : null;
+  }
+  /** Short note for a skin choice that cannot render as chosen. */
   note(value: string) {
-    if (value) {
-      return this.available(value)
-        ? ""
-        : `${value} is no longer available; pick another skin.`;
-    }
-    if (this.current.source === "builtin")
-      return `lazer's built-in ${this.current.builtin} skin has no files, so this track uses the studio's default skin.`;
-    if (this.current.source === "none")
-      return "vosu reports no current skin, so this track uses the studio's default skin.";
+    if (value) return this.available(value) ? "" : `${value} is missing.`;
+    if (this.current.source === "none") return "No current skin: classic look.";
     return "";
   }
   select(value: string) {
     const select = document.createElement("select");
+    select.className = "v-select";
     select.add(new Option(this.currentLabel(), ""));
     for (const [label, names, prefix] of [
       ["osu! Skins folder", this.installed, ""],
@@ -93,29 +90,26 @@ export class SkinLibrary {
     switch (this.current.source) {
       case "folder":
       case "vosu":
-        return `Current skin · ${this.current.name ?? "unnamed"}`;
+        return `Current · ${this.current.name ?? "unnamed"}`;
       case "builtin":
-        return `Current skin · ${this.current.builtin} built-in (studio default)`;
+        return `Current · ${this.current.builtin} (built-in)`;
       default:
-        return "Current skin · unavailable (studio default)";
+        return "Current · none (classic)";
     }
   }
   private render() {
     const { current } = this;
-    const title = document.createElement("b"),
-      detail = document.createElement("small");
-    title.textContent = current.name ?? current.builtin ?? "No current skin";
+    const title = document.createElement("span"),
+      detail = document.createElement("span");
+    title.textContent = current.name ?? current.builtin ?? "None";
+    detail.className = "v-muted";
     detail.textContent = {
-      folder: "Current skin, read from your osu! stable Skins folder.",
-      vosu: "Current lazer skin, read through vosu.",
-      builtin: `lazer's built-in ${current.builtin} skin is drawn by the game and has no files. Tracks set to Current skin use the studio's default skin; import the .osk you want instead.`,
-      none: "vosu reports no current skin. Tracks set to Current skin use the studio's default skin.",
+      folder: "stable",
+      vosu: "lazer",
+      builtin: "lazer built-in, drawn by the studio",
+      none: "classic look",
     }[current.source];
-    this.view.current.classList.toggle(
-      "fallback",
-      current.source === "builtin" || current.source === "none",
-    );
-    this.view.current.replaceChildren(title, detail);
+    this.view.current.replaceChildren(title, " ", detail);
     this.view.list.replaceChildren(
       ...this.imported.map((name) => {
         const item = document.createElement("li"),
@@ -123,13 +117,13 @@ export class SkinLibrary {
           remove = document.createElement("button");
         label.textContent = name;
         remove.type = "button";
-        remove.className = "quiet";
+        remove.className = "v-btn v-btn--sm v-btn--ghost";
         remove.textContent = "Remove";
         remove.setAttribute("aria-label", `Remove imported skin ${name}`);
         let armed: number | undefined;
         remove.onclick = () => {
           if (!armed) {
-            remove.textContent = "Confirm remove";
+            remove.textContent = "Confirm";
             armed = window.setTimeout(() => {
               armed = undefined;
               remove.textContent = "Remove";
@@ -185,7 +179,7 @@ export class SkinLibrary {
         })
       ).json()) as { name: string; files: number };
       await this.refresh();
-      status.textContent = `Imported ${result.name} (${result.files} files). Pick it in a track's Skin menu.`;
+      status.textContent = `Imported ${result.name} (${result.files} files)`;
     } catch (error) {
       status.textContent = "";
       this.report(error);
