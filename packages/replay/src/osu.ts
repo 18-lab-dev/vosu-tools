@@ -179,12 +179,6 @@ function cursorAt(frames: readonly ReplayFrame[], index: number, time: number): 
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
-/** Frames lazer plays back: stable's two (256, -500) lead-in frames are dropped. */
-export function playbackFrames(frames: readonly ReplayFrame[]): ReplayFrame[] {
-  const out = frames.slice(0, 2).filter((f) => !(f.x === 256 && f.y === -500));
-  return [...out, ...frames.slice(2)];
-}
-
 export interface OsuSimulationOptions {
   /** The map's difficulty before mods: stable's ScoreV1 multiplier uses it. */
   baseDifficulty: Beatmap["difficulty"];
@@ -422,7 +416,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   const isHit = (r: HitResult) => r !== "miss" && r !== "large_tick_miss" && r !== "small_tick_miss" && r !== "ignore_miss";
 
   // Input and update state.
-  const frames = playbackFrames(replay.frames);
+  const frames = replay.frames;
   let actions: Action[] = [],
     cursor: Point = { x: 256, y: 192 },
     now = -Infinity;

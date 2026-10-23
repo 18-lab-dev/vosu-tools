@@ -8,7 +8,6 @@
 import type { Beatmap } from "@vosu-tools/osu-parse";
 import { catchObjects, f32 } from "@vosu-tools/ruleset-convert";
 import type { Replay, ReplayFrame } from "./index";
-import { playbackFrames } from "./osu";
 import {
   clientOf,
   lazerMultiplier,
@@ -106,7 +105,7 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
   if (mods.some((m) => m.acronym === "RX" || m.acronym === "AT" || m.acronym === "CN"))
     throw new Error("Relax and autoplay replays are not judged from input");
   const objects = catchObjects(map),
-    frames = playbackFrames(replay.frames),
+    frames = replay.frames,
     half = halfCatchWidth(map.difficulty.cs);
   const perfect: Outcome[] = [],
     outcomes: Outcome[] = [];

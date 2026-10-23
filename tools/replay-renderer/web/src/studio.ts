@@ -3,7 +3,7 @@ import {
   frameAt,
   columnKeys,
   stateAt,
-  beatmapForReplay,
+  playableMap,
   judgeReplay,
   replayMods,
   replayHealth,
@@ -35,6 +35,7 @@ const hitValues: Record<Result, number> = {
   miss: 0,
 };
 import { assertCompatible } from "@vosu-tools/render-export";
+import { convertBeatmap, isConvert } from "@vosu-tools/ruleset-convert";
 import {
   HUD,
   HUD_KEYS,
@@ -215,12 +216,10 @@ export async function loadTrack(
       )
     ).text(),
   );
-  if (raw.mode !== replay.mode)
-    throw new Error(
-      "Converted rulesets are not yet supported; select a native-ruleset replay",
-    );
-  const map = beatmapForReplay(raw, replay);
   const mods = replayMods(replay);
+  // osu! maps play converted in the replay's ruleset, as the clients convert them.
+  const source = isConvert(raw, replay.mode) ? convertBeatmap(raw, replay.mode, mods) : raw;
+  const map = playableMap(replay, raw);
   // Skin values: "" current skin, "builtin/<id>" a drawn lazer look, else
   // files from the service (stable folder, "imported/…", "lazer/<id>").
   // lazer's built-in current skin has no files: draw it. File skins keep the
@@ -282,7 +281,7 @@ export async function loadTrack(
     format: "rgba8unorm",
     transparentBackground: true,
   });
-  renderer.setBeatmap(raw, {
+  renderer.setBeatmap(source, {
     mods,
     scrollSpeed: settings["mania.scroll_speed"],
     noteSpeed: settings.note_speed,
