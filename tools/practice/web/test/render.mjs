@@ -8,7 +8,7 @@
 // settings, /files/beatmap/{audio,background}, and the tool API proxy, which like
 // vosu refuses [api].write routes without a UI session. The practice service runs
 // from target/debug with isolated HOME/XDG_* on temporary copies of both map
-// folders; when target/debug/vosu-ratings exists it runs too and answers as
+// folders; when target/debug/vosu-mania-ratings exists it runs too and answers as
 // `mania-ratings`. The source Songs folders are never written.
 import { spawn } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { at, checkSubscription } from './subscription.ts';
 
 const [playwrightModule, evidence, osuSource, maniaSource] = process.argv.slice(2);
 if (!playwrightModule || !evidence || !osuSource || !maniaSource) {
@@ -89,14 +90,33 @@ export const vosu = Object.freeze({
     if (session) headers.set('X-Vosu-Tool-Session', session);
     return fetch(url, { ...options, headers, credentials: 'omit' });
   },
-  subscribe(fields, onFrame) {
+  subscribe(fields, onFrame, onStatus) {
+    // One connection, no reconnects; statuses as the vosu 1.2.0 bridge reports them.
+    onStatus?.('connecting');
     const socket = new WebSocket(new URL('/websocket/v2/subscribe', location.href.replace('http', 'ws')));
-    socket.addEventListener('open', () => socket.send(JSON.stringify(fields)));
+    socket.addEventListener('open', () => { socket.send(JSON.stringify(fields)); onStatus?.('open'); });
     socket.addEventListener('message', (event) => onFrame(JSON.parse(event.data)));
+    socket.addEventListener('close', () => onStatus?.('closed'));
     return () => socket.close();
   },
 });`;
-const frame = () => JSON.stringify({ beatmap: { checksum: context.beatmap.checksum } });
+// vosu's selected-field subscription (src/server/v2_subscription.rs): the
+// request is validated exactly as vosu does, a rejected one gets vosu's error
+// frame and close 1008, and frames carry values by pointer index.
+let revision = 0;
+const v2 = () => ({ beatmap: { checksum: context.beatmap.checksum } });
+const values = (pointers) => pointers.map((tokens) => at(v2(), tokens));
+function updates(ws) {
+  const next = values(ws.data.pointers);
+  const present = [], absent = [];
+  next.forEach((value, i) => {
+    if (JSON.stringify(value) === JSON.stringify(ws.data.last[i])) return;
+    if (value === undefined) absent.push(i);
+    else present.push([i, value]);
+  });
+  ws.data.last = next;
+  if (present.length || absent.length) ws.send(JSON.stringify([1, ++revision, present, absent]));
+}
 function proxy(request, url, port, prefix, token) {
   const route = '/' + url.pathname.slice(prefix.length);
   return request.arrayBuffer().then((body) => fetch(`http://127.0.0.1:${port}${route}${url.search}`, {
@@ -110,9 +130,25 @@ const host = Bun.serve({
   // mania-ratings' local-MSD timeline takes a while in a debug build.
   idleTimeout: 255,
   websocket: {
-    open(ws) { sockets.add(ws); ws.send(frame()); },
+    open(ws) { ws.data = { pointers: null, last: [] }; sockets.add(ws); },
     close(ws) { sockets.delete(ws); },
-    message() {},
+    message(ws, text) {
+      if (ws.data.pointers) {
+        ws.send(JSON.stringify([2, 5, 'subscription already established']));
+        ws.close(1008);
+        return;
+      }
+      const checked = checkSubscription(String(text));
+      report.subscriptions.push({ request: String(text), accepted: 'pointers' in checked });
+      if ('error' in checked) {
+        ws.send(JSON.stringify(checked.error));
+        ws.close(1008);
+        return;
+      }
+      ws.data.pointers = checked.pointers;
+      ws.data.last = values(checked.pointers);
+      ws.send(JSON.stringify([0, ++revision, ws.data.last.flatMap((value, i) => (value === undefined ? [] : [[i, value]]))]));
+    },
   },
   async fetch(request, server) {
     const url = new URL(request.url);
@@ -154,7 +190,7 @@ const host = Bun.serve({
 });
 function switchMap(name) {
   context = maps[name].context;
-  for (const ws of sockets) ws.send(frame());
+  for (const ws of sockets) if (ws.data.pointers) updates(ws);
 }
 
 async function start(id, binary) {
@@ -169,9 +205,9 @@ async function start(id, binary) {
   services[id] = { child, port: Number(line.split(' ')[1]) };
 }
 await start('practice', path.join(root, 'target/debug/vosu-practice'));
-if (existsSync(path.join(root, 'target/debug/vosu-ratings'))) await start('ratings', path.join(root, 'target/debug/vosu-ratings'));
+if (existsSync(path.join(root, 'target/debug/vosu-mania-ratings'))) await start('ratings', path.join(root, 'target/debug/vosu-mania-ratings'));
 
-const report = { maps: { osu: path.basename(osuSource), mania: path.basename(maniaSource) }, ratings: Boolean(services.ratings), checks: [] };
+const report = { maps: { osu: path.basename(osuSource), mania: path.basename(maniaSource) }, ratings: Boolean(services.ratings), subscriptions: [], checks: [] };
 const check = (name, ok, detail) => {
   report.checks.push({ name, ok: Boolean(ok), detail });
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail === undefined ? '' : ` ${JSON.stringify(detail)}`}`);
@@ -221,6 +257,10 @@ try {
   check('playfield preview rendered by render-core', webgpu, await page.textContent('#preview-message'));
   check('no gameplay-only explanation or copies list', !(await page.content()).includes('Gameplay-only') && !(await page.$('#generated')));
   check('button reads "Generate map"', (await page.textContent('#generate')).trim() === 'Generate map');
+  // Regression (round 3): vosu rejects anything but JSON-pointer selectors, and
+  // the page must then not claim vosu is unreachable while it is up.
+  await page.waitForFunction(() => document.getElementById('live').dataset.state === 'open', null, { timeout: 10_000 }).catch(() => {});
+  check('subscription accepted by vosu’s validation; page follows osu!', report.subscriptions.length > 0 && report.subscriptions.every((s) => s.accepted) && (await page.textContent('#live')) === 'Following osu!', { subscriptions: report.subscriptions, live: await page.textContent('#live') });
   await page.screenshot({ path: `${evidence}/osu-dark-1920.png` });
 
   // ---- Follow the game: switch to the mania map without reloading.
@@ -232,6 +272,15 @@ try {
   check('mania: difficulty HP/OD only', JSON.stringify(await page.$$eval('#difficulty input[type=number]', (e) => e.map((i) => i.name))) === '["hp","od"]');
   const maniaStats = await statLabels(page);
   check('mania: keys shown, no CS/AR', maniaStats.includes('Keys') && !maniaStats.includes('CS') && !maniaStats.includes('AR'), maniaStats);
+  // The mania stage uses the preview's full height: the column narrows to the
+  // stage and the canvas keeps render-core's 4:3 world at that height.
+  const fit = await page.evaluate(() => {
+    const stage = document.querySelector('.stage').getBoundingClientRect();
+    const canvas = document.getElementById('canvas').getBoundingClientRect();
+    const work = document.querySelector('.workspace').getBoundingClientRect();
+    return { fitted: document.querySelector('.workspace').classList.contains('fit-preview'), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), workspaceWidth: Math.round(work.width) };
+  });
+  check('mania: preview column fits the stage; playfield at full height', fit.fitted && fit.stageWidth < fit.workspaceWidth / 2 && fit.canvasWidth >= fit.stageHeight * 4 / 3 - 1, fit);
   await page.waitForFunction((rated) => {
     const label = document.getElementById('timeline-label').textContent;
     return rated ? label.includes('Mania ratings') : label.startsWith('Notes per second');
