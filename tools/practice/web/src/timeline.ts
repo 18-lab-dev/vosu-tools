@@ -1,6 +1,8 @@
-// Trim strip: a difficulty graph over source time with draggable kept ranges.
-// Drag on empty strip to add a range, drag a range to move it, drag its edges
-// to resize it; a click without dragging seeks the preview.
+// Timeline: a difficulty graph over source time with the playhead and the kept
+// (trim) sections. Gestures are in gesture.ts: drag scrubs the playhead, a
+// click seeks, Shift+drag adds or moves a section, section edges resize. With
+// the strip focused, Left/Right (Shift: 5 s) nudge the playhead.
+import { Gesture, nudge, type Target } from './gesture';
 import { clock, type Range, type Window } from './time';
 export type TimelineData = {
   source: string;
@@ -12,7 +14,6 @@ export type TimelineData = {
 };
 
 const SVG = 'http://www.w3.org/2000/svg';
-const MIN_RANGE_MS = 250;
 
 export class Timeline {
   private data: TimelineData | null = null;
@@ -23,17 +24,35 @@ export class Timeline {
   private readonly playhead: HTMLElement;
   private readonly axis: HTMLElement;
 
+  private playheadTime = 0;
+
   constructor(
     private readonly strip: HTMLElement,
     axis: HTMLElement,
     private readonly onChange: (ranges: Range[]) => void,
+    /** A click, the end of a scrub, or a key nudge: move the preview here. */
     private readonly onSeek: (sourceMs: number) => void,
+    /** Live while the playhead is dragged. */
+    private readonly onScrub: (sourceMs: number) => void,
   ) {
     this.graph = strip.querySelector('svg')!;
     this.layer = strip.querySelector('.ranges')!;
     this.playhead = strip.querySelector('.playhead')!;
     this.axis = axis;
     strip.addEventListener('pointerdown', (event) => this.pointerDown(event));
+    // The cursor tells which gesture a press starts: Shift switches to trim.
+    const shift = (on: boolean) => strip.classList.toggle('trim-mode', on);
+    strip.addEventListener('pointermove', (event) => shift(event.shiftKey));
+    strip.addEventListener('pointerleave', () => shift(false));
+    addEventListener('keydown', (event) => { if (event.key === 'Shift' && strip.matches(':hover')) shift(true); });
+    addEventListener('keyup', (event) => { if (event.key === 'Shift') shift(false); });
+    strip.addEventListener('keydown', (event) => {
+      const time = nudge(event.key, event.shiftKey, this.playheadTime, this.duration);
+      if (time === null || !this.duration) return;
+      event.preventDefault();
+      this.setPlayhead(time);
+      this.onSeek(time);
+    });
     new ResizeObserver(() => this.drawAxis()).observe(strip);
   }
 
@@ -77,10 +96,15 @@ export class Timeline {
   setPlayhead(sourceMs: number | null): void {
     if (sourceMs === null || !this.duration) {
       this.playhead.hidden = true;
+      this.strip.removeAttribute('aria-valuenow');
       return;
     }
+    this.playheadTime = sourceMs;
     this.playhead.hidden = false;
     this.playhead.style.left = `${(sourceMs / this.duration) * 100}%`;
+    this.strip.setAttribute('aria-valuemax', String(Math.round(this.duration)));
+    this.strip.setAttribute('aria-valuenow', String(Math.round(sourceMs)));
+    this.strip.setAttribute('aria-valuetext', clock(sourceMs, true));
   }
 
   private x(t: number): number {
@@ -154,44 +178,43 @@ export class Timeline {
 
   private pointerDown(event: PointerEvent): void {
     if (!this.duration || event.button !== 0) return;
-    const target = event.target as HTMLElement;
-    const rangeEl = target.closest<HTMLElement>('.range');
-    const index = rangeEl ? Number(rangeEl.dataset.index) : -1;
-    const edge = target.dataset.edge as 'start' | 'end' | undefined;
-    const origin = this.time(event.clientX);
-    const before = this.ranges.map((r) => ({ ...r }));
-    let moved = false;
+    const element = event.target as HTMLElement;
+    const rangeEl = element.closest<HTMLElement>('.range');
+    const edge = element.dataset.edge;
+    const target: Target = rangeEl && (edge === 'start' || edge === 'end')
+      ? { kind: 'edge', index: Number(rangeEl.dataset.index), edge }
+      : rangeEl ? { kind: 'range', index: Number(rangeEl.dataset.index) } : { kind: 'empty' };
+    const gesture = new Gesture(target, event.shiftKey, event.clientX, this.time(event.clientX), this.ranges, this.duration);
     this.strip.setPointerCapture(event.pointerId);
+    this.strip.dataset.gesture = gesture.mode;
+    // Scrubbing jumps to the press at once, so grabbing anywhere works.
+    if (gesture.mode === 'scrub') this.scrubTo(this.time(event.clientX));
     const move = (e: PointerEvent) => {
-      const t = this.time(e.clientX);
-      if (!moved && Math.abs(e.clientX - event.clientX) < 4) return;
-      moved = true;
-      const next = before.map((r) => ({ ...r }));
-      if (index >= 0 && edge) {
-        const r = next[index];
-        if (edge === 'start') r.start_ms = Math.min(t, r.end_ms - MIN_RANGE_MS);
-        else r.end_ms = Math.max(t, r.start_ms + MIN_RANGE_MS);
-      } else if (index >= 0) {
-        const r = next[index];
-        const length = r.end_ms - r.start_ms;
-        const start = Math.min(Math.max(0, r.start_ms + t - origin), this.duration - length);
-        r.start_ms = start;
-        r.end_ms = start + length;
-      } else {
-        next.push({ start_ms: Math.min(origin, t), end_ms: Math.max(origin, t, Math.min(origin, t) + MIN_RANGE_MS) });
+      const effect = gesture.move(e.clientX, this.time(e.clientX));
+      if (effect.kind === 'scrub') this.scrubTo(effect.time);
+      else if (effect.kind === 'ranges') {
+        this.ranges = effect.ranges;
+        this.drawRanges();
       }
-      this.ranges = next.sort((a, b) => a.start_ms - b.start_ms);
-      this.drawRanges();
     };
     const up = (e: PointerEvent) => {
       this.strip.removeEventListener('pointermove', move);
       this.strip.removeEventListener('pointerup', up);
       this.strip.removeEventListener('pointercancel', up);
-      if (moved) this.onChange(this.ranges.map((r) => ({ ...r })));
-      else this.onSeek(this.time(e.clientX));
+      delete this.strip.dataset.gesture;
+      const effect = gesture.end(this.time(e.clientX));
+      if (effect.kind === 'seek') {
+        this.setPlayhead(effect.time);
+        this.onSeek(effect.time);
+      } else if (effect.kind === 'commit') this.onChange(effect.ranges);
     };
     this.strip.addEventListener('pointermove', move);
     this.strip.addEventListener('pointerup', up);
     this.strip.addEventListener('pointercancel', up);
+  }
+
+  private scrubTo(time: number): void {
+    this.setPlayhead(time);
+    this.onScrub(time);
   }
 }

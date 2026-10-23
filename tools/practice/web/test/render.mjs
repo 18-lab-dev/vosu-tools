@@ -349,18 +349,45 @@ try {
   const timelineLabel = await page.textContent('#timeline-label');
   check(`timeline source: ${services.ratings ? 'mania-ratings local MSD' : 'notes per second'}`, services.ratings ? timelineLabel.includes('Mania ratings') : timelineLabel.includes('Notes per second'), { label: timelineLabel, note: await page.textContent('#timeline-note') });
 
-  // Trims: drag two sections on the strip; set the rate.
+  // Gestures: a plain drag scrubs (live clock updates, no section), Shift+drag
+  // makes sections, the focused strip nudges with the arrow keys.
   const strip = await page.locator('#strip').boundingBox();
-  const drag = async (from, to) => {
-    await page.mouse.move(strip.x + strip.width * from, strip.y + strip.height / 2);
+  const y = strip.y + strip.height / 2;
+  const xAt = (f) => strip.x + strip.width * f;
+  const drag = async (from, to, shift = false) => {
+    if (shift) await page.keyboard.down('Shift');
+    await page.mouse.move(xAt(from), y);
     await page.mouse.down();
-    await page.mouse.move(strip.x + strip.width * ((from + to) / 2), strip.y + strip.height / 2, { steps: 4 });
-    await page.mouse.move(strip.x + strip.width * to, strip.y + strip.height / 2, { steps: 4 });
+    await page.mouse.move(xAt((from + to) / 2), y, { steps: 4 });
+    await page.mouse.move(xAt(to), y, { steps: 4 });
     await page.mouse.up();
+    if (shift) await page.keyboard.up('Shift');
   };
+  const clockNow = () => page.textContent('#clock');
+  await page.mouse.move(xAt(0.2), y);
+  await page.mouse.down();
+  await page.mouse.move(xAt(0.3), y, { steps: 3 });
+  const scrubA = await clockNow();
+  const cursorA = await page.evaluate(() => getComputedStyle(document.getElementById('strip')).cursor);
+  await page.mouse.move(xAt(0.4), y, { steps: 3 });
+  const scrubB = await clockNow();
+  const during = await page.evaluate(() => document.getElementById('strip').dataset.gesture);
+  await page.mouse.up();
+  const scrubSections = await page.evaluate(() => document.querySelectorAll('#trim-list li').length);
+  check('plain drag scrubs the playhead live and makes no section', during === 'scrub' && cursorA === 'col-resize' && scrubA !== scrubB && scrubSections === 0, { scrubA, scrubB, during, cursorA, scrubSections });
+  await page.keyboard.down('Shift');
+  await page.mouse.move(xAt(0.5), y + 1);
+  const shiftCursor = await page.evaluate(() => getComputedStyle(document.getElementById('strip')).cursor);
+  await page.keyboard.up('Shift');
+  await page.focus('#strip');
+  const beforeKey = await page.getAttribute('#strip', 'aria-valuenow');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  const afterKey = await page.getAttribute('#strip', 'aria-valuenow');
+  check('Shift shows the trim cursor; Right nudges the focused playhead by 1 s', shiftCursor === 'crosshair' && Number(afterKey) - Number(beforeKey) === 2000, { shiftCursor, beforeKey, afterKey });
   const objectsBefore = await page.evaluate(() => document.querySelector('#stats div:nth-child(2) dd').textContent);
-  await drag(0.30, 0.38);
-  await drag(0.62, 0.70);
+  await drag(0.30, 0.38, true);
+  await drag(0.62, 0.70, true);
   await page.fill('input[name=rate]', '1.2');
   await page.dispatchEvent('input[name=rate]', 'input');
   await page.waitForFunction(() => document.querySelectorAll('#trim-list li').length === 2);
@@ -379,6 +406,20 @@ try {
   await page.mouse.click(strip.x + strip.width * 0.66, strip.y + strip.height / 2);
   await page.waitForTimeout(200);
   await page.screenshot({ path: `${evidence}/mania-trims-dark-1920.png` });
+  await page.hover('.trim-label .v-help');
+  await page.waitForTimeout(200);
+  const tip = await page.evaluate(() => {
+    const help = document.querySelector('.trim-label .v-help');
+    const box = help.getBoundingClientRect();
+    const panel = help.closest('.v-scroll').getBoundingClientRect();
+    const width = parseFloat(getComputedStyle(help, '::after').width);
+    // data-tip-pos="right": the tip starts at the icon's left edge.
+    return { text: help.dataset.tip, tipLeft: Math.round(box.left), tipRight: Math.round(box.left + width), panelLeft: Math.round(panel.left), panelRight: Math.round(panel.right), shown: getComputedStyle(help, '::after').visibility };
+  });
+  check('trim help hover shows inside the controls panel', tip.shown === 'visible' && tip.tipLeft >= tip.panelLeft && tip.tipRight <= tip.panelRight, tip);
+  report.trimHelp = tip;
+  await page.screenshot({ path: `${evidence}/trim-help-dark-1920.png`, clip: { x: 0, y: 0, width: 760, height: 620 } });
+  await page.focus('#strip');
 
   // Profiles: save as, then generate.
   await page.click('#profile-save-as');

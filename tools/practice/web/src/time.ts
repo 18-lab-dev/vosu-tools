@@ -37,3 +37,23 @@ export function outputTime(sourceMs: number, rate: number, windows: Window[]): n
   const w = windows.find((w) => sourceMs >= w.source_start && sourceMs <= w.source_end);
   return w ? (sourceMs - w.source_start + w.output_start) / rate : null;
 }
+
+/**
+ * Output time for a source time; a source time trimmed away maps to the
+ * nearest kept edge (the end of the window before it or the start of the next).
+ */
+export function nearestOutputTime(sourceMs: number, rate: number, windows: Window[]): number {
+  const exact = outputTime(sourceMs, rate, windows);
+  if (exact !== null) return exact;
+  let best = windows[0];
+  let bestEdge = best.source_start;
+  for (const w of windows) {
+    for (const edge of [w.source_start, w.source_end]) {
+      if (Math.abs(edge - sourceMs) < Math.abs(bestEdge - sourceMs)) {
+        best = w;
+        bestEdge = edge;
+      }
+    }
+  }
+  return (bestEdge - best.source_start + best.output_start) / rate;
+}
