@@ -3,137 +3,123 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>osu! practice tool</title>
+<title>Practice</title>
 <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore>
 </head>
-<body>
-<div class="app">
-  <header class="topbar">
-    <svg class="mark" viewBox="0 0 256 256" aria-hidden="true" focusable="false">
-      <rect width="256" height="256" rx="56" class="mark-plate mark-edge"/>
-      <path d="M44.9 198A96 96 0 1 1 211.1 198" class="mark-arc"/>
-      <g class="mark-ticks"><line x1="44.9" y1="198" x2="63.9" y2="187"/><line x1="33.5" y1="133.3" x2="55.1" y2="137.2"/><line x1="66.3" y1="76.5" x2="80.4" y2="93.3"/><line x1="128" y1="54" x2="128" y2="76"/><line x1="189.7" y1="76.5" x2="175.6" y2="93.3"/><line x1="222.5" y1="133.3" x2="200.9" y2="137.2"/><line x1="211.1" y1="198" x2="192.1" y2="187"/></g>
-      <line x1="128" y1="150" x2="76.6" y2="88.7" class="mark-ghost"/>
-      <line x1="128" y1="150" x2="179.4" y2="88.7" class="mark-live"/>
-      <rect x="79.6" y="101.2" width="30" height="18" rx="6.9" class="mark-ghost-weight" transform="rotate(320 94.6 110.2)"/>
-      <rect x="146.4" y="101.2" width="30" height="18" rx="6.9" class="mark-live-weight" transform="rotate(400 161.4 110.2)"/>
-      <circle cx="128" cy="150" r="17" class="mark-pivot"/><circle cx="128" cy="150" r="6.1" class="mark-plate"/>
-    </svg>
-    <span class="tool-name">Practice</span>
-    <div class="profiles" role="group" aria-label="Profiles">
-      <label for="profile" class="profile-label">Profile</label>
-      <select id="profile"></select>
-      <span id="dirty" class="dirty" hidden>modified</span>
-      <button type="button" id="profile-save" class="quiet">Save</button>
-      <button type="button" id="profile-save-as" class="quiet">Save as…</button>
-      <button type="button" id="profile-delete" class="quiet">Delete</button>
-      <form id="profile-new" class="profile-new" hidden>
-        <input id="profile-name" maxlength="40" required placeholder="Profile name" aria-label="New profile name" autocomplete="off">
-        <button type="submit">Save</button>
-        <button type="button" id="profile-new-cancel" class="quiet">Cancel</button>
-      </form>
-    </div>
-    <p id="live" class="live" data-state="connecting" role="status" title="Connection to vosu for following the selected map">Connecting</p>
-    <p id="access" class="access" data-state="pending" role="status">Connecting…</p>
-    <span class="credit">by 18-LAB</span>
-  </header>
+<body class="v-app">
+<header class="v-bar">
+  <span class="v-bar__title">Practice</span>
+  <span id="live-dot" class="v-dot"></span><span id="live" class="v-muted" role="status">Connecting</span>
+  <span class="v-bar__spacer"></span>
+  <div class="v-toolbar" role="group" aria-label="Profiles">
+    <select id="profile" class="v-select profile-select" aria-label="Profile"></select>
+    <span id="dirty" class="v-badge v-badge--accent" hidden>modified</span>
+    <button type="button" id="profile-save" class="v-btn v-btn--ghost">Save</button>
+    <button type="button" id="profile-save-as" class="v-btn v-btn--ghost">Save as…</button>
+    <button type="button" id="profile-delete" class="v-btn v-btn--ghost">Delete</button>
+    <form id="profile-new" class="v-toolbar" hidden>
+      <input id="profile-name" class="v-input profile-name" maxlength="40" required placeholder="Profile name" aria-label="New profile name" autocomplete="off">
+      <button type="submit" class="v-btn">Save</button>
+      <button type="button" id="profile-new-cancel" class="v-btn v-btn--ghost">Cancel</button>
+    </form>
+  </div>
+  <span class="v-toolbar__sep"></span>
+  <span id="access" class="v-badge">Connecting</span>
+  <span id="access-help" class="v-help" tabindex="0" role="img" data-tip-pos="left" aria-label="Open Practice from the dashboard to generate maps or save profiles." data-tip="Open Practice from the dashboard to generate maps or save profiles." hidden></span>
+</header>
 
-  <section class="banner" aria-labelledby="title">
-    <img id="banner-art" class="banner-art" alt="" hidden>
-    <div class="banner-text">
-      <p class="ruleset" id="ruleset" hidden></p>
-      <h1 id="title">Waiting for osu!</h1>
-      <p id="subtitle" class="subtitle">Select a beatmap in osu! — this page follows it.</p>
+<main id="main" class="v-main practice">
+  <form id="form" class="v-panel controls" novalidate>
+    <div class="v-panel__body v-scroll controls-body">
+      <section class="v-stack section">
+        <div class="section-head"><span class="v-label"><b>01</b> / Rate</span><span id="rate-readout" class="v-mono rate-readout">1.00×</span></div>
+        <input id="rate-slider" class="v-range" type="range" min="0.5" max="2" step="0.01" value="1" aria-label="Rate">
+        <div class="pair">
+          <label class="v-field"><span>Rate</span><input name="rate" class="v-input" type="number" min="0.5" max="2" step="0.01" value="1"></label>
+          <label class="v-check"><input name="pitch" type="checkbox"> Change pitch</label>
+        </div>
+      </section>
+
+      <section class="v-stack section">
+        <div class="section-head"><span class="v-label"><b>02</b> / Transforms</span></div>
+        <div id="transforms" class="v-toolbar"></div>
+        <div id="transform-options" class="pair"></div>
+      </section>
+
+      <section class="v-stack section">
+        <div class="section-head"><span class="v-label"><b>03</b> / Difficulty</span></div>
+        <div id="difficulty" class="pair"></div>
+      </section>
+
+      <section class="v-stack section">
+        <div class="section-head">
+          <span class="v-label"><b>04</b> / Trim</span>
+          <button type="button" id="clear-trims" class="v-btn v-btn--ghost v-btn--sm" hidden>Clear</button>
+        </div>
+        <ol id="trim-list" class="trim-list"></ol>
+        <p id="trim-empty" class="v-empty">Drag on the timeline to keep sections.</p>
+        <div class="pair">
+          <label class="v-field"><span>Lead-in (ms)</span><input name="lead_in_ms" class="v-input" type="number" min="0" max="30000" step="100"></label>
+          <label class="v-field"><span>Lead-out (ms)</span><input name="lead_out_ms" class="v-input" type="number" min="0" max="30000" step="100"></label>
+          <label class="v-field"><span>Gap (ms)</span><input name="gap_ms" class="v-input" type="number" min="0" max="30000" step="100"></label>
+          <label class="v-field"><span>Fade (ms)</span><input name="fade_ms" class="v-input" type="number" min="0" max="10000" step="10"></label>
+        </div>
+      </section>
+    </div>
+    <div class="controls-foot">
+      <div class="v-row">
+        <button class="v-btn v-btn--primary generate" id="generate" type="submit">Generate map</button>
+        <button id="cancel" type="button" class="v-btn" hidden>Cancel</button>
+      </div>
+      <div id="progress" class="v-meter" style="--v-value: 0" hidden></div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </div>
+  </form>
+
+  <section class="v-panel map" aria-labelledby="title">
+    <img id="banner-art" class="map-art" alt="" hidden>
+    <div class="map-text">
+      <span id="ruleset" class="v-badge v-badge--accent" hidden></span>
+      <h1 id="title" class="v-title map-title">No beatmap selected</h1>
+      <span id="subtitle" class="v-muted map-subtitle"></span>
     </div>
     <dl id="stats" class="stats" aria-label="Source and result statistics"></dl>
   </section>
 
-  <main class="workspace">
-    <form id="form" class="controls" novalidate>
-      <div class="controls-scroll">
-        <section class="block tempo" aria-labelledby="tempo-heading">
-          <div class="block-head">
-            <h2 id="tempo-heading">Tempo</h2>
-            <p class="readout"><span id="rate-readout">1.00×</span></p>
-          </div>
-          <div class="ruler">
-            <input id="rate-slider" type="range" min="0.5" max="2" step="0.01" value="1" aria-label="Playback rate">
-            <div class="ruler-ticks" aria-hidden="true"></div>
-            <span class="ruler-original" aria-hidden="true">original</span>
-            <div class="ruler-scale" aria-hidden="true"><span style="--at:0">0.5×</span><span style="--at:1">0.75×</span><span style="--at:2">1.0×</span><span style="--at:3">1.25×</span><span style="--at:4">1.5×</span><span style="--at:5">1.75×</span><span style="--at:6">2.0×</span></div>
-          </div>
-          <div class="pair">
-            <label class="field">Exact rate <input name="rate" type="number" min="0.5" max="2" step="0.01" value="1"></label>
-            <label class="toggle"><input name="pitch" type="checkbox"> Change pitch with rate</label>
-          </div>
-        </section>
-
-        <section class="block" aria-labelledby="transforms-heading">
-          <h2 id="transforms-heading">Transforms</h2>
-          <div id="transforms" class="mods"></div>
-          <div id="transform-options" class="grid"></div>
-          <p id="transform-hint" class="hint" hidden></p>
-        </section>
-
-        <section class="block" aria-labelledby="difficulty-heading">
-          <h2 id="difficulty-heading">Difficulty</h2>
-          <div id="difficulty" class="grid"></div>
-        </section>
-
-        <section class="block" aria-labelledby="trim-heading">
-          <div class="block-head">
-            <h2 id="trim-heading">Trim</h2>
-            <button type="button" id="clear-trims" class="quiet" hidden>Clear</button>
-          </div>
-          <ol id="trim-list" class="trim-list"></ol>
-          <p id="trim-empty" class="hint">The whole map is kept. Drag across the timeline below to keep only the sections you want to practise.</p>
-          <div class="grid">
-            <label class="field">Lead-in (ms) <input name="lead_in_ms" type="number" min="0" max="30000" step="100"></label>
-            <label class="field">Lead-out (ms) <input name="lead_out_ms" type="number" min="0" max="30000" step="100"></label>
-            <label class="field">Gap (ms) <input name="gap_ms" type="number" min="0" max="30000" step="100"></label>
-            <label class="field">Audio fade (ms) <input name="fade_ms" type="number" min="0" max="10000" step="10"></label>
-          </div>
-        </section>
-      </div>
-      <div class="controls-foot">
-        <div class="generate-row">
-          <button class="primary" id="generate" type="submit">Generate map</button>
-          <button id="cancel" type="button" hidden>Cancel</button>
-        </div>
-        <progress id="progress" max="1" value="0" hidden></progress>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
-      </div>
-    </form>
-
-    <section class="preview" aria-labelledby="preview-heading">
-      <h2 id="preview-heading" class="visually-hidden">Result preview</h2>
-      <div class="stage">
-        <canvas id="canvas" aria-label="Playfield preview of the generated map"></canvas>
-        <p id="preview-message" class="stage-message" hidden></p>
-      </div>
-      <div class="transport">
-        <button type="button" id="play" disabled>Play</button>
-        <output id="clock" class="clock">0:00.0 / 0:00.0</output>
-        <p id="version" class="version"></p>
-      </div>
-      <ul id="warnings" class="warnings"></ul>
-    </section>
-  </main>
-
-  <section class="timeline" aria-labelledby="timeline-heading">
-    <div class="timeline-head">
-      <h2 id="timeline-heading">Timeline</h2>
-      <p id="timeline-label" class="timeline-label"></p>
-      <p id="timeline-note" class="timeline-note"></p>
+  <section class="v-panel preview" aria-label="Preview">
+    <div class="v-panel__head">
+      <span class="v-label">Preview</span>
+      <span id="version" class="v-muted v-mono version"></span>
+      <output id="clock" class="v-mono clock">0:00.0 / 0:00.0</output>
+      <button type="button" id="play" class="v-btn v-btn--sm" disabled>Play</button>
+      <button type="button" id="mute" class="v-btn v-btn--sm v-btn--icon" aria-pressed="true" aria-label="Mute preview audio" title="Mute preview audio">
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 5.5h3l4-3.5v12l-4-3.5h-3z" fill="currentColor" stroke="none"/><path class="icon-muted" d="M10.5 5.5l4.5 5m0-5l-4.5 5"/><path class="icon-sound" d="M10.5 5a4 4 0 0 1 0 6M12.5 3a7 7 0 0 1 0 10"/></svg>
+      </button>
     </div>
-    <div id="strip" class="strip">
-      <svg class="graph" preserveAspectRatio="none" aria-hidden="true"></svg>
-      <div class="ranges"></div>
-      <div class="playhead" hidden></div>
+    <div class="stage">
+      <canvas id="canvas" aria-label="Playfield preview of the generated map"></canvas>
+      <p id="preview-message" class="v-empty stage-message" hidden></p>
     </div>
-    <div id="axis" class="axis" aria-hidden="true"></div>
+    <ul id="warnings" class="warnings"></ul>
   </section>
-</div>
+
+  <section class="v-panel timeline" aria-label="Timeline">
+    <div class="v-panel__head">
+      <span class="v-label">Timeline</span>
+      <span id="timeline-label" class="v-muted timeline-label"></span>
+      <span id="timeline-note" class="timeline-note"></span>
+    </div>
+    <div class="timeline-body">
+      <div id="strip" class="strip">
+        <svg class="graph" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="ranges"></div>
+        <div class="playhead" hidden></div>
+      </div>
+      <div id="axis" class="axis v-mono" aria-hidden="true"></div>
+    </div>
+  </section>
+</main>
 <script type="module" src="/src/app.ts"></script>
 </body>
 </html>

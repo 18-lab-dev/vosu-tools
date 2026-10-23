@@ -50,7 +50,7 @@ export class Preview {
   async show(next: PreviewMap): Promise<void> {
     const map = parseOsu(next.osu);
     if (!map.objects.length) throw new Error('The result has no hit objects.');
-    if (!('gpu' in navigator)) throw new Error('This browser has no WebGPU, so the playfield preview is unavailable. Statistics above still describe the result.');
+    if (!('gpu' in navigator)) throw new Error('Preview needs WebGPU.');
     const renderer = await this.ensureRenderer();
     const keepTime = this.current !== null;
     this.current = next;
@@ -126,7 +126,7 @@ export class Preview {
     const drift = Math.abs(this.audio.currentTime * 1000 - source);
     if (force || this.audio.paused || drift > 80) {
       this.audio.currentTime = source / 1000;
-      if (this.audio.paused) void this.audio.play().catch(() => this.onError('The audio could not play; the preview continues silently.'));
+      if (this.audio.paused) void this.audio.play().catch(() => this.onError('Audio unavailable.'));
     }
   }
 

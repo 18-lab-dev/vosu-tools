@@ -1,18 +1,11 @@
 import { vosu } from '/tools/_host/v1/bridge.js';
-import '@fontsource-variable/bricolage-grotesque/opsz.css';
-import '@fontsource-variable/instrument-sans/wdth.css';
-import '@fontsource/dm-mono/400.css';
-import '@fontsource/dm-mono/500.css';
 import './style.css';
 import { Preview } from './preview';
 import { Timeline, type TimelineData } from './timeline';
 import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
 import { SUBSCRIPTION, readFrame } from './follow';
 
-// The tool owns its look: follow the dashboard's scheme when the bridge passes it,
-// otherwise the system preference. `color-scheme` in style.css keys off this attribute.
-document.documentElement.dataset.scheme =
-  vosu.colorScheme ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+// The look comes from vosu's shared theme.css; the bridge sets data-theme.
 
 type Ruleset = 'osu' | 'taiko' | 'fruits' | 'mania';
 type Options = {
@@ -48,11 +41,6 @@ const DIFFICULTY: Record<Ruleset, ('hp' | 'cs' | 'ar' | 'od')[]> = {
 };
 const STAT_LABEL = { hp: 'HP', cs: 'CS', ar: 'AR', od: 'OD' } as const;
 const RULESET_NAME: Record<Ruleset, string> = { osu: 'osu!', taiko: 'osu!taiko', fruits: 'osu!catch', mania: 'osu!mania' };
-const HINTS: Partial<Record<Ruleset, string>> = {
-  taiko: 'Constant Speed removes scroll-speed changes but keeps every sample, kiai and roll length.',
-  mania: 'Constant Speed removes scroll-speed changes but keeps every sample and kiai.',
-  fruits: 'Banana showers are placed by the game at runtime, so Mirror does not move them.',
-};
 
 let current: Current | null = null;
 let ruleset: Ruleset | null = null;
@@ -125,11 +113,6 @@ function readForm() {
   if (sharpness && sharpness.value !== '') options.angle_sharpness = Number(sharpness.value);
   const mirror = form.elements.namedItem('mirror') as HTMLSelectElement | null;
   if (mirror) options.mirror = mirror.value;
-  if (ruleset) {
-    const shown = TRANSFORMS[ruleset].map(([id]) => id);
-    const checked = [...form.querySelectorAll<HTMLInputElement>('#transforms input:checked')].map((i) => i.value);
-    options.mods = [...options.mods.filter((m) => !shown.includes(m)), ...checked];
-  }
 }
 
 function writeForm() {
@@ -142,20 +125,22 @@ function writeForm() {
 
 function input(name: string, label: string, attrs: Record<string, string>, value: string, placeholder = ''): HTMLLabelElement {
   const wrap = document.createElement('label');
-  wrap.className = 'field';
-  wrap.append(label);
+  wrap.className = 'v-field';
+  const text = document.createElement('span');
+  text.textContent = label;
   const el = document.createElement('input');
+  el.className = 'v-input';
   el.name = name;
   el.type = 'number';
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
   el.value = value;
   el.placeholder = placeholder;
-  wrap.append(el);
+  wrap.append(text, el);
   return wrap;
 }
 function toggle(name: string, label: string, checked: boolean): HTMLLabelElement {
   const wrap = document.createElement('label');
-  wrap.className = 'toggle';
+  wrap.className = 'v-check';
   const el = document.createElement('input');
   el.type = 'checkbox';
   el.name = name;
@@ -172,71 +157,54 @@ function renderRuleset() {
   mods.replaceChildren();
   extra.replaceChildren();
   difficulty.replaceChildren();
-  const hint = $('transform-hint');
-  if (!ruleset) {
-    const empty = document.createElement('p');
-    empty.className = 'hint';
-    empty.textContent = 'Transforms for the selected map’s ruleset appear here.';
-    mods.append(empty);
-    hint.hidden = true;
-    return;
-  }
-  for (const [id, name] of TRANSFORMS[ruleset]) {
-    const label = document.createElement('label');
-    label.className = 'mod';
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    box.value = id;
-    box.checked = options.mods.includes(id);
-    const code = document.createElement('span');
-    code.className = 'mod-code';
-    code.textContent = id;
-    label.append(box, code, name);
-    mods.append(label);
-  }
+  if (!ruleset) return;
   const has = (id: string) => options.mods.includes(id);
+  // Pressed buttons toggle a transform; incompatible pairs disable each other.
+  for (const [id, name] of TRANSFORMS[ruleset]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'v-btn v-btn--sm';
+    button.dataset.mod = id;
+    button.textContent = name;
+    button.setAttribute('aria-pressed', String(has(id)));
+    const other = EXCLUSIVE.find((pair) => pair.includes(id))?.find((m) => m !== id);
+    if (other && has(other)) {
+      button.disabled = true;
+      button.title = `Not combinable with ${TRANSFORMS[ruleset].find(([m]) => m === other)?.[1] ?? other}`;
+    }
+    button.onclick = () => {
+      options.mods = has(id) ? options.mods.filter((m) => m !== id) : [...options.mods, id];
+      renderRuleset();
+      form.dispatchEvent(new Event('input'));
+    };
+    mods.append(button);
+  }
   if (ruleset === 'osu' && has('MR')) {
     const wrap = document.createElement('label');
-    wrap.className = 'field';
-    wrap.append('Mirror axis');
+    wrap.className = 'v-field';
+    const text = document.createElement('span');
+    text.textContent = 'Mirror axis';
     const select = document.createElement('select');
+    select.className = 'v-select';
     select.name = 'mirror';
-    for (const [value, text] of [['horizontal', 'Horizontal'], ['vertical', 'Vertical'], ['both', 'Both']]) {
-      const option = new Option(text, value, false, options.mirror === value);
-      select.append(option);
+    for (const [value, label] of [['horizontal', 'Horizontal'], ['vertical', 'Vertical'], ['both', 'Both']]) {
+      select.append(new Option(label, value, false, options.mirror === value));
     }
-    wrap.append(select);
+    wrap.append(text, select);
     extra.append(wrap);
   }
   if (has('RD') && ruleset !== 'fruits') {
-    extra.append(input('seed', 'Random seed', { min: '-2147483648', max: '2147483647', step: '1' }, String(options.seed)));
+    extra.append(input('seed', 'Seed', { min: '-2147483648', max: '2147483647', step: '1' }, String(options.seed)));
     if (ruleset === 'osu') extra.append(input('angle_sharpness', 'Angle sharpness', { min: '1', max: '10', step: '0.1' }, String(options.angle_sharpness)));
   }
-  hint.textContent = HINTS[ruleset] ?? '';
-  hint.hidden = !HINTS[ruleset] || !(has('CS') || (ruleset === 'fruits' && has('MR')));
   const source = current?.beatmap?.stats;
   for (const key of DIFFICULTY[ruleset]) {
     const original = source ? num(source[key], 1) : '';
-    const placeholder = key === 'ar' || key === 'od' ? 'Rate adjusted' : `Original${original ? ` (${original})` : ''}`;
+    const placeholder = key === 'ar' || key === 'od' ? 'Auto' : original;
     difficulty.append(input(key, STAT_LABEL[key], { min: '0', max: '10', step: '0.1' }, options[key] === null ? '' : String(options[key]), placeholder));
   }
-  if (DIFFICULTY[ruleset].includes('ar')) difficulty.append(toggle('lock_ar', 'Keep original AR', options.lock_ar));
-  if (DIFFICULTY[ruleset].includes('od')) difficulty.append(toggle('lock_od', 'Keep original OD', options.lock_od));
-  exclusive();
-}
-
-function exclusive() {
-  for (const [a, b] of EXCLUSIVE) {
-    const ea = form.querySelector<HTMLInputElement>(`#transforms input[value="${a}"]`);
-    const eb = form.querySelector<HTMLInputElement>(`#transforms input[value="${b}"]`);
-    if (!ea || !eb) continue;
-    eb.disabled = ea.checked;
-    ea.disabled = eb.checked;
-    for (const [el, other] of [[ea, b], [eb, a]] as const) {
-      el.closest('label')!.classList.toggle('unavailable', el.disabled);
-      el.closest('label')!.title = el.disabled ? `Not combinable with ${other}` : '';
-    }
-  }
+  if (DIFFICULTY[ruleset].includes('ar')) difficulty.append(toggle('lock_ar', 'Keep AR', options.lock_ar));
+  if (DIFFICULTY[ruleset].includes('od')) difficulty.append(toggle('lock_od', 'Keep OD', options.lock_od));
 }
 
 function tempo() {
@@ -336,7 +304,7 @@ function renderTrims() {
       const el = document.createElement('input');
       el.type = 'text';
       el.inputMode = 'decimal';
-      el.className = 'time';
+      el.className = 'v-input v-input--mono';
       el.value = clock(range[edge], true);
       el.setAttribute('aria-label', `Section ${index + 1} ${label}`);
       el.addEventListener('change', () => {
@@ -351,11 +319,12 @@ function renderTrims() {
     };
     const count = document.createElement('span');
     count.className = 'trim-count';
-    count.textContent = `${timeline.objectsIn(range).toLocaleString()} objects`;
+    count.textContent = timeline.objectsIn(range).toLocaleString();
+    count.title = `${timeline.objectsIn(range).toLocaleString()} objects`;
     const remove = document.createElement('button');
     remove.type = 'button';
-    remove.className = 'quiet';
-    remove.textContent = 'Remove';
+    remove.className = 'v-btn v-btn--ghost v-btn--sm v-btn--icon';
+    remove.textContent = '×';
     remove.setAttribute('aria-label', `Remove section ${index + 1}`);
     remove.onclick = () => setTrims(ranges.filter((_, i) => i !== index));
     const dash = document.createElement('span');
@@ -420,10 +389,8 @@ async function loadMap() {
   current = v;
   const b = v.beatmap;
   ruleset = b?.stats.ruleset ?? null;
-  $('title').textContent = b ? `${b.artist} — ${b.title}` : 'No selected beatmap';
-  $('subtitle').textContent = b
-    ? `${b.version} · mapped by ${b.creator} · ${v.client ?? ''}${b.played_ruleset && b.played_ruleset !== b.stats.ruleset ? ` · played as ${b.played_ruleset}; transforms apply to the native ${RULESET_NAME[b.stats.ruleset]} map` : ''}`
-    : 'Select a beatmap in osu! — this page follows it.';
+  $('title').textContent = b ? `${b.artist} — ${b.title}` : 'No beatmap selected';
+  $('subtitle').textContent = b ? `${b.version} · ${b.creator}` : '';
   const chip = $('ruleset');
   chip.hidden = !ruleset;
   chip.textContent = ruleset ? RULESET_NAME[ruleset] : '';
@@ -457,26 +424,10 @@ async function loadMap() {
     renderStats();
   }
   writable();
-  fitPreview();
+  // Mania stages are tall and narrow; the preview keeps them at full height
+  // (see `.crop-stage` in style.css). Other rulesets fill the whole stage.
+  $('main').classList.toggle('crop-stage', ruleset === 'mania');
 }
-
-// A mania stage is tall and narrow (default columns are 30 of the playfield's
-// 480 units of height each, as render-core draws them without a skin), so a
-// full-width preview leaves most of the stage empty. For mania the preview
-// column shrinks to the stage's aspect plus a margin and the freed width goes
-// to the controls; other rulesets keep the wide preview.
-const workspace = document.querySelector<HTMLElement>('.workspace')!;
-function fitPreview() {
-  const keys = ruleset === 'mania' ? current?.beatmap?.stats.keys ?? null : null;
-  const fit = keys !== null && matchMedia('(min-width: 761px)').matches;
-  workspace.classList.toggle('fit-preview', fit);
-  if (!fit) return;
-  const stageHeight = $('canvas').parentElement!.clientHeight;
-  const aspect = (keys * 30 + 120) / 480;
-  const available = workspace.clientWidth - 340;
-  workspace.style.setProperty('--preview-width', `${Math.round(Math.min(available, Math.max(380, stageHeight * aspect)))}px`);
-}
-new ResizeObserver(() => fitPreview()).observe(workspace);
 
 // ---- Profiles ---------------------------------------------------------------
 
@@ -571,16 +522,21 @@ form.addEventListener('input', () => {
     void loadMap().catch(fail);
   }
 });
-form.addEventListener('change', (event) => {
-  // Transform checkboxes change which extra fields exist.
-  if ((event.target as HTMLElement).closest('#transforms')) {
-    readForm();
-    renderRuleset();
-    markDirty();
-  }
-});
 $('clear-trims').onclick = () => setTrims([]);
 $('play').onclick = () => preview.toggle();
+// Preview audio starts muted; the choice is remembered (same key shape as Map
+// preview: `vosu-tools:<tool id>:muted`, "0" = unmuted).
+const MUTE_KEY = 'vosu-tools:practice:muted';
+function setMuted(muted: boolean) {
+  preview.audio.muted = muted;
+  $('mute').setAttribute('aria-pressed', String(muted));
+}
+setMuted(localStorage.getItem(MUTE_KEY) !== '0');
+$('mute').onclick = () => {
+  const muted = !preview.audio.muted;
+  localStorage.setItem(MUTE_KEY, muted ? '1' : '0');
+  setMuted(muted);
+};
 $('cancel').onclick = () => { if (job) void api(`v1/jobs/${job}`, undefined, 'DELETE').catch(fail); };
 
 form.onsubmit = (e) => {
@@ -597,7 +553,7 @@ form.onsubmit = (e) => {
       $('progress').hidden = false;
       for (;;) {
         const state = await api<{ state: string; message: string; progress: number; result: Entry | null }>(`v1/jobs/${job}`);
-        $<HTMLProgressElement>('progress').value = state.progress;
+        $('progress').style.setProperty('--v-value', String(state.progress));
         if (state.state === 'done' && state.result) {
           const path = state.result.files[0]?.path ?? '';
           say(`${state.message} ${path}`);
@@ -616,6 +572,7 @@ form.onsubmit = (e) => {
       busy = false;
       $('cancel').hidden = true;
       $('progress').hidden = true;
+      $('progress').style.setProperty('--v-value', '0');
       writable();
     }
   })().catch(fail);
@@ -625,8 +582,9 @@ void (async () => {
   writable();
   await vosu.ready;
   const access = $('access');
-  access.dataset.state = vosu.canWrite ? 'write' : 'read';
-  access.textContent = vosu.canWrite ? 'Write session' : 'Read only · open from the dashboard to generate or save';
+  access.textContent = vosu.canWrite ? 'Write session' : 'Read only';
+  access.classList.toggle('v-badge--ok', vosu.canWrite);
+  $('access-help').hidden = vosu.canWrite;
   profiles = await api<Profiles>('v1/profiles');
   applyProfile();
   await loadMap();
@@ -634,12 +592,13 @@ void (async () => {
   // reconnects by itself and reports its state for the top bar; an error frame
   // (a rejected subscription) is shown as such, not as an unreachable vosu.
   const live = $('live');
+  const dot = $('live-dot');
   let rejected: string | null = null;
   const show = (state: 'connecting' | 'open' | 'closed') => {
-    live.dataset.state = state;
-    live.textContent = state === 'open' ? 'Following osu!'
+    dot.dataset.state = state === 'open' ? 'ok' : state === 'connecting' ? 'busy' : 'error';
+    live.textContent = state === 'open' ? 'Live'
       : state === 'connecting' ? 'Connecting'
-      : rejected ? `Not following — vosu rejected the subscription (${rejected})` : 'Not following — vosu is unreachable';
+      : rejected ? `Subscription rejected (${rejected})` : 'vosu unreachable';
   };
   vosu.subscribe(
     SUBSCRIPTION,
