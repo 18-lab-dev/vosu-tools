@@ -424,27 +424,10 @@ async function loadMap() {
     renderStats();
   }
   writable();
-  fitPreview();
+  // Mania stages are tall and narrow; the preview keeps them at full height
+  // (see `.crop-stage` in style.css). Other rulesets fill the whole stage.
+  $('main').classList.toggle('crop-stage', ruleset === 'mania');
 }
-
-// A mania stage is tall and narrow (default columns are 30 of the playfield's
-// 480 units of height each, as render-core draws them without a skin), so a
-// full-width preview leaves most of the stage empty. For mania the preview
-// column shrinks to the stage's aspect plus a margin and the freed width goes
-// to the controls; other rulesets keep the wide preview.
-const main = $('main');
-function fitPreview() {
-  const keys = ruleset === 'mania' ? current?.beatmap?.stats.keys ?? null : null;
-  const fit = keys !== null && matchMedia('(min-width: 48rem)').matches;
-  main.classList.toggle('fit-preview', fit);
-  if (!fit) return;
-  // Read after the class change: the preview row's height depends on it.
-  const stageHeight = $('canvas').parentElement!.clientHeight;
-  const aspect = (keys * 30 + 120) / 480;
-  const available = main.clientWidth - 360;
-  main.style.setProperty('--preview-width', `${Math.round(Math.min(available, Math.max(360, stageHeight * aspect)))}px`);
-}
-new ResizeObserver(() => fitPreview()).observe(main);
 
 // ---- Profiles ---------------------------------------------------------------
 

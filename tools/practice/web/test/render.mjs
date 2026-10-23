@@ -291,15 +291,16 @@ try {
   check('mania: difficulty HP/OD only', JSON.stringify(await page.$$eval('#difficulty input[type=number]', (e) => e.map((i) => i.name))) === '["hp","od"]');
   const maniaStats = await statLabels(page);
   check('mania: keys shown, no CS/AR', maniaStats.includes('Keys') && !maniaStats.includes('CS') && !maniaStats.includes('AR'), maniaStats);
-  // The mania stage uses the preview's full height: the column narrows to the
-  // stage and the canvas keeps render-core's 4:3 world at that height.
+  // Space follows content: a compact controls column, the preview takes the rest,
+  // and the mania stage stays at full height (canvas at least 4:3 of it, cropped).
   const fit = await page.evaluate(() => {
     const stage = document.querySelector('.stage').getBoundingClientRect();
     const canvas = document.getElementById('canvas').getBoundingClientRect();
+    const controls = document.querySelector('.controls').getBoundingClientRect();
     const work = document.getElementById('main').getBoundingClientRect();
-    return { fitted: document.getElementById('main').classList.contains('fit-preview'), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), workspaceWidth: Math.round(work.width) };
+    return { cropped: document.getElementById('main').classList.contains('crop-stage'), controlsWidth: Math.round(controls.width), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), mainWidth: Math.round(work.width) };
   });
-  check('mania: preview column fits the stage; playfield at full height', fit.fitted && fit.stageWidth < fit.workspaceWidth / 2 && fit.canvasWidth >= fit.stageHeight * 4 / 3 - 1, fit);
+  check('mania: compact controls column, wide preview, stage at full height', fit.cropped && fit.controlsWidth <= 21 * 16 && fit.stageWidth > fit.mainWidth / 2 && fit.canvasWidth >= fit.stageHeight * 4 / 3 - 1, fit);
   await page.waitForFunction((rated) => {
     const label = document.getElementById('timeline-label').textContent;
     return rated ? label.includes('Mania ratings') : label.startsWith('Notes per second');
