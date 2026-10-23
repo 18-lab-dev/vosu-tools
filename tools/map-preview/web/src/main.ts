@@ -25,6 +25,7 @@ import {
   type GameState,
   type LiveStatus,
 } from "./live";
+import { md5 } from "./md5";
 import { openOsk } from "./osk";
 import {
   defaultSettings,
@@ -380,7 +381,13 @@ function updateRulesetControls(): void {
   const osuOnly = source && !osuMap;
   rulesetSelect.title = osuOnly ? "Only osu! maps convert." : "";
 }
-/** Loads the game's selected map when it changes. */
+/**
+ * Loads the game's selected map when it changes. vosu can briefly serve the
+ * previous difficulty's file after a selection change, so the file's MD5 must
+ * match the selected checksum; otherwise it is fetched again with a backoff
+ * (100 ms doubling, at most 3 s apart) while the selection stays the same.
+ * The previous map stays drawn meanwhile.
+ */
 async function followMap(force = false): Promise<void> {
   const key = game.checksum ?? "";
   if (!force && key === mapKey) return;
@@ -388,25 +395,47 @@ async function followMap(force = false): Promise<void> {
   const seq = ++loadSequence;
   if (!key && !force) return;
   say("Loading the selected beatmap…");
-  try {
-    const response = await fetch("/files/beatmap/file", { cache: "no-store" });
-    if (!response.ok) {
-      if (seq !== loadSequence) return;
-      // Without a client there is simply nothing selected yet.
-      if (game.client)
-        say(
-          `vosu could not serve the selected beatmap (${response.status}).`,
-          "error",
-        );
-      else say("No beatmap selected.");
+  // The previous map stays drawn; the bar says what is happening.
+  $("detail").textContent = "Loading…";
+  const settle = () => {
+    if (source) describeMap();
+    else $("detail").textContent = "";
+  };
+  for (let delay = 100, attempt = 0; ; delay = Math.min(3000, delay * 2)) {
+    try {
+      const response = await fetch("/files/beatmap/file", {
+        cache: "no-store",
+      });
+      if (seq !== loadSequence || !following) return;
+      if (!response.ok) {
+        // Without a client there is simply nothing selected yet.
+        if (game.client)
+          say(
+            `vosu could not serve the selected beatmap (${response.status}).`,
+            "error",
+          );
+        else say("No beatmap selected.");
+        settle();
+        return;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (seq !== loadSequence || !following) return;
+      if (!key || md5(bytes) === key.toLowerCase()) {
+        say("");
+        await openMap(new TextDecoder().decode(bytes), "from the game");
+        return;
+      }
+      if (++attempt === 6)
+        say("Waiting for vosu to serve the selected beatmap…");
+    } catch (error) {
+      if (seq === loadSequence) {
+        showError(error);
+        settle();
+      }
       return;
     }
-    const text = await response.text();
+    await new Promise((resolve) => setTimeout(resolve, delay));
     if (seq !== loadSequence || !following) return;
-    say("");
-    await openMap(text, "from the game");
-  } catch (error) {
-    if (seq === loadSequence) showError(error);
   }
 }
 let followNotice = "";
@@ -843,6 +872,7 @@ window.addEventListener("pagehide", () => {
 
 /* ------------------------------------------------------------ start */
 
+let hadConnection = false;
 try {
   await vosu.ready;
   $("version").textContent = vosu.tool.version;
@@ -852,8 +882,16 @@ try {
     (fields, onFrame, onStatus) => vosu.subscribe(fields, onFrame, onStatus),
     onGame,
     (next) => {
+      // After a reconnect (vosu restarted, or the socket dropped), the
+      // selection may have changed unseen: load it again.
+      const reconnected =
+        (liveStatus === "lost" || liveStatus === "connecting") &&
+        (next === "waiting" || next === "live") &&
+        hadConnection;
+      if (next === "waiting" || next === "live") hadConnection = true;
       liveStatus = next;
       updateStatusChip();
+      if (reconnected && following) void followMap(true);
     },
   );
   await ensureRenderer();

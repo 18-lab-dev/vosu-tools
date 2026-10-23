@@ -15,6 +15,7 @@ SONGS/SKINS are osu! stable folders (read-only; files are copied to a temp
 dir first). Needs hardware WebGPU in headless Chromium (Vulkan).
 """
 import asyncio
+import hashlib
 import json
 import mimetypes
 import os
@@ -41,6 +42,7 @@ MAPS = {
 SKINS = {'ralsei': '- # {center} RALSEI 『ラルセイ』- FULL # - v2', 'staircase': '- Staircase!mania'}
 # vosu's own design system (read-only), served like /tools/_host/v1/theme.css.
 VOSU_ASSETS = Path(os.environ.get('VOSU_ASSETS', Path.home() / 'gh/vosu-ecosystem/vosu-wt/dev-1.2.0/assets/server'))
+CHECKSUMS: dict[str, str] = {}
 CONTROLS_KEY = 'vosu-tools:map-preview:controls-open'
 
 
@@ -95,6 +97,13 @@ class Host:
         self.maps = maps
         self.skins = {name: {p.relative_to(d).as_posix().lower(): p for p in d.rglob('*') if p.is_file()} for name, d in skins.items()}
         self.beatmap = 'osu'
+        # The game stream carries real MD5 checksums (the page verifies the
+        # served file against them); tests name maps by key.
+        CHECKSUMS.update({key: hashlib.md5(path.read_bytes()).hexdigest() for key, path in maps.items()})
+        # Like vosu right after a selection change, serve the previously served
+        # file for the next `stale` requests.
+        self.stale = 0
+        self.last_served = None
         self.report = {'client': 'lazer', 'name': 'Argon', 'files': False, 'builtin': 'argon', 'base': 'argon'}
         self.skin = None
         self.settings = {}
@@ -135,7 +144,13 @@ def handler(host: Host):
                     return self.send(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] or 'application/octet-stream')
                 return self.send(404, b'not found', 'text/plain')
             if path == '/files/beatmap/file':
-                return self.send(200, host.maps[host.beatmap].read_bytes(), 'text/plain; charset=utf-8')
+                key = host.beatmap
+                if host.stale > 0 and host.last_served not in (None, key):
+                    host.stale -= 1
+                    key = host.last_served
+                else:
+                    host.last_served = key
+                return self.send(200, host.maps[key].read_bytes(), 'text/plain; charset=utf-8')
             if path == '/files/skin/':
                 return self.send(200, json.dumps(host.report).encode(), 'application/json')
             if path.startswith('/files/skin/'):
@@ -155,7 +170,7 @@ class Game:
 
     def __init__(self):
         self.values = {
-            '/client': 'lazer', '/state/number': 5, '/beatmap/checksum': 'osu', '/beatmap/mode/number': 0,
+            '/client': 'lazer', '/state/number': 5, '/beatmap/checksum': CHECKSUMS.get('osu', 'osu'), '/beatmap/mode/number': 0,
             '/beatmap/time': {'live': 38000, 'rate': 1, 'running': False}, '/settings/mode/number': 0,
             '/settings/mania': {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 1, 'name': 'down'}},
             '/settings/skin/ignoreBeatmapSkins': False,
@@ -177,6 +192,8 @@ class Game:
         ws.on_close(lambda *_: self.sockets.remove((ws, state)))
 
     def set(self, pointer, value):
+        if pointer == '/beatmap/checksum':
+            value = CHECKSUMS.get(value, value)
         self.revision += 1
         self.values[pointer] = value
         for ws, state in self.sockets:
@@ -268,8 +285,15 @@ async def checks(host: Host, osk: Path, evidence: Path):
                 game.set('/folders/skin', f'{label}-{ruleset}')
                 game.set('/beatmap/time', {'live': MAPS[ruleset][2], 'rate': 1, 'running': False})
                 game.set('/beatmap/mode/number', mode)
+                if builtin == 'argon':
+                    # vosu first serves the previous difficulty three times: the
+                    # page must keep retrying until the file matches the checksum.
+                    host.stale = 3
+                    served = host.requests.count('/files/beatmap/file')
                 game.set('/beatmap/checksum', ruleset)
                 await shows(page, '#mode', ['osu!', 'taiko', 'catch', 'mania'][mode])
+                if builtin == 'argon':
+                    assert host.stale == 0 and host.requests.count('/files/beatmap/file') - served >= 4
                 await shows(page, '#skin-name', label)
                 await settle(page)
                 await page.screenshot(path=str(evidence / f'{ruleset}-{builtin}-1920x1080.png'))

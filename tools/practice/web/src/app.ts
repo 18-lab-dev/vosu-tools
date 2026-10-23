@@ -383,7 +383,21 @@ const refreshTimeline = debounce(() => void loadTimeline(), 300);
 let mapSeq = 0;
 async function loadMap() {
   const seq = ++mapSeq;
-  const v = await api<Current>(`v1/current?rate=${options.rate}`);
+  // The service answers 409 while vosu still serves the previous difficulty's
+  // file after a selection change: retry (100 ms doubling, at most 3 s apart).
+  let v: Current | undefined;
+  for (let delay = 100; !v; delay = Math.min(3000, delay * 2)) {
+    const r = await vosu.fetch(`v1/current?rate=${options.rate}`, { method: 'GET' });
+    if (seq !== mapSeq) return;
+    if (r.status === 409) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (seq !== mapSeq) return;
+      continue;
+    }
+    const body = await r.json().catch(() => ({ error: r.statusText }));
+    if (!r.ok) throw new Error(body.error ?? r.statusText);
+    v = body as Current;
+  }
   if (seq !== mapSeq) return;
   const changed = v.beatmap?.md5 !== current?.beatmap?.md5;
   current = v;
@@ -593,7 +607,8 @@ void (async () => {
   // (a rejected subscription) is shown as such, not as an unreachable vosu.
   const live = $('live');
   const dot = $('live-dot');
-  let rejected: string | null = null;
+  let rejected: string | null = null,
+    dropped = false;
   const show = (state: 'connecting' | 'open' | 'closed') => {
     dot.dataset.state = state === 'open' ? 'ok' : state === 'connecting' ? 'busy' : 'error';
     live.textContent = state === 'open' ? 'Live'
@@ -615,6 +630,9 @@ void (async () => {
       if (event.checksum !== (current?.beatmap?.md5 ?? null)) void loadMap().catch(fail);
     },
     (state) => {
+      // After a reconnect the selection may have changed unseen.
+      if (state === 'open' && dropped) void loadMap().catch(fail);
+      dropped = state === 'closed' || (dropped && state === 'connecting');
       if (state === 'open' && rejected) return;
       show(state);
     },
