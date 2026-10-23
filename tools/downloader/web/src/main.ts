@@ -463,7 +463,7 @@ el("enqueue").onclick = async () => {
 // /websocket/v2/subscribe: request JSON Pointers, then frames
 // [0, rev, [[index, value]…]] (full), [1, rev, [[index, value]…], [removed…]]
 // (changes) or [2, code, message] (error).
-const POINTERS = [
+const POINTERS: `/${string}`[] = [
   "/beatmap/checksum",
   "/beatmap/artist",
   "/beatmap/title",

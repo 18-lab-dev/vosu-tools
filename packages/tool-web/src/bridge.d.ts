@@ -26,11 +26,13 @@ export interface VosuBridge {
   fetch(path: string, init?: RequestInit): Promise<Response>;
   /**
    * Selected-field /websocket/v2/subscribe helper; returns an unsubscribe
-   * function. Bridges from vosu 1.2.0 reconnect with backoff and report the
-   * connection through `onStatus`; older bridges ignore it and do not reconnect.
+   * function. `fields` are JSON-pointer selectors such as "/beatmap/checksum";
+   * vosu closes the socket on anything else. Bridges from vosu 1.2.0 reconnect
+   * with backoff and report the connection through `onStatus`; older bridges
+   * ignore it and do not reconnect.
    */
   subscribe(
-    fields: unknown,
+    fields: readonly `/${string}`[],
     onFrame: (frame: unknown) => void,
     onStatus?: (state: "connecting" | "open" | "closed") => void,
   ): () => void;
