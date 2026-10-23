@@ -14,13 +14,12 @@ import {
   lazerMultiplier,
   legacyMultiplier,
   peppyStars,
-  replayMods,
-  tally,
-  verify,
   type HitResult,
   type Outcome,
   type Rules,
 } from "./scoring";
+import { replayMods } from "./mods";
+import { judgeWithHealth } from "./health";
 import type { Result, Simulation } from "./simulation";
 
 /** Half of `Catcher.CalculateCatchWidth` for a circle size (after mods). */
@@ -111,7 +110,7 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
     half = halfCatchWidth(map.difficulty.cs);
   const perfect: Outcome[] = [],
     outcomes: Outcome[] = [];
-  objects.forEach((o) => {
+  objects.forEach((o, palpable) => {
     const kind = KINDS[o.kind];
     const outcome = (hit: boolean): Outcome => ({
       time: o.time,
@@ -123,6 +122,8 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
       x: o.x,
       y: 0,
       v1: { ...kind.v1, combo: hit ? kind.v1.combo : kind.v1.combo === "increase" ? "break" : "none" },
+      // Every fruit, droplet and banana is its own top-level object for health.
+      hp: { object: o.kind === "tiny" ? "tiny_droplet" : o.kind, end: o.time, top: true, group: palpable },
     });
     perfect.push(outcome(true));
     const x = catcherAt(frames, o.time);
@@ -141,14 +142,6 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
         : null,
     lazerMultiplier: lazerMultiplier(2, mods, replay.version),
   };
-  return verify(
-    replay,
-    tally(
-      order.map(({ o }) => o),
-      perfect,
-      rules,
-    ),
-    rules,
-    [],
-  );
+  const judged = order.map(({ o }) => o);
+  return judgeWithHealth(replay, { mode: 2, map, mods, classic: false }, perfect, judged, rules, []);
 }

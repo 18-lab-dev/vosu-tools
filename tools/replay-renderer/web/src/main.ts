@@ -1,5 +1,5 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parseReplay } from "@vosu-tools/replay";
+import { parseReplay, replayPitched } from "@vosu-tools/replay";
 import { exportWebM } from "@vosu-tools/render-export";
 import {
   Composition,
@@ -191,8 +191,8 @@ async function loadAudio() {
   audioUrl = URL.createObjectURL(blob);
   audio.src = audioUrl;
   audio.playbackRate = first.replay.rate;
-  // Nightcore raises the pitch; DT and HT keep it.
-  audio.preservesPitch = !(first.replay.mods & 512);
+  // Nightcore/Daycore (or DT/HT with "adjust pitch") shift the pitch; DT and HT keep it.
+  audio.preservesPitch = !replayPitched(first.replay);
   syncAudio(true);
 }
 

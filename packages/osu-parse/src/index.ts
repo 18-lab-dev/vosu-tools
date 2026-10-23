@@ -76,6 +76,8 @@ export interface Beatmap {
   duration: number;
   rate: number;
   visualMods: string[];
+  /** Catch: Hard Rock's (or Difficulty Adjust's "spicy patterns") fruit offsets. */
+  catchHardRockOffsets?: boolean;
 }
 export interface Mod {
   acronym: string;
@@ -725,27 +727,93 @@ export function parseOsu(text: string): Beatmap {
   applyStacking(map);
   return map;
 }
-/** Mods never mutate the parsed source. Rate is metadata: renderAt always receives map milliseconds. */
+/**
+ * .NET's seeded `System.Random` (the compatibility algorithm lazer's mods get
+ * from `new Random(seed)`): Knuth's subtractive generator.
+ */
+export class NetRandom {
+  private readonly seeds = new Array<number>(56).fill(0);
+  private next = 0;
+  private nextP = 21;
+  constructor(seed: number) {
+    const MBIG = 2147483647;
+    const subtraction = seed === -2147483648 ? MBIG : Math.abs(Math.trunc(seed));
+    let mj = 161803398 - subtraction,
+      mk = 1;
+    this.seeds[55] = mj;
+    for (let i = 1; i < 55; i++) {
+      const ii = (21 * i) % 55;
+      this.seeds[ii] = mk;
+      mk = mj - mk;
+      if (mk < 0) mk += MBIG;
+      mj = this.seeds[ii];
+    }
+    for (let k = 1; k < 5; k++)
+      for (let i = 1; i < 56; i++) {
+        this.seeds[i] -= this.seeds[1 + ((i + 30) % 55)];
+        if (this.seeds[i] < 0) this.seeds[i] += MBIG;
+      }
+  }
+  /** `Next()`: an integer in [0, 2^31 - 1). */
+  nextInt(): number {
+    const MBIG = 2147483647;
+    if (++this.next >= 56) this.next = 1;
+    if (++this.nextP >= 56) this.nextP = 1;
+    let value = this.seeds[this.next] - this.seeds[this.nextP];
+    if (value === MBIG) value--;
+    if (value < 0) value += MBIG;
+    this.seeds[this.next] = value;
+    return value;
+  }
+  /** `Next(max)`: an integer in [0, max). */
+  nextBelow(max: number): number {
+    return Math.trunc(this.nextInt() * (1 / 2147483647) * max);
+  }
+}
+/** A lazer mod setting as a finite number, if present. */
+const numberSetting = (mod: Mod | undefined, key: string): number | undefined => {
+  const value = mod?.settings?.[key];
+  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : undefined;
+};
+/**
+ * Mods never mutate the parsed source. Rate is metadata: renderAt always
+ * receives map milliseconds. Settings follow lazer's mods: rate-adjust
+ * `speed_change`, Difficulty Adjust (including extended limits and catch's
+ * hard-rock offsets), Mirror's `reflection` (osu!), and seeded Random for
+ * mania columns and taiko colours. osu!'s Random and unseeded (osu!stable)
+ * Random are approximations for display only.
+ */
 export function applyMods(
   source: Beatmap,
   mods: readonly Mod[] = [],
   options: { ar?: number; cs?: number; seed?: number } = {},
 ): Beatmap {
   const map = structuredClone(source),
-    has = (s: string) => mods.some((m) => m.acronym.toUpperCase() === s);
+    has = (s: string) => mods.some((m) => m.acronym.toUpperCase() === s),
+    find = (s: string) => mods.find((m) => m.acronym.toUpperCase() === s);
   map.visualMods = mods.map((m) => m.acronym.toUpperCase());
   const d = map.difficulty;
+  // lazer's ModEasy/ModHardRock change drain; each ruleset adds its own. Mania
+  // keeps OD and key count: its Easy and Hard Rock scale the hit windows.
   if (has("EZ")) {
     if (map.mode !== 3) d.cs *= 0.5;
     d.ar *= 0.5;
-    d.od *= 0.5;
+    if (map.mode !== 3) d.od *= 0.5;
     d.hp *= 0.5;
+    // TaikoModEasy: slower scrolling.
+    if (map.mode === 1) d.sliderMultiplier *= 0.8;
   }
   if (has("HR")) {
-    if (map.mode !== 3) d.cs = Math.min(10, d.cs * 1.3);
-    d.ar = Math.min(10, d.ar * 1.4);
-    d.od = Math.min(10, d.od * 1.4);
+    if (map.mode === 0 || map.mode === 2) {
+      d.cs = Math.min(10, d.cs * 1.3);
+      d.ar = Math.min(10, d.ar * 1.4);
+    }
+    if (map.mode !== 3) d.od = Math.min(10, d.od * 1.4);
     d.hp = Math.min(10, d.hp * 1.4);
+    // TaikoModHardRock: faster scrolling.
+    if (map.mode === 1) d.sliderMultiplier *= (1.4 * 4) / 3;
+    if (map.mode === 2) map.catchHardRockOffsets = true;
   }
   for (const m of mods) {
     const a = m.acronym.toUpperCase(),
@@ -755,44 +823,116 @@ export function applyMods(
         s.speed_change ?? (["DT", "NC"].includes(a) ? 1.5 : 0.75),
       );
     if (a === "DA") {
-      d.ar = Number(s.approach_rate ?? d.ar);
-      d.cs = Number(s.circle_size ?? d.cs);
-      d.od = Number(s.overall_difficulty ?? d.od);
-      d.hp = Number(s.drain_rate ?? d.hp);
+      d.ar = numberSetting(m, "approach_rate") ?? d.ar;
+      d.cs = numberSetting(m, "circle_size") ?? d.cs;
+      d.od = numberSetting(m, "overall_difficulty") ?? d.od;
+      d.hp = numberSetting(m, "drain_rate") ?? d.hp;
+      if (map.mode === 1) d.sliderMultiplier *= numberSetting(m, "scroll_speed") ?? 1;
+      if (map.mode === 2 && s.hard_rock_offsets === true) map.catchHardRockOffsets = true;
     }
   }
   if (options.ar !== undefined) d.ar = options.ar;
   if (options.cs !== undefined) d.cs = options.cs;
-  let seed =
-    (options.seed ??
-      Number(mods.find((m) => m.acronym === "RD")?.settings?.seed ?? 1)) ||
-    0x6d2b79f5;
+  const randomMod = find("RD"),
+    netSeed = options.seed ?? numberSetting(randomMod, "seed");
+  let seed = (netSeed ?? 1) || 0x6d2b79f5;
   const random = () => {
     seed ^= seed << 13;
     seed ^= seed >>> 17;
     seed ^= seed << 5;
     return (seed >>> 0) / 4294967296;
   };
-  const keys = Math.max(1, Math.round(d.cs)),
-    lanes = Array.from({ length: keys }, (_, i) => i);
-  if (has("RD"))
-    for (let i = keys - 1; i > 0; i--) {
-      const j = Math.floor(random() * (i + 1));
-      [lanes[i], lanes[j]] = [lanes[j], lanes[i]];
+  // Mania columns: Random and Mirror apply in mod order, like lazer's beatmap mods.
+  const keys = Math.max(1, Math.round(d.cs));
+  // Mania's conversion mods run first (`IApplicableAfterBeatmapConversion`).
+  if (map.mode === 3 && has("IN")) {
+    // ManiaModInvert: holds fill the gaps between a column's notes.
+    const columnOf = (o: HitObject) => Math.min(keys - 1, Math.floor((o.x * keys) / 512));
+    const columns = new Map<number, HitObject[]>();
+    for (const o of map.objects) columns.set(columnOf(o), [...(columns.get(columnOf(o)) ?? []), o]);
+    const inverted: HitObject[] = [];
+    for (const objects of columns.values()) {
+      const starts = [...objects.filter((o) => !(o.type & 128)), ...objects.filter((o) => o.type & 128)].sort(
+        (a, b) => a.time - b.time,
+      );
+      for (let i = 0; i + 1 < starts.length; i++) {
+        const next = starts[i + 1].time;
+        let duration = next - starts[i].time;
+        // `TimingPointAt`: the first timing point applies before it starts.
+        const red = map.timing.filter((t) => t.uninherited);
+        const beatLength = (red.findLast((t) => t.time <= next) ?? red[0])?.beatLength ?? 500;
+        duration = Math.max(duration / 2, duration - beatLength / 4);
+        inverted.push({ ...starts[i], type: (starts[i].type & ~(1 | 2 | 8)) | 128, endTime: starts[i].time + duration });
+      }
     }
-  const mirror = has("MR");
+    map.objects = inverted.sort((a, b) => a.time - b.time);
+    map.breaks = [];
+  } else if (map.mode === 3 && has("HO")) {
+    // ManiaModHoldOff: holds become notes at their start.
+    map.objects = [
+      ...map.objects.filter((o) => !(o.type & 128)),
+      ...map.objects.filter((o) => o.type & 128).map((o) => ({ ...o, type: (o.type & ~128) | 1, endTime: o.time })),
+    ].sort((a, b) => a.time - b.time);
+  }
+  let lanes = Array.from({ length: keys }, (_, i) => i);
+  for (const m of mods) {
+    const a = m.acronym.toUpperCase();
+    if (a === "RD" && map.mode === 3) {
+      let shuffled: number[];
+      if (netSeed !== undefined) {
+        // ManiaModRandom: OrderBy(_ => rng.Next()) over the columns (a stable sort).
+        const rng = new NetRandom(netSeed);
+        shuffled = lanes
+          .map((_, column) => ({ column, key: rng.nextInt() }))
+          .sort((x, y) => x.key - y.key || x.column - y.column)
+          .map((e) => e.column);
+      } else {
+        shuffled = [...lanes.keys()];
+        for (let i = keys - 1; i > 0; i--) {
+          const j = Math.floor(random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+      }
+      lanes = lanes.map((lane) => shuffled[lane]);
+    } else if (a === "MR" && map.mode === 3) lanes = lanes.map((lane) => keys - 1 - lane);
+  }
+  // osu! Mirror's axes (0 horizontal, 1 vertical, 2 both); catch mirrors after conversion (`catchObjects`).
+  const mirrorMod = find("MR"),
+    reflection = mirrorMod?.settings?.reflection,
+    axes =
+      reflection === 1 || reflection === "Vertical" || reflection === "vertical"
+        ? { x: false, y: true }
+        : reflection === 2 || reflection === "Both" || reflection === "both"
+          ? { x: true, y: true }
+          : { x: true, y: false };
   const transform = (p: Point) => {
     if (map.mode === 0 && has("HR")) p.y = 384 - p.y;
-    if (mirror && map.mode !== 3) p.x = 512 - p.x;
+    if (mirrorMod && map.mode === 0) {
+      if (axes.x) p.x = 512 - p.x;
+      if (axes.y) p.y = 384 - p.y;
+    }
+  };
+  const taikoRandom = map.mode === 1 && randomMod && netSeed !== undefined ? new NetRandom(netSeed) : null;
+  // TaikoModSwap: centres become rims and back, before or after Random in mod order.
+  const swapAt = mods.findIndex((m) => m.acronym.toUpperCase() === "SW"),
+    randomAt = mods.findIndex((m) => m.acronym.toUpperCase() === "RD");
+  const swapColour = (o: HitObject) => {
+    o.sound = o.sound & 10 ? o.sound & ~10 : o.sound | 8;
   };
   for (const o of map.objects) {
     transform(o);
     for (const p of [...o.path, ...(o.controlPoints ?? [])]) transform(p);
     if (map.mode === 3) {
-      let lane = Math.min(keys - 1, Math.floor((o.x * keys) / 512));
-      if (has("RD")) lane = lanes[lane];
-      if (mirror) lane = keys - 1 - lane;
+      const lane = lanes[Math.min(keys - 1, Math.floor((o.x * keys) / 512))];
       o.x = ((lane + 0.5) * 512) / keys;
+    } else if (map.mode === 1 && (taikoRandom || swapAt >= 0) && !(o.type & (2 | 8 | 128))) {
+      if (swapAt >= 0 && !(taikoRandom && swapAt > randomAt)) swapColour(o);
+      if (taikoRandom) {
+        // TaikoModRandom: every hit becomes centre (0) or rim at random.
+        const rim = taikoRandom.nextBelow(2) !== 0;
+        o.sound = (o.sound & ~10) | (rim ? 8 : 0);
+        if (swapAt > randomAt) swapColour(o);
+      }
     } else if (has("RD") && map.mode === 0) {
       const dx = (random() - 0.5) * 100,
         dy = (random() - 0.5) * 80;

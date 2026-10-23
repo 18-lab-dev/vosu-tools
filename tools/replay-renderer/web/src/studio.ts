@@ -2,21 +2,19 @@ import {
   parseReplay,
   frameAt,
   columnKeys,
-  simulate,
-  simulateCatch,
-  simulateOsu,
   stateAt,
-  healthAt,
+  beatmapForReplay,
+  judgeReplay,
+  replayMods,
+  replayHealth,
   type Result,
   type Replay,
   type Simulation,
 } from "@vosu-tools/replay";
 import {
   parseOsu,
-  applyMods,
   csv,
   type Beatmap,
-  type Mod,
 } from "@vosu-tools/osu-parse";
 import {
   builtinSkin,
@@ -221,22 +219,8 @@ export async function loadTrack(
     throw new Error(
       "Converted rulesets are not yet supported; select a native-ruleset replay",
     );
-  const mods: Mod[] = [];
-  for (const [bit, acronym] of [
-    [1, "NF"],
-    [2, "EZ"],
-    [8, "HD"],
-    [16, "HR"],
-    [64, "DT"],
-    [256, "HT"],
-    [512, "NC"],
-    [1024, "FL"],
-    [1048576, "FI"],
-    [1073741824, "MR"],
-  ] as const)
-    if (replay.mods & bit) mods.push({ acronym });
-  const map = applyMods(raw, mods);
-  const columns = Math.round(map.difficulty.cs);
+  const map = beatmapForReplay(raw, replay);
+  const mods = replayMods(replay);
   // Skin values: "" current skin, "builtin/<id>" a drawn lazer look, else
   // files from the service (stable folder, "imported/…", "lazer/<id>").
   // lazer's built-in current skin has no files: draw it. File skins keep the
@@ -308,32 +292,7 @@ export async function loadTrack(
   let simulation: Simulation | null = null,
     warning = "";
   try {
-    if (replay.mode === 0)
-      simulation = simulateOsu(replay, map, { baseDifficulty: raw.difficulty });
-    else if (replay.mode === 2)
-      simulation = simulateCatch(replay, map, { baseDifficulty: raw.difficulty });
-    else
-      simulation = simulate(
-        replay,
-        map.objects.map((o) => ({
-          time: o.time,
-          endTime: o.type & 128 ? o.endTime : undefined,
-          column: Math.min(columns - 1, Math.floor((o.x * columns) / 512)),
-          rim: !!(o.sound & 10),
-          kind:
-            o.type & 128
-              ? "hold"
-              : o.type & 2
-                ? "slider"
-                : o.type & 8
-                  ? "spinner"
-                  : "circle",
-          x: o.x,
-          y: o.y,
-        })),
-        map.difficulty.od,
-        columns,
-      );
+    simulation = judgeReplay(replay, raw).simulation;
     const differences = Object.entries(simulation.differences).map(
       ([result, d]) => `${result} ${d.expected}≠${d.actual}`,
     );
@@ -394,7 +353,8 @@ const HUD_INK = "#f6f3ee",
   HUD_SHADOW = "rgba(0, 0, 0, 0.7)";
 /**
  * Draws a track's enabled HUD layers. Combo, accuracy and score appear only
- * when the replay's judgements verified; health follows the recorded life graph.
+ * when the replay's judgements verified; health follows the recorded life graph
+ * (osu!stable), else lazer's health simulated from those verified judgements.
  */
 function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, time: number) {
   const state = track.simulation?.verified ? stateAt(track.replay, track.simulation, time) : null;
@@ -403,7 +363,7 @@ function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, ti
     const box = hudBox(cell, key, hudTransform(track, key));
     context.save();
     if (key === "health") {
-      const health = healthAt(track.replay, time);
+      const health = replayHealth(track.replay, track.simulation, time);
       if (health !== null) {
         context.fillStyle = "rgba(0, 0, 0, 0.45)";
         context.fillRect(box.x, box.y, box.width, box.height);

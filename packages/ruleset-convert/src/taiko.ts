@@ -101,13 +101,16 @@ function convertedEffects(map: LegacyBeatmap): EffectLine[] {
   return effects;
 }
 
-/** `TaikoBeatmapConverter` for an osu!-ruleset beatmap. */
-export function convertToTaiko(map: LegacyBeatmap): TaikoConversion {
+/**
+ * `TaikoBeatmapConverter` for an osu!-ruleset beatmap, or (`native`) for a
+ * taiko beatmap, whose sliders always stay drum rolls.
+ */
+export function convertToTaiko(map: LegacyBeatmap, options: { native?: boolean } = {}): TaikoConversion {
   const objects: TaikoObject[] = [];
   for (const object of map.objects) {
     if (object.kind === "slider") {
       const { taikoDuration, tickSpacing, hits } = sliderToHits(map, object);
-      if (hits) {
+      if (hits && !options.native) {
         const sounds = object.nodeSounds;
         let i = 0;
         for (
