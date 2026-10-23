@@ -163,7 +163,12 @@ impl Overlays {
         initial: Value,
     ) -> Result<(), Error> {
         let map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
-        let difficulty = rosu_pp::Difficulty::new().clock_rate(rate).mods(mods);
+        // osu!stable scores are rated as stable rates them; lazer's need its tick counts (see `frame`).
+        let lazer = initial["__render"]["client"] != "stable";
+        let difficulty = rosu_pp::Difficulty::new()
+            .clock_rate(rate)
+            .mods(mods)
+            .lazer(lazer);
         *self.native.lock().await = Some(Native {
             bytes: bytes.into(),
             files,
@@ -200,6 +205,19 @@ impl Overlays {
             score.n100 = count("n100");
             score.n50 = count("n50");
             score.misses = count("miss");
+            if state["play"]["mode"]["number"] == 0 {
+                // lazer's slider ticks/repeats and tails, as the simulation judged them.
+                let statistics = &state["__render"]["statistics"];
+                let stat = |key: &str| {
+                    statistics[key]
+                        .as_u64()
+                        .unwrap_or(0)
+                        .min(u64::from(u32::MAX)) as u32
+                };
+                score.osu_large_tick_hits = stat("large_tick_hit");
+                score.osu_small_tick_hits = stat("small_tick_hit");
+                score.slider_end_hits = stat("slider_tail_hit");
+            }
             score.max_combo = state["play"]["combo"]["current"]
                 .as_u64()
                 .unwrap_or(0)

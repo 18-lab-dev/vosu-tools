@@ -13,21 +13,35 @@ export type Result = keyof Counts;
 export interface Judgement {
   time: number;
   note: number;
-  result: Result;
+  /** The header counter this judgement adds to; `null` for ticks, tails and bonus. */
+  result: Result | null;
   offset: number;
+  /** `false` when `offset` is not a hit error (ticks, catches, spinners). */
+  timed?: boolean;
+  /** lazer's result name (`great`, `large_tick_hit`, ...), osu! and catch only. */
+  kind?: string;
   x: number;
   y: number;
   combo: number;
   counts: Counts;
   accuracy: number;
+  /** The client's score after this judgement, when the simulation computes it. */
+  score?: number;
 }
 export interface Simulation {
   events: Judgement[];
   counts: Counts;
   verified: boolean;
   comboVerified: boolean;
-  differences: Partial<Record<Result, { expected: number; actual: number }>>;
+  /** The simulated score ends on the recorded one (osu! and catch). */
+  scoreVerified: boolean;
+  /** Header counters, or lazer statistics, that differ from the replay. */
+  differences: Record<string, { expected: number; actual: number }>;
   warnings: string[];
+  /** Whose rules judged the replay (osu! and catch). */
+  client?: "stable" | "lazer";
+  /** lazer `HitResult` counts (osu! and catch). */
+  statistics?: Record<string, number>;
 }
 const empty = (): Counts => ({
   n300: 0,
@@ -38,6 +52,15 @@ const empty = (): Counts => ({
   miss: 0,
 });
 export function accuracy(mode: number, c: Counts): number {
+  if (mode === 0) {
+    const total = c.n300 + c.n100 + c.n50 + c.miss;
+    return total ? (300 * c.n300 + 100 * c.n100 + 50 * c.n50) / (300 * total) : 1;
+  }
+  if (mode === 2) {
+    const caught = c.n300 + c.n100 + c.n50,
+      total = caught + c.katu + c.miss;
+    return total ? caught / total : 1;
+  }
   if (mode === 3) {
     const total = c.geki + c.n300 + c.katu + c.n100 + c.n50 + c.miss;
     return total
@@ -75,7 +98,7 @@ export function simulate(
   const warnings: string[] = [],
     // Gaps that affect only the combo: graded counts and accuracy still verify.
     comboWarnings: string[] = [],
-    raw: Omit<Judgement, "combo" | "counts" | "accuracy">[] = [];
+    raw: (Omit<Judgement, "combo" | "counts" | "accuracy" | "result"> & { result: Result })[] = [];
   let previous = 0;
   const presses: { time: number; key: number; used: boolean }[] = [],
     releases: { time: number; key: number }[] = [];
@@ -234,6 +257,7 @@ export function simulate(
     events,
     counts,
     comboVerified: maxCombo === replay.maxCombo && !comboWarnings.length,
+    scoreVerified: false,
     verified: !Object.keys(differences).length && !warnings.length,
     differences,
     warnings: [...warnings, ...comboWarnings],
@@ -252,6 +276,7 @@ export function stateAt(replay: Replay, simulation: Simulation, time: number) {
     combo: simulation.comboVerified ? (event?.combo ?? 0) : null,
     counts: event?.counts ?? empty(),
     accuracy: event?.accuracy ?? 1,
+    score: simulation.scoreVerified ? (event?.score ?? 0) : null,
     health: healthAt(replay, time),
     verified: simulation.verified,
   };

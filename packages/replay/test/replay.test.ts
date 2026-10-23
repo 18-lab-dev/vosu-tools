@@ -29,6 +29,7 @@ const base: Replay = {
   frames: [],
   seed: null,
   rate: 1,
+  lazer: null,
 };
 test("LZMA replay reader rejects truncated binary before decoding", async () => {
   await expect(parseReplay(new Uint8Array([3, 1]))).rejects.toThrow(
