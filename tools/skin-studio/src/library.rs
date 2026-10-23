@@ -166,13 +166,13 @@ fn folder_ini_name(folder: &Path) -> Option<String> {
 /// lazer `skininfo.json`, so writes can never target an arbitrary folder.
 pub fn skin_folder(path: &Path) -> Result<PathBuf, Failure> {
     if !path.is_absolute() {
-        return Err(failure("Enter an absolute folder path."));
+        return Err(failure("Use an absolute path"));
     }
     let folder = path
         .canonicalize()
         .map_err(|e| failure(format!("Cannot open {}: {e}", path.display())))?;
     if !folder.is_dir() {
-        return Err(failure("That path is not a folder."));
+        return Err(failure("Not a folder"));
     }
     let marker = |name: &str| {
         fs::symlink_metadata(folder.join(name))
@@ -180,9 +180,7 @@ pub fn skin_folder(path: &Path) -> Result<PathBuf, Failure> {
             .unwrap_or(false)
     };
     if !marker("skin.ini") && !marker("skininfo.json") {
-        return Err(failure(
-            "No skin.ini or skininfo.json in that folder. Choose the skin folder itself.",
-        ));
+        return Err(failure("No skin.ini or skininfo.json in that folder"));
     }
     Ok(folder)
 }
@@ -250,10 +248,7 @@ async fn lazer_skins(app: &App) -> Result<Vec<LazerSkin>, String> {
             .await
             .map(|s| s.skins)
             .map_err(|e| e.to_string()),
-        404 => Err(
-            "The lazer-library tool is not installed. Install it from the dashboard to browse lazer skins."
-                .into(),
-        ),
+        404 => Err("lazer-library not installed".into()),
         // 503 comes from vosu (tool disabled, failed or untrusted) or from
         // lazer-library itself while its Realm snapshot is not readable.
         503 => {
@@ -268,18 +263,15 @@ async fn lazer_skins(app: &App) -> Result<Vec<LazerSkin>, String> {
                 None => serde_json::Value::Null,
             };
             Err(match (status["error"].as_str(), status.is_object()) {
-                (Some(error), _) => format!("lazer-library cannot read lazer: {error}"),
-                (None, true) => "lazer-library is still reading lazer's database; this list refreshes on its own.".into(),
+                (Some(error), _) => format!("lazer-library: {error}"),
+                (None, true) => "Reading lazer…".into(),
                 (None, false) => format!(
-                    "The lazer-library tool is not running ({}). Check it on the dashboard's Tools page.",
+                    "lazer-library {}",
                     body["error"].as_str().unwrap_or("unavailable")
                 ),
             })
         }
-        status => Err(format!(
-            "lazer-library answered {status}: {}",
-            response.text().await.unwrap_or_default()
-        )),
+        status => Err(format!("lazer-library error {status}")),
     }
 }
 
@@ -408,7 +400,7 @@ pub async fn resolve(app: &App, key: &str) -> Result<(Source, Skin), Failure> {
             .skins
             .into_iter()
             .find(|s| s.key == key && s.available)
-            .ok_or_else(|| failure("Choose a skin from the library list."))?,
+            .ok_or_else(|| failure("Not in the library"))?,
     };
     let source = match key.strip_prefix(LAZER_PREFIX) {
         Some(id) => Source::Lazer(id.to_owned()),

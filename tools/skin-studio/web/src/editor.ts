@@ -19,7 +19,6 @@ import {
   pathCandidates,
   type Diagnostic,
 } from "@vosu-tools/skin-spec";
-import { defineThemes, themeName, type Scheme } from "./themes";
 
 export { monaco };
 
@@ -36,7 +35,6 @@ const stateOf = (model: monaco.editor.ITextModel) => {
 };
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
-defineThemes(monaco);
 monaco.languages.register({ id: "skin-ini" });
 monaco.languages.setMonarchTokensProvider("skin-ini", {
   tokenizer: {
@@ -235,23 +233,97 @@ export function setFiles(
   stateOf(model).files = files;
 }
 
-export async function createEditor(container: HTMLElement, scheme: Scheme) {
+/** A CSS colour (hex, rgb() with alpha, …) as Monaco's `#rrggbbaa`. */
+function hex(value: string): string {
+  const probe = document.createElement("canvas").getContext("2d")!;
+  probe.fillStyle = "#000";
+  probe.fillStyle = value;
+  const normal = String(probe.fillStyle);
+  if (normal.startsWith("#")) return normal;
+  const [r, g, b, a = 1] = (normal.match(/[\d.]+/g) ?? []).map(Number);
+  return `#${[r, g, b, Math.round(a * 255)].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+const THEME = "skin-studio";
+/** Defines the editor theme from the 18-LAB tokens of the current mode. */
+export function applyTheme() {
+  const css = getComputedStyle(document.documentElement);
+  const token = (name: string) => hex(css.getPropertyValue(name).trim());
+  const bare = (name: string) => token(name).slice(1, 7);
+  const light = document.documentElement.dataset.theme === "light";
+  monaco.editor.defineTheme(THEME, {
+    base: light ? "vs" : "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "", foreground: bare("--fg") },
+      { token: "comment", foreground: bare("--muted"), fontStyle: "italic" },
+      { token: "type", foreground: bare("--accent") },
+      { token: "key", foreground: bare("--fg") },
+      { token: "delimiter", foreground: bare("--muted") },
+      { token: "number", foreground: bare("--note") },
+    ],
+    colors: {
+      "editor.background": token("--bg-sunken"),
+      "editor.foreground": token("--fg"),
+      "editorGutter.background": token("--bg-sunken"),
+      "editorLineNumber.foreground": token("--muted"),
+      "editorLineNumber.activeForeground": token("--accent"),
+      "editor.lineHighlightBackground": token("--hover"),
+      "editor.lineHighlightBorder": "#00000000",
+      "editor.selectionBackground": token("--selected"),
+      "editor.inactiveSelectionBackground": token("--selected"),
+      "editorCursor.foreground": token("--accent"),
+      "editorWhitespace.foreground": token("--rule"),
+      "editorIndentGuide.background1": token("--rule"),
+      "editorWidget.background": token("--bg-raised"),
+      "editorWidget.foreground": token("--fg"),
+      "editorWidget.border": token("--rule-strong"),
+      "editorHoverWidget.background": token("--bg-raised"),
+      "editorHoverWidget.foreground": token("--fg"),
+      "editorHoverWidget.border": token("--rule-strong"),
+      "editorSuggestWidget.background": token("--bg-raised"),
+      "editorSuggestWidget.foreground": token("--fg"),
+      "editorSuggestWidget.border": token("--rule-strong"),
+      "editorSuggestWidget.highlightForeground": token("--accent"),
+      "editorSuggestWidget.focusHighlightForeground": token("--accent"),
+      "editorSuggestWidget.selectedBackground": token("--selected"),
+      "editorSuggestWidget.selectedForeground": token("--fg"),
+      "list.hoverBackground": token("--hover"),
+      "editorError.foreground": token("--danger"),
+      "editorWarning.foreground": token("--caution"),
+      "editorLightBulb.foreground": token("--caution"),
+      "textLink.foreground": token("--accent"),
+      "textLink.activeForeground": token("--accent"),
+      "textCodeBlock.background": token("--bg-sunken"),
+      focusBorder: token("--accent"),
+      "scrollbarSlider.background": `${token("--rule-strong").slice(0, 7)}99`,
+      "scrollbarSlider.hoverBackground": token("--rule-strong"),
+      "scrollbarSlider.activeBackground": token("--accent"),
+      "scrollbar.shadow": "#00000000",
+      "widget.shadow": "#0000002e",
+    },
+  });
+  monaco.editor.setTheme(THEME);
+}
+
+export async function createEditor(container: HTMLElement) {
   // Monaco measures glyphs once; a font that arrives later misaligns the gutter.
-  await document.fonts.load('13px "JetBrains Mono Variable"');
+  await document.fonts.load('13px "IBM Plex Mono"');
+  applyTheme();
   return monaco.editor.create(container, {
     model: null,
-    theme: themeName(scheme),
+    theme: THEME,
     automaticLayout: true,
     minimap: { enabled: false },
-    fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
+    fontFamily: getComputedStyle(document.documentElement)
+      .getPropertyValue("--font-mono")
+      .trim(),
     fontSize: 13,
-    lineHeight: 21,
+    lineHeight: 20,
     colorDecorators: true,
     scrollBeyondLastLine: false,
     renderLineHighlight: "line",
-    padding: { top: 10, bottom: 10 },
+    padding: { top: 8, bottom: 8 },
     fixedOverflowWidgets: true,
   });
 }
-export const setScheme = (scheme: Scheme) =>
-  monaco.editor.setTheme(themeName(scheme));

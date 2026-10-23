@@ -1,19 +1,14 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parse, resolve, revision } from "@vosu-tools/skin-spec";
-import "@fontsource/instrument-serif/400.css";
-import "@fontsource/instrument-serif/400-italic.css";
-import "@fontsource-variable/instrument-sans";
-import "@fontsource-variable/jetbrains-mono";
+import { parse, resolve } from "@vosu-tools/skin-spec";
 import "./style.css";
 import {
+  applyTheme,
   check,
   createEditor,
   monaco,
   rgb,
   setFiles,
-  setScheme,
 } from "./editor";
-import type { Scheme } from "./themes";
 import {
   type Category,
   type Group,
@@ -93,18 +88,17 @@ const player = $<HTMLAudioElement>("#player");
 const save = $<HTMLButtonElement>("#save");
 const reload = $<HTMLButtonElement>("#reload");
 
-// ---- colour scheme -------------------------------------------------------
-const currentScheme = (): Scheme =>
-  vosu.colorScheme ??
-  (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-function applyScheme() {
-  const scheme = currentScheme();
-  document.documentElement.dataset.scheme = scheme;
-  document.documentElement.style.colorScheme = scheme;
-  setScheme(scheme);
+// ---- audio previews: muted by default, remembered per tool ------------------
+const MUTE_KEY = "skin-studio:muted";
+const mute = $<HTMLButtonElement>("#mute");
+function setMuted(muted: boolean) {
+  player.muted = muted;
+  mute.setAttribute("aria-pressed", String(muted));
+  mute.textContent = muted ? "Muted" : "Sound on";
+  localStorage.setItem(MUTE_KEY, String(muted));
 }
-document.documentElement.dataset.scheme = currentScheme();
-document.documentElement.style.colorScheme = currentScheme();
+setMuted(localStorage.getItem(MUTE_KEY) !== "false");
+mute.onclick = () => setMuted(!player.muted);
 
 // ---- state ---------------------------------------------------------------
 let library: Library | null = null;
@@ -195,7 +189,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
 // ---- editor --------------------------------------------------------------
 const focusModel = monaco.editor.createModel("", "skin-ini");
 const mixModel = monaco.editor.createModel("", "skin-ini");
-const editor = await createEditor($("#editor"), currentScheme());
+const editor = await createEditor($("#editor"));
 editor.setModel(focusModel);
 editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
   if (!save.disabled) void storeIni();
@@ -224,20 +218,24 @@ function renderIni() {
   save.disabled = !writable || saving || conflict || !focusDirty();
   reload.disabled = !focused || saving;
   const skin = skinByKey(focused);
-  $("#ini-note").textContent =
+  const note = $("#ini-note");
+  note.textContent =
     iniMode === "mix"
       ? mixEdited()
-        ? "Edited by hand · used as-is when you build"
-        : `Composed from your picks for “${recipe.name.trim() || "My mix"}”`
-      : !focused
-        ? "Select a skin"
-        : skin?.origin === "lazer"
-          ? "Lazer skins are read-only here"
-          : !loadedFocus?.snapshot.writable
-            ? "Read-only (not UTF-8)"
-            : !vosu.canWrite
-              ? "Read-only tab · open from the vosu dashboard to save"
-              : `${skin?.name ?? ""} · saves keep a .bak copy`;
+        ? "Edited"
+        : ""
+      : focused && !writable
+        ? skin?.origin === "lazer" || vosu.canWrite
+          ? "Read-only"
+          : "Read-only tab"
+        : "";
+  note.hidden = !note.textContent;
+  note.title =
+    iniMode === "mix"
+      ? "Used as-is when you build"
+      : !loadedFocus?.snapshot.writable && skin?.origin !== "lazer"
+        ? "Not UTF-8"
+        : "";
   const issues = check(model);
   $("#issue-count").textContent = String(issues.length);
   $("#diagnostics").replaceChildren(
@@ -261,13 +259,7 @@ function renderIni() {
             ),
           ),
         )
-      : [
-          h(
-            "li",
-            { class: "clean" },
-            "No problems against the wiki reference.",
-          ),
-        ]),
+      : [h("li", { class: "clean" }, "No problems.")]),
   );
 }
 focusModel.onDidChangeContent(() => {
@@ -295,8 +287,8 @@ async function storeIni() {
       entry.data.text = text;
     }
     status.textContent = data.backup
-      ? `Saved skin.ini. Previous version kept as ${data.backup}.`
-      : "Saved. Created a new skin.ini.";
+      ? `Saved · backup ${data.backup}`
+      : "Saved";
     scheduleCompose();
   } catch (error) {
     status.textContent = message(error);
@@ -312,14 +304,14 @@ function renderLibrary() {
   const list = $("#skins");
   if (!library) {
     list.replaceChildren(
-      h("p", { class: "none" }, libraryError || "Loading skins…"),
+      h("p", { class: "v-empty" }, libraryError || "Loading…"),
     );
     return;
   }
   const query = filter.value.trim().toLowerCase();
   const sections: [string, Skin["origin"]][] = [
     ["Stable", "stable"],
-    ["Added folders", "added"],
+    ["Added", "added"],
     ["Lazer", "lazer"],
   ];
   const nodes: Node[] = [];
@@ -329,20 +321,21 @@ function renderLibrary() {
       (s) => !query || s.name.toLowerCase().includes(query),
     );
     let note: string | null = null;
-    if (origin === "stable" && !library.stable_dir)
-      note =
-        "No stable Skins folder. Attach vosu to osu!stable, or set one in this tool's settings.";
+    if (origin === "stable" && !library.stable_dir) note = "No Skins folder";
     if (origin === "lazer")
       note = !library.lazer.enabled
-        ? "Hidden in settings."
+        ? "Hidden in settings"
         : library.lazer.error;
     if (!all.length && !note && origin === "added") continue;
     nodes.push(
-      h("h2", {}, title, h("span", {}, all.length ? String(all.length) : "")),
+      h(
+        "div",
+        { class: "v-label" },
+        title,
+        all.length ? h("span", {}, String(all.length)) : null,
+      ),
     );
     if (note) nodes.push(h("p", { class: "note" }, note));
-    if (all.length && !shown.length)
-      nodes.push(h("p", { class: "none" }, "No match."));
     nodes.push(
       h(
         "ul",
@@ -350,37 +343,35 @@ function renderLibrary() {
         ...shown.map((skin) =>
           h(
             "li",
-            { class: skin.available ? "" : "gone" },
+            {},
             h(
               "button",
               {
                 type: "button",
                 class: "skin",
                 disabled: !skin.available,
-                title: skin.builtin
-                  ? `Built into lazer (${skin.builtin}): no files to browse`
-                  : skin.origin === "lazer"
-                    ? `lazer${skin.creator ? ` · by ${skin.creator}` : ""}`
-                    : skin.key,
+                title:
+                  skin.origin === "lazer" ? (skin.creator ?? "") : skin.key,
                 ariaCurrent: String(skin.key === focused),
                 onclick: () => void focus(skin.key),
               },
               h("span", { class: "name" }, skin.name),
-              skin.current && h("span", { class: "tag current" }, "current"),
-              skin.builtin && h("span", { class: "tag" }, "built-in"),
+              skin.current &&
+                h("span", { class: "v-badge v-badge--accent" }, "current"),
+              skin.builtin && h("span", { class: "v-badge" }, "built-in"),
               !skin.available &&
                 !skin.builtin &&
-                h("span", { class: "tag gone" }, "gone"),
+                h("span", { class: "v-badge v-badge--error" }, "gone"),
               recipe.base === skin.key &&
-                h("span", { class: "tag base" }, "base"),
+                h("span", { class: "v-badge v-badge--ok" }, "base"),
             ),
             skin.origin === "added"
               ? h(
                   "button",
                   {
                     type: "button",
-                    class: "forget",
-                    title: "Remove from the library (files stay untouched)",
+                    class: "v-btn v-btn--sm v-btn--ghost forget",
+                    title: "Remove from the library; files stay",
                     ariaLabel: `Forget ${skin.name}`,
                     disabled: !vosu.canWrite,
                     onclick: () => void forget(skin),
@@ -393,6 +384,11 @@ function renderLibrary() {
       ),
     );
   }
+  if (
+    query &&
+    !nodes.some((n) => n instanceof HTMLUListElement && n.childElementCount)
+  )
+    nodes.push(h("p", { class: "v-empty" }, "No match."));
   list.replaceChildren(...nodes);
 }
 filter.addEventListener("input", renderLibrary);
@@ -403,11 +399,11 @@ async function loadLibrary(): Promise<Library | null> {
     libraryError = "";
     currentSkinName = library.current?.name ?? null;
   } catch (error) {
-    libraryError = `Skin library unavailable: ${message(error)}`;
+    libraryError = message(error);
   }
   renderLibrary();
   renderMix();
-  if (!focused) renderGuide();
+  if (!focused) renderFocus();
   return library;
 }
 
@@ -416,34 +412,41 @@ async function forget(skin: Skin) {
     library = await post<Library>("v1/folders/forget", { skin: skin.key });
     loaded.delete(skin.key);
     if (focused === skin.key) await focus(null);
-    status.textContent = `Forgot ${skin.key}. Its files were not touched.`;
+    status.textContent = `Forgot ${skin.name}`;
     renderLibrary();
   } catch (error) {
     status.textContent = message(error);
   }
 }
 
-const folderHint = $("#folder-hint");
-const folderHintText = folderHint.textContent!;
-$<HTMLFormElement>("#add-folder").addEventListener("submit", async (event) => {
+const folderError = $("#folder-error");
+const addForm = $<HTMLFormElement>("#add-folder");
+const addToggle = $<HTMLButtonElement>("#add-toggle");
+addToggle.onclick = () => {
+  addForm.hidden = !addForm.hidden;
+  addToggle.setAttribute("aria-expanded", String(!addForm.hidden));
+  if (!addForm.hidden) $<HTMLInputElement>("#folder-path").focus();
+};
+addForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $<HTMLInputElement>("#folder-path");
   const path = input.value.trim();
   if (!path) return input.focus();
   const before = new Set(library?.skins.map((s) => s.key));
-  folderHint.classList.remove("error");
-  folderHint.removeAttribute("role");
+  folderError.hidden = true;
+  input.removeAttribute("aria-invalid");
   try {
     library = await post<Library>("v1/folders/add", { path });
     input.value = "";
-    folderHint.textContent = folderHintText;
+    addForm.hidden = true;
+    addToggle.setAttribute("aria-expanded", "false");
     renderLibrary();
     const added = library.skins.find((s) => !before.has(s.key));
     if (added) await focus(added.key);
   } catch (error) {
-    folderHint.textContent = message(error);
-    folderHint.classList.add("error");
-    folderHint.setAttribute("role", "alert");
+    folderError.textContent = message(error);
+    folderError.hidden = false;
+    input.setAttribute("aria-invalid", "true");
   }
 });
 
@@ -473,7 +476,7 @@ async function focus(key: string | null) {
     focusModel.setValue(snapshot.text);
     // Monaco normalises mixed line endings; compare against what it holds.
     savedText = focusModel.getValue();
-    status.textContent = `${skinName(key)} · ${snapshot.files.length} files`;
+    status.textContent = "";
   } catch (error) {
     status.textContent = message(error);
   }
@@ -514,11 +517,6 @@ function renderColours() {
             },
           },
           chip,
-          h(
-            "span",
-            { class: "chip-label" },
-            /^Combo(\d)$/.exec(l.key!)?.[1] ?? l.key!.replace(/[a-z]/g, ""),
-          ),
         ),
       );
     }),
@@ -528,27 +526,31 @@ function renderColours() {
 function renderFocus() {
   const skin = skinByKey(focused);
   const entry = focused ? loaded.get(focused) : undefined;
-  $("#focus-name").textContent = skin?.name ?? "No skin selected";
+  $("#focus-name").textContent = skin?.name ?? "";
   const author = entry
     ? getValue(parseIni(entry.data.text), "General", "Author")
     : undefined;
   $("#focus-meta").textContent = skin
     ? [
-        author ? `by ${author}` : skin.creator ? `by ${skin.creator}` : "",
-        skin.origin === "lazer" ? "lazer · read-only" : skin.key,
+        author ?? skin.creator ?? "",
+        skin.origin === "lazer" ? "lazer" : skin.key,
         entry ? `${entry.snapshot.files.length} files` : "",
       ]
         .filter(Boolean)
         .join(" · ")
     : "";
-  $<HTMLButtonElement>("#use-base").disabled = !focused;
-  $<HTMLButtonElement>("#use-base").textContent =
-    recipe.base === focused && focused ? "Mix base ✓" : "Use as mix base";
+  const useBase = $<HTMLButtonElement>("#use-base");
+  useBase.disabled = !focused;
+  useBase.setAttribute(
+    "aria-pressed",
+    String(!!focused && recipe.base === focused),
+  );
+  useBase.textContent =
+    recipe.base === focused && focused ? "Mix base" : "Use as mix base";
   renderColours();
-  $("#guide").hidden = !!focused;
+  $("#guide").hidden = !!focused || view === "ini";
   $("#elements-view").hidden = !focused || view !== "elements";
   $("#ini-view").hidden = view !== "ini";
-  if (!focused) renderGuide();
   renderCats();
   renderGroups();
   renderIni();
@@ -662,7 +664,7 @@ function audioTile(data: SkinData, label: string, file: string) {
     "button",
     {
       type: "button",
-      class: "play",
+      class: "v-btn v-btn--sm v-btn--icon play",
       ariaLabel: `Play ${file}`,
       onclick: () => {
         if (player.dataset.src === url && !player.paused) {
@@ -690,7 +692,7 @@ function audioTile(data: SkinData, label: string, file: string) {
       h(
         "span",
         { class: "tile-meta" },
-        `${file.split(".").pop()} · ${size ? `${Math.max(1, Math.round(size / 1024))} KB` : "empty (silent)"}`,
+        `${file.split(".").pop()} · ${size ? `${Math.max(1, Math.round(size / 1024))} KB` : "empty"}`,
       ),
     ),
   );
@@ -706,12 +708,9 @@ player.addEventListener("pause", syncPlayer);
 player.addEventListener("ended", syncPlayer);
 
 function pickLabel(pick: Pick | undefined) {
-  if (!pick)
-    return recipe.base
-      ? `from base · ${skinName(recipe.base)}`
-      : "osu! default";
+  if (!pick) return recipe.base ? `base · ${skinName(recipe.base)}` : "default";
   if (pick.kind === "skin") return skinName(pick.key);
-  return pick.kind === "default" ? "osu! default" : "blank (hidden)";
+  return pick.kind === "default" ? "default" : "blank";
 }
 
 function setPick(id: string, pick: Pick | null) {
@@ -751,57 +750,41 @@ function groupSection(group: Group, data: SkinData) {
   const pick = recipe.picks[group.id];
   const isThis = pick?.kind === "skin" && pick.key === data.key;
   const canBlank = group.elements.some((e) => !e.name.endsWith("*"));
+  const choice = (label: string, pressed: boolean, next: Pick, title = "") =>
+    h(
+      "button",
+      {
+        type: "button",
+        class: "v-btn v-btn--sm",
+        ariaPressed: String(pressed),
+        title,
+        onclick: () => setPick(group.id, pressed ? null : next),
+      },
+      label,
+    );
   const controls = h(
     "div",
-    { class: "pick" },
-    h("span", { class: "pick-now" }, "Mix: ", h("b", {}, pickLabel(pick))),
-    h(
-      "button",
-      {
-        type: "button",
-        class: isThis ? "chosen" : "",
-        ariaPressed: String(isThis),
-        onclick: () =>
-          setPick(group.id, isThis ? null : { kind: "skin", key: data.key }),
-      },
-      isThis ? "Using this skin" : "Use this skin",
-    ),
-    h(
-      "button",
-      {
-        type: "button",
-        class: pick?.kind === "default" ? "chosen" : "",
-        ariaPressed: String(pick?.kind === "default"),
-        title: "Leave these elements out so osu! uses its default skin",
-        onclick: () =>
-          setPick(
-            group.id,
-            pick?.kind === "default" ? null : { kind: "default" },
-          ),
-      },
+    { class: "v-row" },
+    h("span", { class: "pick-now" }, "Mix ", h("b", {}, pickLabel(pick))),
+    choice("Use this skin", isThis, { kind: "skin", key: data.key }),
+    choice(
       "Default",
+      pick?.kind === "default",
+      { kind: "default" },
+      "osu!'s default elements",
     ),
     canBlank &&
-      h(
-        "button",
-        {
-          type: "button",
-          class: pick?.kind === "blank" ? "chosen" : "",
-          ariaPressed: String(pick?.kind === "blank"),
-          title: "Replace these elements with invisible images / silent sounds",
-          onclick: () =>
-            setPick(
-              group.id,
-              pick?.kind === "blank" ? null : { kind: "blank" },
-            ),
-        },
+      choice(
         "Blank",
+        pick?.kind === "blank",
+        { kind: "blank" },
+        "Invisible images, silent sounds",
       ),
   );
   const body = tiles(data, owned);
   return h(
     "section",
-    { class: `group${pick ? " picked" : ""}` },
+    { class: "group" },
     h(
       "header",
       {},
@@ -809,14 +792,17 @@ function groupSection(group: Group, data: SkinData) {
         "h3",
         {},
         group.label,
-        h("span", {}, owned.length ? `${owned.length} files` : ""),
+        owned.length
+          ? h("span", { class: "v-muted" }, `${owned.length} files`)
+          : null,
+        pick ? h("span", { class: "v-badge v-badge--accent" }, "in mix") : null,
       ),
       controls,
     ),
     iniLines.length
       ? h(
           "dl",
-          { class: "ini-values" },
+          { class: "v-facts" },
           ...iniLines.flatMap((line) => {
             const [key, ...rest] = line.split(":");
             const value = rest.join(":").trim();
@@ -824,37 +810,25 @@ function groupSection(group: Group, data: SkinData) {
             const swatch = c && h("span", { class: "swatch" });
             if (swatch && c)
               swatch.style.backgroundColor = `rgb(${c[0]} ${c[1]} ${c[2]})`;
-            return [h("dt", {}, key.trim()), h("dd", {}, swatch, value)];
+            return [
+              h("dt", {}, key.trim()),
+              h("dd", { class: "v-mono" }, swatch, value),
+            ];
           }),
         )
       : null,
     body.length
       ? h("div", { class: "tiles" }, ...body)
       : !iniLines.length
-        ? h(
-            "p",
-            { class: "none" },
-            "This skin has none of these elements; osu! uses its defaults.",
-          )
+        ? h("p", { class: "missing" }, "None in this skin.")
         : null,
     missing.length && body.length
-      ? missing.length > 8
-        ? h(
-            "details",
-            { class: "missing" },
-            h(
-              "summary",
-              {},
-              `${missing.length} not in this skin (osu! default used)`,
-            ),
-            missing.join(", "),
-          )
-        : h(
-            "p",
-            { class: "missing" },
-            "Not in this skin (osu! default used): ",
-            missing.join(", "),
-          )
+      ? h(
+          "details",
+          { class: "missing" },
+          h("summary", {}, `${missing.length} missing`),
+          missing.join(", "),
+        )
       : null,
   );
 }
@@ -864,7 +838,7 @@ function renderGroups() {
   const entry = focused ? loaded.get(focused) : undefined;
   if (!entry) {
     container.replaceChildren(
-      h("p", { class: "none" }, focused ? "Reading skin…" : ""),
+      h("p", { class: "v-empty" }, focused ? "Reading…" : ""),
     );
     return;
   }
@@ -948,9 +922,7 @@ async function composeFor(target: Plan["target"], fresh = false) {
   const map = new Map<string, SkinData>();
   for (const key of keys) {
     if (!skinByKey(key)?.available)
-      throw new Error(
-        `${skinName(key)} is no longer available; pick another skin for it.`,
-      );
+      throw new Error(`${skinName(key)} is unavailable`);
     map.set(key, (await load(key, fresh)).data);
   }
   return compose(recipe, map, target);
@@ -973,9 +945,7 @@ async function recompose() {
 
 function renderMix() {
   const base = recipe.base;
-  $("#mix-base").textContent = base
-    ? skinName(base)
-    : "None, start from osu!'s defaults";
+  $("#mix-base").textContent = base ? skinName(base) : "None";
   $("#mix-base-clear").hidden = !base;
   const picks = Object.entries(recipe.picks)
     .map(([id, pick]) => ({ id, pick, group: groupById(id) }))
@@ -987,18 +957,26 @@ function renderMix() {
             "li",
             {},
             h(
-              "span",
-              { class: "pick-group" },
-              categories.find((c) => c.id === group!.category)?.label ?? "",
-              " · ",
-              h("b", {}, group!.label),
+              "div",
+              {},
+              h(
+                "span",
+                {},
+                group!.label,
+                " ",
+                h(
+                  "span",
+                  { class: "v-muted" },
+                  categories.find((c) => c.id === group!.category)?.label ?? "",
+                ),
+              ),
+              h("span", { class: "pick-source" }, pickLabel(pick)),
             ),
-            h("span", { class: `pick-source ${pick.kind}` }, pickLabel(pick)),
             h(
               "button",
               {
                 type: "button",
-                class: "remove",
+                class: "v-btn v-btn--sm v-btn--ghost v-btn--icon",
                 ariaLabel: `Remove ${group!.label} from the mix`,
                 onclick: () => setPick(id, null),
               },
@@ -1006,13 +984,7 @@ function renderMix() {
             ),
           ),
         )
-      : [
-          h(
-            "li",
-            { class: "empty" },
-            "No element groups picked yet. Open a skin and press “Use this skin” on any group, or set a base.",
-          ),
-        ]),
+      : [h("li", { class: "empty" }, "No groups picked.")]),
   );
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
   $("#mix-summary").replaceChildren(
@@ -1021,20 +993,17 @@ function renderMix() {
       : total || picks.length || base
         ? [
             `${total} files`,
-            ...[...counts].map(([key, n]) => ` · ${n} from ${skinName(key)}`),
+            ...[...counts].map(([key, n]) => ` · ${n} ${skinName(key)}`),
             blanks ? ` · ${blanks} blank` : "",
-            mixEdited() ? " · skin.ini edited by hand" : "",
           ]
         : []),
   );
   const empty = !base && !picks.length;
   const reason = !vosu.canWrite
-    ? "Open Skin studio from the vosu dashboard to build."
+    ? "Read-only tab"
     : empty
-      ? "Pick a base or at least one group."
-      : composeError
-        ? composeError
-        : "";
+      ? "Pick a base or a group"
+      : composeError;
   const stable = $<HTMLButtonElement>("#build-stable");
   const osk = $<HTMLButtonElement>("#build-osk");
   stable.disabled = !!reason || !library?.stable_dir || building;
@@ -1042,11 +1011,10 @@ function renderMix() {
   stable.title =
     reason ||
     (library?.stable_dir
-      ? `Creates ${library.stable_dir}/${recipe.name.trim()}`
-      : "No stable Skins folder known; set one in this tool's settings.");
+      ? `${library.stable_dir}/${recipe.name.trim()}`
+      : "No Skins folder");
   osk.title =
-    reason ||
-    `Writes ${library?.export_dir ?? "the export folder"}/${recipe.name.trim()}.osk${library?.settings.open_osk ? " and opens it so lazer imports it" : ""}`;
+    reason || `${library?.export_dir ?? ""}/${recipe.name.trim()}.osk`;
 }
 $("#mix-base-clear").onclick = () => {
   recipe.base = null;
@@ -1057,7 +1025,7 @@ $("#mix-base-clear").onclick = () => {
   scheduleCompose();
 };
 $("#mix-reset").onclick = () => {
-  if (!confirm("Clear the mix (base and every pick)?")) return;
+  if (!confirm("Clear the mix?")) return;
   recipe = { name: recipe.name, base: null, picks: {} };
   persist();
   mixModel.setValue("");
@@ -1083,7 +1051,7 @@ $("#mix-plan").onclick = async () => {
     });
     link.click();
     URL.revokeObjectURL(link.href);
-    status.textContent = `Plan saved. Build it later with: vosux skin-studio build "${link.download}"`;
+    status.textContent = `Saved ${link.download}`;
   } catch (error) {
     status.textContent = message(error);
   }
@@ -1095,7 +1063,11 @@ async function buildMix(target: Plan["target"]) {
   renderMix();
   const result = $("#mix-result");
   result.replaceChildren(
-    h("p", {}, target === "stable" ? "Creating skin…" : "Packing .osk…"),
+    h(
+      "p",
+      { class: "v-muted" },
+      target === "stable" ? "Creating…" : "Packing…",
+    ),
   );
   try {
     // Re-read every source so the plan matches the files on disk now.
@@ -1115,8 +1087,8 @@ async function buildMix(target: Plan["target"]) {
       built = await post("v1/build", plan);
     } catch (error) {
       if (!(error instanceof HttpError) || error.status !== 409) throw error;
-      if (!confirm(`${message(error)}\n\nReplace it with this mix?`)) {
-        result.replaceChildren(h("p", {}, "Nothing was changed."));
+      if (!confirm(`${message(error)}\n\nReplace it?`)) {
+        result.replaceChildren();
         return;
       }
       built = await post("v1/build", { ...plan, overwrite: true });
@@ -1125,45 +1097,31 @@ async function buildMix(target: Plan["target"]) {
       h(
         "p",
         { class: "ok" },
-        `${built.replaced ? "Replaced" : "Created"} ${built.files} files: `,
-        h("code", {}, built.path),
+        `${built.replaced ? "Replaced" : "Created"} · ${built.files} files`,
       ),
+      h("p", { class: "v-mono v-muted" }, built.path),
     ];
-    if (target === "stable")
+    if (target === "osk")
       nodes.push(
         h(
-          "p",
+          "div",
           {},
-          "Select it in osu!stable's skin list (it rescans Skins when you open options).",
+          h(
+            "button",
+            {
+              type: "button",
+              class: "v-btn v-btn--sm",
+              onclick: () =>
+                void post("v1/open", { path: built.path })
+                  .then(() => (status.textContent = "Opened"))
+                  .catch((e) => (status.textContent = message(e))),
+            },
+            built.opened ? "Open again" : "Open with lazer",
+          ),
         ),
       );
-    else {
-      nodes.push(
-        h(
-          "p",
-          {},
-          built.opened
-            ? "Handed to the system; osu!lazer imports it when it is your .osk handler."
-            : "Open it with osu!lazer (or drag it onto lazer) to import.",
-        ),
-        h(
-          "button",
-          {
-            type: "button",
-            class: "quiet",
-            onclick: () =>
-              void post("v1/open", { path: built.path })
-                .then(
-                  () => (status.textContent = "Opened .osk with the system."),
-                )
-                .catch((e) => (status.textContent = message(e))),
-          },
-          built.opened ? "Open again" : "Open with lazer",
-        ),
-      );
-    }
     result.replaceChildren(...nodes);
-    status.textContent = `${recipe.name.trim()} built.`;
+    status.textContent = "";
     await loadLibrary();
   } catch (error) {
     result.replaceChildren(h("p", { class: "error" }, message(error)));
@@ -1174,76 +1132,6 @@ async function buildMix(target: Plan["target"]) {
 }
 $("#build-stable").onclick = () => void buildMix("stable");
 $("#build-osk").onclick = () => void buildMix("osk");
-
-// ---- guide -------------------------------------------------------------------
-function renderGuide() {
-  const blocks: Node[] = [
-    h("p", { class: "kicker" }, "Skin studio"),
-    h("h2", {}, "Pick a skin from the library to browse its elements."),
-    h(
-      "ol",
-      { class: "steps" },
-      h(
-        "li",
-        {},
-        "Open a skin. Elements are grouped per ruleset: circles, sliders, mania stages, taiko drum, catcher, cursor, numbers, hitsounds and interface.",
-      ),
-      h(
-        "li",
-        {},
-        "Press ",
-        h("b", {}, "Use as mix base"),
-        " for the skin you start from, then ",
-        h("b", {}, "Use this skin"),
-        " on any group you want from another skin.",
-      ),
-      h(
-        "li",
-        {},
-        "Review the merged skin.ini in ",
-        h("b", {}, "skin.ini → Mix draft"),
-        "; edits there are used as-is.",
-      ),
-      h(
-        "li",
-        {},
-        h("b", {}, "Create stable skin"),
-        " writes a new folder in Skins (never over an existing one without asking). ",
-        h("b", {}, "Export .osk"),
-        " packs it for osu!lazer to import.",
-      ),
-    ),
-  ];
-  if (library?.lazer.enabled && library.lazer.error)
-    blocks.push(
-      h(
-        "p",
-        { class: "note" },
-        "Lazer skins: ",
-        library.lazer.error,
-        " Until then, add the folder from lazer's skin editor → File → Edit externally… with ",
-        h("b", {}, "Add a skin folder"),
-        ".",
-      ),
-    );
-  if (library && !library.stable_dir)
-    blocks.push(
-      h(
-        "p",
-        { class: "note" },
-        "No stable Skins folder is known, so new skins can only be exported as .osk. Set the Skins folder in this tool's settings on the vosu dashboard.",
-      ),
-    );
-  if (!vosu.canWrite)
-    blocks.push(
-      h(
-        "p",
-        { class: "note" },
-        "This tab is read-only. Open Skin studio from the vosu dashboard to build, save and add folders.",
-      ),
-    );
-  $("#guide").replaceChildren(h("div", { class: "guide-body" }, ...blocks));
-}
 
 // ---- live game state -------------------------------------------------------
 const rulesets: Record<string, Category> = {
@@ -1264,6 +1152,7 @@ function follow(mode: string) {
 function subscribe() {
   const values: unknown[] = [];
   const live = $("#live");
+  const dot = $("#live-dot");
   const onFrame = (raw: unknown) => {
     if (!Array.isArray(raw)) return;
     const [type, , changes, removed] = raw;
@@ -1289,16 +1178,16 @@ function subscribe() {
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
   };
   vosu.subscribe(["/folders/skin", "/beatmap/mode/name"], onFrame, (state) => {
-    // Older bridges never report a state; the badge stays hidden for them.
-    live.hidden = false;
-    live.dataset.state = state;
+    // Older bridges never report a state; the indicator stays hidden for them.
+    live.hidden = dot.hidden = false;
+    dot.dataset.state =
+      state === "open" ? "ok" : state === "connecting" ? "busy" : "warn";
     live.textContent =
       state === "open"
-        ? "Game live"
+        ? "Live"
         : state === "connecting"
-          ? "Connecting…"
-          : "Game offline";
-    live.title = "Follows the game's skin and the current beatmap's ruleset";
+          ? "Connecting"
+          : "Offline";
   });
 }
 
@@ -1308,21 +1197,20 @@ try {
 } catch (error) {
   status.textContent = message(error);
 }
-applyScheme();
-matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
-  if (!vosu.colorScheme) applyScheme();
+// The bridge applies data-theme; Monaco follows the tokens of that mode.
+applyTheme();
+new MutationObserver(applyTheme).observe(document.documentElement, {
+  attributes: true,
+  attributeFilter: ["data-theme"],
 });
-$("#mode").textContent = vosu.canWrite ? "Write session" : "Read-only";
-$("#mode").title = vosu.canWrite
-  ? "Opened from the dashboard: saving and building are enabled."
-  : "Open Skin studio from the vosu dashboard to save, add folders and build.";
-$("#mode").classList.toggle("live", vosu.canWrite);
+const modeBadge = $("#mode");
+modeBadge.hidden = vosu.canWrite;
+modeBadge.textContent = "Read-only";
+modeBadge.title = "Open from the dashboard to save and build";
 for (const control of document.querySelectorAll<
   HTMLInputElement | HTMLButtonElement
->("#add-folder input, #add-folder button"))
+>("#add-folder input, #add-folder button, #add-toggle"))
   control.disabled = !vosu.canWrite;
-$("#revision").textContent =
-  `Key reference: osu! wiki at ${revision.slice(0, 10)}. Checks run locally.`;
 const initial = await loadLibrary();
 if (initial) {
   const library = initial;
@@ -1330,14 +1218,11 @@ if (initial) {
   if (start !== "follow" && rulesets[start]) category = rulesets[start];
   for (const key of recipeSkins(recipe))
     if (!library.skins.some((s) => s.key === key)) {
-      status.textContent = `${key} from the saved mix is not in the library any more.`;
+      status.textContent = "A mix source is missing";
     }
   const current = library.skins.find((s) => s.current && s.available);
   if (current) await focus(current.key);
-  else {
-    renderFocus();
-    status.textContent = `${library.skins.length} skins in the library.`;
-  }
+  else renderFocus();
 } else renderFocus();
 renderMix();
 scheduleCompose();
@@ -1356,8 +1241,7 @@ setInterval(async () => {
     );
     if (snapshot.revision !== diskRevision && !conflict) {
       conflict = true;
-      status.textContent =
-        "skin.ini changed on disk. Reload before saving; your editor text is kept until then.";
+      status.textContent = "skin.ini changed on disk · reload before saving";
       renderIni();
     }
   } catch {
