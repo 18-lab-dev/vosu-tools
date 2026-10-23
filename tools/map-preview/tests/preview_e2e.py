@@ -17,6 +17,7 @@ dir first). Needs hardware WebGPU in headless Chromium (Vulkan).
 import asyncio
 import json
 import mimetypes
+import os
 import shutil
 import sys
 import tempfile
@@ -38,16 +39,20 @@ MAPS = {
     'catch': ('1314361 Jack Stauber (feat Sarah) - Doctor', 'Jack Stauber (feat. Sarah) - Doctor (MaryJane) [Cup].osu', 30000),
 }
 SKINS = {'ralsei': '- # {center} RALSEI 『ラルセイ』- FULL # - v2', 'staircase': '- Staircase!mania'}
+# vosu's own design system (read-only), served like /tools/_host/v1/theme.css.
+VOSU_ASSETS = Path(os.environ.get('VOSU_ASSETS', Path.home() / 'gh/vosu-ecosystem/vosu-wt/dev-1.2.0/assets/server'))
 
 BRIDGE = """
 const fragment = new URLSearchParams(location.hash.slice(1));
 const theme = fragment.get('theme');
+const colorScheme = ['dark', 'light'].includes(theme) ? theme : 'dark';
+document.documentElement.dataset.theme = colorScheme;
 export const vosu = Object.freeze({
   ready: Promise.resolve(),
   tool: {id: 'map-preview', name: 'Map preview', version: '0.2.0'},
   canWrite: false,
   dashboardUrl: 'http://127.0.0.1:25651',
-  colorScheme: ['dark', 'light'].includes(theme) ? theme : 'dark',
+  colorScheme,
   settings: async () => (await (await fetch('/tools/map-preview/_settings')).json()).values,
   fetch: () => Promise.reject(new Error('Map preview has no service')),
   subscribe(fields, onFrame, onStatus) {
@@ -95,6 +100,13 @@ def handler(host: Host):
             host.requests.append(path)
             if path == '/tools/_host/v1/bridge.js':
                 return self.send(200, BRIDGE.encode(), 'text/javascript')
+            if path == '/tools/_host/v1/theme.css':
+                css = (VOSU_ASSETS / 'tokens.css').read_bytes() + b'\n' + (VOSU_ASSETS / 'system.css').read_bytes()
+                return self.send(200, css, 'text/css')
+            if path.startswith('/assets/') and path.endswith('.woff2'):
+                font = VOSU_ASSETS / path.removeprefix('/assets/')
+                if font.is_file():
+                    return self.send(200, font.read_bytes(), 'font/woff2')
             if path == '/tools/map-preview/_settings':
                 return self.send(200, json.dumps({'values': host.settings}).encode(), 'application/json')
             if path.startswith('/tools/map-preview/'):
@@ -295,6 +307,10 @@ async def checks(host: Host, osk: Path, evidence: Path):
         await page.locator('#controls-toggle').click()
         await page.screenshot(path=str(evidence / 'controls-open-1920x1080.png'))
         assert await page.locator('#mods input[value=HD]').is_disabled()
+        assert await page.locator('#mods input[value=HD]').is_checked()
+        await page.keyboard.press('Escape')
+        assert not await page.locator('#controls').is_visible()
+        assert await page.locator('#controls-toggle').get_attribute('aria-expanded') == 'false'
 
         # 7. Manual preview: open an .osu file, then follow the game again.
         await page.locator('#map-file').set_input_files(str(host.maps['taiko']))
@@ -329,17 +345,34 @@ async def checks(host: Host, osk: Path, evidence: Path):
         await page.close()
         host.settings = {}
 
-        # 10. Layouts: 2560×1440 light, split screen 760, phone width 390.
-        for theme, width, height in [('light', 2560, 1440), ('dark', 760, 900), ('light', 390, 800)]:
-            page = await open_page(game, theme, width, height)
-            await shows(page, '#title', 'Hikiray')
-            if width < 800:
-                await page.locator('#controls-toggle').click()
-            await settle(page)
-            scroll = await page.evaluate('[document.documentElement.scrollWidth, innerWidth]')
-            assert scroll[0] <= scroll[1], f'horizontal overflow at {width}: {scroll}'
-            await page.screenshot(path=str(evidence / f'layout-{theme}-{width}x{height}.png'))
-            await page.close()
+        # 10. App layout: the page never scrolls and nothing overflows sideways,
+        # in both schemes at the four required sizes (drawer closed and open),
+        # and still fits horizontally at phone width.
+        fits = '''() => {
+            const out = [];
+            for (const e of document.querySelectorAll('body *')) {
+                const r = e.getBoundingClientRect();
+                if (r.width && r.right > innerWidth + 0.5) out.push(e.id || e.className || e.tagName);
+            }
+            return { scroll: document.scrollingElement.scrollHeight, height: innerHeight,
+                     wide: document.scrollingElement.scrollWidth, width: innerWidth, out };
+        }'''
+        sizes = [(1920, 1080), (2560, 1440), (1280, 720), (960, 1080), (390, 800)]
+        for theme in ('dark', 'light'):
+            for width, height in sizes:
+                page = await open_page(game, theme, width, height)
+                await shows(page, '#title', 'Hikiray')
+                await settle(page)
+                for drawer in ('closed', 'open'):
+                    if drawer == 'open':
+                        await page.locator('#controls-toggle').click()
+                        await settle(page, 300)
+                    fit = await page.evaluate(fits)
+                    if width > 390:
+                        assert fit['scroll'] <= fit['height'], f'page scrolls at {width}x{height} {theme} {drawer}: {fit}'
+                    assert fit['wide'] <= fit['width'] and not fit['out'], f'horizontal overflow at {width} {theme} {drawer}: {fit}'
+                    await page.screenshot(path=str(evidence / f'layout-{theme}-{width}x{height}-{drawer}.png'))
+                await page.close()
         await browser.close()
     assert not errors, errors
 

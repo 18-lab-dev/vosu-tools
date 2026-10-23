@@ -147,7 +147,7 @@ test("skins whose files vosu cannot serve say so", async () => {
   report = { client: "lazer", name: "Broken", files: false, builtin: null };
   const current = await readCurrentSkin(host);
   expect(current.kind === "unavailable" && current.message).toContain(
-    "vosu reports that the files of “Broken” are unavailable",
+    "Files of “Broken” are unavailable",
   );
 });
 

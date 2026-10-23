@@ -43,7 +43,7 @@
     "uniqueID": "controls_open",
     "type": "checkbox",
     "title": "Open the controls panel on start",
-    "description": "Start with display, mods and skin controls visible beside the playfield.",
+    "description": "Start with the skin, speed, ruleset and mods drawer open over the playfield.",
     "options": "",
     "value": false
   }

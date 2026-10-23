@@ -97,11 +97,10 @@ async def checks(host: Host, evidence: Path):
         assert await page.locator('#ruleset').is_disabled()
         assert await page.locator('#dual').is_checked()
         await shows(page, '#keys', 'Automatic (7K)')
-        await shows(page, '#ruleset-note', "client's ruleset, key mods and Dual Stages apply")
-        await shows(page, '#ruleset-note', 'Dual Stages is drawn as one wide stage')
+        assert await page.locator('#dual ~ .v-help').get_attribute('data-tip') == 'Drawn as one wide stage.'
         await page.wait_for_timeout(700)
         await page.screenshot(path=str(evidence / 'follow-mania-convert-DS-drawer-1920x1080.png'))
-        await page.locator('#controls-toggle').click()
+        await page.keyboard.press('Escape')
 
         # 3. Catch with Hard Rock: the same objects, lazer's fruits and offsets.
         game.set('/play/mods/array', [{'acronym': 'HR'}])
