@@ -179,9 +179,9 @@ worker, so it does not recompute the same timeline. No native arithmetic changes
 
 The analysis page and compact overlay default to local MSD with a dotted
 whole-map MSD reference and a 0–40 scale (expanded in tens if needed).
-Discrete warm bands are `<10`, `10–20`, `20–30`, `30–40`, `40+` (a single-hue
-pen ramp on the analysis page, light and dark variants); no rainbow gradient is
-used.
+Discrete bands are `<10`, `10–20`, `20–30`, `30–40`, `40+`: one theme accent at
+rising strength with 40+ in the text colour, in both the tool and the overlay;
+no rainbow gradient is used.
 
 ### Native strain option
 
@@ -212,9 +212,11 @@ This last policy preserves initial-note timing in Interlude and ensures a
 whole-map section has identical numerical ratings to the complete map.
 Reset-context section results need not equal plotted contextual strain peaks.
 
-The UI is a single-screen dashboard (designed for 1920 × 1080, scaling to
-2560 × 1440; it stacks and scrolls below ~1100 px). Through `vosu.subscribe`
-(the bridge owns reconnects; its status shows in the top bar) it subscribes to
+The UI uses the shared 18-LAB system (`/tools/_host/v1/theme.css`) and is one
+screen with no page scroll at 1920 × 1080, 2560 × 1440, 1280 × 720 and 960 × 1080
+(below ~830 px it stacks). Labels only; the Reform readout and the timeline hop
+carry the only help hovers. Through `vosu.subscribe` (the bridge owns reconnects;
+its status shows as the bar's status dot) it subscribes to
 `/websocket/v2/subscribe` (`/beatmap/checksum`, `/play/mods/rate`,
 `/play/mods/name`, `/state/number`, `/beatmap/time/live`, `/beatmap/mode/name`)
 and re-analyses the selected chart at the game's rate, rounded to 0.05×; during

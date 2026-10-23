@@ -39,15 +39,16 @@ async def browser_checks(url, map_rating, timeline):
         async def telemetry(ws):
             ws.on_message(lambda message: ws.send(json.dumps([0,1,[[0,map_rating['checksum']],[1,0],[2,1],[3,5],[4,'NM'],[5,'mania']],[]])))
         await page.route_web_socket('**/websocket/v2/subscribe', telemetry)
-        await page.goto(url)
-        await page.get_by_text('Analysis ready', exact=False).wait_for(timeout=90000)
+        # Labels-only UI: readiness is the rate-curve response plus a non-busy status dot.
+        async with page.expect_response(lambda r: '/rates?' in r.url and r.ok, timeout=90000):
+            await page.goto(url)
+        await page.locator('#dot:not([data-state="busy"])').wait_for(timeout=90000)
         await page.screenshot(path=str(EVIDENCE / 'analysis.png'), full_page=True)
-        await page.locator('#timeline-caption').filter(has_text='Dotted = whole-map MSD').wait_for()
-        await page.locator('#system').select_option('etterna-native')
-        await page.locator('#timeline-caption').filter(has_text='base-adjusted').wait_for(timeout=90000)
+        async with page.expect_response(lambda r: 'system=etterna-native' in r.url and r.ok, timeout=90000):
+            await page.locator('#system').select_option('etterna-native')
         await page.screenshot(path=str(EVIDENCE / 'analysis-native-strain.png'),full_page=True)
-        await page.locator('#system').select_option('etterna')
-        await page.locator('#timeline-caption').filter(has_text='Dotted = whole-map MSD').wait_for(timeout=90000)
+        async with page.expect_response(lambda r: 'system=etterna&' in r.url and r.ok, timeout=90000):
+            await page.locator('#system').select_option('etterna')
         await page.locator('#start').fill('90')
         await page.locator('#end').fill('135')
         await page.locator('#section').click()
