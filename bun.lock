@@ -129,6 +129,7 @@
       "name": "@vosu-tools/practice",
       "version": "0.1.0",
       "dependencies": {
+        "@vosu-tools/client-skin": "workspace:*",
         "@vosu-tools/osu-parse": "workspace:*",
         "@vosu-tools/render-core": "workspace:*",
         "@vosu-tools/tool-web": "workspace:*",

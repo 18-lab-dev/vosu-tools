@@ -154,3 +154,43 @@ fn audio_lead_in_and_preview_sentinels() {
     assert!(output.contains("AudioLeadIn:2000"));
     assert!(output.contains("PreviewTime:-1"));
 }
+
+#[test]
+fn difficulty_name_rounds_bpm_to_one_decimal() {
+    // 60000 / 353.9091 ms = 169.535… BPM: the name shows 169.5, not 169.535004.
+    let source = MANIA.replace("0,500,4,2,1,70,1,0", "0,353.9091,4,2,1,70,1,0");
+    let name = |rate: f64| {
+        let out = map::transform(
+            &source,
+            &Options {
+                rate,
+                ..Default::default()
+            },
+            "out.ogg",
+        )
+        .unwrap()
+        .text;
+        map::value(&out, "[Metadata]", "Version").unwrap()
+    };
+    assert!(
+        name(1.0).starts_with("[Native] 1x (169.5bpm)"),
+        "{}",
+        name(1.0)
+    );
+    // 120 BPM sources stay integral.
+    let out = map::transform(
+        MANIA,
+        &Options {
+            rate: 1.5,
+            ..Default::default()
+        },
+        "out.ogg",
+    )
+    .unwrap()
+    .text;
+    assert!(
+        map::value(&out, "[Metadata]", "Version")
+            .unwrap()
+            .starts_with("[Native] 1.5x (180bpm)")
+    );
+}

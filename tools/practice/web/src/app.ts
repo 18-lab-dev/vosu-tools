@@ -3,7 +3,8 @@ import './style.css';
 import { Preview } from './preview';
 import { Timeline, type TimelineData } from './timeline';
 import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
-import { SUBSCRIPTION, readFrame } from './follow';
+import { Follow, SUBSCRIPTION } from './follow';
+import { ClientSkin } from '@vosu-tools/client-skin';
 
 // The look comes from vosu's shared theme.css; the bridge sets data-theme.
 
@@ -276,6 +277,19 @@ const preview = new Preview(
   },
   (message) => stageMessage(message),
 );
+// The preview draws with the osu! client's current skin and follows changes
+// to it (from the game subscription below); misses fall back to the classic look.
+const skins = new ClientSkin({
+  onChange(state) {
+    preview.setSkin(state.skin);
+    const el = $('skin');
+    el.textContent = state.label;
+    el.title = [state.source, state.message].filter(Boolean).join(' · ');
+    el.dataset.tone = state.message ? state.tone : 'info';
+    el.setAttribute('aria-busy', String(state.busy));
+  },
+});
+preview.setSkin(skins.state.skin);
 
 function stageMessage(text: string | null, tone: 'info' | 'error' = 'info') {
   const el = $('preview-message');
@@ -601,6 +615,7 @@ void (async () => {
   $('access-help').hidden = vosu.canWrite;
   profiles = await api<Profiles>('v1/profiles');
   applyProfile();
+  void skins.useClient();
   await loadMap();
   // Follow the game: reload when the selected beatmap changes. The bridge
   // reconnects by itself and reports its state for the top bar; an error frame
@@ -615,10 +630,11 @@ void (async () => {
       : state === 'connecting' ? 'Connecting'
       : rejected ? `Subscription rejected (${rejected})` : 'vosu unreachable';
   };
+  const follow = new Follow();
   vosu.subscribe(
     SUBSCRIPTION,
     (frame) => {
-      const event = readFrame(frame);
+      const event = follow.read(frame);
       if (!event) return;
       if (event.kind === 'error') {
         rejected = event.message;
@@ -627,11 +643,16 @@ void (async () => {
       }
       rejected = null;
       show('open');
-      if (event.checksum !== (current?.beatmap?.md5 ?? null)) void loadMap().catch(fail);
+      const game = event.game;
+      if (event.map && game.checksum !== (current?.beatmap?.md5 ?? null)) void loadMap().catch(fail);
+      if (event.skin) void skins.gameChanged(game.client, game.skinFolder);
     },
     (state) => {
-      // After a reconnect the selection may have changed unseen.
-      if (state === 'open' && dropped) void loadMap().catch(fail);
+      // After a reconnect the selection or skin may have changed unseen.
+      if (state === 'open' && dropped) {
+        void loadMap().catch(fail);
+        if (skins.state.choice === 'client') void skins.useClient({ force: false });
+      }
       dropped = state === 'closed' || (dropped && state === 'connecting');
       if (state === 'open' && rejected) return;
       show(state);

@@ -9,6 +9,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@vosu-tools/client-skin": "workspace:*",
     "@vosu-tools/osu-parse": "workspace:*",
     "@vosu-tools/render-core": "workspace:*",
     "@vosu-tools/tool-web": "workspace:*"
