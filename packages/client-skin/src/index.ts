@@ -121,6 +121,8 @@ export class ClientSkin {
     tone: SkinTone = "info",
     owned: ImageBitmap[] = [],
   ): void {
+    // Only an installed client skin counts as "already shown" for reloads.
+    if (choice !== "client") this.#clientKey = "";
     this.#emit({ skin, choice, label, source, message, tone }, owned);
   }
 
@@ -173,9 +175,9 @@ export class ClientSkin {
           this.#emit({ message: "", tone: "info" });
           return;
         }
-        this.#clientKey = key;
         const client = current.info?.client ?? "client";
         if (current.kind === "unavailable") {
+          this.#clientKey = key;
           this.#install(
             this.#builtin("legacy"),
             "client",
@@ -201,6 +203,7 @@ export class ClientSkin {
                 sections: new Map(skin.sections).set("Colours", colours),
               };
           }
+          this.#clientKey = key;
           this.#install(
             skin,
             "client",
@@ -219,6 +222,7 @@ export class ClientSkin {
           return;
         }
         if (!host.served) {
+          this.#clientKey = key;
           this.#install(
             this.#builtin("legacy"),
             "client",
@@ -231,6 +235,7 @@ export class ClientSkin {
           );
           return;
         }
+        this.#clientKey = key;
         this.#install(
           withFallback(loaded, this.#builtin(current.fallback)),
           "client",

@@ -47,14 +47,20 @@ const skins: Record<string, Record<string, string>> = {
   },
 };
 let report: Record<string, unknown> = {},
-  reports = 0;
+  reports = 0,
+  /** While set, skin files are held until it resolves; `fileRequested` fires on the first. */
+  held: { release: Promise<void>; requested: () => void } | undefined;
 const server = Bun.serve({
   port: 0,
-  fetch(request) {
+  async fetch(request) {
     const path = decodeURIComponent(new URL(request.url).pathname);
     if (path === "/files/skin/") {
       reports++;
       return Response.json(report);
+    }
+    if (held) {
+      held.requested();
+      await held.release;
     }
     const body = skins[String(report.name)]?.[path.slice(12).toLowerCase()];
     return body === undefined
@@ -190,4 +196,33 @@ test("a later choice wins over a load still in progress", async () => {
     label: "Classic",
     busy: false,
   });
+});
+
+test("a reload that overlaps the first load still installs the skin", async () => {
+  // Startup: the first frame's reload arrives while the explicit load is still
+  // fetching files. The reload wins and must not mistake the unfinished load
+  // for a skin already shown.
+  report = {
+    client: "stable",
+    name: "Ralsei",
+    files: true,
+    builtin: null,
+    base: null,
+  };
+  const { skin, last } = controller();
+  const release = Promise.withResolvers<void>(),
+    requested = Promise.withResolvers<void>();
+  held = { release: release.promise, requested: requested.resolve };
+  const first = skin.useClient();
+  await requested.promise;
+  held = undefined;
+  const second = skin.gameChanged("stable", "Ralsei");
+  release.resolve();
+  await Promise.all([first, second]);
+  expect(last()).toMatchObject({
+    choice: "client",
+    label: "Ralsei",
+    busy: false,
+  });
+  expect(last().skin.assets.has("hitcircle")).toBe(true);
 });
