@@ -15,19 +15,21 @@ export function telemetry(
   const events = verified
     ? simulation!.events.filter((event) => event.time <= time)
     : [];
-  const press = events
+  // Hit errors come from timed hits only (not ticks, catches or spinners).
+  const timed = events.filter((event) => event.timed !== false);
+  const press = timed
     .filter(
       (event) =>
         event.result !== "miss" && !(map.objects[event.note].type & 128),
     )
     .map((event) => event.offset / replay.rate);
-  const release = events
+  const release = timed
     .filter(
       (event) =>
         event.result !== "miss" && !!(map.objects[event.note].type & 128),
     )
     .map((event) => event.offset / replay.rate);
-  const all = events
+  const all = timed
     .filter((event) => event.result !== "miss")
     .map((event) => event.offset / replay.rate);
   const counts = verified ? state!.counts : null,
@@ -71,6 +73,8 @@ export function telemetry(
       mode,
       mods: { number: replay.mods, rate: replay.rate },
       accuracy: verified ? state!.accuracy * 100 : null,
+      // The client's own score, only when the simulation reproduced the recorded total.
+      score: state?.score ?? null,
       healthBar: { normal: health, smooth: health },
       hits: counts
         ? {
@@ -103,6 +107,14 @@ export function telemetry(
       sequence: 0,
       verified,
       counts,
+      // osu!/catch: whose rules judged the replay, and lazer's result counts so far (pp needs ticks).
+      client: simulation?.client ?? null,
+      statistics: verified && simulation?.client
+        ? events.reduce<Record<string, number>>((all, event) => {
+            if (event.kind) all[event.kind] = (all[event.kind] ?? 0) + 1;
+            return all;
+          }, {})
+        : null,
       wallMs: (time - start) / replay.rate,
       time,
       epochMs:

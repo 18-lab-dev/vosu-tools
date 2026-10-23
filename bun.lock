@@ -60,6 +60,8 @@
       "name": "@vosu-tools/replay",
       "version": "0.1.0",
       "dependencies": {
+        "@vosu-tools/osu-parse": "workspace:*",
+        "@vosu-tools/ruleset-convert": "workspace:*",
         "lzma": "2.3.2",
       },
       "devDependencies": {

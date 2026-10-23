@@ -11,7 +11,13 @@ import { convertToMania, maniaLayout } from "./mania";
 import { convertToTaiko } from "./taiko";
 
 export { LegacyRandom } from "./random";
-export { legacyBeatmap } from "./legacy";
+export {
+  legacyBeatmap,
+  timingPointAt,
+  precisionAdjustedBeatLength,
+  roundHalfEven,
+  f32,
+} from "./legacy";
 export type { LegacyBeatmap, LegacyObject } from "./legacy";
 export { convertToMania, maniaLayout, NotEnoughColumnsError } from "./mania";
 export type { ManiaConversion, ManiaNote } from "./mania";

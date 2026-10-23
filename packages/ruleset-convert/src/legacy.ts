@@ -145,9 +145,9 @@ export function effectAt(points: ControlPoints, time: number): EffectLine {
 export function precisionAdjustedBeatLength(
   sliderVelocity: number,
   beatLength: number,
-  ruleset: "taiko" | "mania" | "fruits",
+  ruleset: "osu" | "taiko" | "mania" | "fruits",
 ): number {
-  const max = ruleset === "fruits" ? 1000 : 10000;
+  const max = ruleset === "osu" || ruleset === "fruits" ? 1000 : 10000;
   const asBeatLength = -100 / sliderVelocity;
   const multiplier =
     asBeatLength < 0

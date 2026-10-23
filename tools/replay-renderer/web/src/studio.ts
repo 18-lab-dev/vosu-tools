@@ -3,6 +3,8 @@ import {
   frameAt,
   columnKeys,
   simulate,
+  simulateCatch,
+  simulateOsu,
   stateAt,
   healthAt,
   type Result,
@@ -71,7 +73,10 @@ export interface Track extends Preset {
   score: ScoreCurve | null;
   dispose(): void;
 }
-/** Score over time: judgement values so far, scaled to the recorded final score. */
+/**
+ * Score over time: the client's own score when the simulation reproduced the
+ * recorded total (osu!, catch), else judgement values so far scaled to it.
+ */
 export interface ScoreCurve {
   times: number[];
   scores: number[];
@@ -79,9 +84,16 @@ export interface ScoreCurve {
 export function scoreCurve(simulation: Simulation, finalScore: number): ScoreCurve {
   const times: number[] = [],
     values: number[] = [];
+  if (simulation.scoreVerified) {
+    for (const event of simulation.events) {
+      times.push(event.time);
+      values.push(event.score ?? 0);
+    }
+    return { times, scores: values };
+  }
   let total = 0;
   for (const event of simulation.events) {
-    total += hitValues[event.result];
+    total += event.result ? hitValues[event.result] : 0;
     times.push(event.time);
     values.push(total);
   }
@@ -295,8 +307,12 @@ export async function loadTrack(
   const content = await probeContent(renderer, replay.mode);
   let simulation: Simulation | null = null,
     warning = "";
-  if (replay.mode === 1 || replay.mode === 3) {
-    try {
+  try {
+    if (replay.mode === 0)
+      simulation = simulateOsu(replay, map, { baseDifficulty: raw.difficulty });
+    else if (replay.mode === 2)
+      simulation = simulateCatch(replay, map, { baseDifficulty: raw.difficulty });
+    else
       simulation = simulate(
         replay,
         map.objects.map((o) => ({
@@ -318,21 +334,22 @@ export async function loadTrack(
         map.difficulty.od,
         columns,
       );
-      const differences = Object.entries(simulation.differences).map(
-        ([result, d]) => `${result} ${d.expected}≠${d.actual}`,
-      );
-      if (!simulation.verified)
-        warning = differences.length
-          ? `Counters hidden: judgements differ (${differences.join(", ")})`
-          : `Counters hidden: ${simulation.warnings.join("; ")}`;
-      else if (!simulation.comboVerified)
-        warning = simulation.warnings.length
-          ? `Combo hidden: ${simulation.warnings.join("; ")}`
-          : `Combo hidden: max combo ${replay.maxCombo} not reproduced`;
-    } catch (e) {
-      warning = String(e);
-    }
-  } else warning = "Combo, accuracy and score: taiko and mania only";
+    const differences = Object.entries(simulation.differences).map(
+      ([result, d]) => `${result} ${d.expected}≠${d.actual}`,
+    );
+    // A score that misses the recorded total falls back to the scaled curve silently.
+    const notes = simulation.warnings.filter((w) => !w.startsWith("Score:"));
+    if (!simulation.verified)
+      warning = differences.length
+        ? `Counters hidden: judgements differ (${differences.join(", ")})`
+        : `Counters hidden: ${notes.join("; ")}`;
+    else if (!simulation.comboVerified)
+      warning = notes.length
+        ? `Combo hidden: ${notes.join("; ")}`
+        : `Combo hidden: max combo ${replay.maxCombo} not reproduced`;
+  } catch (e) {
+    warning = String(e);
+  }
   return {
     id,
     replay,

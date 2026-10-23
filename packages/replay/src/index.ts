@@ -32,7 +32,20 @@ export interface Replay {
   frames: ReplayFrame[];
   seed: number | null;
   rate: number;
+  /** The score lazer stored after the frames (lazer-written replays only). */
+  lazer: LazerScoreInfo | null;
 }
+/** `LegacyReplaySoloScoreInfo`: lazer's own statistics, as set during play. */
+export interface LazerScoreInfo {
+  mods: { acronym: string; settings?: Record<string, unknown> }[];
+  /** lazer `HitResult` names (`great`, `large_tick_hit`, ...) to counts. */
+  statistics: Record<string, number>;
+  maximumStatistics: Record<string, number>;
+  clientVersion: string;
+  totalScoreWithoutMods: number | null;
+}
+/** First replay version written by lazer (`LegacyScoreEncoder.FIRST_LAZER_VERSION`). */
+export const FIRST_LAZER_VERSION = 30000000;
 class Reader {
   offset = 0;
   view: DataView;
@@ -148,30 +161,19 @@ export async function parseReplay(bytes: Uint8Array): Promise<Replay> {
     });
   const timestamp = r.i64(),
     compressed = r.take(r.i32());
-  if (compressed.length < 13)
-    throw new Error("Replay has no LZMA frame stream");
-  if (compressed.length > 16 * 1024 * 1024)
-    throw new Error("Compressed replay exceeds 16 MiB");
-  const sizeView = new DataView(
-    compressed.buffer,
-    compressed.byteOffset,
-    compressed.byteLength,
-  );
-  if (sizeView.getUint32(1, true) > 64 * 1024 * 1024)
-    throw new Error("Replay LZMA dictionary exceeds 64 MiB");
-  const decodedSize = sizeView.getBigUint64(5, true);
-  if (decodedSize === 0xffffffffffffffffn)
-    throw new Error("Unbounded LZMA streams are not accepted");
-  if (decodedSize > 128n * 1024n * 1024n)
-    throw new Error("Replay frame stream exceeds 128 MiB");
-  const text = await new Promise<string>((resolve, reject) =>
-    codec.LZMA.decompress(Array.from(compressed), (result, error) => {
-      if (error) reject(error);
-      else if (typeof result === "string") resolve(result);
-      else reject(new Error("Replay stream is not UTF-8 text"));
-    }),
-  );
+  const text = await decompress(compressed, "Replay frame stream");
   const onlineId = bytes.length - r.offset >= 8 ? r.i64() : 0n;
+  // lazer appends its own score (statistics, mods with settings) as LZMA JSON.
+  // It only feeds verification: an unreadable block leaves the replay playable.
+  let lazer: LazerScoreInfo | null = null;
+  if (version >= 30000001 && bytes.length - r.offset >= 4) {
+    try {
+      const info = r.take(r.i32());
+      if (info.length) lazer = lazerScoreInfo(await decompress(info, "Score info"));
+    } catch {
+      lazer = null;
+    }
+  }
   return {
     mode: mode as Mode,
     version,
@@ -188,6 +190,59 @@ export async function parseReplay(bytes: Uint8Array): Promise<Replay> {
     onlineId,
     ...parseFrames(text),
     rate: mods & (64 | 512) ? 1.5 : mods & 256 ? 0.75 : 1,
+    lazer,
+  };
+}
+async function decompress(data: Uint8Array, what: string): Promise<string> {
+  if (data.length < 13) throw new Error(`${what} has no LZMA stream`);
+  if (data.length > 16 * 1024 * 1024)
+    throw new Error(`Compressed ${what.toLowerCase()} exceeds 16 MiB`);
+  const sizeView = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  if (sizeView.getUint32(1, true) > 64 * 1024 * 1024)
+    throw new Error(`${what} LZMA dictionary exceeds 64 MiB`);
+  const decodedSize = sizeView.getBigUint64(5, true);
+  if (decodedSize === 0xffffffffffffffffn)
+    throw new Error("Unbounded LZMA streams are not accepted");
+  if (decodedSize > 128n * 1024n * 1024n)
+    throw new Error(`${what} exceeds 128 MiB`);
+  return new Promise<string>((resolve, reject) =>
+    codec.LZMA.decompress(Array.from(data), (result, error) => {
+      if (error) reject(error);
+      else if (typeof result === "string") resolve(result);
+      else reject(new Error(`${what} is not UTF-8 text`));
+    }),
+  );
+}
+const counter = (value: unknown): Record<string, number> => {
+  const out: Record<string, number> = {};
+  if (value && typeof value === "object")
+    for (const [key, n] of Object.entries(value))
+      if (typeof n === "number" && Number.isSafeInteger(n) && n >= 0) out[key] = n;
+  return out;
+};
+function lazerMod(m: unknown): LazerScoreInfo["mods"][number] | null {
+  if (!m || typeof m !== "object" || !("acronym" in m)) return null;
+  if (typeof m.acronym !== "string") return null;
+  const settings =
+    "settings" in m && m.settings && typeof m.settings === "object"
+      ? Object.fromEntries(Object.entries(m.settings))
+      : undefined;
+  return { acronym: m.acronym.toUpperCase(), ...(settings ? { settings } : {}) };
+}
+function lazerScoreInfo(text: string): LazerScoreInfo {
+  const json: unknown = JSON.parse(text);
+  if (!json || typeof json !== "object") throw new Error("Score info is not an object");
+  const field = (key: string): unknown => (key in json ? Reflect.get(json, key) : undefined);
+  const mods = field("mods"),
+    total = field("total_score_without_mods"),
+    client = field("client_version");
+  return {
+    mods: (Array.isArray(mods) ? mods : []).flatMap((m) => lazerMod(m) ?? []),
+    statistics: counter(field("statistics")),
+    maximumStatistics: counter(field("maximum_statistics")),
+    clientVersion: typeof client === "string" ? client : "",
+    totalScoreWithoutMods:
+      typeof total === "number" && Number.isSafeInteger(total) ? total : null,
   };
 }
 /** Absolute map time, not wall time. Binary search permits both deterministic seeking and export. */
@@ -244,3 +299,6 @@ export function healthAt(
     : a.health;
 }
 export * from "./simulation";
+export * from "./scoring";
+export * from "./osu";
+export * from "./catch";
