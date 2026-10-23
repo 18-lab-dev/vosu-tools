@@ -377,6 +377,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
     total = 0,
     withoutMods = 0;
   const events: Judgement[] = [];
+  const scored = client === "lazer" || rules.v1Multiplier !== null;
   for (const o of outcomes) {
     statistics[o.type] = (statistics[o.type] ?? 0) + 1;
     if (o.count) counts[o.count]++;
@@ -421,7 +422,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
       combo,
       counts: { ...counts },
       accuracy: client === "lazer" ? lazer.accuracy : accuracy(mode, counts),
-      score: total,
+      ...(scored ? { score: total } : {}),
     });
   }
   return {
@@ -430,7 +431,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
     statistics,
     maximumStatistics,
     maxCombo,
-    score: client === "lazer" || rules.v1Multiplier !== null ? total : null,
+    score: scored ? total : null,
     scoreWithoutMods: client === "lazer" ? withoutMods : null,
   };
 }
@@ -498,7 +499,10 @@ export function verify(replay: Replay, tallied: Tally, rules: Rules, warnings: s
   const scoreMatches =
     tallied.score === replay.score &&
     (!info || info.totalScoreWithoutMods === null || tallied.scoreWithoutMods === info.totalScoreWithoutMods);
-  if (verified && tallied.score === null) warnings.push("Score: stable ScoreV2 is not simulated");
+  if (verified && tallied.score === null)
+    warnings.push(
+      rules.mode === 1 || rules.mode === 3 ? "Score: osu!stable's taiko and mania scores are not simulated" : "Score: stable ScoreV2 is not simulated",
+    );
   else if (verified && !scoreMatches)
     warnings.push(`Score: simulated ${tallied.score} vs recorded ${replay.score}`);
   if (verified && tallied.maxCombo !== replay.maxCombo)

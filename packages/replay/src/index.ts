@@ -98,31 +98,45 @@ class Reader {
     return new TextDecoder("utf-8", { fatal: true }).decode(this.take(length));
   }
 }
+/**
+ * Replay frames as lazer's `LegacyScoreDecoder` reads them: integral deltas
+ * (rounded when written as floats), osu!stable's lead-in fix-ups for its
+ * first frames, its two (256, -500) frames removed, and frames that go back
+ * in time dropped.
+ */
 export function parseFrames(text: string): {
   frames: ReplayFrame[];
   seed: number | null;
 } {
-  const frames: ReplayFrame[] = [];
+  const raw: ReplayFrame[] = [];
   let time = 0,
     seed: number | null = null;
   for (const entry of text.split(",")) {
     if (!entry.trim()) continue;
     const fields = entry.split("|");
-    if (fields.length !== 4) throw new Error("Invalid replay frame");
-    const [delta, x, y, keys] = fields.map(Number);
-    if (![delta, x, y, keys].every(Number.isFinite) || !Number.isInteger(keys))
-      throw new Error("Non-numeric replay frame");
-    if (delta === -12345) {
-      seed = keys;
+    if (fields.length < 4) continue;
+    if (fields[0].trim() === "-12345") {
+      seed = Number(fields[3]);
       continue;
     }
-    time += delta;
-    // Stable includes a negative initial positioning frame. Keep it for cursor interpolation.
-    if (frames.length && time < frames[frames.length - 1].time && time > 0)
-      throw new Error("Replay frames are not chronological");
-    frames.push({ time, x, y, keys });
+    const [delta, x, y, keys] = fields.slice(0, 4).map(Number);
+    if (![delta, x, y, keys].every(Number.isFinite) || !Number.isInteger(keys))
+      throw new Error("Non-numeric replay frame");
+    time += Number.isInteger(delta) ? delta : Math.round(delta);
+    raw.push({ time, x, y, keys });
   }
-  frames.sort((a, b) => a.time - b.time);
+  // osu!stable's ReplayWatcher fix-ups for the lead-in frames.
+  if (raw.length >= 2 && raw[1].time < raw[0].time) {
+    raw[1].time = raw[0].time;
+    raw[0].time = 0;
+  }
+  if (raw.length >= 3 && raw[0].time > raw[2].time) raw[0].time = raw[1].time = raw[2].time;
+  const lead = (f: ReplayFrame | undefined) => !!f && f.x === 256 && f.y === -500;
+  if (lead(raw[1])) raw.splice(1, 1);
+  if (lead(raw[0])) raw.splice(0, 1);
+  const frames: ReplayFrame[] = [];
+  for (const frame of raw)
+    if (!frames.length || frame.time >= frames[frames.length - 1].time) frames.push(frame);
   return { frames, seed };
 }
 export async function parseReplay(bytes: Uint8Array): Promise<Replay> {
@@ -307,5 +321,6 @@ export * from "./catch";
 export * from "./mods";
 export * from "./taiko";
 export * from "./mania";
+export * from "./stable-mania";
 export * from "./health";
 export * from "./judge";

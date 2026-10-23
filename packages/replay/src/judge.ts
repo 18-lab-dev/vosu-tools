@@ -4,53 +4,54 @@
  * the client that set it.
  */
 import type { Beatmap } from "@vosu-tools/osu-parse";
+import { convertBeatmap, isConvert } from "@vosu-tools/ruleset-convert";
 import { healthAt, type Replay } from "./index";
 import { simulateCatch } from "./catch";
 import { simulateMania } from "./mania";
-import { beatmapForReplay, unreproducedMods } from "./mods";
+import { beatmapForReplay, replayMods, unreproducedMods } from "./mods";
 import { simulateOsu } from "./osu";
+import { clientOf } from "./scoring";
+import { simulateStableMania } from "./stable-mania";
 import { simulateTaiko } from "./taiko";
-import { simulate, type Simulation } from "./simulation";
+import type { Simulation } from "./simulation";
 
 export interface Judged {
-  /** The playable map: the `.osu` with the replay's mods applied. */
+  /** The playable map: the `.osu` (converted to the replay's ruleset) with the replay's mods applied. */
   map: Beatmap;
   simulation: Simulation;
 }
 
 /**
+ * The map a replay plays: an osu! map converted to the replay's ruleset (key
+ * mods and Dual Stages choose mania's layout), then the replay's mods.
+ */
+export function playableMap(replay: Pick<Replay, "mode" | "mods" | "lazer">, raw: Beatmap): Beatmap {
+  if (raw.mode !== replay.mode && !isConvert(raw, replay.mode))
+    throw new Error("This replay belongs to another ruleset than its map");
+  return beatmapForReplay(isConvert(raw, replay.mode) ? convertBeatmap(raw, replay.mode, replayMods(replay)) : raw, replay);
+}
+
+/**
  * Judges `replay` on the parsed `.osu` (no mods applied). osu! and catch use
- * lazer's rules (Classic for osu!stable replays). Taiko and mania replays set
- * on lazer use lazer's rules; osu!stable ones keep stable's counting, and get
- * lazer's Classic judgements only for the simulated health (compared with the
- * recorded life graph, see `healthDeviation`).
+ * lazer's rules (Classic for osu!stable replays); taiko and mania use lazer's
+ * rules for lazer replays and osu!stable's for stable ones.
  */
 export function judgeReplay(replay: Replay, raw: Beatmap): Judged {
-  if (raw.mode !== replay.mode) throw new Error("Converted rulesets are not yet supported: select a native-ruleset replay");
   const unreproduced = unreproducedMods(replay);
   if (unreproduced.length) throw new Error(`Not judged: ${unreproduced.join(", ")} not reproduced`);
-  const map = beatmapForReplay(raw, replay);
-  if (replay.mode === 0) return { map, simulation: simulateOsu(replay, map, { baseDifficulty: raw.difficulty }) };
-  if (replay.mode === 2) return { map, simulation: simulateCatch(replay, map, { baseDifficulty: raw.difficulty }) };
-  const lazer = replay.mode === 1 ? simulateTaiko(replay, map) : simulateMania(replay, map);
-  if (replay.lazer) return { map, simulation: lazer };
-  const columns = Math.round(map.difficulty.cs);
-  const stable = simulate(
-    replay,
-    map.objects.map((o) => ({
-      time: o.time,
-      endTime: o.type & 128 ? o.endTime : undefined,
-      column: Math.min(columns - 1, Math.floor((o.x * columns) / 512)),
-      rim: !!(o.sound & 10),
-      kind: o.type & 128 ? "hold" : o.type & 2 ? "slider" : o.type & 8 ? "spinner" : "circle",
-      x: o.x,
-      y: o.y,
-    })),
-    map.difficulty.od,
-    columns,
-  );
-  stable.health = lazer.health;
-  return { map, simulation: stable };
+  const map = playableMap(replay, raw);
+  const convert = isConvert(raw, replay.mode);
+  const simulation =
+    replay.mode === 0
+      ? simulateOsu(replay, map, { baseDifficulty: raw.difficulty })
+      : replay.mode === 2
+        ? simulateCatch(replay, map, { baseDifficulty: raw.difficulty })
+        : replay.mode === 1
+          ? simulateTaiko(replay, map, { source: convert ? raw : undefined })
+          : clientOf(replay) === "stable"
+            ? simulateStableMania(replay, map, { convert })
+            : simulateMania(replay, map, { convert });
+  return { map, simulation };
 }
 
 /**

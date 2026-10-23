@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
-import { simulate, type Replay } from "@vosu-tools/replay";
+import { playableMap, simulateStableMania, type Replay } from "@vosu-tools/replay";
 import { telemetry } from "../src/telemetry";
 const map = parseOsu(
   "osu file format v14\n[General]\nMode:3\nAudioFilename:audio.mp3\n[Metadata]\nTitle:Timing test\n[Difficulty]\nCircleSize:4\nOverallDifficulty:5\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:",
@@ -35,7 +35,7 @@ function track(value: Replay) {
   return {
     replay: value,
     map,
-    simulation: simulate(value, [{ time: 1000, column: 0 }], 5, 4),
+    simulation: simulateStableMania(value, playableMap(value, map)),
   };
 }
 test("synthetic v2 follows verified judgement and recorded key/HP clocks", () => {

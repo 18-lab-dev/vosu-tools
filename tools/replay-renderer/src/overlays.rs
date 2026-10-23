@@ -79,18 +79,24 @@ pub struct RatingMods {
     pub overrides: DifficultyOverrides,
 }
 impl RatingMods {
+    /// The mods as rosu-pp takes them: lazer's acronyms, else the legacy bits.
+    fn game_mods(&self) -> rosu_pp::model::mods::GameMods {
+        match &self.acronyms {
+            Some(acronyms) => {
+                rosu_pp::model::mods::rosu_mods::GameModsIntermode::from_acronyms(acronyms).into()
+            }
+            None => self.legacy.into(),
+        }
+    }
+
     /// rosu-pp's difficulty for these mods: lazer's acronyms carry Classic (no
     /// slider head accuracy) and the rest of its mod list, the legacy bits are
     /// all osu!stable has; Difficulty Adjust values replace the map's.
     pub fn difficulty(&self, lazer: bool) -> rosu_pp::Difficulty {
         let mut difficulty = rosu_pp::Difficulty::new()
             .clock_rate(self.rate)
-            .lazer(lazer);
-        difficulty = match &self.acronyms {
-            Some(acronyms) => difficulty
-                .mods(rosu_pp::model::mods::rosu_mods::GameModsIntermode::from_acronyms(acronyms)),
-            None => difficulty.mods(self.legacy),
-        };
+            .lazer(lazer)
+            .mods(self.game_mods());
         let o = self.overrides;
         if let Some(ar) = o.ar {
             difficulty = difficulty.ar(ar, true);
@@ -205,7 +211,15 @@ impl Overlays {
         mods: RatingMods,
         initial: Value,
     ) -> Result<(), Error> {
-        let map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
+        let mut map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
+        // osu! maps are rated converted to the replay's ruleset (key mods choose mania's layout).
+        let mode = match initial["play"]["mode"]["number"].as_u64() {
+            Some(1) => rosu_pp::model::mode::GameMode::Taiko,
+            Some(2) => rosu_pp::model::mode::GameMode::Catch,
+            Some(3) => rosu_pp::model::mode::GameMode::Mania,
+            _ => rosu_pp::model::mode::GameMode::Osu,
+        };
+        map.convert_mut(mode, &mods.game_mods()).map_err(error)?;
         // osu!stable scores are rated as stable rates them; lazer's need its tick counts (see `frame`).
         let difficulty = mods.difficulty(initial["__render"]["client"] != "stable");
         *self.native.lock().await = Some(Native {

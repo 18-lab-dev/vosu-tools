@@ -252,11 +252,11 @@ describe("health", () => {
     });
   });
 
-  test("judgeReplay: stable taiko/mania keep stable counting with lazer's health", () => {
+  test("judgeReplay: stable taiko/mania use stable's rules and get a simulated health bar", () => {
     const MANIA = map(3, "64,192,1000,1,0,0:0:0:0:");
     const stable = { ...replayOf(3, keys([1000, 1], [1050, 0])), version: 20260412 };
     const { simulation } = judgeReplay(stable, MANIA);
-    expect(simulation.client).toBeUndefined();
+    expect(simulation.client).toBe("stable");
     expect(simulation.health?.length).toBeGreaterThan(0);
   });
 });

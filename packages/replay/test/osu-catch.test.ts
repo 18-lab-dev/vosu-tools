@@ -9,9 +9,10 @@ import {
   parseReplay,
   peppyStars,
   replayMods,
-  simulate,
+  playableMap,
   simulateCatch,
   simulateOsu,
+  simulateStableMania,
   stateAt,
   type LazerScoreInfo,
   type Replay,
@@ -270,7 +271,8 @@ describe("scoring helpers", () => {
   test("taiko and mania keep their scaled-score behaviour", () => {
     const replay = header(0, [{ time: 1000, x: 1, y: 0, keys: 0 }], STABLE);
     Object.assign(replay, { mode: 3, counts: { n300: 0, n100: 0, n50: 0, geki: 1, katu: 0, miss: 0 }, maxCombo: 1 });
-    const sim = simulate(replay, [{ time: 1000, column: 0 }], 8);
+    const raw = parseOsu("osu file format v14\n[General]\nMode: 3\n[Difficulty]\nCircleSize:4\nOverallDifficulty:8\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:\n");
+    const sim = simulateStableMania(replay, playableMap(replay, raw));
     expect(sim).toMatchObject({ verified: true, comboVerified: true, scoreVerified: false });
     expect(sim.events[0]).not.toHaveProperty("score");
     expect(stateAt(replay, sim, 1000).score).toBeNull();

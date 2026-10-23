@@ -9,7 +9,7 @@
 import type { Beatmap } from "@vosu-tools/osu-parse";
 import type { Replay } from "./index";
 import { isClassic, replayMods, replayRate } from "./mods";
-import { difficultyRange, playbackFrames } from "./osu";
+import { difficultyRange } from "./osu";
 import { lazerMultiplier, type HealthInfo, type HitResult, type Outcome, type Rules } from "./scoring";
 import type { Result, Simulation } from "./simulation";
 import { judgeWithHealth } from "./health";
@@ -84,8 +84,11 @@ interface Hold {
 }
 type ManiaHitObject = Note | Hold;
 
-/** Judges an osu!mania replay with lazer's rules on the mania `map` (mods applied). */
-export function simulateMania(replay: Replay, map: Beatmap): Simulation {
+/**
+ * Judges an osu!mania replay with lazer's rules on the mania `map` (mods
+ * applied); `convert` when it was converted from an osu! map.
+ */
+export function simulateMania(replay: Replay, map: Beatmap, options: { convert?: boolean } = {}): Simulation {
   if (replay.mode !== 3 || map.mode !== 3) throw new Error("Not an osu!mania replay on a mania map");
   const mods = replayMods(replay),
     has = (a: string) => mods.some((m) => m.acronym === a);
@@ -96,6 +99,7 @@ export function simulateMania(replay: Replay, map: Beatmap): Simulation {
     rate: replayRate(replay),
     difficulty: has("HR") ? 1.4 : has("EZ") ? 1 / 1.4 : 1,
     classic: isClassic(replay),
+    convert: options.convert,
   });
   const [, , , , meh, missWindow] = windows;
   const noRelease = has("NR");
@@ -286,7 +290,7 @@ export function simulateMania(replay: Replay, map: Beatmap): Simulation {
   };
 
   let previous = 0;
-  for (const frame of playbackFrames(replay.frames)) {
+  for (const frame of replay.frames) {
     const keys = Math.trunc(frame.x);
     // Live play updates far more often than frames are recorded: whatever
     // timed out before this frame's input was already judged.
