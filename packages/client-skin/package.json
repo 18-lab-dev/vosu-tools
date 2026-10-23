@@ -1,0 +1,19 @@
+{
+  "name": "@vosu-tools/client-skin",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@vosu-tools/osu-parse": "workspace:*",
+    "@vosu-tools/render-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@webgpu/types": "latest",
+    "typescript": "^5.9.3",
+    "@types/bun": "latest"
+  }
+}

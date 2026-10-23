@@ -12,7 +12,8 @@
     "@vosu-tools/tool-web": "workspace:*",
     "@vosu-tools/render-core": "workspace:*",
     "@vosu-tools/osu-parse": "workspace:*",
-    "@vosu-tools/ruleset-convert": "workspace:*"
+    "@vosu-tools/ruleset-convert": "workspace:*",
+    "@vosu-tools/client-skin": "workspace:*"
   },
   "devDependencies": {
     "vite": "^7.1.7",

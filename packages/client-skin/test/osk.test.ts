@@ -49,7 +49,7 @@ function zip(
   ev.setUint16(10, entries.length, true);
   ev.setUint32(12, size, true);
   ev.setUint32(16, offset, true);
-  return new Blob([...locals, ...centrals, end]);
+  return new Blob([...locals, ...centrals, end] as BlobPart[]);
 }
 
 test("stored and deflated entries resolve case-insensitively, including subfolders", async () => {

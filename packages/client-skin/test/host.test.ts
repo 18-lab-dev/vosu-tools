@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { loadSkin } from "@vosu-tools/render-core";
-import { hostSkinFiles, readCurrentSkin } from "../src/skin-source";
+import { hostSkinFiles, readCurrentSkin, type Fetcher } from "../src/host";
 
 /**
  * Stand-in for vosu's overlay origin: `GET /files/skin/` reports the current
@@ -42,11 +42,7 @@ const server = Bun.serve({
   },
 });
 afterAll(() => server.stop(true));
-const host: typeof fetch = Object.assign(
-  (input: RequestInfo | URL, init?: RequestInit) =>
-    fetch(new URL(String(input), server.url), init),
-  { preconnect: fetch.preconnect },
-);
+const host: Fetcher = (url, init) => fetch(new URL(url, server.url), init);
 
 test("lazer skin with files loads by filename from the host", async () => {
   report = {
