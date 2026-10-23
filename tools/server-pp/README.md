@@ -8,7 +8,7 @@ Drop a `.wasm` calculator into the calculator folder (`<vosu data directory>/too
 
 ## Browser UI
 
-The ledger compares every calculator on the map selected in osu!. It follows song select live, and as a "what if" it applies the mods, accuracy, misses, combo and ruleset in the top bar. **Live play** shows the score as it stands while you play. A tab opened from the dashboard can also score an `.osu` file instead of the selected map. Each row shows pp, if-FC pp, the difference from vosu's official pp, stars and the calculator's breakdown. The side panel lists built-in profiles and every discovered custom calculator with its status, load error, version, rulesets and file, plus the calculator folder, the limits and a link to the tool's dashboard settings.
+The results table compares every calculator on the map selected in osu!. It follows song select live, and as a "what if" it applies the mods, accuracy, misses, combo and ruleset in the results toolbar. **Live play** shows the score as it stands while you play. A tab opened from the dashboard can also score an `.osu` file (top bar) instead of the selected map. Each row shows pp, if-FC pp, the difference from vosu's official pp, stars and the calculator's breakdown. The side panel lists built-in profiles and every discovered custom calculator with its status, load error, version, rulesets and file, plus the calculator folder and limits; the gear in the top bar opens the tool's dashboard settings. The page uses vosu's shared design system (`/tools/_host/v1/theme.css`).
 
 ## Provenance and coverage
 

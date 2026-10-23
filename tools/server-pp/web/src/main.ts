@@ -1,13 +1,6 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import "./style.css";
 
-function applyScheme() {
-  document.documentElement.dataset.scheme =
-    vosu.colorScheme ??
-    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-}
-applyScheme();
-
 type Server = {
   id: string;
   kind: "builtin" | "custom";
@@ -18,7 +11,6 @@ type Server = {
   rulesets?: string[];
   md5?: string;
   path?: string;
-  coverage?: string;
 };
 type Servers = {
   servers: Server[];
@@ -43,10 +35,12 @@ type Row = { server: Server; result?: Result; error?: string };
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const form = $<HTMLFormElement>("score");
-const tbody = $("ledger").querySelector("tbody")!;
-const note = $("ledger-note");
+const table = $<HTMLTableElement>("ledger");
+const tbody = table.querySelector("tbody")!;
+const empty = $("empty");
 
 let servers: Server[] = [];
+let source: "whatif" | "live" = "whatif";
 let generation = 0;
 let timer: number | undefined;
 const map = { checksum: "", artist: "", title: "", version: "", mode: "", state: -1 };
@@ -74,14 +68,10 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function source(): "whatif" | "live" {
-  return new FormData(form).get("source") === "live" ? "live" : "whatif";
-}
-
 /** The request for one calculator: live play, an opened file, or the selected map. */
 function request(server: Server): [string, RequestInit?] {
   const data = new FormData(form);
-  if (source() === "live") return [`v1/current?server=${encodeURIComponent(server.id)}`];
+  if (source === "live") return [`v1/current?server=${encodeURIComponent(server.id)}`];
   const params = new URLSearchParams({ server: server.id });
   const mods = String(data.get("mods") ?? "").trim();
   if (mods) params.set("mods", mods);
@@ -94,24 +84,19 @@ function request(server: Server): [string, RequestInit?] {
   return [`v1/pp?${params}`];
 }
 
+function showEmpty(text: string) {
+  table.hidden = true;
+  empty.hidden = false;
+  empty.textContent = text;
+}
+
 async function calculate() {
   const run = ++generation;
   const rows: Row[] = servers
     .filter((server) => server.kind === "builtin" || server.status === "ready")
     .map((server) => ({ server }));
-  if (!map.checksum && !(file && source() === "whatif")) {
-    note.textContent = "Waiting for a map.";
-    render([]);
-    return;
-  }
-  note.textContent =
-    source() === "live"
-      ? map.state === 2
-        ? "Live play: the score as it stands."
-        : "Live play shows your score while you play; it is empty in song select."
-      : file
-        ? `What if: ${file.name} with the numbers above.`
-        : "What if: the selected map with the numbers above.";
+  if (source === "live" && map.state !== 2) return showEmpty("Not playing.");
+  if (!map.checksum && !(file && source === "whatif")) return showEmpty("No map selected.");
   tbody.setAttribute("aria-busy", "true");
   await Promise.all(
     rows.map(async (row) => {
@@ -144,104 +129,122 @@ function schedule(delay = 150) {
   timer = window.setTimeout(() => void calculate(), delay);
 }
 
+function nameCell(name: string, tag: string) {
+  const th = el("th", "name", name);
+  th.scope = "row";
+  th.append(el("span", "tag v-mono v-muted", tag));
+  return th;
+}
+
 function render(rows: Row[]) {
-  $("ledger").hidden = rows.length === 0;
-  $("empty").hidden = rows.length > 0;
+  table.hidden = rows.length === 0;
+  empty.hidden = rows.length > 0;
+  if (!rows.length) empty.textContent = "No calculators.";
   const official = rows
     .map((row) => row.result?.official)
     .find((o) => o?.available && typeof o.result?.pp === "number")?.result?.pp;
-  const top = Math.max(
-    official ?? 0,
-    ...rows.map((row) => row.result?.current ?? 0),
-  );
-  const body: HTMLTableRowElement[] = [];
   const reference = el("tr", "reference");
-  const name = el("th", "", "Official");
-  name.scope = "row";
-  name.append(el("span", "tag", "vosu"));
-  reference.append(name, cell(official, top), el("td", "num", "—"), el("td", "num", "—"), el("td", "num", "—"), el("td", "fine", official === undefined ? "Unavailable" : "Reference for the deltas"));
-  if (rows.length) body.push(reference);
+  reference.append(
+    nameCell("Official", "vosu"),
+    el("td", "v-num", pp(official)),
+    el("td", "v-num", "—"),
+    el("td", "v-num", "—"),
+    el("td", "v-num", "—"),
+    el("td", "v-muted", "—"),
+  );
+  const body = [reference];
   for (const row of rows) {
-    const tr = el("tr", row.server.kind);
-    const th = el("th", "", row.result?.name ?? row.server.name ?? row.server.id);
-    th.scope = "row";
-    th.append(el("span", "tag", row.server.kind === "builtin" ? "built-in" : row.server.id));
-    tr.append(th);
+    const tr = el("tr");
+    tr.append(
+      nameCell(row.result?.name ?? row.server.name ?? row.server.id, row.server.kind === "builtin" ? "built-in" : row.server.id),
+    );
     if (row.error || !row.result) {
       // A calculator that does not handle this ruleset is not a failure.
       const unsupported = row.error?.includes("does not support") ?? false;
-      const td = el("td", unsupported ? "muted" : "error", row.error ?? "No result");
+      const td = el("td", unsupported ? "v-muted" : "error", row.error ?? "No result");
       td.colSpan = 5;
       tr.append(td);
     } else {
       const r = row.result;
       const delta =
         official && official > 0 ? ((r.current - official) / official) * 100 : undefined;
-      const deltaCell = el("td", "num delta", delta === undefined ? "—" : `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}%`);
-      tr.append(cell(r.current, top), el("td", "num", pp(r.if_fc)), deltaCell, el("td", "num", pp(r.stars)), breakdown(r.breakdown));
+      tr.append(
+        el("td", "v-num", pp(r.current)),
+        el("td", "v-num", pp(r.if_fc)),
+        el(
+          "td",
+          "v-num v-muted",
+          delta === undefined ? "—" : `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}%`,
+        ),
+        el("td", "v-num", pp(r.stars)),
+        breakdown(r.breakdown),
+      );
     }
     body.push(tr);
   }
   tbody.replaceChildren(...body);
 }
 
-function cell(value: number | undefined, top: number) {
-  const td = el("td", "num amount", pp(value));
-  if (value !== undefined && top > 0)
-    td.style.setProperty("--share", String(Math.min(1, value / top)));
-  return td;
-}
-
 function breakdown(values: Record<string, number | null> | undefined) {
   const td = el("td", "breakdown");
   for (const [label, value] of Object.entries(values ?? {})) {
     const item = el("span", "item");
-    item.append(el("span", "label", label.replaceAll("_", " ")), el("span", "value", pp(value)));
+    item.append(el("span", "v-muted", label.replaceAll("_", " ")), el("span", "v-mono", pp(value)));
     td.append(item);
   }
-  if (!td.childElementCount) td.textContent = "—";
+  if (!td.childElementCount) {
+    td.textContent = "—";
+    td.classList.add("v-muted");
+  }
   return td;
 }
 
+const STATE_BADGE: Record<string, string> = {
+  ready: "v-badge--ok",
+  disabled: "",
+  error: "v-badge--error",
+};
+
 function renderModules(data: Servers) {
-  const list = $("modules");
+  const custom = data.servers.filter((server) => server.kind === "custom");
+  $("module-count").textContent = String(data.servers.length);
   const items = data.servers.map((server) => {
-    const li = el("li", `module ${server.kind} ${server.status ?? "ready"}`);
-    const head = el("div", "module-head");
+    const li = el("li", `module ${server.status ?? "ready"}`);
+    const head = el("div", "module__head");
+    const state = server.kind === "builtin" ? "built-in" : (server.status ?? "");
     head.append(
-      el("span", "module-name", server.name ?? server.id),
-      el("span", "state", server.kind === "builtin" ? "built-in" : (server.status ?? "")),
+      el("span", "module__name", server.name ?? server.id),
+      el("span", `v-badge ${STATE_BADGE[state] ?? ""}`, state),
     );
     li.append(head);
     const meta = [server.id];
-    if (server.version) meta.push(server.kind === "builtin" ? server.version.slice(0, 10) : `v${server.version}`);
-    if (server.rulesets?.length) meta.push(server.rulesets.join(" · "));
-    li.append(el("p", "meta", meta.join("  ·  ")));
-    if (server.error) li.append(el("p", "error", server.error));
-    if (server.kind === "custom" && server.path) li.append(el("p", "path", server.path));
+    if (server.version)
+      meta.push(server.kind === "builtin" ? server.version.slice(0, 10) : `v${server.version}`);
+    if (server.rulesets?.length) meta.push(server.rulesets.join(" "));
+    li.append(el("span", "module__meta v-mono v-muted", meta.join(" · ")));
+    if (server.error) li.append(el("span", "module__error", server.error));
+    if (server.kind === "custom" && server.path)
+      li.append(el("span", "module__path v-mono v-muted", server.path));
     return li;
   });
-  if (!data.servers.some((server) => server.kind === "custom")) {
-    const li = el("li", "guide");
-    li.append(
-      el("strong", "", "No custom calculators yet."),
-      el("p", "", "Drop a .wasm calculator into the folder below and it appears here within a second. The tool's CALCULATORS.md describes the format, with Rust and AssemblyScript examples."),
-    );
-    items.push(li);
-  }
-  list.replaceChildren(...items);
+  if (!custom.length) items.push(el("li", "v-empty", "No custom calculators."));
+  $("modules").replaceChildren(...items);
   const config = data.calculators;
-  const footer = $("config");
-  footer.replaceChildren();
+  const facts: HTMLElement[] = [];
   if (config) {
-    footer.append(el("span", "label", "Folder"), el("span", "path", config.folder));
-    footer.append(
-      el("span", "label", "Limits"),
-      el("span", "", `${(config.fuel / 1e6).toLocaleString()} M fuel · ${Math.round(config.memory_bytes / 1048576)} MiB per call`),
+    facts.push(el("dt", "", "Folder"), el("dd", "v-mono", config.folder));
+    facts.push(
+      el("dt", "", "Limits"),
+      el(
+        "dd",
+        "v-mono",
+        `${(config.fuel / 1e6).toLocaleString()}M fuel · ${Math.round(config.memory_bytes / 1048576)} MiB`,
+      ),
     );
     for (const problem of [config.settings_error, config.folder_error])
-      if (problem) footer.append(el("span", "label", "Problem"), el("span", "error", problem));
+      if (problem) facts.push(el("dt", "", "Error"), el("dd", "module__error", problem));
   }
+  $("config").replaceChildren(...facts);
 }
 
 let serversKey = "";
@@ -256,22 +259,22 @@ async function refreshServers() {
       schedule(0);
     }
   } catch (error) {
-    $("modules").replaceChildren(el("li", "error", `Service unavailable: ${String(error)}`));
+    $("modules").replaceChildren(el("li", "module__error", `Service unavailable: ${String(error)}`));
   }
 }
 
 function showMap() {
   const label = file
-    ? `${file.name} · opened file`
+    ? file.name
     : map.checksum
-      ? `${map.artist} – ${map.title} [${map.version}]${map.mode ? ` · ${map.mode}` : ""}`
-      : "No map selected in osu!";
+      ? `${map.artist} – ${map.title} [${map.version}]`
+      : "No map selected";
   const node = $("map");
   node.textContent = label;
   node.title = label;
 }
 
-const FIELDS: `/${string}`[] = [
+const FIELDS = [
   "/beatmap/checksum",
   "/beatmap/artist",
   "/beatmap/title",
@@ -282,7 +285,7 @@ const FIELDS: `/${string}`[] = [
   "/play/hits/0",
   "/play/hits/300",
   "/play/hits/100",
-];
+] as const;
 const values: unknown[] = [];
 let lastPlay = "";
 function onFrame(frame: unknown) {
@@ -295,6 +298,7 @@ function onFrame(frame: unknown) {
     for (const index of frame[3]) if (typeof index === "number") delete values[index];
   const text = (i: number) => (typeof values[i] === "string" ? (values[i] as string) : "");
   const previous = map.checksum;
+  const previousState = map.state;
   Object.assign(map, {
     checksum: text(0),
     artist: text(1),
@@ -305,11 +309,20 @@ function onFrame(frame: unknown) {
   });
   showMap();
   const play = values.slice(5, 10).join(",");
-  if (map.checksum !== previous) schedule();
-  else if (source() === "live" && play !== lastPlay) schedule(400);
+  if (map.checksum !== previous || map.state !== previousState) schedule();
+  else if (source === "live" && play !== lastPlay) schedule(400);
   lastPlay = play;
 }
 
+const segment = form.querySelector(".v-seg")!;
+segment.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-source]");
+  if (!button) return;
+  source = button.dataset.source === "live" ? "live" : "whatif";
+  for (const b of segment.querySelectorAll("button"))
+    b.setAttribute("aria-pressed", String(b === button));
+  schedule(0);
+});
 form.addEventListener("input", () => schedule(250));
 form.addEventListener("submit", (event) => event.preventDefault());
 
@@ -320,7 +333,7 @@ picker.addEventListener("change", async () => {
   picker.value = "";
   if (!chosen) return;
   if (chosen.size > 1024 * 1024) {
-    note.textContent = `${chosen.name} is larger than the 1 MiB .osu limit.`;
+    showEmpty("File is larger than 1 MiB.");
     return;
   }
   file = { name: chosen.name, bytes: await chosen.arrayBuffer() };
@@ -336,23 +349,20 @@ clear.addEventListener("click", () => {
 });
 
 await vosu.ready.catch(() => undefined);
-applyScheme();
 // Opened files are uploaded through the write route, so only a tab opened
 // from the dashboard can use them.
 picker.disabled = !vosu.canWrite;
-$("empty-file").hidden = !vosu.canWrite;
-$("open-label").title = vosu.canWrite
-  ? "Score an .osu file instead of the selected map"
-  : "Open this tool from the vosu dashboard to score your own .osu files";
+const openLabel = $("open-label");
+openLabel.toggleAttribute("aria-disabled", !vosu.canWrite);
+if (!vosu.canWrite) openLabel.title = "Open from the dashboard to use files";
 $<HTMLAnchorElement>("settings-link").href = new URL(
   "/settings?tool=server-pp",
   vosu.dashboardUrl,
 ).href;
 vosu.subscribe(FIELDS, onFrame, (state) => {
-  const live = $("live");
-  live.hidden = false;
-  live.dataset.state = state;
-  live.textContent = state === "open" ? "Live" : state === "connecting" ? "Reconnecting…" : "Offline";
+  $("live-dot").dataset.state = state === "open" ? "ok" : state === "connecting" ? "busy" : "error";
+  $("live").textContent =
+    state === "open" ? "Live" : state === "connecting" ? "Connecting" : "Offline";
 });
 await refreshServers();
 setInterval(() => {

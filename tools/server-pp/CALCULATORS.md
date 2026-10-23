@@ -20,7 +20,7 @@ Modules run sandboxed in an interpreter. They have no imports, so they have no f
 
 Settings and files are re-read at most once per second, so a rebuilt module or a settings change applies to the next request without restarting anything. Compiled modules are cached by path, size and modification time.
 
-3. Check the result. The tool's page (Tools → Server pp calculator → Open) lists every discovered module with its status and the exact load error, and its ledger runs all of them on the selected map or an opened `.osu` file. `vosux server-pp servers` (or `GET /v1/servers`, where modules are `kind: "custom"` with `status` `ready`, `disabled` or `error`) shows the same. Then use the id like a built-in profile:
+3. Check the result. The tool's page (Tools → Server pp calculator → Open) lists every discovered module with its status and the exact load error, and its results table runs all of them on the selected map or an opened `.osu` file. `vosux server-pp servers` (or `GET /v1/servers`, where modules are `kind: "custom"` with `status` `ready`, `disabled` or `error`) shows the same. Then use the id like a built-in profile:
 
 ```sh
 vosux server-pp servers
