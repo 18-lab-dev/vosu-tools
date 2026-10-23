@@ -271,7 +271,7 @@ function showMap() {
   node.title = label;
 }
 
-const FIELDS = [
+const FIELDS: `/${string}`[] = [
   "/beatmap/checksum",
   "/beatmap/artist",
   "/beatmap/title",

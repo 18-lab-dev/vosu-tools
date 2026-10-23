@@ -7,6 +7,7 @@ import './style.css';
 import { Preview } from './preview';
 import { Timeline, type TimelineData } from './timeline';
 import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
+import { SUBSCRIPTION, readFrame } from './follow';
 
 // The tool owns its look: follow the dashboard's scheme when the bridge passes it,
 // otherwise the system preference. `color-scheme` in style.css keys off this attribute.
@@ -456,7 +457,26 @@ async function loadMap() {
     renderStats();
   }
   writable();
+  fitPreview();
 }
+
+// A mania stage is tall and narrow (default columns are 30 of the playfield's
+// 480 units of height each, as render-core draws them without a skin), so a
+// full-width preview leaves most of the stage empty. For mania the preview
+// column shrinks to the stage's aspect plus a margin and the freed width goes
+// to the controls; other rulesets keep the wide preview.
+const workspace = document.querySelector<HTMLElement>('.workspace')!;
+function fitPreview() {
+  const keys = ruleset === 'mania' ? current?.beatmap?.stats.keys ?? null : null;
+  const fit = keys !== null && matchMedia('(min-width: 761px)').matches;
+  workspace.classList.toggle('fit-preview', fit);
+  if (!fit) return;
+  const stageHeight = $('canvas').parentElement!.clientHeight;
+  const aspect = (keys * 30 + 120) / 480;
+  const available = workspace.clientWidth - 340;
+  workspace.style.setProperty('--preview-width', `${Math.round(Math.min(available, Math.max(380, stageHeight * aspect)))}px`);
+}
+new ResizeObserver(() => fitPreview()).observe(workspace);
 
 // ---- Profiles ---------------------------------------------------------------
 
@@ -611,21 +631,33 @@ void (async () => {
   applyProfile();
   await loadMap();
   // Follow the game: reload when the selected beatmap changes. The bridge
-  // reconnects by itself and reports its state for the top bar.
+  // reconnects by itself and reports its state for the top bar; an error frame
+  // (a rejected subscription) is shown as such, not as an unreachable vosu.
   const live = $('live');
-  const states = { connecting: 'Connecting', open: 'Following osu!', closed: 'Not following — vosu is unreachable' } as const;
+  let rejected: string | null = null;
+  const show = (state: 'connecting' | 'open' | 'closed') => {
+    live.dataset.state = state;
+    live.textContent = state === 'open' ? 'Following osu!'
+      : state === 'connecting' ? 'Connecting'
+      : rejected ? `Not following — vosu rejected the subscription (${rejected})` : 'Not following — vosu is unreachable';
+  };
   vosu.subscribe(
-    [{ field: 'beatmap', keys: ['checksum'] }],
+    SUBSCRIPTION,
     (frame) => {
-      live.dataset.state = 'open';
-      live.textContent = states.open;
-      const beatmap = frame && typeof frame === 'object' && 'beatmap' in frame ? frame.beatmap : null;
-      const checksum = beatmap && typeof beatmap === 'object' && 'checksum' in beatmap && typeof beatmap.checksum === 'string' ? beatmap.checksum : undefined;
-      if (checksum !== undefined && checksum !== current?.beatmap?.md5) void loadMap().catch(fail);
+      const event = readFrame(frame);
+      if (!event) return;
+      if (event.kind === 'error') {
+        rejected = event.message;
+        show('closed');
+        return;
+      }
+      rejected = null;
+      show('open');
+      if (event.checksum !== (current?.beatmap?.md5 ?? null)) void loadMap().catch(fail);
     },
     (state) => {
-      live.dataset.state = state;
-      live.textContent = states[state];
+      if (state === 'open' && rejected) return;
+      show(state);
     },
   );
 })().catch(fail);

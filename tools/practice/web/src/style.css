@@ -191,6 +191,17 @@ p { margin: 0; }
   display: grid;
   grid-template-columns: clamp(340px, 24vw, 460px) minmax(0, 1fr);
 }
+/* Mania: the preview column takes the stage's own aspect (set from app.ts) and
+   the controls take the rest, flowing their sections into columns. */
+.workspace.fit-preview { grid-template-columns: minmax(340px, 1fr) var(--preview-width, 420px); }
+.fit-preview .controls-scroll { column-width: 320px; column-gap: 32px; }
+.fit-preview .block { break-inside: avoid; }
+/* render-core fits a 640×480 world into the canvas, so a narrow canvas would
+   shrink the stage. Keep the canvas at least 4:3 of the stage height, centred,
+   and let the column crop the empty playfield sides. */
+.fit-preview .stage { container-type: size; }
+.fit-preview .stage canvas { left: 50%; right: auto; width: max(100cqw, 133.334cqh); transform: translateX(-50%); }
+.fit-preview .generate-row { max-width: 460px; }
 
 .controls {
   min-height: 0;

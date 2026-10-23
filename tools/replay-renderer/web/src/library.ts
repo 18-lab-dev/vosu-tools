@@ -79,13 +79,13 @@ export class ReplayLibrary {
    *  after vosu restarts and reports the link through `onStatus`. */
   follow(
     subscribe: (
-      fields: unknown,
+      fields: readonly `/${string}`[],
       onFrame: (frame: unknown) => void,
       onStatus?: (state: LinkState) => void,
     ) => () => void,
     onStatus: (state: LinkState) => void,
   ) {
-    const fields = ["/beatmap/checksum", "/beatmap/artist", "/beatmap/title", "/beatmap/version"];
+    const fields: `/${string}`[] = ["/beatmap/checksum", "/beatmap/artist", "/beatmap/title", "/beatmap/version"];
     const values: unknown[] = [];
     subscribe(fields, (frame) => {
       if (!Array.isArray(frame) || (frame[0] !== 0 && frame[0] !== 1)) return;

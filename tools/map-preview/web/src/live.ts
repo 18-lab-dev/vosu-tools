@@ -213,7 +213,7 @@ export class LiveClock {
 
 export type LiveStatus = "connecting" | "waiting" | "live" | "lost";
 type Subscribe = (
-  fields: unknown,
+  fields: readonly `/${string}`[],
   onFrame: (frame: unknown) => void,
   onStatus?: (state: "connecting" | "open" | "closed") => void,
 ) => () => void;
