@@ -1,5 +1,6 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
+import { normaliseManiaImage } from "./mania";
 export interface Skin {
   name: string;
   assets: Map<string, ImageBitmap>;
@@ -171,7 +172,7 @@ export async function loadSkin(
         value &&
         !["null", "none"].includes(value.toLowerCase())
       ) {
-        const asset = value.replace(/\\/g, "/").replace(/\.png$/i, "");
+        const asset = normaliseManiaImage(value);
         section[key] = asset;
         names.add(asset);
         animationNames.add(asset);
@@ -269,9 +270,10 @@ export function buildAtlas(
   ) => {
     const logicalWidth = width / pixelScale,
       logicalHeight = height / pixelScale,
-      scale = Math.min(1, 1024 / width, 1024 / height),
-      w = Math.max(1, Math.ceil(width * scale)),
-      h = Math.max(1, Math.ceil(height * scale));
+      // Per axis, so very long images (mania hold bodies tens of thousands of
+      // pixels tall) keep their full width; regions map the whole image anyway.
+      w = Math.max(1, Math.min(1024, Math.ceil(width))),
+      h = Math.max(1, Math.min(1024, Math.ceil(height)));
     if (x + w + 2 > size) {
       x = 2;
       y += row + 4;

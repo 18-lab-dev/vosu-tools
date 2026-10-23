@@ -126,7 +126,7 @@ class Game:
         self.values = {
             '/client': 'lazer', '/state/number': 5, '/beatmap/checksum': 'osu', '/beatmap/mode/number': 0,
             '/beatmap/time': {'live': 38000, 'rate': 1, 'running': False}, '/settings/mode/number': 0,
-            '/settings/mania': {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 0, 'name': 'down'}},
+            '/settings/mania': {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 1, 'name': 'down'}},
             '/settings/skin/ignoreBeatmapSkins': False,
             '/settings/visual': {'hitLighting': True, 'beatmapColours': True, 'snakingInSliders': True, 'snakingOutSliders': True},
             '/play/mods/array': [], '/play/source': None, '/folders/skin': 'Argon',
@@ -250,10 +250,10 @@ async def checks(host: Host, osk: Path, evidence: Path):
                 await settle(page)
                 await page.screenshot(path=str(evidence / 'mania-staircase-1920x1080.png'))
                 # Scroll direction up from the client.
-                game.set('/settings/mania', {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 1, 'name': 'up'}})
+                game.set('/settings/mania', {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 0, 'name': 'up'}})
                 await settle(page)
                 await page.screenshot(path=str(evidence / 'mania-staircase-scroll-up.png'))
-                game.set('/settings/mania', {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 0, 'name': 'down'}})
+                game.set('/settings/mania', {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 1, 'name': 'down'}})
 
         # 4. The live clock advances with the client (rate 1.5, running).
         host.beatmap = 'osu'
@@ -300,6 +300,13 @@ async def checks(host: Host, osk: Path, evidence: Path):
         await page.locator('#map-file').set_input_files(str(host.maps['taiko']))
         await shows(page, '#follow-status', 'Manual preview')
         assert await page.locator('#transport').is_visible()
+        # Audio starts muted; the toggle is remembered for this tool.
+        assert await page.locator('#mute').get_attribute('aria-pressed') == 'true'
+        await page.locator('#mute').click()
+        assert await page.locator('#mute').get_attribute('aria-pressed') == 'false'
+        assert await page.evaluate("localStorage.getItem('vosu-tools:map-preview:muted')") == '0'
+        await page.locator('#mute').click()
+        assert await page.evaluate("localStorage.getItem('vosu-tools:map-preview:muted')") == '1'
         await page.locator('#seek').evaluate("s => { s.value = '40000'; s.dispatchEvent(new Event('input')); }")
         await settle(page)
         await page.screenshot(path=str(evidence / 'manual-taiko-1920x1080.png'))

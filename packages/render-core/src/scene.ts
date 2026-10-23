@@ -9,6 +9,14 @@ import {
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
 import { catchObjects } from "@vosu-tools/ruleset-convert";
 import { legacySliderStyle, type Skin, type AtlasRegion } from "./skin";
+import {
+  atlasImageSize,
+  DEFAULT_SCROLL_LENGTH,
+  MANIA_SCALE,
+  maniaConfig,
+  maniaLayout,
+  type Rgba,
+} from "./mania";
 export interface RenderOptions {
   mods?: Mod[];
   ar?: number;
@@ -56,12 +64,6 @@ export function compileScene(
     preempt = approachTime(map.difficulty.ar),
     radius = circleRadius(map.difficulty.cs),
     catcher: { time: number; x: number; y?: number }[] = [];
-  const mania = skin?.sections
-    .get("Mania")
-    ?.find((s) => Number(s.Keys) === Math.round(map.difficulty.cs));
-  const bodyStyle = Number(
-    mania?.NoteBodyStyle ?? ((skin?.version ?? 1) >= 2.5 ? 1 : 0),
-  );
   const red = map.timing.filter((point) => point.uninherited),
     weights = new Map<number, number>();
   for (let i = 0; i < red.length; i++) {
@@ -113,10 +115,12 @@ export function compileScene(
       .get("Colours")?.[0]
       ?.SliderTrackOverride?.split(",")
       .map((c) => Number(c) / 255);
+  // lazer: TimeRange = 11485 / speed × (scroll length / default scroll length),
+  // so notes travel the default scroll length (402 legacy units) in 11485 / speed ms
+  // whatever the skin's hit position.
   const speed =
     map.mode === 3
-      ? ((options.scrollSpeed ?? 20) * 480) /
-        (11485 * (Number(mania?.HitPosition ?? 402) / 402))
+      ? ((options.scrollSpeed ?? 20) * DEFAULT_SCROLL_LENGTH) / 11485
       : map.mode === 2
         ? 300 / preempt
         : 0;
@@ -142,15 +146,7 @@ export function compileScene(
     /** Shape parameters for untextured shapes, carried in the UV slot. */
     custom?: readonly [number, number, number, number],
   ): void {
-    if (
-      options.hitLighting === false &&
-      (motion === 13 || motion === 18 || motion === 19)
-    )
-      return;
     const uv = custom ? undefined : regions.get(asset);
-    if (uv && map.mode === 3 && [1, 11, 12].includes(motion))
-      h = (w * uv.h) / uv.w;
-    if (uv && map.mode === 3) colour = [1, 1, 1, colour[3] ?? 1];
     values.push(
       x,
       y,
@@ -176,13 +172,9 @@ export function compileScene(
       uv?.first ?? p,
       uv?.count ?? q,
       uv
-        ? (motion === 13
-            ? Number(mania?.LightFramePerSecond ?? 60)
-            : (map.mode === 3 && [1, 2, 11, 12, 14, 18, 19].includes(motion)) ||
-                asset === "sliderb" ||
-                asset === "hitcircleoverlay"
-              ? 60
-              : (uv.fps ?? 60)) * (r < 0 ? -1 : 1)
+        ? (asset === "sliderb" || asset === "hitcircleoverlay"
+            ? 60
+            : (uv.fps ?? 60)) * (r < 0 ? -1 : 1)
         : r,
     );
   }
@@ -694,290 +686,280 @@ export function compileScene(
       );
     }
   } else if (map.mode === 3) {
-    const keys = Math.max(1, Math.round(map.difficulty.cs)),
-      raw = mania?.ColumnWidth?.split(",").map(Number),
-      spaces = mania?.ColumnSpacing?.split(",").map(Number) ?? [];
-    const widths = Array.from({ length: keys }, (_, i) => raw?.[i] ?? 30),
-      total =
-        widths.reduce((a, b) => a + b, 0) + spaces.reduce((a, b) => a + b, 0);
-    const left =
-        mania?.ColumnStart === undefined
-          ? 256 - total / 2
-          : Number(mania.ColumnStart) - ((480 * 16) / 9 - 512) / 2,
-      hit = Number(mania?.HitPosition ?? 402) - 48,
-      positions: number[] = [];
-    let columnLeft = left;
-    const sprite = (
-      asset: string,
-      x: number,
-      y: number,
-      w: number,
-      h: number,
+    const keys = Math.max(1, Math.round(map.difficulty.cs));
+    const layout = maniaLayout(
+      maniaConfig(skin, keys),
+      atlasImageSize(regions),
+    );
+    const { config, columns } = layout;
+    // Lazer stage units to render units: the stage is centred and spans the
+    // playfield's full 480-unit height, from y = -48 to 432.
+    const toX = (x: number) => 256 + (x - layout.width / 2) / MANIA_SCALE,
+      toY = (y: number) => -48 + y / MANIA_SCALE,
+      hit = toY(layout.hitY);
+    const shapeCode = { none: 10, mirror: 40, inverted: 41, additive: 42 };
+    const hitLighting = (motion: number) =>
+      options.hitLighting === false &&
+      (motion === 13 || motion === 18 || motion === 19);
+    /** A stage element at a fixed place; boxes when `asset` is omitted. */
+    const emit = (
+      rect: { x: number; y: number; width: number; height: number },
+      colour: Rgba,
       motion = 0,
       lane = 0,
-      colour: readonly number[] = [1, 1, 1],
+      asset?: string,
+      flip: keyof typeof shapeCode = "none",
+      fps = 0,
     ) => {
-      if (regions.has(asset))
-        add(x, y, w, h, 0, 0, -1e9, 1e9, colour, 4, motion, lane, 0, 0, asset);
-    };
-    const stage = (
-      key: string,
-      fallback: string,
-      x: number,
-      y: number,
-      w: number,
-      h: number,
-    ) => sprite(mania?.[key] ?? fallback, x, y, w, h);
-    for (let lane = 0; lane < keys; lane++) {
-      positions.push(columnLeft + widths[lane] / 2);
-      const background = mania?.[`Colour${lane + 1}`]
-        ?.split(",")
-        .map((v) => Number(v) / 255) ?? [0.015, 0.015, 0.02, 1];
-      add(
-        positions[lane],
-        192,
-        widths[lane],
-        480,
+      if (hitLighting(motion) || colour[3] <= 0) return;
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const uv = asset === undefined ? undefined : regions.get(asset);
+      if (asset !== undefined && !uv) return;
+      values.push(
+        toX(rect.x + rect.width / 2),
+        toY(rect.y + rect.height / 2),
+        rect.width / MANIA_SCALE,
+        rect.height / MANIA_SCALE,
         0,
         0,
         -1e9,
         1e9,
-        background,
-        4,
+        colour[0],
+        colour[1],
+        colour[2],
+        colour[3],
+        motion,
+        lane,
+        0,
+        0,
+        uv?.u ?? 0,
+        uv?.v ?? 0,
+        uv?.w ?? 0,
+        uv?.h ?? 0,
+        uv ? shapeCode[flip] : 4,
+        uv?.first ?? 0,
+        // Texture lookups (fps 0) draw the plain image even when frames exist.
+        fps > 0 ? (uv?.count ?? 0) : 0,
+        fps,
       );
-      columnLeft += widths[lane] + (spaces[lane] ?? 0);
-    }
-    const side = (key: string, fallback: string, right: boolean) => {
-      const name = mania?.[key] ?? fallback,
-        uv = regions.get(name);
-      if (uv) {
-        const w = (uv.width ?? 1) * 0.625;
-        sprite(name, right ? left + total + w / 2 : left - w / 2, 192, w, 480);
-      }
     };
-    side("StageLeft", "mania-stage-left", false);
-    side("StageRight", "mania-stage-right", true);
-    stage(
-      "StageHint",
-      "mania-stage-hint",
-      left + total / 2,
-      hit,
-      total,
-      Math.max(
+    /**
+     * A scrolling piece in a column: notes, hold heads and tails (kind 1:
+     * bottom edge on the time line `a`) and hold bodies (kinds 2 / 14: from
+     * `a` (head) to `b` (tail), `y` / `h` carrying half the head / tail heights).
+     */
+    const scrolling = (
+      lane: number,
+      motion: number,
+      a: number,
+      b: number,
+      life: readonly [number, number, number, number],
+      y: number,
+      h: number,
+      asset: string,
+      flip: keyof typeof shapeCode,
+      fps: number,
+    ) => {
+      const uv = regions.get(asset);
+      if (!uv) return;
+      const column = columns[lane];
+      values.push(
+        toX(column.x + column.width / 2),
+        y,
+        column.width / MANIA_SCALE,
+        h,
+        ...life,
         1,
-        (regions.get(mania?.StageHint ?? "mania-stage-hint")?.height ?? 2) *
-          0.625,
-      ),
-    );
-    const keyLayers = () => {
-      for (let lane = 0; lane < keys; lane++) {
-        const kind =
-            keys % 2 && lane === Math.floor(keys / 2)
-              ? "S"
-              : lane % 2
-                ? "2"
-                : "1",
-          name = mania?.[`KeyImage${lane}`] ?? `mania-key${kind}`,
-          pressed = mania?.[`KeyImage${lane}D`] ?? `mania-key${kind}D`,
-          uv = regions.get(name),
-          height = uv ? (widths[lane] * uv.h) / uv.w : 30,
-          // Clients anchor key sprites to the stage's bottom edge, not to the
-          // hit position; upward scrolling mirrors the whole stage in WGSL.
-          y = 432 - height / 2;
-        add(
-          positions[lane],
-          y,
-          widths[lane],
-          height,
-          0,
-          0,
-          -1e9,
-          1e9,
-          [0.3, 0.32, 0.36],
-          4,
-          11,
-          lane,
-          0,
-          0,
-          name,
-        );
-        add(
-          positions[lane],
-          y,
-          widths[lane],
-          height,
-          0,
-          0,
-          -1e9,
-          1e9,
-          [0.7, 0.75, 0.9],
-          4,
-          12,
-          lane,
-          0,
-          0,
-          regions.has(pressed) ? pressed : name,
-        );
-      }
+        1,
+        1,
+        1,
+        motion,
+        a,
+        b,
+        hit,
+        uv.u,
+        uv.v,
+        uv.w,
+        uv.h,
+        shapeCode[flip],
+        uv.first ?? 0,
+        uv.count ?? 0,
+        fps,
+      );
     };
-    for (let lane = 0; lane < keys; lane++) {
-      const name = mania?.StageLight ?? "mania-stage-light",
-        uv = regions.get(name);
-      if (uv) {
-        const h = (uv.height ?? 480) * 0.625,
-          colour = (mania?.[`ColourLight${lane + 1}`] ?? "55,255,255")
-            .split(",")
-            .map((value) => Number(value) / 255);
-        sprite(
-          name,
-          positions[lane],
-          Number(mania?.LightPosition ?? 413) - 48 - h / 2,
-          widths[lane],
-          h,
+    const WHITE: Rgba = [1, 1, 1, 1];
+    // LegacyStageBackground: sides, column backgrounds and lines, hit target.
+    for (const side of [layout.stageLeft, layout.stageRight])
+      if (side) emit(side, WHITE, 0, 0, side.asset);
+    for (const column of columns)
+      emit(column.background, column.background.colour);
+    for (const column of columns)
+      for (const line of column.lines) emit(line, line.colour);
+    if (layout.hint)
+      emit(layout.hint, WHITE, 0, 0, layout.hint.asset, "mirror");
+    if (layout.judgementLine)
+      emit(layout.judgementLine, layout.judgementLine.colour);
+    // LegacyColumnBackground: the column light while the key is held.
+    for (const [lane, column] of columns.entries())
+      if (column.light)
+        emit(
+          column.light,
+          column.light.colour,
           13,
           lane,
-          colour,
+          column.light.asset,
+          "mirror",
+          config.lightFramePerSecond,
         );
-      }
-    }
-    if (mania?.KeysUnderNotes === "1") keyLayers();
-    for (let layer = 0; layer < 3; layer++)
-      for (const o of map.objects) {
-        const lane = Math.min(keys - 1, Math.floor((o.x * keys) / 512)),
-          kind =
-            keys % 2 && lane === Math.floor(keys / 2)
-              ? "S"
-              : lane % 2
-                ? "2"
-                : "1",
-          x = positions[lane],
-          w = widths[lane],
-          s = scrollAt(o.time),
-          e = scrollAt(o.endTime),
-          from = o.time - 30000,
-          hold = o.endTime > o.time;
-        const asset =
-          layer === 0
-            ? (mania?.[`NoteImage${lane}L`] ?? `mania-note${kind}L`)
-            : layer === 1
-              ? (mania?.[`NoteImage${lane}T`] ?? `mania-note${kind}T`)
-              : (mania?.[`NoteImage${lane}${hold ? "H" : ""}`] ??
-                `mania-note${kind}${hold ? "H" : ""}`);
-        const tint = lane % 2 ? [0.35, 0.65, 1] : [0.9, 0.9, 0.95];
-        if (layer === 0 && hold)
-          add(
-            x,
+    // LegacyBarLine (BarLineGenerator), centred in DrawableBarLine's one unit
+    // above the bar's time; it fades out over 150 ms once it reaches the hit position.
+    if (layout.barLine.colour[3] > 0 && layout.barLine.height > 0) {
+      const uninherited = map.timing.filter((point) => point.uninherited),
+        firstHit = map.objects.length
+          ? Math.min(...map.objects.map((o) => o.time))
+          : 0,
+        lastHit =
+          1 + map.objects.reduce((end, o) => Math.max(end, o.endTime), 0),
+        generationStart = Math.min(0, firstHit),
+        colour = layout.barLine.colour,
+        height = layout.barLine.height / MANIA_SCALE;
+      for (let i = 0; i < uninherited.length && map.objects.length; i++) {
+        const point = uninherited[i],
+          barLength = point.beatLength * point.meter,
+          end = uninherited[i + 1]?.time ?? lastHit + barLength;
+        if (!(barLength > 0)) continue;
+        let start =
+          point.time > generationStart
+            ? point.time
+            : point.time +
+              Math.ceil((generationStart - point.time) / barLength) * barLength;
+        if (point.effects & 8) start += barLength;
+        for (let t = start; end > t - 1e-3; t += barLength) {
+          const rounded = Math.round(t);
+          if (Math.abs(t - rounded) <= 1e-3) t = rounded;
+          values.push(
+            256,
+            0.5 / MANIA_SCALE,
+            layout.width / MANIA_SCALE,
+            height,
+            t,
+            t + 150,
+            t - 30000,
+            t + 150,
+            colour[0],
+            colour[1],
+            colour[2],
+            colour[3],
+            22,
+            scrollAt(t),
+            0,
             hit,
-            w,
-            12,
-            o.time,
-            o.endTime,
-            from,
-            o.endTime + 120,
-            tint,
+            0,
+            0,
+            0,
+            0,
             4,
-            bodyStyle === 2 ? 14 : 2,
-            s,
-            e,
-            hit,
-            asset,
             0,
             0,
-            bodyStyle > 0 ? -1 : 0,
-          );
-        if (layer === 1 && hold)
-          add(
-            x,
-            hit,
-            w,
-            12,
-            o.endTime,
-            o.endTime,
-            from,
-            o.endTime + 120,
-            tint,
-            4,
-            1,
-            e,
             0,
-            hit,
-            asset,
-          );
-        if (layer === 2)
-          add(
-            x,
-            hit,
-            w,
-            12,
-            o.time,
-            o.endTime,
-            from,
-            o.endTime + 120,
-            tint,
-            4,
-            1,
-            s,
-            0,
-            hit,
-            asset,
-          );
-      }
-    if (mania?.KeysUnderNotes !== "1") keyLayers();
-    for (let lane = 0; lane < keys; lane++)
-      for (const [key, fallback] of [
-        ["LightingN", "lightingN"],
-        ["LightingL", "lightingL"],
-      ]) {
-        const name = mania?.[key] ?? fallback,
-          uv = regions.get(name);
-        if (uv) {
-          const w = Number(
-              mania?.[`${key}Width`]?.split(",")[lane] ?? widths[lane],
-            ),
-            h = (w * (uv.height ?? 1)) / Math.max(0.01, uv.width ?? 1);
-          sprite(
-            name,
-            positions[lane],
-            hit,
-            w,
-            h,
-            key === "LightingN" ? 18 : 19,
-            lane,
           );
         }
       }
-    for (let i = 0; i < map.timing.length; i++) {
-      const t = map.timing[i];
-      if (!t.uninherited) continue;
-      const end =
-        map.timing.slice(i + 1).find((p) => p.uninherited)?.time ??
-        map.duration;
-      for (let time = t.time; time < end; time += t.beatLength * t.meter)
-        if (Number(mania?.BarlineHeight ?? 1) > 0)
-          add(
-            left + total / 2,
-            hit,
-            total,
-            Number(mania?.BarlineHeight ?? 1),
-            time,
-            time,
-            time - 30000,
-            time,
-            [0.3, 0.3, 0.3, 0.5],
-            4,
-            1,
-            scrollAt(time),
-            0,
-            hit,
+    }
+    // LegacyKeyArea, under or over the notes (KeysUnderNotes).
+    const keyLayers = () => {
+      for (const [lane, column] of columns.entries()) {
+        if (column.key)
+          emit(column.key, WHITE, 11, lane, column.key.asset, "mirror");
+        if (column.keyDown)
+          emit(column.keyDown, WHITE, 12, lane, column.keyDown.asset, "mirror");
+      }
+    };
+    if (config.keysUnderNotes) keyLayers();
+    // DrawableHoldNote draws its body, then its tail, then its head; notes
+    // are a single LegacyNotePiece. All of them vanish once hit.
+    const lanes = map.objects.map((o) =>
+      Math.min(keys - 1, Math.max(0, Math.floor((o.x * keys) / 512))),
+    );
+    for (let layer = 0; layer < 3; layer++)
+      for (const [index, o] of map.objects.entries()) {
+        const lane = lanes[index],
+          column = columns[lane],
+          hold = o.endTime > o.time,
+          s = scrollAt(o.time),
+          e = scrollAt(o.endTime),
+          from = o.time - 30000,
+          head = hold ? column.head : column.note;
+        if (layer === 0 && hold && column.body)
+          scrolling(
+            lane,
+            config.noteBodyStyle === 0 ? 2 : 14,
+            s,
+            e,
+            [o.time, o.endTime, from, o.endTime],
+            (head?.height ?? 0) / MANIA_SCALE / 2,
+            (column.tail?.height ?? 0) / MANIA_SCALE / 2,
+            column.body,
+            "mirror",
+            1000 / 30,
           );
-    }
-    const bottom = mania?.StageBottom ?? "mania-stage-bottom",
-      bottomUV = regions.get(bottom);
-    if (bottomUV) {
-      const w = (bottomUV.width ?? 1) * 0.625,
-        h = (bottomUV.height ?? 1) * 0.625;
-      sprite(bottom, left + total / 2, 432 - h / 2, w, h);
-    }
+        if (layer === 1 && hold && column.tail)
+          scrolling(
+            lane,
+            1,
+            e,
+            0,
+            [o.endTime, o.endTime, from, o.endTime],
+            0,
+            column.tail.height / MANIA_SCALE,
+            column.tail.asset,
+            "inverted",
+            60,
+          );
+        if (layer === 2 && head)
+          scrolling(
+            lane,
+            1,
+            s,
+            0,
+            [o.time, o.endTime, from, o.endTime],
+            0,
+            head.height / MANIA_SCALE,
+            head.asset,
+            "mirror",
+            60,
+          );
+      }
+    if (!config.keysUnderNotes) keyLayers();
+    // LegacyStageForeground.
+    if (layout.stageBottom)
+      emit(
+        layout.stageBottom,
+        WHITE,
+        0,
+        0,
+        layout.stageBottom.asset,
+        "none",
+        60,
+      );
+    // Column top level: hit explosions and hold lighting, additive.
+    for (const [lane, column] of columns.entries())
+      for (const [light, motion] of [
+        [column.explosion, 18],
+        [column.holdLight, 19],
+      ] as const)
+        if (light) {
+          const frames = regions.get(light.asset)?.count ?? 1;
+          emit(
+            light,
+            WHITE,
+            motion,
+            lane,
+            light.asset,
+            "additive",
+            Math.min(60, (frames * 1000) / 170),
+          );
+        }
   } else if (map.mode === 1) {
     add(336, 135, 480, 96, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
     if (regions.has("taiko-slider"))

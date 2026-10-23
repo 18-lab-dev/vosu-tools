@@ -16,6 +16,7 @@
  * those divided by 1.6 (lazer's legacy POSITION_SCALE_FACTOR).
  */
 import type { Skin, SkinStyle } from "./skin";
+import { fallbackColumnIndex } from "./mania";
 
 export type BuiltinSkinName = "legacy" | "triangles" | "argon" | "argon-pro";
 export const builtinSkinNames: readonly BuiltinSkinName[] = [
@@ -523,10 +524,25 @@ interface ManiaFamily {
   background(accent: RGB): [RGB, number];
   note(accent: RGB, kind: "note" | "head" | "tail"): ImageBitmap;
   body(accent: RGB): ImageBitmap;
+  /** Key area; its logical height is its height in lazer units (LegacyKeyArea). */
   key(accent: RGB, pressed: boolean): ImageBitmap;
-  hint: ImageBitmap;
+  /** Hit target, drawn `HINT_SCALE` times as tall as its logical height (LegacyHitTarget). */
+  hint?: ImageBitmap;
+  /**
+   * The classic skin: column lines, a judgement line (its hit target), and
+   * the default element names other skins fall back to.
+   */
+  classic: boolean;
   light?: (accent: RGB) => RGB;
 }
+/** LegacyHitTarget's vertical scale of the hint image. */
+const HINT_SCALE = 0.9 * 1.6025;
+/** Draws a hit target that appears `h` lazer units tall once scaled. */
+const hint = (w: number, h: number, paint: (g: Context) => void) =>
+  draw(w, h / HINT_SCALE, (g) => {
+    g.scale(1, 1 / HINT_SCALE);
+    paint(g);
+  });
 const special = (keys: number, column: number) =>
   keys % 2 === 1 && column === (keys - 1) / 2;
 
@@ -661,9 +677,10 @@ function argonMania(): ManiaFamily {
         for (const dx of [-7, 0, 7])
           disc(g, W / 2 + dx, 46, 3, pressed ? "#ffffff" : css(accent, 0.6));
       }),
-    hint: draw(W * 4, H * 0.82, (g) =>
+    hint: hint(W * 4, H * 0.82, (g) =>
       roundRect(g, 0, 0, W * 4, H * 0.82, R, "rgba(255,255,255,0.3)"),
     ),
+    classic: false,
     light: (accent) => accent,
   };
 }
@@ -738,9 +755,10 @@ function trianglesMania(): ManiaFamily {
           css(lighten(accent, 0.9), pressed ? 1 : 0.6),
         );
       }),
-    hint: draw(320, 8, (g) =>
+    hint: hint(320, 8, (g) =>
       roundRect(g, 0, 2, 320, 4, 0, "rgba(255,255,255,0.6)"),
     ),
+    classic: false,
     light: (accent) => lighten(accent, 0.9),
   };
 }
@@ -755,8 +773,9 @@ function legacyMania(): ManiaFamily {
     width: () => 30,
     hitPosition: 402,
     spacing: 0,
+    // White / blue by distance to the stage edge, yellow centre (FallbackColumnIndex 1 / 2 / S).
     colour: (keys, column) =>
-      special(keys, column) ? yellow : column % 2 ? blue : white,
+      ({ "1": white, "2": blue, S: yellow })[fallbackColumnIndex(keys, column)],
     background: () => [rgb(0, 0, 0), 1],
     note: (accent, kind) =>
       draw(30, 10, (g) => {
@@ -778,9 +797,10 @@ function legacyMania(): ManiaFamily {
       }),
     body: (accent) =>
       draw(30, 30, (g) => roundRect(g, 3, 0, 24, 30, 0, css(accent, 0.75))),
-    // From HitPosition 402 to the stage's bottom edge (78 legacy units).
+    // From HitPosition 402 to the stage's bottom edge: 78 legacy units, 124.8 lazer.
     key: (accent, pressed) =>
-      draw(30, 78, (g) => {
+      draw(30, 78 * 1.6, (g) => {
+        g.scale(1, 1.6);
         roundRect(
           g,
           1,
@@ -805,9 +825,7 @@ function legacyMania(): ManiaFamily {
         );
         roundRect(g, 4, 6, 22, 4, 2, "rgba(255,255,255,0.35)");
       }),
-    hint: draw(120, 6, (g) =>
-      roundRect(g, 0, 2, 120, 2, 0, "rgba(255,255,255,0.9)"),
-    ),
+    classic: true,
   };
 }
 
@@ -821,7 +839,24 @@ function maniaSkin(b: Builder, family: ManiaFamily) {
     }
     return name;
   };
-  b.set("mania-stage-hint", family.hint);
+  if (family.hint) b.set("mania-stage-hint", family.hint);
+  if (family.classic) {
+    // Default element names, so skins that name none of their own (or lack
+    // some) fall back to the classic look as lazer falls back to its classic skin.
+    const accents = [
+      ["1", family.colour(4, 0)],
+      ["2", family.colour(4, 1)],
+      ["S", family.colour(3, 1)],
+    ] as const;
+    for (const [index, accent] of accents) {
+      b.set(`mania-note${index}`, family.note(accent, "note"));
+      b.set(`mania-note${index}H`, family.note(accent, "head"));
+      b.set(`mania-note${index}T`, family.note(accent, "tail"));
+      b.set(`mania-note${index}L`, family.body(accent));
+      b.set(`mania-key${index}`, family.key(accent, false));
+      b.set(`mania-key${index}D`, family.key(accent, true));
+    }
+  }
   const blocks: Record<string, string>[] = [];
   for (let keys = 1; keys <= 18; keys++) {
     const section: Record<string, string> = {
@@ -829,6 +864,7 @@ function maniaSkin(b: Builder, family: ManiaFamily) {
       HitPosition: String(family.hitPosition),
       NoteBodyStyle: "0",
       KeysUnderNotes: "0",
+      JudgementLine: family.classic ? "1" : "0",
       ColumnWidth: Array.from({ length: keys }, (_, c) =>
         family.width(keys, c).toFixed(3),
       ).join(","),
@@ -836,10 +872,16 @@ function maniaSkin(b: Builder, family: ManiaFamily) {
         family.spacing.toFixed(3),
       ).join(","),
     };
+    if (!family.classic)
+      section.ColumnLineWidth = Array.from(
+        { length: keys + 1 },
+        () => "0",
+      ).join(",");
     for (let c = 0; c < keys; c++) {
       const accent = family.colour(keys, c),
         [background, alpha] = family.background(accent);
-      section[`Colour${c + 1}`] = ini(background, alpha);
+      // Column backgrounds are drawn with their alpha applied twice.
+      section[`Colour${c + 1}`] = ini(background, Math.sqrt(alpha));
       if (family.light)
         section[`ColourLight${c + 1}`] = ini(family.light(accent))
           .split(",")

@@ -1,0 +1,200 @@
+{
+  "skins": [
+    {
+      "name": "metrics",
+      "ini": "[General]\nName: metrics\nVersion: 2.7\n\n[Mania]\nKeys: 4\nColumnWidth: 40,50,60,45\nColumnSpacing: 5,0,10\nColumnLineWidth: 1,2,3,0,4\nHitPosition: 420\nLightPosition: 400\nWidthForNoteHeightScale: 35\nNoteBodyStyle: 0\nJudgementLine: 1\nColourJudgementLine: 255,0,0,0\nColour1: 20,30,40,200\nColour2: 50,60,70,128\nColour3: 0,0,0,0\nColour4: 255,255,255,64\nColourColumnLine: 0,255,0,128\nColourLight1: 255,0,0\nColourBarline: 255,255,0,200\nBarlineHeight: 3\nKeysUnderNotes: 1\nLightingNWidth: 60,0,0,30\nLightingLWidth: 0,80,0,0\nStageLeft: stage\\left\nStageRight: stage/right.png\nStageBottom: stage/bottom\nStageHint: stage/hint\nStageLight: stage/light\nLightingN: light/n\nLightingL: light/l\nKeyImage0: keys/k0\nKeyImage1: keys/k1\nKeyImage2: keys/k2\nKeyImage3: keys/k3\nKeyImage0D: keys/k0d\nKeyImage1D: keys/k1d\nKeyImage2D: keys/k2d\nKeyImage3D: keys/missing\nNoteImage0: notes/n0\nNoteImage1: notes/n1\nNoteImage2: notes/n2\nNoteImage3: notes/n3\nNoteImage0H: notes/h0\nNoteImage1H: notes/h1\nNoteImage2H: notes/h2\nNoteImage3H: notes/missing\nNoteImage0T: notes/t0\nNoteImage1T: notes/t1\nNoteImage2T: notes/missing\nNoteImage0L: notes/b0\nNoteImage1L: notes/b1\nNoteImage2L: notes/b2\nNoteImage3L: notes/b3\n",
+      "files": {
+        "stage/left.png": [24, 100],
+        "stage/right@2x.png": [40, 200],
+        "stage/bottom.png": [200, 30],
+        "stage/hint@2x.png": [300, 20],
+        "stage/light.png": [32, 280],
+        "light/n@2x.png": [128, 128],
+        "light/l.png": [90, 60],
+        "keys/k0.png": [40, 90],
+        "keys/k1@2x.png": [100, 240],
+        "keys/k2.png": [64, 64],
+        "keys/k3.png": [45, 110],
+        "keys/k0d.png": [40, 70],
+        "keys/k1d@2x.png": [100, 200],
+        "keys/k2d.png": [64, 80],
+        "notes/n0.png": [40, 20],
+        "notes/n1@2x.png": [100, 40],
+        "notes/n2.png": [60, 60],
+        "notes/n3.png": [90, 30],
+        "notes/h0.png": [40, 30],
+        "notes/h1.png": [50, 15],
+        "notes/h2@2x.png": [120, 48],
+        "notes/t0.png": [40, 12],
+        "notes/t1.png": [80, 40],
+        "notes/b0.png": [40, 200],
+        "notes/b1@2x.png": [100, 600],
+        "notes/b2.png": [60, 16],
+        "notes/b3.png": [45, 45]
+      }
+    },
+    {
+      "name": "defaults",
+      "ini": "[General]\nName: defaults\nVersion: 2.0\n\n[Mania]\nKeys: 4\nColumnWidth: 99,99,99,99\n",
+      "files": {
+        "mania-stage-left.png": [20, 480],
+        "mania-stage-right.png": [16, 480],
+        "mania-stage-bottom@2x.png": [400, 60],
+        "mania-stage-hint.png": [128, 8],
+        "mania-stage-light.png": [30, 240],
+        "lightingN.png": [100, 100],
+        "lightingL.png": [80, 120],
+        "mania-key1.png": [30, 70],
+        "mania-key1D.png": [30, 70],
+        "mania-key2.png": [30, 80],
+        "mania-key2D.png": [30, 80],
+        "mania-keyS.png": [30, 90],
+        "mania-keySD.png": [30, 90],
+        "mania-note1.png": [30, 12],
+        "mania-note1H.png": [30, 14],
+        "mania-note1L.png": [30, 64],
+        "mania-note1T.png": [30, 10],
+        "mania-note2.png": [30, 16],
+        "mania-note2H.png": [30, 18],
+        "mania-note2L.png": [30, 32],
+        "mania-note2T.png": [30, 8],
+        "mania-noteS.png": [30, 20],
+        "mania-noteSH.png": [30, 22],
+        "mania-noteSL.png": [30, 48],
+        "mania-noteST.png": [30, 6]
+      }
+    },
+    {
+      "name": "repeat",
+      "ini": "[General]\nName: repeat\nVersion: 2.5\n\n[Mania]\nHitPosition: 200\nKeys: 5\nColumnWidth: 50,50,70,50,50\nColumnSpacing: 0,3,3,0\nColumnLineWidth: 2,abc,3,1,1,2\nJudgementLine: 0\nColour3: 10,10,40,255\nNoteImage2L: body/centre\nNoteImage0L: body/side\nNoteImage4L: body/side\nNoteImage1L: body/inner\nNoteImage3L: body/inner\n\n[Mania]\nKeys: 5\nColumnWidth: 1,1,1,1,1\n",
+      "files": {
+        "mania-key1@2x.png": [100, 300],
+        "mania-key1D@2x.png": [100, 280],
+        "mania-key2@2x.png": [100, 300],
+        "mania-key2D@2x.png": [100, 280],
+        "mania-keyS@2x.png": [140, 320],
+        "mania-keySD@2x.png": [140, 300],
+        "mania-note1@2x.png": [100, 40],
+        "mania-note2@2x.png": [100, 50],
+        "mania-noteS@2x.png": [140, 70],
+        "mania-note1H@2x.png": [100, 44],
+        "mania-note2H@2x.png": [100, 36],
+        "mania-noteSH@2x.png": [140, 60],
+        "mania-note1T@2x.png": [100, 30],
+        "mania-note2T.png": [50, 10],
+        "mania-noteST@2x.png": [140, 20],
+        "mania-stage-left@2x.png": [30, 400],
+        "mania-stage-right.png": [12, 300],
+        "mania-stage-hint@2x.png": [256, 24],
+        "mania-stage-light@2x.png": [64, 512],
+        "lightingL@2x.png": [200, 200],
+        "body/side.png": [50, 4000],
+        "body/inner@2x.png": [100, 9000],
+        "body/centre.png": [70, 70],
+        "lightingN@2x.png": [256, 256]
+      }
+    }
+  ],
+  "cases": [
+    {
+      "name": "metrics-down",
+      "skin": "metrics",
+      "keys": 4,
+      "direction": "down",
+      "scrollSpeed": 20,
+      "time": 2000,
+      "objects": [
+        { "column": 0, "start": 1600, "end": 2400 },
+        { "column": 1, "start": 1800, "end": 2500 },
+        { "column": 2, "start": 1900, "end": 2300 },
+        { "column": 3, "start": 1950, "end": 2700 },
+        { "column": 0, "start": 2600 },
+        { "column": 1, "start": 2700, "end": 3000 },
+        { "column": 2, "start": 2450 },
+        { "column": 3, "start": 2800 }
+      ]
+    },
+    {
+      "name": "metrics-up",
+      "skin": "metrics",
+      "keys": 4,
+      "direction": "up",
+      "scrollSpeed": 20,
+      "time": 2000,
+      "objects": [
+        { "column": 0, "start": 1600, "end": 2400 },
+        { "column": 1, "start": 1800, "end": 2500 },
+        { "column": 2, "start": 1900, "end": 2300 },
+        { "column": 3, "start": 1950, "end": 2700 },
+        { "column": 0, "start": 2600 },
+        { "column": 1, "start": 2700, "end": 3000 },
+        { "column": 2, "start": 2450 },
+        { "column": 3, "start": 2800 }
+      ]
+    },
+    {
+      "name": "defaults-7k-down",
+      "skin": "defaults",
+      "keys": 7,
+      "direction": "down",
+      "scrollSpeed": 26,
+      "time": 3000,
+      "objects": [
+        { "column": 0, "start": 2800, "end": 3500 },
+        { "column": 1, "start": 3200 },
+        { "column": 2, "start": 2900, "end": 3300 },
+        { "column": 3, "start": 2950, "end": 3600 },
+        { "column": 4, "start": 3250 },
+        { "column": 5, "start": 3400, "end": 3700 },
+        { "column": 6, "start": 3100 }
+      ]
+    },
+    {
+      "name": "defaults-7k-up",
+      "skin": "defaults",
+      "keys": 7,
+      "direction": "up",
+      "scrollSpeed": 26,
+      "time": 3000,
+      "objects": [
+        { "column": 0, "start": 2800, "end": 3500 },
+        { "column": 1, "start": 3200 },
+        { "column": 2, "start": 2900, "end": 3300 },
+        { "column": 3, "start": 2950, "end": 3600 },
+        { "column": 4, "start": 3250 },
+        { "column": 5, "start": 3400, "end": 3700 },
+        { "column": 6, "start": 3100 }
+      ]
+    },
+    {
+      "name": "repeat-5k-down",
+      "skin": "repeat",
+      "keys": 5,
+      "direction": "down",
+      "scrollSpeed": 15,
+      "time": 4000,
+      "objects": [
+        { "column": 0, "start": 3500, "end": 5000 },
+        { "column": 1, "start": 3900, "end": 4300 },
+        { "column": 2, "start": 3800, "end": 4800 },
+        { "column": 3, "start": 4200, "end": 4600 },
+        { "column": 4, "start": 4100 }
+      ]
+    },
+    {
+      "name": "repeat-5k-up",
+      "skin": "repeat",
+      "keys": 5,
+      "direction": "up",
+      "scrollSpeed": 15,
+      "time": 4000,
+      "objects": [
+        { "column": 0, "start": 3500, "end": 5000 },
+        { "column": 1, "start": 3900, "end": 4300 },
+        { "column": 2, "start": 3800, "end": 4800 },
+        { "column": 3, "start": 4200, "end": 4600 },
+        { "column": 4, "start": 4100 }
+      ]
+    }
+  ]
+}
