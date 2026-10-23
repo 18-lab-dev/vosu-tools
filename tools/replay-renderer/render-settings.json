@@ -81,20 +81,20 @@
   },
   {
     "key": "playfield.x",
-    "label": "Horizontal offset (viewport fraction)",
+    "label": "Horizontal offset (cell widths)",
     "modes": [0, 1, 2, 3],
-    "min": -1,
-    "max": 1,
+    "min": -4,
+    "max": 4,
     "step": 0.01,
     "default": 0,
     "control": "number"
   },
   {
     "key": "playfield.y",
-    "label": "Vertical offset (viewport fraction)",
+    "label": "Vertical offset (cell heights)",
     "modes": [0, 1, 2, 3],
-    "min": -1,
-    "max": 1,
+    "min": -4,
+    "max": 4,
     "step": 0.01,
     "default": 0,
     "control": "number"

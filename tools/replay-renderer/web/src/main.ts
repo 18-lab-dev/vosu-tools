@@ -11,8 +11,9 @@ import {
 } from "./studio";
 import "./style.css";
 import settingSchema from "../../render-settings.json";
-import { OverlayEditor } from "./overlay-layout";
-import { SkinLibrary } from "./skins";
+import { OverlayEditor, type InstalledOverlay, type Layer } from "./overlay-layout";
+import { LayoutEditor } from "./editor";
+import { SkinLibrary, type SkinContext } from "./skins";
 import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
 import { SizePicker, parseSize, type SizeStore } from "./sizes";
 
@@ -67,6 +68,7 @@ function refreshComposition() {
     time = 0;
     el<HTMLInputElement>("seek").value = "0";
     el("preview").innerHTML = emptyPreview;
+    editor.render();
     el("duration").textContent = timecode(0);
     return;
   }
@@ -75,13 +77,14 @@ function refreshComposition() {
   const scale = Math.min(1, 1920 / Math.max(outW, outH));
   const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
   const [width, height] = [even(outW), even(outH)];
-  el("preview").style.setProperty("--ar", `${outW} / ${outH}`);
+  el("gate").style.setProperty("--ar", `${outW} / ${outH}`);
   const layout = el<HTMLSelectElement>("layout").value as Layout;
   composition = new Composition(tracks, width, height, layout);
   composition.validate();
   el("preview").replaceChildren(composition.canvas);
   el<HTMLInputElement>("seek").max = String(composition.duration);
   el("duration").textContent = timecode(composition.duration);
+  editor.render();
 }
 let swapping = 0;
 /** Applies a track/composition change between preview frames, so an in-flight
@@ -204,8 +207,9 @@ function settingsEditor(track: Track) {
   grid.className = "settings-grid";
   details.append(summary, grid);
   const controls: Record<string, HTMLInputElement> = {};
-  for (const rule of settingSchema.filter((rule) =>
-    rule.modes.includes(track.replay.mode),
+  // Playfield position and size are edited in the preview's layout editor.
+  for (const rule of settingSchema.filter(
+    (rule) => rule.modes.includes(track.replay.mode) && !rule.key.startsWith("playfield."),
   )) {
     const label = document.createElement("label"),
       caption = document.createElement("span"),
@@ -419,8 +423,71 @@ function setLink(state: LinkState) {
   el("link-dot").dataset.state = state === "open" ? "ok" : state === "connecting" ? "busy" : "warn";
   el("link").textContent = { connecting: "Connecting", open: "Live", closed: "Offline" }[state];
 }
+/** While lazer's library is still reading its database, asks again every three
+ *  seconds (for up to two minutes) so its skins appear in the track menus. */
+async function followLazerSkins(context: SkinContext & { lazer_library?: string }, attempts = 40) {
+  if (context.lazer_library !== "loading" || attempts <= 0) return;
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  const next = await (await fetcher("v1/context")).json();
+  skins.update(next);
+  if ((next.lazer_skins?.length ?? 0) !== (context.lazer_skins?.length ?? 0)) renderTracks();
+  return followLazerSkins(next, attempts - 1);
+}
 await vosu.ready;
-const overlayEditor = new OverlayEditor(el("overlay-layout"));
+/** Page sizes the overlay had when it was last committed, to remember changes. */
+const remembered = new WeakMap<Layer, string>();
+const overlayEditor: OverlayEditor = new OverlayEditor(el("overlay-layout"), {
+  changed: () => editor.render(),
+  select: (layer) => editor.select({ kind: "overlay", layer }),
+  selected: () => (editor.selected?.kind === "overlay" ? editor.selected.layer : null),
+});
+const field = (id: string) => el<HTMLInputElement>(id);
+const editor: LayoutEditor = new LayoutEditor(
+  el("gate"),
+  {
+    root: el("inspector"),
+    title: el("inspector-title"),
+    reset: el<HTMLButtonElement>("layout-reset"),
+    fields: {
+      x: field("lay-x"),
+      y: field("lay-y"),
+      w: field("lay-w"),
+      h: field("lay-h"),
+      scale: field("lay-scale"),
+      opacity: field("lay-opacity"),
+    },
+  },
+  {
+    output: () => sizes.size,
+    layout: () => el<HTMLSelectElement>("layout").value as Layout,
+    tracks: () => tracks,
+    layers: () => overlayEditor.layers,
+    changed(item, commit) {
+      if (!commit) return;
+      if (item.kind === "playfield") {
+        // Render targets follow the new scale; until then frames are resampled.
+        betweenFrames(() => composition?.retarget()).catch(report);
+        return;
+      }
+      const { layer } = item,
+        page = `${layer.width}x${layer.height}`;
+      if (layer.id && vosu.canWrite && remembered.get(layer) !== page) {
+        remembered.set(layer, page);
+        fetcher("v1/sizes/overlay", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: layer.id, width: layer.width, height: layer.height }),
+        }).catch(report);
+      }
+    },
+    selected(item) {
+      el("layout-empty").hidden = !!item;
+      el<HTMLButtonElement>("layout-reset").disabled = !item;
+      overlayEditor.render();
+    },
+  },
+);
+el<HTMLButtonElement>("layout-reset").disabled = true;
 sizes.canWrite = vosu.canWrite;
 refreshComposition();
 renderTracks();
@@ -434,6 +501,7 @@ if (!vosu.canWrite) {
   try {
     const context = await (await fetcher("v1/context")).json();
     skins.update(context);
+    void followLazerSkins(context).catch(report);
     defaultSettings = context.default_settings;
     const defaults = context.defaults as {
       fps: number;
@@ -450,6 +518,14 @@ if (!vosu.canWrite) {
     presets = await (await fetcher("v1/presets")).json();
     library.follow(vosu.subscribe.bind(vosu), setLink);
     library.show("map");
+    // Optional: without the listing, overlays are added as custom folders.
+    fetcher("v1/overlays")
+      .then((response) => response.json() as Promise<{ overlays: InstalledOverlay[] }>)
+      .then(({ overlays }) => {
+        overlayEditor.setInstalled(overlays);
+        editor.render();
+      })
+      .catch(report);
   } catch (error) {
     report(error);
   }

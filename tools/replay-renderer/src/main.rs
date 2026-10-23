@@ -215,6 +215,8 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/replays/{id}", get(replay_file))
         .route("/v1/sizes", get(output::get_sizes).post(output::save_size))
         .route("/v1/sizes/last", post(output::set_last))
+        .route("/v1/sizes/overlay", post(output::set_overlay_size))
+        .route("/v1/overlays", get(output::installed_overlays))
         .route(
             "/v1/sizes/{name}",
             axum::routing::delete(output::delete_size),
@@ -245,7 +247,7 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                 if as_json {
                     println!(
                         "{}",
-                        json!({"current":value["current_skin"],"installed":value["skins"],"imported":value["imported_skins"]})
+                        json!({"current":value["current_skin"],"installed":value["skins"],"imported":value["imported_skins"],"lazer":value["lazer_skins"],"builtin":["argon","argon-pro","triangles","legacy"]})
                     );
                 } else {
                     let mut rows = vec![vec![
@@ -268,6 +270,29 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                                 name.to_owned(),
                             ]);
                         }
+                    }
+                    for skin in value["lazer_skins"].as_array().into_iter().flatten() {
+                        rows.push(vec![
+                            format!(
+                                "{}{}",
+                                skins::LAZER,
+                                skin["id"].as_str().unwrap_or_default()
+                            ),
+                            "lazer".to_owned(),
+                            skin["name"].as_str().unwrap_or_default().to_owned(),
+                        ]);
+                    }
+                    for (id, name) in [
+                        ("argon", "Argon"),
+                        ("argon-pro", "Argon Pro"),
+                        ("triangles", "Triangles"),
+                        ("legacy", "Classic"),
+                    ] {
+                        rows.push(vec![
+                            format!("{}{id}", skins::BUILTIN),
+                            "built-in".to_owned(),
+                            name.to_owned(),
+                        ]);
                     }
                     print!(
                         "{}",
@@ -531,6 +556,13 @@ async fn context(State(app): State<App>) -> Result<Json<Value>, Error> {
     skins.sort();
     value["skins"] = json!(skins);
     value["imported_skins"] = json!(skins::imported_names(&app));
+    // "loading" covers a library still reading lazer's database: the studio asks again.
+    value["lazer_library"] = json!(match library::lazer(&app).await {
+        library::Lazer::Ready { .. } => "ready",
+        library::Lazer::NoData(_) => "loading",
+        library::Lazer::Missing => "missing",
+    });
+    value["lazer_skins"] = json!(library::lazer_skins(&app).await);
     value["current_skin"] = skins::current(&app, &value).await.describe();
     Ok(Json(value))
 }
@@ -633,6 +665,12 @@ async fn asset(
                 &skins::imported_root(&app),
                 skins::valid_name(&name[skins::IMPORTED.len()..])?,
             )?,
+            Some(name) if name.starts_with(skins::LAZER) => {
+                return library::lazer_skin_file(&app, &name[skins::LAZER.len()..], file).await;
+            }
+            Some(name) if name.starts_with(skins::BUILTIN) => {
+                return Err(error("Built-in skins are drawn, not read from files"));
+            }
             Some(name) => {
                 let ctx = host_context(&app).await?;
                 let osu = ctx["osu_dir"]

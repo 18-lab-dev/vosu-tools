@@ -11,10 +11,64 @@ interface CurrentSkin {
   name: string | null;
   builtin: string | null;
 }
+/** A skin in lazer's library (`lazer-library` `/v1/skins`, files only). */
+export interface LazerSkin {
+  id: string;
+  name: string;
+  creator: string | null;
+}
 export interface SkinContext {
   skins: string[];
   imported_skins: string[];
+  lazer_skins?: LazerSkin[];
   current_skin: CurrentSkin;
+}
+/** Skin value prefixes: lazer library skins and render-core's drawn looks. */
+export const LAZER = "lazer/";
+export const BUILTIN = "builtin/";
+const BUILTIN_LOOKS: [string, string][] = [
+  ["argon", "Argon"],
+  ["argon-pro", "Argon Pro"],
+  ["triangles", "Triangles"],
+  ["legacy", "Classic"],
+];
+export interface SkinGroup {
+  /** Empty for the ungrouped "current skin" entry. */
+  label: string;
+  options: { value: string; label: string }[];
+}
+/** Every skin a track can use, grouped as the per-track menu shows them. */
+export function skinGroups(context: SkinContext): SkinGroup[] {
+  const current = context.current_skin;
+  const currentLabel =
+    current.source === "folder" || current.source === "vosu"
+      ? `Current · ${current.name ?? "unnamed"}`
+      : current.source === "builtin"
+        ? `Current · ${BUILTIN_LOOKS.find(([id]) => id === current.builtin)?.[1] ?? current.builtin} (built-in)`
+        : "Current · none (classic)";
+  const groups: SkinGroup[] = [
+    { label: "", options: [{ value: "", label: currentLabel }] },
+    {
+      label: "lazer",
+      options: (context.lazer_skins ?? []).map((skin) => ({
+        value: LAZER + skin.id,
+        label: skin.creator ? `${skin.name} (${skin.creator})` : skin.name,
+      })),
+    },
+    {
+      label: "osu! Skins folder",
+      options: context.skins.map((name) => ({ value: name, label: name })),
+    },
+    {
+      label: "Imported .osk",
+      options: context.imported_skins.map((name) => ({ value: IMPORTED + name, label: name })),
+    },
+    {
+      label: "Built-in",
+      options: BUILTIN_LOOKS.map(([id, label]) => ({ value: BUILTIN + id, label })),
+    },
+  ];
+  return groups.filter((group) => group.options.length);
 }
 interface View {
   current: HTMLElement;
@@ -28,6 +82,7 @@ export class SkinLibrary {
   private installed: string[] = [];
   private imported: string[] = [];
   private current: CurrentSkin = { source: "none", name: null, builtin: null };
+  private lazer: LazerSkin[] = [];
   constructor(
     private view: View,
     private fetcher: Fetcher,
@@ -43,6 +98,7 @@ export class SkinLibrary {
   update(context: SkinContext) {
     this.installed = context.skins;
     this.imported = context.imported_skins;
+    this.lazer = context.lazer_skins ?? [];
     this.current = context.current_skin;
     this.render();
     this.changed();
@@ -53,9 +109,17 @@ export class SkinLibrary {
   /** Whether a preset's skin still exists; empty means the current skin. */
   available(value: string | null | undefined) {
     if (!value) return true;
-    return value.startsWith(IMPORTED)
-      ? this.imported.includes(value.slice(IMPORTED.length))
-      : this.installed.includes(value);
+    return skinGroups(this.context()).some((group) =>
+      group.options.some((option) => option.value === value),
+    );
+  }
+  private context(): SkinContext {
+    return {
+      skins: this.installed,
+      imported_skins: this.imported,
+      lazer_skins: this.lazer,
+      current_skin: this.current,
+    };
   }
   /** lazer built-in id to draw for Current skin tracks, if any. */
   get builtin() {
@@ -70,32 +134,16 @@ export class SkinLibrary {
   select(value: string) {
     const select = document.createElement("select");
     select.className = "v-select";
-    select.add(new Option(this.currentLabel(), ""));
-    for (const [label, names, prefix] of [
-      ["osu! Skins folder", this.installed, ""],
-      ["Imported .osk", this.imported, IMPORTED],
-    ] as const) {
-      if (!names.length) continue;
-      const group = document.createElement("optgroup");
-      group.label = label;
-      for (const name of names) group.append(new Option(name, prefix + name));
-      select.append(group);
+    for (const { label, options } of skinGroups(this.context())) {
+      const parent = label ? document.createElement("optgroup") : select;
+      if (parent instanceof HTMLOptGroupElement) parent.label = label;
+      for (const option of options) parent.append(new Option(option.label, option.value));
+      if (parent !== select) select.append(parent);
     }
     if (!this.available(value))
       select.add(new Option(`${value} (missing)`, value));
     select.value = value;
     return select;
-  }
-  private currentLabel() {
-    switch (this.current.source) {
-      case "folder":
-      case "vosu":
-        return `Current · ${this.current.name ?? "unnamed"}`;
-      case "builtin":
-        return `Current · ${this.current.builtin} (built-in)`;
-      default:
-        return "Current · none (classic)";
-    }
   }
   private render() {
     const { current } = this;

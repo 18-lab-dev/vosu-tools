@@ -127,6 +127,63 @@ async fn lazer_get(app: &App, path: &str) -> Result<Option<Value>, Error> {
     Ok(Some(response.json().await.map_err(error)?))
 }
 
+/// lazer's file skins from the library (`[{id, name, creator}]`); built-in
+/// looks are listed by the studio itself. Empty when the library is missing.
+pub(super) async fn lazer_skins(app: &App) -> Vec<Value> {
+    let Ok(Some(listing)) = lazer_get(app, "v1/skins").await else {
+        return Vec::new();
+    };
+    let mut skins = listing["skins"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|skin| {
+            skin["builtin"].is_null() && valid_skin_id(skin["id"].as_str().unwrap_or(""))
+        })
+        .map(|skin| json!({"id": skin["id"], "name": skin["name"], "creator": skin["creator"]}))
+        .collect::<Vec<_>>();
+    skins.sort_by_key(|skin| skin["name"].as_str().unwrap_or("").to_lowercase());
+    skins
+}
+
+/// Library skin ids are GUIDs; anything else never reaches a URL.
+pub(super) fn valid_skin_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// One file of a lazer skin, by its in-skin name (case-insensitive in the library).
+pub(super) async fn lazer_skin_file(app: &App, id: &str, path: &str) -> Result<Bytes, Error> {
+    if !valid_skin_id(id) {
+        return Err(error("Invalid lazer skin id"));
+    }
+    let relative = FsPath::new(path);
+    if path.is_empty()
+        || path.contains('\\')
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(error("Invalid relative asset path"));
+    }
+    let encoded = path.split('/').map(encode).collect::<Vec<_>>().join("/");
+    let response = lazer_request(app, &format!("v1/skins/{id}/file/{encoded}"))
+        .await
+        .map_err(error)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("{path} is not in this lazer skin")})),
+        ));
+    }
+    if !response.status().is_success() {
+        return Err(error(format!(
+            "Lazer library answered {} for skin file {path}",
+            response.status()
+        )));
+    }
+    response.bytes().await.map_err(error)
+}
+
 /// Paths reported by the library must stay inside lazer's file store.
 fn store_path(root: &FsPath, path: Option<&str>) -> Option<PathBuf> {
     let path = FsPath::new(path?).canonicalize().ok()?;
@@ -715,6 +772,36 @@ mod tests {
                                 "mods":"[]","total_score":900000,"date":"2026-05-30T12:00:00+00:00","replay_hash":"ab3hash","replay_path":replay}]}))
                         }
                     }),
+                )
+                .route(
+                    "/tools/lazer-library/api/v1/skins",
+                    get(|| async {
+                        Json(json!({"skins":[
+                            {"id":"argon","name":"osu! (argon)","creator":"team osu!","builtin":"argon","files":0},
+                            {"id":"5d3a-77","name":"zeta","creator":"me","builtin":null,"files":3},
+                            {"id":"a1b2-c3","name":"Alpha","creator":null,"builtin":null,"files":9},
+                            {"id":"../bad","name":"bad","creator":null,"builtin":null,"files":1}]}))
+                    }),
+                )
+                .route(
+                    "/tools/lazer-library/api/v1/skins/{id}/file/{*name}",
+                    get(|Path((id, name)): Path<(String, String)>| async move {
+                        if id == "a1b2-c3" && name.eq_ignore_ascii_case("mania-key1@2x.png") {
+                            Ok(Bytes::from_static(b"key"))
+                        } else {
+                            Err(StatusCode::NOT_FOUND)
+                        }
+                    }),
+                )
+                .route(
+                    "/tools/_host/v1/overlays",
+                    get(|| async {
+                        Json(json!({"overlays":[
+                            {"id":"accuracy by sxlvia","name":"accuracy","nickname":null,"alias":null,"author":"sxlvia","version":"1.0.0",
+                             "folder":"/static/accuracy by sxlvia","width":180,"height":80},
+                            {"id":"iq-display","name":"IQ Display","nickname":"Brain","alias":"iq","author":null,"version":null,
+                             "folder":"/static/iq-display","width":null,"height":null}]}))
+                    }),
                 );
         }
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -828,6 +915,115 @@ mod tests {
         // Exported lazer replays still list without the library tool.
         let listed = list(State(app), Query(BTreeMap::new())).await.unwrap().0;
         assert_eq!(listed["replays"].as_array().unwrap().len(), 2);
+        server.abort();
+        std::fs::remove_dir_all(fixture.base).unwrap();
+    }
+    #[tokio::test]
+    async fn lazer_skins_list_and_serve_files() {
+        let fixture = lazer_fixture();
+        let (url, server) = fake_vosu(&fixture, true).await;
+        let app = app_for(url, fixture.base.join("tool"));
+        let skins = lazer_skins(&app).await;
+        // Built-in looks and unsafe ids are left out; names sort case-insensitively.
+        assert_eq!(
+            skins,
+            vec![
+                json!({"id":"a1b2-c3","name":"Alpha","creator":null}),
+                json!({"id":"5d3a-77","name":"zeta","creator":"me"}),
+            ]
+        );
+        let file = crate::asset(
+            State(app.clone()),
+            Query(BTreeMap::from([
+                ("kind".into(), "skin".into()),
+                ("skin".into(), "lazer/a1b2-c3".into()),
+                ("path".into(), "Mania-Key1@2x.png".into()),
+            ])),
+        )
+        .await
+        .unwrap();
+        assert_eq!(&file[..], b"key");
+        let missing = lazer_skin_file(&app, "a1b2-c3", "cursor.png")
+            .await
+            .unwrap_err();
+        assert_eq!(missing.0, StatusCode::NOT_FOUND);
+        assert!(lazer_skin_file(&app, "../x", "cursor.png").await.is_err());
+        assert!(
+            lazer_skin_file(&app, "a1b2-c3", "../client.realm")
+                .await
+                .is_err()
+        );
+        let drawn = crate::asset(
+            State(app),
+            Query(BTreeMap::from([
+                ("kind".into(), "skin".into()),
+                ("skin".into(), "builtin/argon".into()),
+                ("path".into(), "skin.ini".into()),
+            ])),
+        )
+        .await;
+        assert!(drawn.is_err());
+        server.abort();
+        std::fs::remove_dir_all(fixture.base).unwrap();
+    }
+    #[tokio::test]
+    async fn installed_overlays_use_nicknames_metadata_and_remembered_sizes() {
+        let fixture = lazer_fixture();
+        let (url, server) = fake_vosu(&fixture, true).await;
+        let app = app_for(url, fixture.base.join("tool"));
+        std::fs::create_dir_all(&app.env.data_dir).unwrap();
+        let listed = crate::output::installed_overlays(State(app.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(listed["available"], true);
+        assert_eq!(
+            listed["overlays"],
+            json!([
+                {"id":"accuracy by sxlvia","name":"accuracy","author":"sxlvia","folder":"/static/accuracy by sxlvia","width":180,"height":80},
+                {"id":"iq-display","name":"Brain","author":null,"folder":"/static/iq-display","width":null,"height":null},
+            ])
+        );
+        let stored = crate::output::set_overlay_size(
+            State(app.clone()),
+            Json(
+                serde_json::from_value(json!({"id":"iq-display","width":300,"height":120}))
+                    .unwrap(),
+            ),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(
+            json!(stored)["overlays"]["iq-display"],
+            json!({"width":300,"height":120})
+        );
+        let listed = crate::output::installed_overlays(State(app.clone()))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(listed["overlays"][1]["width"], 300);
+        assert_eq!(listed["overlays"][1]["height"], 120);
+        assert!(
+            crate::output::set_overlay_size(
+                State(app.clone()),
+                Json(
+                    serde_json::from_value(json!({"id":"iq-display","width":8,"height":120}))
+                        .unwrap()
+                ),
+            )
+            .await
+            .is_err()
+        );
+        server.abort();
+        // Without the host route the studio falls back to custom folders.
+        let (url, server) = fake_vosu(&fixture, false).await;
+        let app = app_for(url, fixture.base.join("tool"));
+        let listed = crate::output::installed_overlays(State(app))
+            .await
+            .unwrap()
+            .0;
+        assert_eq!(listed, json!({"available": false, "overlays": []}));
         server.abort();
         std::fs::remove_dir_all(fixture.base).unwrap();
     }

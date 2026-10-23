@@ -58,7 +58,7 @@
       <section class="v-panel program" aria-label="Preview">
         <div id="missing" class="missing" role="alert" hidden></div>
         <div class="stage">
-          <div id="preview" class="gate"><p class="v-empty">No tracks</p></div>
+          <div id="gate" class="gate"><div id="preview" class="gate-canvas"><p class="v-empty">No tracks</p></div></div>
         </div>
         <div class="v-toolbar transport">
           <button id="play" type="button" class="v-btn v-btn--icon" aria-label="Play">
@@ -93,6 +93,23 @@
             <button id="webm" type="button" class="v-btn">Export WebM</button>
           </div>
           <ol id="jobs" class="jobs"></ol>
+          <div class="subhead">
+            <span class="v-label">Layout</span>
+            <span class="v-bar__spacer"></span>
+            <button id="layout-reset" type="button" class="v-btn v-btn--sm v-btn--ghost">Reset</button>
+          </div>
+          <p id="layout-empty" class="v-muted">Select a playfield or overlay in the preview.</p>
+          <div id="inspector" class="inspector" hidden>
+            <span id="inspector-title" class="inspector-title"></span>
+            <div class="inspector-grid">
+              <label class="v-field"><span>X</span><input id="lay-x" class="v-input" type="number" step="1" /></label>
+              <label class="v-field"><span>Y</span><input id="lay-y" class="v-input" type="number" step="1" /></label>
+              <label class="v-field"><span>W</span><input id="lay-w" class="v-input" type="number" step="1" min="1" /></label>
+              <label class="v-field"><span>H</span><input id="lay-h" class="v-input" type="number" step="1" min="1" /></label>
+              <label class="v-field"><span>Scale</span><input id="lay-scale" class="v-input" type="number" step="0.05" min="0.05" /></label>
+              <label class="v-field"><span>Opacity</span><input id="lay-opacity" class="v-input" type="number" step="0.05" min="0" max="1" /></label>
+            </div>
+          </div>
           <div class="subhead"><span class="v-label">Skins</span></div>
           <p id="current-skin" class="skin-current"></p>
           <label class="v-btn v-file"><input id="osk" type="file" accept=".osk,.zip" />Import .osk</label>

@@ -1,6 +1,8 @@
 //! Skins the studio can render with: the client's current skin (a stable folder,
 //! or files vosu serves for lazer), folders under the stable `Skins` directory,
-//! and `.osk` archives imported into this tool's own data directory.
+//! lazer library skins (`lazer/<id>`, read through the optional `lazer-library`
+//! tool), render-core's drawn looks (`builtin/<id>`, never read from files), and
+//! `.osk` archives imported into this tool's own data directory.
 //!
 //! vosu forwards at most 1 MiB per request body, so imports arrive as ordered
 //! parts that are appended to a private staging file and extracted on finish.
@@ -9,6 +11,10 @@ use std::{io::Read, time::Instant};
 
 /// Preset/request prefix selecting a skin imported into the tool data dir.
 pub(super) const IMPORTED: &str = "imported/";
+/// Prefix selecting a skin from lazer's library by its id.
+pub(super) const LAZER: &str = "lazer/";
+/// Prefix selecting a built-in look the web renderer draws itself.
+pub(super) const BUILTIN: &str = "builtin/";
 const MAX_ARCHIVE: u64 = 512 * 1024 * 1024;
 const MAX_EXPANDED: u64 = 1024 * 1024 * 1024;
 const MAX_PART: usize = 1024 * 1024;

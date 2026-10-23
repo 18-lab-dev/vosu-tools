@@ -46,7 +46,16 @@ pub(super) struct Sizes {
     /// Last size picked in the studio, `WIDTHxHEIGHT`.
     #[serde(default)]
     last: Option<String>,
+    /// Page size last used per installed overlay id.
+    #[serde(default)]
+    overlays: BTreeMap<String, PageSize>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub(super) struct PageSize {
+    width: u32,
+    height: u32,
+}
+const MAX_OVERLAYS: usize = 512;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub(super) struct Saved {
     name: String,
@@ -136,6 +145,103 @@ pub(super) async fn set_last(
     sizes.last = Some(format!("{}x{}", input.width, input.height));
     store(&app, &sizes).await?;
     Ok(Json(sizes))
+}
+
+/// Overlay page size limits, as the render service enforces them.
+const PAGE: std::ops::RangeInclusive<u32> = 16..=4096;
+
+#[derive(Deserialize)]
+pub(super) struct OverlaySize {
+    id: String,
+    width: u32,
+    height: u32,
+}
+/// Remembers the page size last used for an installed overlay.
+pub(super) async fn set_overlay_size(
+    State(app): State<App>,
+    Json(input): Json<OverlaySize>,
+) -> Result<Json<Sizes>, Error> {
+    if input.id.is_empty() || input.id.len() > 512 || input.id.chars().any(char::is_control) {
+        return Err(error("Invalid overlay id"));
+    }
+    if !PAGE.contains(&input.width) || !PAGE.contains(&input.height) {
+        return Err(error("Overlay pages must be 16–4096 px"));
+    }
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    if !sizes.overlays.contains_key(&input.id) && sizes.overlays.len() >= MAX_OVERLAYS {
+        return Err(error("Too many remembered overlay sizes"));
+    }
+    sizes.overlays.insert(
+        input.id,
+        PageSize {
+            width: input.width,
+            height: input.height,
+        },
+    );
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
+}
+
+/// One installed overlay with its page size: remembered, else from its
+/// metadata `Resolution`, else none.
+pub(super) fn overlay_entry(entry: &Value, remembered: Option<&PageSize>) -> Option<Value> {
+    let id = entry["id"].as_str()?;
+    let folder = entry["folder"].as_str()?;
+    let metadata = (|| {
+        let width = u32::try_from(entry["width"].as_u64()?).ok()?;
+        let height = u32::try_from(entry["height"].as_u64()?).ok()?;
+        (PAGE.contains(&width) && PAGE.contains(&height)).then_some((width, height))
+    })();
+    let (width, height) = remembered
+        .map(|s| (Some(s.width), Some(s.height)))
+        .or(metadata.map(|(w, h)| (Some(w), Some(h))))
+        .unwrap_or((None, None));
+    Some(json!({
+        "id": id,
+        "name": entry["nickname"].as_str().filter(|s| !s.is_empty()).or(entry["name"].as_str()).unwrap_or(id),
+        "author": entry["author"],
+        "folder": folder,
+        "width": width,
+        "height": height,
+    }))
+}
+
+/// `GET /v1/overlays`: installed overlays from vosu (`/tools/_host/v1/overlays`).
+/// `available` is false when this vosu has no such route; the studio then
+/// offers only a custom folder.
+pub(super) async fn installed_overlays(State(app): State<App>) -> Result<Json<Value>, Error> {
+    let response = app
+        .env
+        .client()
+        .request(Method::GET, "/tools/_host/v1/overlays")
+        .send()
+        .await
+        .map_err(error)?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Json(json!({"available": false, "overlays": []})));
+    }
+    if !response.status().is_success() {
+        return Err(error(format!(
+            "vosu answered {} for installed overlays",
+            response.status()
+        )));
+    }
+    let listing: Value = response.json().await.map_err(error)?;
+    let sizes = load(&app).await?;
+    let mut overlays = listing["overlays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            overlay_entry(
+                entry,
+                entry["id"].as_str().and_then(|id| sizes.overlays.get(id)),
+            )
+        })
+        .collect::<Vec<_>>();
+    overlays.sort_by_key(|o| o["name"].as_str().unwrap_or("").to_lowercase());
+    Ok(Json(json!({"available": true, "overlays": overlays})))
 }
 
 fn setting<'a>(settings: &'a Value, key: &str) -> Option<&'a str> {
