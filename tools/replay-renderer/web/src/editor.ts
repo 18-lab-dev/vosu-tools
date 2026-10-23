@@ -1,20 +1,37 @@
-import { layoutRects, type Layout } from "@vosu-tools/render-export";
 import settingSchema from "../../render-settings.json";
 import {
   DEFAULT_TRANSFORM,
+  HUD_KEYS,
   guidesFor,
+  hudBox,
+  hudTransformFor,
+  layoutCells,
   place,
   resizeBox,
   snapMove,
   transformFor,
   type Corner,
+  type HudKey,
+  type Layout,
   type Rect,
 } from "./layout";
 import { PAGE_LIMITS, type Layer } from "./overlay-layout";
-import { transformOf, type Track } from "./studio";
+import { hudShown, hudTransform, transformOf, type Track } from "./studio";
 
-/** A selectable thing in the frame: a track's playfield or an overlay layer. */
-export type Item = { kind: "playfield"; track: Track } | { kind: "overlay"; layer: Layer };
+/** A selectable thing in the frame: a track's playfield, one of its HUD
+ *  layers, or an overlay layer. */
+export type Item =
+  | { kind: "playfield"; track: Track }
+  | { kind: "hud"; track: Track; key: HudKey }
+  /** An overlay as shown in one track's cell; moving it moves it in every cell. */
+  | { kind: "overlay"; layer: Layer; track: Track };
+const HUD_LABEL: Record<HudKey, string> = {
+  score: "score",
+  accuracy: "accuracy",
+  combo: "combo",
+  health: "health",
+};
+const DEFAULTS = Object.fromEntries(settingSchema.map((rule) => [rule.key, rule.default]));
 
 const limit = (key: string) => {
   const rule = settingSchema.find((r) => r.key === key)!;
@@ -57,6 +74,8 @@ export class LayoutEditor {
     this.layer.className = "editor";
     this.guides.x.className = "guide guide--x";
     this.guides.y.className = "guide guide--y";
+    // Guides show only while a drag snaps to them.
+    this.guides.x.hidden = this.guides.y.hidden = true;
     gate.append(this.layer);
     this.fields = inspector.fields;
     for (const [key, input] of Object.entries(this.fields))
@@ -77,33 +96,43 @@ export class LayoutEditor {
     const tracks = this.host.tracks();
     if (!tracks.length) return [];
     const { width, height } = this.host.output();
-    return layoutRects(tracks.length, width, height, this.host.layout());
+    return layoutCells(tracks.length, width, height, this.host.layout());
   }
   private boxOf(item: Item): Rect {
+    const cell = this.cells()[this.host.tracks().indexOf(item.track)];
     if (item.kind === "overlay") {
       const l = item.layer;
-      return { x: l.x, y: l.y, width: l.width * l.scale, height: l.height * l.scale };
+      return { x: cell.x + l.x, y: cell.y + l.y, width: l.width * l.scale, height: l.height * l.scale };
     }
-    const index = this.host.tracks().indexOf(item.track);
-    return place(this.cells()[index], item.track.content, transformOf(item.track)).box;
+    if (item.kind === "hud") return hudBox(cell, item.key, hudTransform(item.track, item.key));
+    return place(cell, item.track.content, transformOf(item.track)).box;
   }
   private items(): Item[] {
+    const tracks = this.host.tracks();
     return [
-      ...this.host.tracks().map((track) => ({ kind: "playfield", track }) as Item),
-      ...this.host.layers().map((layer) => ({ kind: "overlay", layer }) as Item),
+      ...tracks.map((track) => ({ kind: "playfield", track }) as Item),
+      ...tracks.flatMap((track) =>
+        HUD_KEYS.filter((key) => hudShown(track, key)).map((key) => ({ kind: "hud", track, key }) as Item),
+      ),
+      ...this.host.layers().flatMap((layer) =>
+        tracks
+          .filter((track) => !layer.hidden.has(track.id))
+          .map((track) => ({ kind: "overlay", layer, track }) as Item),
+      ),
     ];
   }
   private same(a: Item | null, b: Item) {
-    return (
-      !!a &&
-      ((a.kind === "playfield" && b.kind === "playfield" && a.track === b.track) ||
-        (a.kind === "overlay" && b.kind === "overlay" && a.layer === b.layer))
-    );
+    if (!a || a.kind !== b.kind) return false;
+    if (a.kind === "overlay") return a.layer === (b as typeof a).layer && a.track === (b as typeof a).track;
+    if (a.kind === "hud") return a.track === (b as typeof a).track && a.key === (b as typeof a).key;
+    return a.track === (b as typeof a).track;
   }
   private label(item: Item) {
     if (item.kind === "overlay") return item.layer.name;
     const index = this.host.tracks().indexOf(item.track);
-    return `V${index + 1} ${item.track.replay.player}`;
+    return item.kind === "hud"
+      ? `V${index + 1} ${HUD_LABEL[item.key]}`
+      : `V${index + 1} ${item.track.replay.player}`;
   }
   /** Screen pixels per output pixel. */
   private zoom() {
@@ -112,9 +141,10 @@ export class LayoutEditor {
   /** Writes `box` (output px) into the item, within the stored ranges. */
   private apply(item: Item, box: Rect, resized: boolean) {
     if (item.kind === "overlay") {
-      const l = item.layer;
-      l.x = Math.round(box.x);
-      l.y = Math.round(box.y);
+      const l = item.layer,
+        cell = this.cells()[this.host.tracks().indexOf(item.track)];
+      l.x = Math.round(box.x - cell.x);
+      l.y = Math.round(box.y - cell.y);
       if (resized) {
         l.width = Math.round(clamp(box.width / l.scale, { min: PAGE_LIMITS.min, max: PAGE_LIMITS.max }));
         l.height = Math.round(clamp(box.height / l.scale, { min: PAGE_LIMITS.min, max: PAGE_LIMITS.max }));
@@ -122,6 +152,15 @@ export class LayoutEditor {
       return;
     }
     const index = this.host.tracks().indexOf(item.track);
+    if (item.kind === "hud") {
+      const t = hudTransformFor(this.cells()[index], item.key, box);
+      const s = item.track.settings,
+        prefix = `hud.${item.key}`;
+      s[`${prefix}.x`] = round(clamp(t.x, limit(`${prefix}.x`)));
+      s[`${prefix}.y`] = round(clamp(t.y, limit(`${prefix}.y`)));
+      if (resized) s[`${prefix}.scale`] = round(clamp(t.scale, limit(`${prefix}.scale`)));
+      return;
+    }
     const t = transformFor(this.cells()[index], item.track.content, box);
     const s = item.track.settings;
     s["playfield.x"] = round(clamp(t.x, limit("playfield.x")));
@@ -135,6 +174,11 @@ export class LayoutEditor {
       item.track.settings["playfield.x"] = DEFAULT_TRANSFORM.x;
       item.track.settings["playfield.y"] = DEFAULT_TRANSFORM.y;
       item.track.settings["playfield.scale"] = DEFAULT_TRANSFORM.scale;
+    } else if (item.kind === "hud") {
+      for (const axis of ["x", "y", "scale"]) {
+        const key = `hud.${item.key}.${axis}`;
+        item.track.settings[key] = DEFAULTS[key];
+      }
     } else Object.assign(item.layer, { x: 0, y: 0, scale: 1, opacity: 1 });
     this.host.changed(item, true);
     this.render();
@@ -170,8 +214,10 @@ export class LayoutEditor {
           next.y = box.y + (box.height - next.height) / 2;
         }
         this.apply(item, next, key === "w" || key === "h");
-      } else if (key === "scale")
-        item.track.settings["playfield.scale"] = round(clamp(value, limit("playfield.scale")));
+      } else if (key === "scale") {
+        const setting = item.kind === "hud" ? `hud.${item.key}.scale` : "playfield.scale";
+        item.track.settings[setting] = round(clamp(value, limit(setting)));
+      }
     }
     this.host.changed(item, true);
     this.render();
@@ -230,8 +276,9 @@ export class LayoutEditor {
     const set = (input: HTMLInputElement, value: number, digits = 0) => {
       if (document.activeElement !== input) input.value = value.toFixed(digits);
     };
-    set(f.x, box.x);
-    set(f.y, box.y);
+    // Overlays repeat in every player's cell: their X/Y are from the cell's corner.
+    set(f.x, item.kind === "overlay" ? item.layer.x : box.x);
+    set(f.y, item.kind === "overlay" ? item.layer.y : box.y);
     if (item.kind === "overlay") {
       set(f.w, item.layer.width);
       set(f.h, item.layer.height);
@@ -240,7 +287,7 @@ export class LayoutEditor {
     } else {
       set(f.w, box.width);
       set(f.h, box.height);
-      set(f.scale, transformOf(item.track).scale, 2);
+      set(f.scale, (item.kind === "hud" ? hudTransform(item.track, item.key) : transformOf(item.track)).scale, 2);
     }
     f.opacity.closest("label")!.hidden = item.kind !== "overlay";
     f.w.closest("label")!.querySelector("span")!.textContent = item.kind === "overlay" ? "Page W" : "W";
@@ -277,7 +324,7 @@ export class LayoutEditor {
       let result;
       if (corner) {
         const point = { x: (e.clientX - rect.left) / zoom, y: (e.clientY - rect.top) / zoom };
-        const lock = item.kind === "playfield" || e.shiftKey;
+        const lock = item.kind !== "overlay" || e.shiftKey;
         result = resizeBox(start, corner, point, {
           aspect: lock ? start.width / start.height : undefined,
           guides: e.altKey ? undefined : guides,

@@ -11,6 +11,8 @@ interface Saved extends Size {
 export interface SizeStore {
   saved: Saved[];
   last: string | null;
+  /** Layout picked in the studio; absent means `auto`. */
+  layout?: string | null;
 }
 interface Group {
   ratio: string;
@@ -72,6 +74,14 @@ const GROUPS: Group[] = [
     sizes: [
       [1080, 1920, "Shorts / Reels"],
       [720, 1280, "720p vertical"],
+    ],
+  },
+  {
+    ratio: "4:5",
+    label: "4:5 portrait",
+    sizes: [
+      [1080, 1350, "Feed portrait"],
+      [864, 1080, "1080p 4:5"],
     ],
   },
   {

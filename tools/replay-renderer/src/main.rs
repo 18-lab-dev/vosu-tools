@@ -79,6 +79,7 @@ enum Cli {
         /// WIDTHxHEIGHT, e.g. 2560x1440 or 1080x1920; defaults to the tool's setting
         #[arg(long)]
         resolution: Option<String>,
+        /// Overlay folder (with index.html) or single .html page; repeatable
         #[arg(long = "overlay")]
         overlays: Vec<PathBuf>,
         #[arg(long)]
@@ -169,6 +170,17 @@ fn parse_setting(input: &str) -> Result<(String, f64), String> {
     }
     Ok((key.to_owned(), value))
 }
+/// Presets saved by older versions may name settings that no longer exist
+/// (the player header, judgement counter and key overlay) or hold values outside
+/// a setting's current range; both are dropped, so the tool default applies.
+fn migrate_presets(mut presets: BTreeMap<String, Preset>) -> BTreeMap<String, Preset> {
+    for preset in presets.values_mut() {
+        preset
+            .settings
+            .retain(|key, value| parse_setting(&format!("{key}={value}")).is_ok());
+    }
+    presets
+}
 #[tokio::main]
 async fn main() -> std::process::ExitCode {
     match execute().await {
@@ -196,7 +208,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
     tokio::fs::create_dir_all(env.cache_dir.join("replays")).await?;
     skins::reset_uploads(&env).await?;
     let presets = match tokio::fs::read(env.data_dir.join("presets.json")).await {
-        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Ok(bytes) => migrate_presets(serde_json::from_slice(&bytes)?),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
         Err(e) => return Err(e.into()),
     };
@@ -215,6 +227,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/replays/{id}", get(replay_file))
         .route("/v1/sizes", get(output::get_sizes).post(output::save_size))
         .route("/v1/sizes/last", post(output::set_last))
+        .route("/v1/sizes/layout", post(output::set_layout))
         .route("/v1/sizes/overlay", post(output::set_overlay_size))
         .route("/v1/overlays", get(output::installed_overlays))
         .route(
@@ -463,7 +476,7 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                     .to_owned()
             })?;
             let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width.min(4096),"height":height.min(4096),"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
-            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"side-by-side"}))).await?;
+            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto"}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
             let result = client
                 .wait_job("replay-renderer", id, |state| {
@@ -619,6 +632,34 @@ async fn upload(State(app): State<App>, body: Bytes) -> Result<Json<Value>, Erro
         .map_err(error)?;
     Ok(Json(json!({"id":id})))
 }
+/// A file inside a skin folder, matched as the clients match skin files:
+/// ignoring case. osu! skins mix `Skin.ini`, `Mania-Key1.png`, …, while the
+/// renderer asks in lower case; on case-sensitive file systems an exact-only
+/// lookup would silently drop the skin's configuration and images.
+fn skin_file(root: &FsPath, relative: &str) -> Result<PathBuf, Error> {
+    if let Ok(path) = confined(root, relative) {
+        return Ok(path);
+    }
+    let root = root.canonicalize().map_err(error)?;
+    let mut current = root.clone();
+    for part in FsPath::new(relative).components() {
+        let std::path::Component::Normal(name) = part else {
+            return Err(error("Invalid relative asset path"));
+        };
+        let wanted = name.to_string_lossy().to_lowercase();
+        current = std::fs::read_dir(&current)
+            .map_err(error)?
+            .flatten()
+            .find(|entry| entry.file_name().to_string_lossy().to_lowercase() == wanted)
+            .ok_or_else(|| error(format!("{relative} is not in this skin")))?
+            .path();
+    }
+    let path = current.canonicalize().map_err(error)?;
+    if !path.starts_with(&root) {
+        return Err(error("Asset escapes its root"));
+    }
+    Ok(path)
+}
 fn confined(root: &FsPath, relative: &str) -> Result<PathBuf, Error> {
     let relative = FsPath::new(relative);
     if relative.is_absolute()
@@ -683,7 +724,7 @@ async fn asset(
                 return skins::current_file(&app, &ctx, file).await;
             }
         };
-        confined(&root, file)?
+        skin_file(&root, file)?
     } else {
         let map = library::find_map(
             &app,
@@ -774,6 +815,28 @@ mod tests {
         tokio::fs::remove_dir_all(root).await.unwrap();
     }
     #[test]
+    fn skin_files_match_ignoring_case_and_stay_inside_the_skin() {
+        let root = std::env::temp_dir().join(format!("rr-skin-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("Skin/Mania")).unwrap();
+        std::fs::write(root.join("Skin/Skin.ini"), "[General]").unwrap();
+        std::fs::write(root.join("Skin/Mania/Key1@2x.PNG"), "k").unwrap();
+        std::fs::write(root.join("outside.ini"), "no").unwrap();
+        let skin = root.join("Skin");
+        let canonical = skin.canonicalize().unwrap();
+        assert_eq!(
+            skin_file(&skin, "skin.ini").unwrap(),
+            canonical.join("Skin.ini")
+        );
+        assert_eq!(
+            skin_file(&skin, "mania/key1@2x.png").unwrap(),
+            canonical.join("Mania/Key1@2x.PNG")
+        );
+        assert!(skin_file(&skin, "missing.png").is_err());
+        assert!(skin_file(&skin, "../outside.ini").is_err());
+        assert!(skin_file(&skin, "../OUTSIDE.INI").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn paths_cannot_escape_asset_roots() {
         let root = std::env::temp_dir();
         assert!(confined(&root, "../etc/passwd").is_err());
@@ -785,5 +848,28 @@ mod tests {
         assert!(parse_setting("mania.scroll_speed=NaN").is_err());
         assert!(parse_setting("mania.scroll_speed=0").is_err());
         assert!(parse_setting("unknown=10").is_err());
+    }
+    #[test]
+    fn presets_from_older_versions_drop_removed_settings() {
+        let presets: BTreeMap<String, Preset> = serde_json::from_value(json!({
+            "sxlvia": {"skin": "imported/Arturia", "settings": {
+                "mania.scroll_speed": 27, "hud.player": 0, "hud.judgements": 1,
+                "key_overlay": 0, "hud.combo": 0, "playfield.x": 9, "playfield.scale": 1.5
+            }}
+        }))
+        .unwrap();
+        let migrated = migrate_presets(presets);
+        let preset = &migrated["sxlvia"];
+        assert_eq!(preset.skin.as_deref(), Some("imported/Arturia"));
+        assert_eq!(
+            preset.settings,
+            BTreeMap::from([
+                ("hud.combo".to_owned(), 0.0),
+                ("mania.scroll_speed".to_owned(), 27.0),
+                ("playfield.scale".to_owned(), 1.5),
+            ])
+        );
+        assert!(parse_setting("hud.score.x=0.5").is_ok());
+        assert!(parse_setting("key_overlay=1").is_err());
     }
 }

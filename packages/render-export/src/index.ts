@@ -56,6 +56,9 @@ export interface ExportOptions {
   startMs?: number;
   audio?: ArrayBuffer;
   volume?: number;
+  /** Audio fades, wall-clock ms: silent for `inDelayMs`, then in over `inMs`;
+   *  out over the last `outMs`. The picture's fade is the renderer's. */
+  fade?: { inDelayMs: number; inMs: number; outMs: number };
   signal?: AbortSignal;
   render(
     timeMs: number,
@@ -121,9 +124,21 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
     source.buffer = await context.decodeAudioData(options.audio.slice(0));
     source.playbackRate.value = rate;
     const gain = context.createGain();
-    gain.gain.value = options.volume ?? 1;
+    const volume = options.volume ?? 1;
+    gain.gain.value = volume;
+    const fade = options.fade;
+    if (fade) {
+      const at = (ms: number) => Math.min(wallDuration, Math.max(0, ms / 1000));
+      gain.gain.setValueAtTime(0, 0);
+      gain.gain.setValueAtTime(0, at(fade.inDelayMs));
+      gain.gain.linearRampToValueAtTime(volume, at(fade.inDelayMs + fade.inMs));
+      gain.gain.setValueAtTime(volume, Math.max(at(fade.inDelayMs + fade.inMs), wallDuration - fade.outMs / 1000));
+      gain.gain.linearRampToValueAtTime(0, wallDuration);
+    }
     source.connect(gain).connect(context.destination);
-    source.start(0, Math.max(0, options.startMs ?? 0) / 1000);
+    // A negative start is a lead-in: the song begins that much (wall time) later.
+    const startMs = options.startMs ?? 0;
+    source.start(Math.max(0, -startMs / rate / 1000), Math.max(0, startMs) / 1000);
     audio = await context.startRendering();
   }
   const muxer = new Muxer({

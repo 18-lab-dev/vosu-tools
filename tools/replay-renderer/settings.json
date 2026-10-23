@@ -42,6 +42,20 @@
     "value": 60
   },
   {
+    "uniqueID": "outro_ms",
+    "type": "number",
+    "title": "Outro (ms)",
+    "description": "Time the video keeps running after the last object; the picture and sound fade out at its end. lazer shows results after 1250 ms.",
+    "value": 1250
+  },
+  {
+    "uniqueID": "fade_ms",
+    "type": "number",
+    "title": "Fade (ms)",
+    "description": "Length of the fade to black at the end of the outro (lazer: 250).",
+    "value": 250
+  },
+  {
     "uniqueID": "output_dir",
     "type": "text",
     "title": "Output folder",

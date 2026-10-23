@@ -155,7 +155,7 @@ pub(super) async fn current(app: &App, context: &Value) -> Current {
 /// Reads one file of the client's current skin.
 pub(super) async fn current_file(app: &App, context: &Value, path: &str) -> Result<Bytes, Error> {
     match current(app, context).await {
-        Current::Folder(root) => Ok(tokio::fs::read(confined(&root, path)?)
+        Current::Folder(root) => Ok(tokio::fs::read(skin_file(&root, path)?)
             .await
             .map_err(not_found)?
             .into()),

@@ -15,7 +15,12 @@ use tokio::sync::watch;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Overlay {
+    /// An overlay folder containing `index.html`, or one `.html`/`.htm` file
+    /// whose folder is served alongside it.
     pub folder: PathBuf,
+    /// Page served first, relative to the (resolved) folder.
+    #[serde(skip, default = "index")]
+    pub entry: String,
     pub width: u32,
     pub height: u32,
     pub x: f64,
@@ -26,9 +31,25 @@ pub struct Overlay {
     pub opacity: f64,
     #[serde(default)]
     pub settings: BTreeMap<String, Value>,
+    /// Tracks (by index) that show this overlay, each in its own cell at
+    /// `x`/`y` from the cell's corner; absent: every track.
+    #[serde(default)]
+    pub tracks: Option<Vec<usize>>,
 }
+impl Overlay {
+    pub fn shows(&self, track: usize) -> bool {
+        self.tracks
+            .as_ref()
+            .is_none_or(|tracks| tracks.contains(&track))
+    }
+}
+/// Overlay pages one render may run (overlays × tracks showing them).
+const MAX_PAGES: usize = 32;
 fn one() -> f64 {
     1.0
+}
+fn index() -> String {
+    "index.html".to_owned()
 }
 #[derive(Serialize)]
 pub struct Image {
@@ -74,9 +95,24 @@ impl Overlays {
             sequence: AtomicU64::new(0),
         })
     }
-    pub fn validate(layers: &mut [Overlay]) -> Result<(), Error> {
+    pub fn validate(layers: &mut [Overlay], tracks: usize) -> Result<(), Error> {
         if layers.len() > 8 {
             return Err(error("At most eight overlays per render"));
+        }
+        let pages: usize = layers
+            .iter()
+            .map(|layer| (0..tracks).filter(|&t| layer.shows(t)).count())
+            .sum();
+        if pages > MAX_PAGES {
+            return Err(error(format!(
+                "At most {MAX_PAGES} overlay pages per render (overlays × players)"
+            )));
+        }
+        if layers
+            .iter()
+            .any(|layer| layer.tracks.iter().flatten().any(|&t| t >= tracks))
+        {
+            return Err(error("Overlay names a track the render does not have"));
         }
         for layer in layers {
             if !(16..=4096).contains(&layer.width)
@@ -89,8 +125,26 @@ impl Overlays {
             {
                 return Err(error("Invalid overlay viewport or transform"));
             }
-            layer.folder = layer.folder.canonicalize().map_err(error)?;
-            confined(&layer.folder, "index.html")?;
+            let path = layer.folder.canonicalize().map_err(error)?;
+            let page = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"));
+            if path.is_file() && page {
+                layer.entry = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .ok_or_else(|| error("Overlay page needs a UTF-8 name"))?
+                    .to_owned();
+                layer.folder = path
+                    .parent()
+                    .ok_or_else(|| error("Overlay page has no folder"))?
+                    .to_owned();
+            } else {
+                layer.folder = path;
+                layer.entry = index();
+            }
+            confined(&layer.folder, &layer.entry)?;
         }
         Ok(())
     }
@@ -192,7 +246,7 @@ impl Overlays {
                     .ok_or_else(|| error("Overlay folder needs a UTF-8 name"))?;
                 connected
                     .add_page(
-                        &format!("{origin}/overlays/{index}/index.html"),
+                        &format!("{origin}/overlays/{index}/{}", crate::encode(&layer.entry)),
                         layer.width,
                         layer.height,
                         name,
@@ -548,6 +602,7 @@ mod tests {
     fn invalid_overlay_transforms_are_rejected() {
         let mut layers = [Overlay {
             folder: PathBuf::new(),
+            entry: index(),
             width: 100,
             height: 100,
             x: 0.0,
@@ -555,7 +610,52 @@ mod tests {
             scale: 0.0,
             opacity: 1.0,
             settings: BTreeMap::new(),
+            tracks: None,
         }];
-        assert!(Overlays::validate(&mut layers).is_err());
+        assert!(Overlays::validate(&mut layers, 1).is_err());
+    }
+    #[test]
+    fn single_html_files_and_folders_resolve_their_entry_page() {
+        let root = std::env::temp_dir().join(format!("rr-overlay-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("folder")).unwrap();
+        std::fs::write(root.join("folder/index.html"), "<p>folder</p>").unwrap();
+        std::fs::write(root.join("My Counter.HTML"), "<p>file</p>").unwrap();
+        std::fs::write(root.join("notes.txt"), "no").unwrap();
+        let layer = |folder: PathBuf| Overlay {
+            folder,
+            entry: index(),
+            width: 100,
+            height: 100,
+            x: 0.0,
+            y: 0.0,
+            scale: 1.0,
+            opacity: 1.0,
+            settings: BTreeMap::new(),
+            tracks: None,
+        };
+        let mut layers = [
+            layer(root.join("folder")),
+            layer(root.join("My Counter.HTML")),
+        ];
+        Overlays::validate(&mut layers, 1).unwrap();
+        let canonical = root.canonicalize().unwrap();
+        assert_eq!(layers[0].folder, canonical.join("folder"));
+        assert_eq!(layers[0].entry, "index.html");
+        assert_eq!(layers[1].folder, canonical);
+        assert_eq!(layers[1].entry, "My Counter.HTML");
+        // A non-page file, and a folder without index.html, are rejected.
+        assert!(Overlays::validate(&mut [layer(root.join("notes.txt"))], 1).is_err());
+        assert!(Overlays::validate(&mut [layer(root.clone())], 1).is_err());
+        // Track selection: absent shows on every track; indices must exist; pages are capped.
+        let mut picked = layer(root.join("folder"));
+        picked.tracks = Some(vec![1]);
+        assert!(!picked.shows(0) && picked.shows(1));
+        assert!(Overlays::validate(&mut [picked.clone()], 2).is_ok());
+        assert!(Overlays::validate(&mut [picked], 1).is_err());
+        let mut many: Vec<_> = (0..3).map(|_| layer(root.join("folder"))).collect();
+        assert!(Overlays::validate(&mut many, 10).is_ok());
+        let mut too_many: Vec<_> = (0..3).map(|_| layer(root.join("folder"))).collect();
+        assert!(Overlays::validate(&mut too_many, 11).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
