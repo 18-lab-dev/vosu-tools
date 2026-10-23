@@ -3,117 +3,114 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="color-scheme" content="light dark" />
     <title>Beatmap downloader</title>
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
     <script type="module" src="./src/main.ts"></script>
   </head>
-  <body>
-    <header class="bar">
-      <svg class="mark" viewBox="0 0 256 256" aria-hidden="true">
-        <rect width="256" height="256" rx="44" fill="#ebe2cc" />
-        <g transform="rotate(-8 128 140)">
-          <path d="M66 96 L104 54 H152 L190 96 V222 H66 Z" fill="#a92d1b" />
-          <circle
-            cx="128"
-            cy="90"
-            r="25"
-            fill="none"
-            stroke="#ebe2cc"
-            stroke-width="6"
-          />
-          <circle cx="128" cy="90" r="11" fill="#ebe2cc" />
-          <path
-            d="M116 128 H140 V168 H162 L128 204 L94 168 H116 Z"
-            fill="#ebe2cc"
-          />
-          <path
-            d="M128 90 C 132 46, 176 20, 214 22"
-            fill="none"
-            stroke="#231d15"
-            stroke-width="7"
-            stroke-linecap="round"
-          />
-          <circle cx="128" cy="90" r="5" fill="#231d15" />
-        </g>
-      </svg>
-      <h1>Beatmap downloader</h1>
-      <p id="now" class="now" aria-live="polite">
-        <span id="live" class="live" hidden></span
-        ><span class="k">Selected</span><span id="now-map">No beatmap</span>
-      </p>
-      <p id="ownership" class="chip" title="Where 'sets you already have' comes from">
-        Library —
-      </p>
-      <span id="access" class="access" role="status"></span>
-      <a id="settings-link" class="settings-link" target="_blank" rel="noopener noreferrer"
-        >Settings</a
+  <body class="v-app">
+    <header class="v-bar">
+      <span class="v-bar__title">Beatmap downloader</span>
+      <span id="live" class="dl-live" hidden
+        ><span id="live-dot" class="v-dot"></span
+        ><span id="live-text" class="v-muted"></span
+      ></span>
+      <span id="now-map" class="dl-now v-muted"></span>
+      <span class="v-bar__spacer"></span>
+      <span id="config-error" class="v-badge v-badge--error" hidden
+        >Settings invalid</span
+      >
+      <span id="ownership" class="v-badge">Library</span>
+      <span id="access" class="v-badge v-badge--warn" hidden>Read-only</span>
+      <a
+        id="settings-link"
+        class="v-btn v-btn--ghost v-btn--icon"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Settings"
+        title="Settings"
+        >⚙</a
       >
     </header>
-    <p id="config-error" class="config-error" role="alert" hidden></p>
-    <div class="app">
-      <aside class="filters" aria-label="Search filters">
-        <form id="search">
-          <div class="groups">
-            <details class="group" data-panel="discovery" open>
-              <summary>Discovery<span class="badge" data-badge></span></summary>
-              <div class="fields">
-                <label
-                  >Discovery mode<select name="discovery">
-                    <option value="search">Search all beatmaps</option>
+    <main class="v-main dl-main">
+      <section class="v-panel dl-filters" aria-label="Search">
+        <div class="v-panel__head">
+          <span class="v-label"><b>01</b> / Search</span>
+        </div>
+        <form id="search" class="dl-search">
+          <div class="v-scroll dl-groups">
+            <details class="dl-group" data-panel="discovery" open>
+              <summary>Discovery<span class="dl-count" data-badge></span></summary>
+              <div class="dl-fields">
+                <label class="v-field"
+                  ><span>Mode</span
+                  ><select class="v-select" name="discovery">
+                    <option value="search">Search</option>
                     <option value="mapper">Same mapper as current map</option>
-                    <option value="similar">Similar star difficulty</option>
-                    <option value="similar-msd">
-                      Similar mania MSD (Mania ratings)
-                    </option>
-                    <option value="history">From recent play history</option>
+                    <option value="similar">Similar stars</option>
+                    <option value="similar-msd">Similar mania MSD</option>
+                    <option value="history">Recent play history</option>
                     <option value="ids">IDs, links or MD5s</option>
-                    <option value="packs">Official beatmap packs</option>
+                    <option value="packs">Beatmap packs</option>
                   </select></label
-                ><label
-                  >Metadata provider<select name="provider">
-                    <option value="mirror">Mirror (osu.direct API)</option>
-                    <option value="official">osu! API v2 · own credentials</option>
+                >
+                <label class="v-field"
+                  ><span>Metadata</span
+                  ><select class="v-select" name="provider">
+                    <option value="mirror">Mirror</option>
+                    <option value="official">osu! API</option>
                   </select></label
-                ><label
-                  >Search text<input
+                >
+                <label class="v-field"
+                  ><span>Search</span
+                  ><input
+                    class="v-input"
                     name="query"
-                    placeholder="Artist, title, tags…"
-                    maxlength="512" /></label
-                ><label
-                  >Exact mapper<input
-                    name="mapper"
-                    placeholder="Optional creator name"
-                    maxlength="128"
+                    type="search"
+                    placeholder="Artist, title, tags"
+                    maxlength="512"
                 /></label>
-                <div class="pair">
-                  <label
-                    >Ruleset<select name="mode">
-                      <option value="">All rulesets</option>
+                <label class="v-field"
+                  ><span>Mapper</span
+                  ><input class="v-input" name="mapper" maxlength="128"
+                /></label>
+                <div class="dl-pair">
+                  <label class="v-field"
+                    ><span>Ruleset</span
+                    ><select class="v-select" name="mode">
+                      <option value="">All</option>
                       <option value="0">osu!</option>
-                      <option value="1">Taiko</option>
-                      <option value="2">Catch</option>
-                      <option value="3">Mania</option>
+                      <option value="1">taiko</option>
+                      <option value="2">catch</option>
+                      <option value="3">mania</option>
                     </select></label
-                  ><label
-                    >Status<select name="status">
-                      <option>any</option>
-                      <option>ranked</option>
-                      <option>approved</option>
-                      <option>qualified</option>
-                      <option>loved</option>
-                      <option>pending</option>
-                      <option>wip</option>
-                      <option>graveyard</option>
+                  >
+                  <label class="v-field"
+                    ><span>Status</span
+                    ><select class="v-select" name="status">
+                      <option value="any">Any</option>
+                      <option value="ranked">Ranked</option>
+                      <option value="approved">Approved</option>
+                      <option value="qualified">Qualified</option>
+                      <option value="loved">Loved</option>
+                      <option value="pending">Pending</option>
+                      <option value="wip">WIP</option>
+                      <option value="graveyard">Graveyard</option>
                     </select></label
-                  ><label
-                    >Results per page<input
+                  >
+                  <label class="v-field"
+                    ><span>Per page</span
+                    ><input
+                      class="v-input"
                       name="limit"
                       type="number"
                       min="1"
                       max="50"
-                      value="20" /></label
-                  ><label
-                    >Mirror offset<input
+                      value="20"
+                  /></label>
+                  <label class="v-field"
+                    ><span>Offset</span
+                    ><input
+                      class="v-input"
                       name="offset"
                       type="number"
                       min="0"
@@ -123,183 +120,201 @@
                 </div>
               </div>
             </details>
-            <details class="group" data-panel="skill" open>
-              <summary>
-                Difficulty &amp; length<span class="badge" data-badge></span>
-              </summary>
-              <div class="fields pair">
-                <label
-                  >Stars · min<input
-                    name="min_stars"
-                    type="number"
-                    min="0"
-                    step="0.1" /></label
-                ><label
-                  >Stars · max<input
-                    name="max_stars"
-                    type="number"
-                    min="0"
-                    step="0.1" /></label
-                ><label
-                  >BPM · min<input name="min_bpm" type="number" min="0" /></label
-                ><label
-                  >BPM · max<input name="max_bpm" type="number" min="0" /></label
-                ><label
-                  >Length · min (s)<input
-                    name="min_length"
-                    type="number"
-                    min="0" /></label
-                ><label
-                  >Length · max (s)<input
-                    name="max_length"
-                    type="number"
-                    min="0"
+            <details class="dl-group" data-panel="skill" open>
+              <summary>Difficulty<span class="dl-count" data-badge></span></summary>
+              <div class="dl-fields dl-pair">
+                <label class="v-field"
+                  ><span>Stars min</span
+                  ><input class="v-input" name="min_stars" type="number" min="0" step="0.1"
+                /></label>
+                <label class="v-field"
+                  ><span>Stars max</span
+                  ><input class="v-input" name="max_stars" type="number" min="0" step="0.1"
+                /></label>
+                <label class="v-field"
+                  ><span>BPM min</span
+                  ><input class="v-input" name="min_bpm" type="number" min="0"
+                /></label>
+                <label class="v-field"
+                  ><span>BPM max</span
+                  ><input class="v-input" name="max_bpm" type="number" min="0"
+                /></label>
+                <label class="v-field"
+                  ><span>Length min (s)</span
+                  ><input class="v-input" name="min_length" type="number" min="0"
+                /></label>
+                <label class="v-field"
+                  ><span>Length max (s)</span
+                  ><input class="v-input" name="max_length" type="number" min="0"
                 /></label>
               </div>
             </details>
-            <details class="group" data-panel="dates">
-              <summary>Submitted<span class="badge" data-badge></span></summary>
-              <div class="fields pair">
-                <label>After<input name="after" type="date" /></label
-                ><label>Before<input name="before" type="date" /></label>
-              </div>
-            </details>
-            <details class="group" data-panel="ids">
-              <summary>
-                IDs, links &amp; packs<span class="badge" data-badge></span>
-              </summary>
-              <div class="fields">
-                <label
-                  >IDs, osu! links or difficulty MD5s<textarea
-                    name="ids"
-                    rows="3"
-                    placeholder="12345, https://osu.ppy.sh/beatmapsets/… or a 32-character MD5"
-                  ></textarea></label
-                ><label
-                  >Pack tag<input
-                    name="pack"
-                    placeholder="Leave blank to list official packs"
+            <details class="dl-group" data-panel="dates">
+              <summary>Submitted<span class="dl-count" data-badge></span></summary>
+              <div class="dl-fields dl-pair">
+                <label class="v-field"
+                  ><span>After</span><input class="v-input" name="after" type="date"
+                /></label>
+                <label class="v-field"
+                  ><span>Before</span><input class="v-input" name="before" type="date"
                 /></label>
               </div>
             </details>
-            <details class="group" data-panel="saved">
-              <summary>Saved searches &amp; presets</summary>
-              <div class="fields">
-                <label
-                  >Saved searches<select id="saved">
-                    <option value="">Choose a saved search</option>
-                  </select></label
-                ><label
-                  >Filter presets<select id="presets">
-                    <option value="">Choose a preset</option>
+            <details class="dl-group" data-panel="ids">
+              <summary>IDs and packs<span class="dl-count" data-badge></span></summary>
+              <div class="dl-fields">
+                <label class="v-field"
+                  ><span>IDs, links or MD5s</span
+                  ><textarea class="v-textarea" name="ids" rows="3"></textarea
+                ></label>
+                <label class="v-field"
+                  ><span>Pack tag</span><input class="v-input" name="pack"
+                /></label>
+              </div>
+            </details>
+            <details class="dl-group" data-panel="saved">
+              <summary>Saved</summary>
+              <div class="dl-fields">
+                <label class="v-field"
+                  ><span>Saved searches</span
+                  ><select class="v-select" id="saved">
+                    <option value="">None</option>
                   </select></label
                 >
-                <div class="row-actions">
-                  <button type="button" id="save-search" class="write">
-                    Save search</button
-                  ><button type="button" id="save-preset" class="write">
-                    Save preset
-                  </button>
-                </div>
+                <label class="v-field"
+                  ><span>Filter presets</span
+                  ><select class="v-select" id="presets">
+                    <option value="">None</option>
+                  </select></label
+                >
+                <button type="button" id="save-open" class="v-btn write">
+                  Save…
+                </button>
               </div>
             </details>
-            <details class="group" data-panel="library" open>
-              <summary>Local library</summary>
-              <div class="fields">
-                <p id="library-state" class="slip">Not loaded yet.</p>
-                <ul id="library-warnings" class="warnings"></ul>
-                <button type="button" id="library" class="write">
+            <details class="dl-group" data-panel="library" open>
+              <summary>Library</summary>
+              <div class="dl-fields">
+                <dl class="v-facts" id="library-facts"></dl>
+                <ul id="library-warnings" class="dl-warnings"></ul>
+                <button type="button" id="library" class="v-btn write">
                   Refresh library
                 </button>
               </div>
             </details>
           </div>
-          <div class="search-actions">
-            <button type="submit" class="primary write">Search</button
-            ><button type="button" id="cancel-search" class="write" disabled>
+          <div class="v-toolbar dl-actions">
+            <button type="submit" class="v-btn v-btn--primary write">Search</button
+            ><button type="button" id="cancel-search" class="v-btn write" disabled>
               Cancel
             </button>
           </div>
         </form>
-      </aside>
-      <section class="panel results-panel" aria-labelledby="results-title">
-        <div class="panel-head">
-          <h2 id="results-title">Manifest</h2>
-          <span id="result-count" class="tally">No search yet</span>
+      </section>
+      <section class="v-panel dl-results" aria-label="Results">
+        <div class="v-panel__head">
+          <span class="v-label"><b>02</b> / Results</span>
+          <span id="result-count" class="v-badge"></span>
+          <span id="hidden-count" class="v-badge" hidden></span>
         </div>
-        <p id="based-on" class="based-on" hidden></p>
-        <p id="link-note" class="based-on" hidden></p>
-        <p id="notice" class="notice" role="status">
-          Choose a discovery mode and search. Nothing downloads until you queue
-          sets and resume the queue.
-        </p>
-        <div class="toolbar">
-          <button type="button" id="select-all">Select all</button
-          ><label class="check"
-            ><input type="checkbox" id="hide-owned" checked /> Hide sets I
-            already have</label
-          ><label class="check"
-            ><input type="checkbox" id="no-video" checked /> Prefer no-video</label
-          ><label class="source"
-            >Source<select id="download-source"></select></label
-          ><button type="button" id="enqueue" class="primary write push">
+        <div class="v-toolbar dl-bar">
+          <span id="based-on" class="dl-based v-muted" hidden></span>
+          <span id="link-note" class="dl-based" hidden
+            ><span class="v-badge v-badge--accent">Linked</span
+            ><span id="link-md5" class="v-mono"></span
+            ><button type="button" id="copy-md5" class="v-btn v-btn--sm">Copy MD5</button></span
+          >
+          <span class="v-bar__spacer"></span>
+          <label class="v-check"
+            ><input type="checkbox" id="hide-owned" checked />Hide owned</label
+          >
+          <label class="v-check"
+            ><input type="checkbox" id="no-video" checked />No video</label
+          >
+          <select id="download-source" class="v-select dl-source" aria-label="Source"></select>
+          <span class="v-toolbar__sep"></span>
+          <button type="button" id="select-all" class="v-btn v-btn--sm">Select all</button>
+          <button type="button" id="enqueue" class="v-btn v-btn--primary write">
             Queue selected
           </button>
         </div>
-        <div id="results" class="results scroll" tabindex="0" aria-label="Search results">
-          <div class="empty">
-            <strong>A better next map.</strong>
-            <p>
-              Start from the mapper of the map you have selected in osu!, a star
-              window around it, a curated pack or your own play history. With
-              "same mapper" or "similar", results follow you as you pick other
-              maps.
-            </p>
-          </div>
+        <div id="results" class="v-scroll dl-list">
+          <p class="v-empty">Search to list beatmaps.</p>
         </div>
-        <div class="pager">
-          <button type="button" id="next-page" class="write" disabled>
+        <div class="v-toolbar dl-pager">
+          <span class="v-bar__spacer"></span>
+          <button type="button" id="next-page" class="v-btn v-btn--sm write" disabled>
             Next page
           </button>
         </div>
       </section>
-      <section class="panel queue-panel" aria-labelledby="queue-title">
-        <div class="panel-head">
-          <h2 id="queue-title">Dispatch queue</h2>
-          <span id="queue-status" class="tally">Paused</span>
+      <section class="v-panel dl-queue" aria-label="Queue">
+        <div class="v-panel__head">
+          <span class="v-label"><b>03</b> / Queue</span>
+          <span id="queue-status" class="v-badge">Paused</span>
         </div>
-        <div class="toolbar">
-          <button type="button" data-control="resume" class="primary write">
+        <div class="v-toolbar dl-bar">
+          <button type="button" data-control="resume" class="v-btn v-btn--sm v-btn--primary write">
             Resume</button
-          ><button type="button" data-control="pause" class="write">Pause</button
-          ><button type="button" data-control="retry" class="write">
+          ><button type="button" data-control="pause" class="v-btn v-btn--sm write">
+            Pause</button
+          ><button type="button" data-control="retry" class="v-btn v-btn--sm write">
             Retry failed</button
-          ><button type="button" data-control="clear" class="write">
+          ><button type="button" data-control="clear" class="v-btn v-btn--sm write">
             Clear finished
           </button>
         </div>
-        <div id="queue" class="scroll" tabindex="0" aria-label="Download queue"></div>
-        <details class="import" data-panel="import">
-          <summary>Import destination</summary>
-          <div class="fields">
-            <label
-              >Client<select id="client">
-                <option value="stable">osu!stable · place .osz in Songs</option>
-                <option value="lazer">osu!(lazer) · open .osz with file handler</option>
-              </select></label
-            ><label
-              >Stable Songs folder<input
-                id="songs"
-                placeholder="Absolute Songs path · confirmed on import"
-            /></label>
-            <p class="fine">
-              Imports copy validated archives only; no game database is
-              modified. Press F5 in stable Song Select. For lazer, choose lazer
-              as the file handler or drag the archive into its window.
-            </p>
-          </div>
-        </details>
+        <div id="queue" class="v-scroll dl-list"></div>
       </section>
-    </div>
+    </main>
+
+    <dialog id="save-drawer" class="v-drawer" aria-labelledby="save-title">
+      <form method="dialog" class="dl-drawer-form">
+        <div class="v-drawer__head">
+          <h2 id="save-title">Save</h2>
+          <button type="button" data-close class="v-btn v-btn--ghost v-btn--icon" aria-label="Close">✕</button>
+        </div>
+        <div class="v-drawer__body">
+          <div class="v-seg" role="group" aria-label="Save as">
+            <button type="button" data-kind="saved_searches" aria-pressed="true">Search</button
+            ><button type="button" data-kind="presets" aria-pressed="false">Filter preset</button>
+          </div>
+          <label class="v-field"
+            ><span>Name</span
+            ><input id="save-name" class="v-input" maxlength="80" required autocomplete="off"
+          /></label>
+          <div class="v-toolbar">
+            <button id="save-confirm" value="save" class="v-btn v-btn--primary">Save</button>
+            <button value="cancel" formnovalidate class="v-btn">Cancel</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="import-drawer" class="v-drawer" aria-labelledby="import-title">
+      <form method="dialog" class="dl-drawer-form">
+        <div class="v-drawer__head">
+          <h2 id="import-title">Import</h2>
+          <button type="button" data-close class="v-btn v-btn--ghost v-btn--icon" aria-label="Close">✕</button>
+        </div>
+        <div class="v-drawer__body">
+          <dl class="v-facts" id="import-facts"></dl>
+          <div class="v-seg" role="group" aria-label="Client">
+            <button type="button" data-client="stable" aria-pressed="true">osu!stable</button
+            ><button type="button" data-client="lazer" aria-pressed="false">osu!(lazer)</button>
+          </div>
+          <label class="v-field" id="songs-field"
+            ><span>Songs folder</span
+            ><input id="songs" class="v-input v-input--mono" autocomplete="off"
+          /></label>
+          <div class="v-toolbar">
+            <button id="import-confirm" value="import" class="v-btn v-btn--primary">Import</button>
+            <button value="cancel" formnovalidate class="v-btn">Cancel</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="toast" class="v-toast" role="status" hidden></div>
   </body>
 </html>
