@@ -28,6 +28,11 @@ const dist = path.join(root, 'tools/practice/web/dist');
 const manifest = await readFile(path.join(root, 'tools/practice/tool.toml'), 'utf8');
 const routes = Object.fromEntries(['read', 'write'].map((kind) => [kind, JSON.parse(manifest.match(new RegExp(`^${kind} = (\\[.*\\])$`, 'm'))[1])]));
 const settingsSchema = JSON.parse(await readFile(path.join(root, 'tools/practice/settings.json'), 'utf8'));
+// vosu's shared design system, served like /tools/_host/v1/theme.css (tokens +
+// components) with its fonts under /assets/. VOSU_CHECKOUT points at a vosu
+// checkout that has them (default: the sibling dev/1.2.0 worktree).
+const vosuAssets = path.join(process.env.VOSU_CHECKOUT ?? path.resolve(root, '../../../vosu-wt/dev-1.2.0'), 'assets/server');
+const themeCss = `${await readFile(path.join(vosuAssets, 'tokens.css'), 'utf8')}\n${await readFile(path.join(vosuAssets, 'system.css'), 'utf8')}`;
 const TOKENS = { practice: 'practice-render-check', ratings: 'ratings-render-check' };
 const SESSION = 'practice-render-session';
 await mkdir(evidence, { recursive: true });
@@ -75,13 +80,16 @@ const bridge = `
 const fragment = new URLSearchParams(location.hash.slice(1));
 history.replaceState(null, '', location.pathname + location.search);
 const theme = fragment.get('theme');
+// As the vosu bridge does: the launch hint (or the system preference) becomes data-theme.
+const colorScheme = ['dark', 'light'].includes(theme) ? theme : matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+document.documentElement.dataset.theme = colorScheme;
 const session = fragment.get('session') === '1' ? ${JSON.stringify(SESSION)} : null;
 const base = new URL('/tools/practice/api/', location.origin);
 export const vosu = Object.freeze({
   ready: Promise.resolve(),
   tool: { id: 'practice', name: 'osu! practice tool', version: '0.1.0' },
   dashboardUrl: 'http://127.0.0.1:25251/',
-  ...(['dark', 'light'].includes(theme) ? { colorScheme: theme } : {}),
+  colorScheme,
   get canWrite() { return Boolean(session); },
   async fetch(target, options = {}) {
     const url = new URL(target, base);
@@ -162,6 +170,11 @@ const host = Bun.serve({
       return token === TOKENS.ratings ? Response.json({}) : new Response(null, { status: 401 });
     }
     if (url.pathname === '/tools/_host/v1/bridge.js') return new Response(bridge, { headers: { 'content-type': 'text/javascript' } });
+    if (url.pathname === '/tools/_host/v1/theme.css') return new Response(themeCss, { headers: { 'content-type': 'text/css' } });
+    if (url.pathname.startsWith('/assets/') && url.pathname.endsWith('.woff2')) {
+      const font = Bun.file(path.join(vosuAssets, path.basename(url.pathname)));
+      return (await font.exists()) ? new Response(font) : new Response(null, { status: 404 });
+    }
     if (url.pathname === '/files/beatmap/audio') return new Response(Bun.file(context.beatmap.audio));
     if (url.pathname === '/files/beatmap/background') {
       return context.beatmap.background ? new Response(Bun.file(context.beatmap.background)) : new Response(null, { status: 404 });
@@ -250,7 +263,7 @@ const statLabels = (page) => texts(page, '#stats dt');
 try {
   // ---- osu! map: only osu! transforms and stats; preview renders.
   let { ctx, page, errors } = await open('dark');
-  check('osu!: ruleset transforms only', JSON.stringify(await texts(page, '#transforms .mod-code')) === '["MR","RD"]', await texts(page, '#transforms .mod-code'));
+  check('osu!: ruleset transforms only', JSON.stringify(await texts(page, '#transforms button')) === '["Mirror","Random"]', await texts(page, '#transforms button'));
   check('osu!: difficulty fields HP/CS/AR/OD', JSON.stringify(await page.$$eval('#difficulty input[type=number]', (e) => e.map((i) => i.name))) === '["hp","cs","ar","od"]');
   check('osu!: stats show CS/AR, no keys', (await statLabels(page)).includes('AR') && !(await statLabels(page)).includes('Keys'), await statLabels(page));
   const webgpu = await page.evaluate(() => document.getElementById('preview-message').hidden);
@@ -259,8 +272,14 @@ try {
   check('button reads "Generate map"', (await page.textContent('#generate')).trim() === 'Generate map');
   // Regression (round 3): vosu rejects anything but JSON-pointer selectors, and
   // the page must then not claim vosu is unreachable while it is up.
-  await page.waitForFunction(() => document.getElementById('live').dataset.state === 'open', null, { timeout: 10_000 }).catch(() => {});
-  check('subscription accepted by vosu’s validation; page follows osu!', report.subscriptions.length > 0 && report.subscriptions.every((s) => s.accepted) && (await page.textContent('#live')) === 'Following osu!', { subscriptions: report.subscriptions, live: await page.textContent('#live') });
+  await page.waitForFunction(() => document.getElementById('live-dot').dataset.state === 'ok', null, { timeout: 10_000 }).catch(() => {});
+  check('subscription accepted by vosu’s validation; page follows osu!', report.subscriptions.length > 0 && report.subscriptions.every((s) => s.accepted) && (await page.textContent('#live')) === 'Live' && (await page.getAttribute('#live-dot', 'data-state')) === 'ok', { subscriptions: report.subscriptions, live: await page.textContent('#live') });
+  // Preview audio starts muted; the toggle is remembered.
+  const muted = await page.evaluate(() => document.getElementById('mute').getAttribute('aria-pressed'));
+  await page.click('#mute');
+  const remembered = await page.evaluate(() => localStorage.getItem('vosu-tools:practice:muted'));
+  await page.click('#mute');
+  check('preview audio muted by default; toggle remembered', muted === 'true' && remembered === '0' && (await page.evaluate(() => localStorage.getItem('vosu-tools:practice:muted'))) === '1', { muted, remembered });
   await page.screenshot({ path: `${evidence}/osu-dark-1920.png` });
 
   // ---- Follow the game: switch to the mania map without reloading.
@@ -268,7 +287,7 @@ try {
   await page.waitForFunction((t) => document.getElementById('title').textContent.includes(t), 'Sanzu', { timeout: 20_000 });
   await settled(page);
   check('follows the selected map live (WebSocket frame, no reload)', true, await page.textContent('#title'));
-  check('mania: ruleset transforms only', JSON.stringify(await texts(page, '#transforms .mod-code')) === '["IN","HO","MR","RD","CS"]');
+  check('mania: ruleset transforms only', JSON.stringify(await texts(page, '#transforms button')) === '["Invert","Hold Off","Mirror","Random","Constant Speed"]');
   check('mania: difficulty HP/OD only', JSON.stringify(await page.$$eval('#difficulty input[type=number]', (e) => e.map((i) => i.name))) === '["hp","od"]');
   const maniaStats = await statLabels(page);
   check('mania: keys shown, no CS/AR', maniaStats.includes('Keys') && !maniaStats.includes('CS') && !maniaStats.includes('AR'), maniaStats);
@@ -277,8 +296,8 @@ try {
   const fit = await page.evaluate(() => {
     const stage = document.querySelector('.stage').getBoundingClientRect();
     const canvas = document.getElementById('canvas').getBoundingClientRect();
-    const work = document.querySelector('.workspace').getBoundingClientRect();
-    return { fitted: document.querySelector('.workspace').classList.contains('fit-preview'), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), workspaceWidth: Math.round(work.width) };
+    const work = document.getElementById('main').getBoundingClientRect();
+    return { fitted: document.getElementById('main').classList.contains('fit-preview'), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), workspaceWidth: Math.round(work.width) };
   });
   check('mania: preview column fits the stage; playfield at full height', fit.fitted && fit.stageWidth < fit.workspaceWidth / 2 && fit.canvasWidth >= fit.stageHeight * 4 / 3 - 1, fit);
   await page.waitForFunction((rated) => {
@@ -362,17 +381,33 @@ try {
   await page.locator('#profile').evaluate((select) => { select.size = 0; });
   await ctx.close();
 
-  // ---- Screenshots: both schemes, 1920 (design), 2560, split-screen and phone widths.
-  for (const [scheme, width, height] of [['light', 1920, 1080], ['dark', 2560, 1440], ['light', 2560, 1440], ['dark', 960, 1080], ['light', 960, 1080], ['dark', 390, 844], ['light', 390, 844]]) {
+  // ---- Screenshots and the app-shell rule: both schemes at 1920×1080, 2560×1440,
+  // 1280×720 and half-width 960×1080 the page never scrolls and nothing sticks out
+  // sideways (canvases cropped by their own panel don't count); 390 may stack.
+  for (const [scheme, width, height] of [['dark', 1920, 1080], ['light', 1920, 1080], ['dark', 2560, 1440], ['light', 2560, 1440], ['dark', 1280, 720], ['light', 1280, 720], ['dark', 960, 1080], ['light', 960, 1080], ['dark', 390, 844], ['light', 390, 844]]) {
     ({ ctx, page, errors } = await open(scheme, { width, height }));
-    const layout = await page.evaluate(() => ({
-      overflowX: document.documentElement.scrollWidth > innerWidth,
-      pageScrolls: document.documentElement.scrollHeight > innerHeight + 1,
-      scheme: document.documentElement.dataset.scheme,
-    }));
-    check(`${scheme} ${width}×${height}: scheme, no sideways overflow${width >= 960 ? ', page fits the viewport' : ''}`, layout.scheme === scheme && !layout.overflowX && (width < 960 || !layout.pageScrolls), layout);
+    const layout = await page.evaluate(() => {
+      const clipped = (el) => {
+        for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+          if (getComputedStyle(p).overflowX !== 'visible') return true;
+        }
+        return false;
+      };
+      const outside = [...document.body.querySelectorAll('*')]
+        .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > innerWidth + 1 || r.left < -1) && !clipped(el); })
+        .map((el) => el.id || el.className || el.tagName);
+      return {
+        scrollHeight: document.scrollingElement.scrollHeight,
+        innerHeight,
+        outside,
+        theme: document.documentElement.dataset.theme,
+        font: getComputedStyle(document.body).fontFamily,
+      };
+    });
+    const fits = width < 960 || layout.scrollHeight <= layout.innerHeight;
+    check(`${scheme} ${width}×${height}: theme, shared font, nothing outside the viewport${width >= 960 ? ', page does not scroll' : ''}`, layout.theme === scheme && layout.font.includes('Barlow') && layout.outside.length === 0 && fits, layout);
     check(`${scheme} ${width}: no page errors`, errors.length === 0, errors);
-    await page.screenshot({ path: `${evidence}/mania-${scheme}-${width}.png`, fullPage: width < 960 });
+    await page.screenshot({ path: `${evidence}/mania-${scheme}-${width}x${height}.png`, fullPage: width < 960 });
     await ctx.close();
   }
 
@@ -387,13 +422,6 @@ try {
   await page.screenshot({ path: `${evidence}/mania-dark-1920-readonly.png` });
   await ctx.close();
 
-  // ---- Older bridges without colorScheme follow the browser preference.
-  for (const preference of ['light', 'dark']) {
-    ({ ctx, page } = await open(null, { preference }));
-    const scheme = await page.evaluate(() => document.documentElement.dataset.scheme);
-    check(`no colorScheme → prefers-color-scheme ${preference}`, scheme === preference, scheme);
-    await ctx.close();
-  }
 } finally {
   await writeFile(`${evidence}/render.json`, JSON.stringify(report, null, 2) + '\n');
   await browser.close();
