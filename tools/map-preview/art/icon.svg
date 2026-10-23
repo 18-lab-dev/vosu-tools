@@ -1,12 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <title>Map preview</title>
-  <rect width="256" height="256" rx="56" fill="#15120f"/>
-  <!-- Slider: gold track with a dark body, ending in a tail circle. -->
-  <path d="M86 176 C 104 96, 160 72, 198 82" fill="none" stroke="#f2c14e" stroke-width="40" stroke-linecap="round"/>
-  <path d="M86 176 C 104 96, 160 72, 198 82" fill="none" stroke="#2a231c" stroke-width="26" stroke-linecap="round"/>
-  <circle cx="198" cy="82" r="13" fill="none" stroke="#f2c14e" stroke-width="5"/>
-  <!-- Approach circle closing on the slider head. -->
-  <circle cx="86" cy="176" r="58" fill="none" stroke="#ff6b57" stroke-width="7" opacity="0.85"/>
-  <circle cx="86" cy="176" r="33" fill="#ff6b57" stroke="#f1e9dc" stroke-width="8"/>
-  <circle cx="86" cy="176" r="9" fill="#f1e9dc"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24">
+<style>@media (prefers-color-scheme:dark){.i{stroke:#b8b5ad}.a{stroke:#ff963f}.fi{fill:#b8b5ad}}</style>
+<g class="i" fill="none" stroke="#3b4858" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15.5" r="3"/><circle cx="17" cy="7" r="3"/></g>
+<g class="a" fill="none" stroke="#175fad" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15.5" r="5.5"/></g>
+<circle class="fi" cx="13.2" cy="10.6" r=".9" fill="#3b4858"/>
 </svg>

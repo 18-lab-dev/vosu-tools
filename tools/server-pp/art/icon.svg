@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-<title>Server pp calculator</title>
-<rect width="256" height="256" rx="44" fill="#152f28"/>
-<path d="M40 74H216" stroke="#ebe4d3" stroke-opacity=".28" stroke-width="3" stroke-dasharray="6 6"/>
-<circle cx="81" cy="115" r="30" fill="none" stroke="#ebe4d3" stroke-width="22"/><path d="M51 74V203" stroke="#ebe4d3" stroke-width="22"/>
-<circle cx="175" cy="93" r="30" fill="none" stroke="#ee5a3a" stroke-width="22"/><path d="M145 52V181" stroke="#ee5a3a" stroke-width="22"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24">
+<style>@media (prefers-color-scheme:dark){.i{stroke:#b8b5ad}.a{stroke:#ff963f}.f{fill:#ff963f}}</style>
+<g class="i" fill="none" stroke="#3b4858" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.5a8 8 0 0 1 16 0"/></g>
+<g class="a" fill="none" stroke="#175fad" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15.5l4-4.75"/></g>
+<circle class="f" cx="12" cy="15.5" r="1.75" fill="#175fad"/>
 </svg>

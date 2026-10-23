@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <title>skin.ini editor</title>
-  <rect width="256" height="256" rx="56" fill="#191413"/>
-  <path d="M86 52H58v152h28" fill="none" stroke="#ff5d8f" stroke-width="18" stroke-linecap="square"/>
-  <path d="M170 52h28v152h-28" fill="none" stroke="#ff5d8f" stroke-width="18" stroke-linecap="square"/>
-  <rect x="98" y="64" width="60" height="36" fill="#ffc04a"/>
-  <rect x="98" y="110" width="60" height="36" fill="#52c6b4"/>
-  <rect x="98" y="156" width="60" height="36" fill="#f1e7df"/>
-</svg>

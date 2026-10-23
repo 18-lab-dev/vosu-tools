@@ -4,8 +4,8 @@ name = "osu! practice tool"
 version = "0.1.0"
 description = "Practice maps: change rate, difficulty and ruleset transforms, trim to the sections you want to grind, and preview the result before generating it."
 author = "18-LAB"
-icon = "assets/icon.svg"
-banner = "assets/banner.svg"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 [ui]
 root = "web/dist"
 [service]

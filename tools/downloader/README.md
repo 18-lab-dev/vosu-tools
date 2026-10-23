@@ -61,7 +61,7 @@ Stable ownership uses positive set IDs and difficulty MD5s from a temporary copy
 
 The page uses the shared 18-LAB design system served by vosu (`/tools/_host/v1/theme.css`, documented in vosu `docs/tools/design.md`); it ships no palette, fonts or theme code of its own, and `web/src/style.css` holds only the downloader's layout. It is a fixed app layout: the bar (live status, selected map, library source, read-only state, settings), then search, results and queue panels; only the results table and the queue scroll. Results and queue stack at half width (960 px). Search groups collapse and their open state is remembered per browser (`localStorage` key `vosu-downloader:panels`, open/closed flags only). Saving a search or preset and confirming an import use the system drawer instead of browser dialogs; the import drawer also holds the client and Songs folder. Status and errors appear as short toasts.
 
-`assets/icon.svg` is the manifest icon. It is plain shapes, so it renders the same anywhere. `assets/banner.png` (1200×400, 3:1) is rasterized from `assets/banner.svg`, whose lettering uses Saira Stencil One and Courier Prime (both SIL OFL-1.1); install those fonts, load the SVG inline in Chromium, and screenshot at 1200×400 with device scale factor 1 to regenerate it.
+`art/icon.svg` and `art/banner.svg` are the manifest art, drawn to the shared rules in [`docs/art.md`](../../docs/art.md).
 
 ## Verification
 

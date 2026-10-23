@@ -4,8 +4,8 @@ name = "Skin studio"
 version = "0.1.0"
 description = "Browse stable and lazer skins, preview elements, animations and hitsounds, mix element groups into a new stable skin or lazer .osk, and edit skin.ini"
 author = "18-LAB"
-icon = "assets/icon.svg"
-banner = "assets/banner.svg"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [ui]
 root = "web/dist"

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 24 24">
+<style>@media (prefers-color-scheme:dark){.i{stroke:#b8b5ad}.a{stroke:#ff963f}}</style>
+<g class="i" fill="none" stroke="#3b4858" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.5v4A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-4"/></g>
+<g class="a" fill="none" stroke="#175fad" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11M7.5 10l4.5 4.5 4.5-4.5"/></g>
+</svg>

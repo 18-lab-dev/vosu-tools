@@ -4,8 +4,8 @@ name = "Beatmap downloader"
 version = "0.1.0"
 description = "Discover maps from your selected beatmap and play history; queue polite, validated mirror downloads."
 author = "18-LAB"
-icon = "assets/icon.svg"
-banner = "assets/banner.png"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [ui]
 root = "web/dist"

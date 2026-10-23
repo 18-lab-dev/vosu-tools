@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-<rect width="256" height="256" rx="28" fill="#1c1b18"/>
-<path d="M56 24V232M24 56H232M88 24V232M24 88H232M120 24V232M24 120H232M152 24V232M24 152H232M184 24V232M24 184H232M216 24V232M24 216H232" stroke="#2e2b26" stroke-width="2"/>
-<rect x="140" y="24" width="56" height="190" fill="#ff7b63" fill-opacity=".22"/>
-<path d="M32 118H224" stroke="#ece6da" stroke-width="6" stroke-dasharray="10 9"/>
-<path d="M28 214H228" stroke="#ece6da" stroke-width="6"/>
-<path d="M36 206V168H68V140H96V96H124V122H150V60H176V100H204V150H220V206" fill="none" stroke="#ff7b63" stroke-width="16" stroke-linejoin="miter" stroke-linecap="square"/>
-</svg>
