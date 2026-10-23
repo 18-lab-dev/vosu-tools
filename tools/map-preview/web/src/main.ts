@@ -1,22 +1,18 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import {
   parseOsu,
-  parseSkinIni,
   type Beatmap,
   type Mod,
   type Ruleset,
 } from "@vosu-tools/osu-parse";
 import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
-  builtinSkin,
   createRenderer,
-  loadSkin,
-  withFallback,
   type BuiltinSkinName,
   type RenderOptions,
   type Renderer,
-  type Skin,
 } from "@vosu-tools/render-core";
+import { ClientSkin } from "@vosu-tools/client-skin";
 import {
   LiveClock,
   emptyState,
@@ -25,13 +21,12 @@ import {
   type GameState,
   type LiveStatus,
 } from "./live";
-import { openOsk } from "./osk";
+import { md5 } from "./md5";
 import {
   defaultSettings,
   readSettings,
   type PreviewSettings,
 } from "./settings";
-import { hostSkinFiles, readCurrentSkin } from "./skin-source";
 import "./style.css";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -75,11 +70,6 @@ let renderer: Renderer | undefined,
   mapKey = "",
   sceneKey = "",
   loadSequence = 0,
-  skinSequence = 0,
-  selectedSkin: Skin | undefined,
-  ownedBitmaps: ImageBitmap[] = [],
-  skinChoice: "client" | "user" | BuiltinSkinName = "client",
-  clientSkinKey = "",
   settings: PreviewSettings = { ...defaultSettings },
   following = true,
   objectUrl: string | undefined,
@@ -87,16 +77,7 @@ let renderer: Renderer | undefined,
   game: GameState = emptyState(),
   liveStatus: LiveStatus = "connecting",
   hidden = false;
-const clock = new LiveClock(),
-  builtins = new Map<BuiltinSkinName, Skin>();
-
-/* ------------------------------------------------------------ helpers */
-
-const builtin = (name: BuiltinSkinName) => {
-  let skin = builtins.get(name);
-  if (!skin) builtins.set(name, (skin = builtinSkin(name)));
-  return skin;
-};
+const clock = new LiveClock();
 const formatTime = (ms: number) => {
   const t = Math.max(0, Math.round(ms));
   return `${Math.floor(t / 60000)}:${String(Math.floor(t / 1000) % 60).padStart(2, "0")}.${String(t % 1000).padStart(3, "0")}`;
@@ -110,13 +91,20 @@ function say(message: string, tone: "info" | "error" = "info"): void {
 function showError(error: unknown): void {
   say(error instanceof Error ? error.message : String(error), "error");
 }
-function skinNotice(
-  message: string,
-  tone: "info" | "notice" | "error" = "info",
-) {
-  skinMessage.textContent = message;
-  skinMessage.dataset.tone = tone;
-}
+const skins = new ClientSkin({
+  onChange(state) {
+    renderer?.setSkin(state.skin);
+    if (state.busy) skinPanel.setAttribute("aria-busy", "true");
+    else skinPanel.removeAttribute("aria-busy");
+    skinName.textContent = state.label;
+    skinSource.textContent = state.source;
+    skinMessage.textContent = state.message;
+    skinMessage.dataset.tone = state.tone;
+    if (state.skin !== shownSkin) sceneKey = "";
+    shownSkin = state.skin;
+  },
+});
+let shownSkin = skins.state.skin;
 const stateNames: Record<number, string> = {
   0: "main menu",
   1: "editor",
@@ -150,7 +138,7 @@ function playfieldColour(): GPUColor {
 function ensureRenderer(): Promise<Renderer> {
   rendererReady ??= createRenderer({
     canvas,
-    skin: selectedSkin,
+    skin: skins.state.skin,
     clearColour: playfieldColour(),
     presentation:
       new URLSearchParams(location.search).get("presentation") === "bitmap"
@@ -160,7 +148,7 @@ function ensureRenderer(): Promise<Renderer> {
     (created) => {
       renderer = created;
       // A skin installed while the renderer was being created must still reach it.
-      created.setSkin(selectedSkin);
+      created.setSkin(skins.state.skin);
       resize();
       return created;
     },
@@ -380,7 +368,13 @@ function updateRulesetControls(): void {
   const osuOnly = source && !osuMap;
   rulesetSelect.title = osuOnly ? "Only osu! maps convert." : "";
 }
-/** Loads the game's selected map when it changes. */
+/**
+ * Loads the game's selected map when it changes. vosu can briefly serve the
+ * previous difficulty's file after a selection change, so the file's MD5 must
+ * match the selected checksum; otherwise it is fetched again with a backoff
+ * (100 ms doubling, at most 3 s apart) while the selection stays the same.
+ * The previous map stays drawn meanwhile.
+ */
 async function followMap(force = false): Promise<void> {
   const key = game.checksum ?? "";
   if (!force && key === mapKey) return;
@@ -388,25 +382,47 @@ async function followMap(force = false): Promise<void> {
   const seq = ++loadSequence;
   if (!key && !force) return;
   say("Loading the selected beatmap…");
-  try {
-    const response = await fetch("/files/beatmap/file", { cache: "no-store" });
-    if (!response.ok) {
-      if (seq !== loadSequence) return;
-      // Without a client there is simply nothing selected yet.
-      if (game.client)
-        say(
-          `vosu could not serve the selected beatmap (${response.status}).`,
-          "error",
-        );
-      else say("No beatmap selected.");
+  // The previous map stays drawn; the bar says what is happening.
+  $("detail").textContent = "Loading…";
+  const settle = () => {
+    if (source) describeMap();
+    else $("detail").textContent = "";
+  };
+  for (let delay = 100, attempt = 0; ; delay = Math.min(3000, delay * 2)) {
+    try {
+      const response = await fetch("/files/beatmap/file", {
+        cache: "no-store",
+      });
+      if (seq !== loadSequence || !following) return;
+      if (!response.ok) {
+        // Without a client there is simply nothing selected yet.
+        if (game.client)
+          say(
+            `vosu could not serve the selected beatmap (${response.status}).`,
+            "error",
+          );
+        else say("No beatmap selected.");
+        settle();
+        return;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (seq !== loadSequence || !following) return;
+      if (!key || md5(bytes) === key.toLowerCase()) {
+        say("");
+        await openMap(new TextDecoder().decode(bytes), "from the game");
+        return;
+      }
+      if (++attempt === 6)
+        say("Waiting for vosu to serve the selected beatmap…");
+    } catch (error) {
+      if (seq === loadSequence) {
+        showError(error);
+        settle();
+      }
       return;
     }
-    const text = await response.text();
+    await new Promise((resolve) => setTimeout(resolve, delay));
     if (seq !== loadSequence || !following) return;
-    say("");
-    await openMap(text, "from the game");
-  } catch (error) {
-    if (seq === loadSequence) showError(error);
   }
 }
 let followNotice = "";
@@ -492,8 +508,6 @@ function updateHidden(): void {
 }
 
 function onGame(state: GameState): void {
-  const previousClient = game.client,
-    previousSkin = game.skinFolder;
   game = { ...state, mania: { ...state.mania }, visual: { ...state.visual } };
   clock.update(state.time, state.rate, state.running, performance.now());
   updateHidden();
@@ -508,163 +522,14 @@ function onGame(state: GameState): void {
         (mod) => mod.acronym.toUpperCase() === input.value,
       );
   }
-  if (
-    skinChoice === "client" &&
-    (previousClient !== game.client || previousSkin !== game.skinFolder)
-  )
-    void useClientSkin(false);
+  void skins.gameChanged(game.client, game.skinFolder);
 }
 
 /* ------------------------------------------------------------ skins */
 
-/** Installs a skin; bitmaps in `owned` are released when it is replaced. */
-function installSkin(
-  skin: Skin,
-  label: string,
-  source: string,
-  owned: ImageBitmap[] = [],
-) {
-  renderer?.setSkin(skin);
-  selectedSkin = skin;
-  for (const bitmap of ownedBitmaps) bitmap.close();
-  ownedBitmaps = owned;
-  skinName.textContent = label;
-  skinSource.textContent = source;
-  sceneKey = "";
-}
-async function loadSkinFrom(
-  pending: string,
-  load: (isCurrent: () => boolean) => Promise<void>,
-): Promise<void> {
-  const seq = ++skinSequence;
-  skinPanel.setAttribute("aria-busy", "true");
-  skinNotice(pending);
-  try {
-    await load(() => seq === skinSequence);
-  } catch (error) {
-    if (seq === skinSequence)
-      skinNotice(
-        error instanceof Error ? error.message : String(error),
-        "error",
-      );
-  } finally {
-    if (seq === skinSequence) skinPanel.removeAttribute("aria-busy");
-  }
-}
-const fileCount = (count: number) =>
-  `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
-const builtinLabels: Record<BuiltinSkinName, string> = {
-  argon: "Argon",
-  "argon-pro": "Argon Pro",
-  triangles: "Triangles",
-  legacy: "Classic",
-};
-function useBuiltin(name: BuiltinSkinName, source: string, message = "") {
-  skinChoice = name;
-  installSkin(builtin(name), builtinLabels[name], source);
-  skinNotice(message);
-}
-/** Shows the client's current skin, falling back to the classic look with a reason. */
-function useClientSkin(announce = true): Promise<void> {
-  skinChoice = "client";
-  return loadSkinFrom(
-    "Asking vosu for the current skin…",
-    async (isCurrent) => {
-      const current = await readCurrentSkin();
-      if (!isCurrent()) return;
-      const key = JSON.stringify(current);
-      if (!announce && key === clientSkinKey) {
-        skinNotice("");
-        return;
-      }
-      clientSkinKey = key;
-      const client = current.info?.client ?? "client";
-      if (current.kind === "unavailable") {
-        installSkin(builtin("legacy"), "Classic", "fallback look");
-        skinNotice(current.message, "notice");
-        return;
-      }
-      if (current.kind === "builtin") {
-        let skin = builtin(current.look);
-        if (current.coloursFromFiles) {
-          const ini = await hostSkinFiles().resolve("skin.ini");
-          const colours = ini
-            ? parseSkinIni(await ini.text()).get("Colours")
-            : undefined;
-          if (!isCurrent()) return;
-          if (colours?.length)
-            skin = {
-              ...skin,
-              sections: new Map(skin.sections).set("Colours", colours),
-            };
-        }
-        installSkin(
-          skin,
-          current.name,
-          `${client} · ${current.info.builtin ? "built-in skin" : `${builtinLabels[current.look]}-based skin`}`,
-        );
-        skinNotice(current.message ?? "", current.message ? "notice" : "info");
-        return;
-      }
-      skinNotice(`Loading “${current.name}” from ${client}…`);
-      const host = hostSkinFiles(),
-        loaded = await loadSkin(host.resolve, current.name);
-      if (!isCurrent()) {
-        for (const bitmap of loaded.assets.values()) bitmap.close();
-        return;
-      }
-      if (!host.served) {
-        installSkin(builtin("legacy"), "Classic", "fallback look");
-        skinNotice(
-          host.failures
-            ? `vosu could not serve “${current.name}”; showing the classic look.`
-            : `“${current.name}” has nothing to draw; showing the classic look.`,
-          "notice",
-        );
-        return;
-      }
-      installSkin(
-        withFallback(loaded, builtin(current.fallback)),
-        current.name,
-        `${client} · current skin · ${fileCount(host.served)}`,
-        [...loaded.assets.values()],
-      );
-      skinNotice("");
-    },
-  );
-}
-async function userSkin(
-  name: string,
-  source: string,
-  resolve: (path: string) => Promise<Blob | null>,
-  isCurrent: () => boolean,
-): Promise<void> {
-  let used = 0;
-  const loaded = await loadSkin(async (path) => {
-    const blob = await resolve(path);
-    if (blob) used++;
-    return blob;
-  }, name);
-  if (!isCurrent()) {
-    for (const bitmap of loaded.assets.values()) bitmap.close();
-    return;
-  }
-  if (!used) {
-    skinNotice(`“${name}” has nothing to draw.`, "notice");
-    return;
-  }
-  skinChoice = "user";
-  installSkin(
-    withFallback(loaded, builtin("legacy")),
-    name,
-    `${source} · ${fileCount(used)} used`,
-    [...loaded.assets.values()],
-  );
-  skinNotice(`Loaded “${name}”.`);
-}
 function applySkinSetting(): void {
-  if (settings.skin === "client") void useClientSkin();
-  else useBuiltin(settings.skin, "set in Map preview settings");
+  if (settings.skin === "client") void skins.useClient();
+  else skins.useBuiltin(settings.skin, "set in Map preview settings");
 }
 
 /* ------------------------------------------------------------ settings */
@@ -684,7 +549,7 @@ async function loadSettings(initial: boolean): Promise<void> {
     const stored = localStorage.getItem(CONTROLS_KEY);
     setDrawer(stored === null ? settings.controlsOpen : stored === "1", false);
     if (source === "defaults")
-      skinNotice("Defaults apply: this vosu has no tool settings.");
+      skins.say("Defaults apply: this vosu has no tool settings.");
   }
   if (initial || previous.skin !== settings.skin) applySkinSetting();
   sceneKey = "";
@@ -708,11 +573,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !event.defaultPrevented && !drawer.hidden)
     setDrawer(false);
 });
-$<HTMLButtonElement>("current-skin").onclick = () => void useClientSkin();
+$<HTMLButtonElement>("current-skin").onclick = () => void skins.useClient();
 builtinSelect.onchange = () => {
   const value = builtinSelect.value as BuiltinSkinName | "";
   builtinSelect.value = "";
-  if (value) useBuiltin(value, "chosen in this tab");
+  if (value) skins.useBuiltin(value);
 };
 // Ruleset, key count and Dual Stages re-convert on the next frame.
 for (const control of [rulesetSelect, keysSelect, dualInput])
@@ -801,35 +666,13 @@ $<HTMLInputElement>("skin-osk").onchange = (event) => {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
   input.value = "";
-  if (!file) return;
-  const name = file.name.replace(/\.(osk|zip)$/i, "");
-  void loadSkinFrom(`Reading “${file.name}”…`, async (isCurrent) => {
-    const archive = await openOsk(file);
-    if (isCurrent())
-      await userSkin(name, ".osk file", archive.resolve, isCurrent);
-  });
+  if (file) void skins.loadOsk(file);
 };
 $<HTMLInputElement>("skin-folder").onchange = (event) => {
   const input = event.target as HTMLInputElement,
     chosen = [...(input.files ?? [])];
   input.value = "";
-  if (!chosen.length) return;
-  const lookup = new Map<string, File>();
-  for (const file of chosen)
-    lookup.set(
-      file.webkitRelativePath.split("/").slice(1).join("/").toLowerCase(),
-      file,
-    );
-  const name = chosen[0].webkitRelativePath.split("/")[0];
-  void loadSkinFrom(`Reading folder “${name}”…`, (isCurrent) =>
-    userSkin(
-      name,
-      "skin folder",
-      async (path) =>
-        lookup.get(path.replace(/\\/g, "/").toLowerCase()) ?? null,
-      isCurrent,
-    ),
-  );
+  void skins.loadFolder(chosen);
 };
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void loadSettings(false);
@@ -837,12 +680,13 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => {
   audio.pause();
   renderer?.destroy();
-  for (const bitmap of ownedBitmaps) bitmap.close();
+  skins.destroy();
   if (objectUrl) URL.revokeObjectURL(objectUrl);
 });
 
 /* ------------------------------------------------------------ start */
 
+let hadConnection = false;
 try {
   await vosu.ready;
   $("version").textContent = vosu.tool.version;
@@ -852,8 +696,20 @@ try {
     (fields, onFrame, onStatus) => vosu.subscribe(fields, onFrame, onStatus),
     onGame,
     (next) => {
+      // After a reconnect (vosu restarted, or the socket dropped), the
+      // selection may have changed unseen: load it again.
+      const reconnected =
+        (liveStatus === "lost" || liveStatus === "connecting") &&
+        (next === "waiting" || next === "live") &&
+        hadConnection;
+      if (next === "waiting" || next === "live") hadConnection = true;
       liveStatus = next;
       updateStatusChip();
+      if (reconnected) {
+        if (following) void followMap(true);
+        if (skins.state.choice === "client")
+          void skins.useClient({ force: false });
+      }
     },
   );
   await ensureRenderer();

@@ -220,13 +220,14 @@ fn retime(text: &str, o: &Options, audio: &str) -> Result<String> {
         })
         .clamp(0.0, 10.0);
     // The name shows only the stats the ruleset uses (no AR for mania/taiko, no
-    // OD for catch), to one decimal; the [Difficulty] values stay exact.
+    // OD for catch); BPM and stats to one decimal, like the rest of the UI. The
+    // [Difficulty] and timing values stay exact.
     let short = |v: f64| number((v * 10.0).round() / 10.0);
     let mut name = format!(
         "[{}] {}x ({}bpm)",
         value(text, "[Metadata]", "Version").unwrap_or_default(),
         number(o.rate),
-        number(bpm(text)? * o.rate),
+        short(bpm(text)? * o.rate),
     );
     if matches!(mode.as_str(), "0" | "2" | "") {
         name.push_str(&format!(" AR{}", short(ar)));

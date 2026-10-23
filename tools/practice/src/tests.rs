@@ -421,3 +421,19 @@ fn external_storyboard_offsets_and_asset_paths() {
         vec!["anim0.png", "anim1.png"]
     );
 }
+
+#[test]
+fn checksum_matches_only_the_selected_file() {
+    let bytes = b"osu file format v14\n";
+    assert!(!checksum_matches(bytes, "4bc6e8f3e6b7a2d1b8a6dfe4a1d5e3f1"));
+    let digest = {
+        use md5::{Digest, Md5};
+        Md5::digest(bytes)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    assert!(checksum_matches(bytes, &digest));
+    assert!(checksum_matches(bytes, &digest.to_uppercase()));
+    assert!(checksum_matches(bytes, ""));
+}

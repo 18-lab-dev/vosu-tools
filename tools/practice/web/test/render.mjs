@@ -73,6 +73,20 @@ async function stage(source) {
 }
 const maps = { osu: await stage(osuSource), mania: await stage(maniaSource) };
 let context = maps.osu.context;
+// Read-only copies of two of the user's stable skins, served like vosu's
+// `/files/skin/` (report + files by case-insensitive name) for the client's
+// current skin; the v2 stand-in reports the current one at /folders/skin.
+const SKINS = (process.env.PRACTICE_SKINS ?? 'Arturia (sxlvia mania+taiko)|- Staircase!mania').split('|');
+const skinRoot = path.join(process.env.HOME, '.local/share/osu-wine/osu!/Skins');
+const skinFiles = {};
+for (const name of SKINS) {
+  const copy = path.join(temporary, 'Skins', name);
+  await cp(path.join(skinRoot, name), copy, { recursive: true });
+  const index = new Map();
+  for (const rel of await readdir(copy, { recursive: true })) index.set(rel.replaceAll('\\', '/').toLowerCase(), path.join(copy, rel));
+  skinFiles[name] = index;
+}
+let currentSkin = SKINS[0];
 
 const services = {};
 const sockets = new Set();
@@ -112,7 +126,7 @@ export const vosu = Object.freeze({
 // request is validated exactly as vosu does, a rejected one gets vosu's error
 // frame and close 1008, and frames carry values by pointer index.
 let revision = 0;
-const v2 = () => ({ beatmap: { checksum: context.beatmap.checksum } });
+const v2 = () => ({ client: 'stable', folders: { skin: currentSkin }, beatmap: { checksum: context.beatmap.checksum } });
 const values = (pointers) => pointers.map((tokens) => at(v2(), tokens));
 function updates(ws) {
   const next = values(ws.data.pointers);
@@ -175,6 +189,11 @@ const host = Bun.serve({
       const font = Bun.file(path.join(vosuAssets, path.basename(url.pathname)));
       return (await font.exists()) ? new Response(font) : new Response(null, { status: 404 });
     }
+    if (url.pathname === '/files/skin/') return Response.json({ client: 'stable', name: currentSkin, files: true, builtin: null, base: null });
+    if (url.pathname.startsWith('/files/skin/')) {
+      const file = skinFiles[currentSkin].get(decodeURIComponent(url.pathname.slice('/files/skin/'.length)).toLowerCase());
+      return file && (await Bun.file(file).exists()) ? new Response(Bun.file(file)) : new Response(null, { status: 404 });
+    }
     if (url.pathname === '/files/beatmap/audio') return new Response(Bun.file(context.beatmap.audio));
     if (url.pathname === '/files/beatmap/background') {
       return context.beatmap.background ? new Response(Bun.file(context.beatmap.background)) : new Response(null, { status: 404 });
@@ -203,6 +222,10 @@ const host = Bun.serve({
 });
 function switchMap(name) {
   context = maps[name].context;
+  for (const ws of sockets) if (ws.data.pointers) updates(ws);
+}
+function switchSkin(name) {
+  currentSkin = name;
   for (const ws of sockets) if (ws.data.pointers) updates(ws);
 }
 
@@ -301,6 +324,24 @@ try {
     return { cropped: document.getElementById('main').classList.contains('crop-stage'), controlsWidth: Math.round(controls.width), stageWidth: Math.round(stage.width), stageHeight: Math.round(stage.height), canvasWidth: Math.round(canvas.width), mainWidth: Math.round(work.width) };
   });
   check('mania: compact controls column, wide preview, stage at full height', fit.cropped && fit.controlsWidth <= 21 * 16 && fit.stageWidth > fit.mainWidth / 2 && fit.canvasWidth >= fit.stageHeight * 4 / 3 - 1, fit);
+  // The preview draws with the client's current skin and follows a skin change
+  // reported by the game subscription, without a reload.
+  const skinShown = (name) => page.waitForFunction((n) => {
+    const el = document.getElementById('skin');
+    return el.textContent === n && el.getAttribute('aria-busy') === 'false';
+  }, name, { timeout: 30_000 }).then(() => true, () => false);
+  const first = await skinShown(SKINS[0]);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${evidence}/mania-skin-${SKINS[0].replace(/[^\w]+/g, '-')}-dark-1920.png` });
+  switchSkin(SKINS[1]);
+  const followed = await skinShown(SKINS[1]);
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${evidence}/mania-skin-${SKINS[1].replace(/[^\w]+/g, '-')}-dark-1920.png` });
+  switchSkin(SKINS[0]);
+  const back = await skinShown(SKINS[0]);
+  check('preview uses the client skin and follows skin changes live', first && followed && back, { skin: await page.textContent('#skin'), title: await page.getAttribute('#skin', 'title') });
+  const version = await page.textContent('#version');
+  check('difficulty name: BPM integer or one decimal', /\(\d+(\.\d)?bpm\)/.test(version), version);
   await page.waitForFunction((rated) => {
     const label = document.getElementById('timeline-label').textContent;
     return rated ? label.includes('Mania ratings') : label.startsWith('Notes per second');

@@ -182,6 +182,17 @@ fn stats(text: &str) -> anyhow::Result<Value> {
     }))
 }
 
+/// Whether `bytes` are the beatmap with this MD5 checksum (always true
+/// without a checksum).
+fn checksum_matches(bytes: &[u8], checksum: &str) -> bool {
+    use md5::{Digest, Md5};
+    let digest: String = Md5::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    checksum.is_empty() || digest.eq_ignore_ascii_case(checksum)
+}
+
 async fn current(
     State(app): State<App>,
     Query(query): Query<BTreeMap<String, String>>,
@@ -191,7 +202,16 @@ async fn current(
     let Some(b) = &ctx.beatmap else {
         return Ok(Json(json!({"client":ctx.client,"beatmap":null})));
     };
-    let text = std::fs::read_to_string(&b.file).map_err(error)?;
+    let bytes = std::fs::read(&b.file).map_err(error)?;
+    // Right after a selection change the file can still be the previous
+    // difficulty's; the UI retries on 409 until it matches the checksum.
+    if !checksum_matches(&bytes, &b.checksum) {
+        return Err((
+            StatusCode::CONFLICT,
+            Json(json!({"error":"the beatmap file does not match the selected checksum yet"})),
+        ));
+    }
+    let text = String::from_utf8(bytes).map_err(error)?;
     let ratings = if ruleset(&text) == "mania" {
         app.client
             .tool_json::<Value>("mania-ratings", &format!("v1/beatmap/current?rate={rate}"))

@@ -2,7 +2,7 @@
 // output map's own clock; the source audio is played at the chosen rate and
 // re-seeked into each trimmed section (silent in the gaps between them).
 import { parseOsu, type Beatmap } from '@vosu-tools/osu-parse';
-import { createRenderer, type Renderer } from '@vosu-tools/render-core';
+import { createRenderer, type Renderer, type Skin } from '@vosu-tools/render-core';
 import { sourceTime, type Window } from './time';
 
 export type PreviewMap = { osu: string; rate: number; windows: Window[]; pitch: boolean };
@@ -17,6 +17,7 @@ export class Preview {
   private startedAt = 0;
   private startTime = 0;
   private frame = 0;
+  private skin: Skin | undefined;
   readonly audio = new Audio();
 
   constructor(
@@ -130,6 +131,13 @@ export class Preview {
     }
   }
 
+  /** Draw with `skin` (the client's current skin, from ClientSkin). */
+  setSkin(skin: Skin): void {
+    this.skin = skin;
+    this.renderer?.setSkin(skin);
+    this.draw();
+  }
+
   private draw(): void {
     if (this.renderer && this.map) this.renderer.renderAt(this.time);
     this.onTick(this.time, this.duration, this.playing);
@@ -152,8 +160,10 @@ export class Preview {
     // `?presentation=bitmap` (as in Map preview) copies frames into a bitmap
     // canvas so headless captures can see them; normal use presents directly.
     const presentation = new URLSearchParams(location.search).get('presentation') === 'bitmap' ? 'bitmap' : 'direct';
-    this.creating ??= createRenderer({ canvas: this.canvas, clearColour: stageColour(this.canvas), presentation }).then((renderer) => {
+    this.creating ??= createRenderer({ canvas: this.canvas, skin: this.skin, clearColour: stageColour(this.canvas), presentation }).then((renderer) => {
       this.renderer = renderer;
+      // A skin that arrived while the renderer was being created must still reach it.
+      if (this.skin) renderer.setSkin(this.skin);
       this.resize();
       return renderer;
     });

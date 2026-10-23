@@ -7,6 +7,9 @@
  */
 import type { BuiltinSkinName } from "@vosu-tools/render-core";
 
+/** `fetch` on the overlay origin (the global one, or a stand-in in tests). */
+export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
+
 export interface HostSkinInfo {
   client: "stable" | "lazer" | null;
   name: string | null;
@@ -52,7 +55,7 @@ function look(family: string | null): BuiltinSkinName {
 
 /** Interprets the host's skin report. */
 export async function readCurrentSkin(
-  fetcher: typeof fetch = fetch,
+  fetcher: Fetcher = fetch,
 ): Promise<CurrentSkin> {
   let response: Response;
   try {
@@ -138,7 +141,7 @@ export interface HostSkinFiles {
  * Resolves skin files by filename through `/files/skin/<path>`, keeping
  * subfolder separators, and counts what the host actually served.
  */
-export function hostSkinFiles(fetcher: typeof fetch = fetch): HostSkinFiles {
+export function hostSkinFiles(fetcher: Fetcher = fetch): HostSkinFiles {
   let served = 0,
     failures = 0;
   return {
