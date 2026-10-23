@@ -5,230 +5,320 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>Map preview</title>
     <link rel="icon" href="../art/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore />
   </head>
-  <body>
-    <header class="bar" id="bar">
-      <span id="mode" class="mode-badge" data-mode="">—</span>
-      <div class="map" id="map-line">
-        <strong id="title">Waiting for a beatmap</strong>
-        <span id="detail"></span>
-      </div>
-      <span id="follow-status" class="status-chip" data-state="connecting"
-        >Connecting to vosu…</span
+  <body class="v-app">
+    <header class="v-bar" id="bar">
+      <span class="v-bar__title">Map preview</span>
+      <span class="v-dot" id="follow-dot" data-state="busy"></span
+      ><span class="v-muted status" id="follow-status">Connecting</span>
+      <span class="map-line" id="map-line">
+        <span class="v-badge" id="mode" data-mode="">—</span>
+        <span class="map-title" id="title">No beatmap</span>
+        <span class="v-muted map-detail" id="detail"></span>
+      </span>
+      <span class="v-bar__spacer"></span>
+      <output class="v-mono time" id="time" aria-label="Map time"
+        >0:00.000</output
       >
-      <output id="time" aria-label="Map time">0:00.000</output>
-      <div class="bar-actions">
-        <button
-          id="follow"
-          aria-pressed="true"
-          title="Follow the game's map and clock"
-        >
-          Follow game
-        </button>
-        <label class="button file" title="Preview an .osu file instead"
-          >Open .osu<input id="map-file" type="file" accept=".osu"
-        /></label>
-        <button
-          id="controls-toggle"
-          aria-expanded="false"
-          aria-controls="controls"
-        >
-          Controls
-        </button>
-      </div>
+      <button class="v-btn v-btn--sm" id="follow" aria-pressed="true">
+        Follow game
+      </button>
+      <label class="v-btn v-btn--sm v-file"
+        ><input id="map-file" type="file" accept=".osu" />Open .osu</label
+      >
+      <button
+        class="v-btn v-btn--sm"
+        id="controls-toggle"
+        aria-expanded="false"
+        aria-controls="controls"
+      >
+        Controls
+      </button>
     </header>
-    <div class="workspace">
-      <main class="stage" id="stage">
-        <canvas id="playfield" aria-label="Beatmap preview"></canvas>
-        <div id="hidden-state" class="hidden-state" hidden>
-          <span class="hidden-mark" aria-hidden="true"></span>
-          <strong>Hidden while you play</strong>
-          <p>
-            The preview returns when you leave gameplay. It stays visible for
-            replays, spectating and autoplay.
+    <main class="v-main preview">
+      <div class="work">
+        <div class="stage" id="stage">
+          <canvas id="playfield" aria-label="Beatmap preview"></canvas>
+          <p class="v-empty hidden-state" id="hidden-state" hidden>
+            Hidden while you play.
           </p>
+          <div class="v-meter progress" id="progress" aria-hidden="true"></div>
         </div>
-        <div id="status" role="status"></div>
-        <div class="progress" id="progress" aria-hidden="true">
-          <span id="progress-fill"></span>
-        </div>
-      </main>
-      <aside class="drawer" id="controls" hidden>
-        <section aria-labelledby="skin-heading" id="skin-panel">
-          <h2 id="skin-heading">Skin</h2>
-          <div class="skin-active">
-            <strong id="skin-name">—</strong>
-            <span id="skin-source"></span>
-          </div>
-          <p id="skin-message" role="status" aria-live="polite"></p>
-          <button id="current-skin" class="wide">Use client skin</button>
-          <label class="field select"
-            >Built-in look
-            <select id="builtin-skin">
-              <option value="">Choose…</option>
-              <option value="argon">Argon</option>
-              <option value="argon-pro">Argon Pro</option>
-              <option value="triangles">Triangles</option>
-              <option value="legacy">Classic (stable default)</option>
-            </select></label
-          >
-          <div class="skin-files">
-            <label class="button file"
-              >.osk file<input
-                id="skin-osk"
-                type="file"
-                accept=".osk,.zip,application/zip"
-            /></label>
-            <label class="button file"
-              >Skin folder<input
-                id="skin-folder"
-                type="file"
-                webkitdirectory
-                multiple
-            /></label>
-          </div>
-        </section>
-        <section aria-labelledby="speed-heading">
-          <h2 id="speed-heading">Speed</h2>
-          <label class="field"
-            >Mania scroll speed
-            <input
-              id="scroll"
+        <div class="v-toolbar transport" id="transport" hidden>
+          <button class="v-btn v-btn--primary" id="play" disabled>Play</button>
+          <button class="v-btn" id="mute" aria-pressed="true">Muted</button>
+          <input
+            class="v-range seek"
+            id="seek"
+            aria-label="Seek"
+            type="range"
+            min="0"
+            max="1000"
+            value="0"
+            step="1"
+          />
+          <label class="v-field v-field--inline"
+            ><span>Rate</span
+            ><input
+              class="v-input rate"
+              id="rate"
               type="number"
-              min="1"
-              max="40"
-              step="1"
-              placeholder="Client"
-          /></label>
-          <label class="field"
-            >Taiko / mania note speed
-            <input
-              id="note-speed"
-              type="number"
-              min="0.1"
-              max="5"
-              step="0.1"
+              min="0.25"
+              max="3"
               value="1"
+              step="0.05"
           /></label>
-          <p class="footnote">
-            Defaults come from the dashboard's Map preview settings; changes
-            here last for this tab. Scroll velocity changes always apply.
-          </p>
-        </section>
-        <section aria-labelledby="ruleset-heading">
-          <h2 id="ruleset-heading">Ruleset</h2>
-          <label class="field select"
-            >Play as
-            <select id="ruleset">
-              <option value="">The map's own</option>
-              <option value="0">osu!</option>
-              <option value="1">osu!taiko</option>
-              <option value="2">osu!catch</option>
-              <option value="3">osu!mania</option>
-            </select></label
+          <label class="v-btn v-file"
+            ><input id="audio-file" type="file" accept="audio/*" />Audio</label
           >
-          <label class="field select"
-            >Mania keys
-            <select id="keys">
-              <option value="">Automatic</option>
-              <option value="1">1K</option>
-              <option value="2">2K</option>
-              <option value="3">3K</option>
-              <option value="4">4K</option>
-              <option value="5">5K</option>
-              <option value="6">6K</option>
-              <option value="7">7K</option>
-              <option value="8">8K</option>
-              <option value="9">9K</option>
-              <option value="10">10K</option>
-            </select></label
+        </div>
+      </div>
+      <div class="v-toast" id="status" role="status"></div>
+      <aside
+        class="v-panel controls"
+        id="controls"
+        aria-labelledby="controls-title"
+        hidden
+      >
+        <div class="v-panel__head">
+          <h2 class="v-label" id="controls-title">Controls</h2>
+          <span class="v-badge" id="version"></span>
+          <button
+            class="v-btn v-btn--ghost v-btn--icon v-btn--sm"
+            id="controls-close"
+            aria-label="Close controls"
           >
-          <fieldset aria-label="Mania stages">
-            <label class="mod"
-              ><input id="dual" type="checkbox" value="DS" /><b>DS</b>Dual
-              stages</label
-            >
-          </fieldset>
-          <p class="footnote" id="ruleset-note"></p>
-        </section>
-        <section aria-labelledby="mods-heading">
-          <h2 id="mods-heading">Mods</h2>
-          <p class="footnote" id="mods-note">
-            Following the game: the client's selected mods apply.
-          </p>
-          <fieldset id="mods" aria-labelledby="mods-heading">
-            <label class="mod"
-              ><input type="checkbox" value="HR" /><b>HR</b>Hard Rock</label
-            ><label class="mod"
-              ><input type="checkbox" value="EZ" /><b>EZ</b>Easy</label
-            ><label class="mod"
-              ><input type="checkbox" value="HD" /><b>HD</b>Hidden</label
-            ><label class="mod"
-              ><input type="checkbox" value="FI" /><b>FI</b>Fade In</label
-            ><label class="mod"
-              ><input type="checkbox" value="FL" /><b>FL</b>Flashlight</label
-            ><label class="mod"
-              ><input type="checkbox" value="MR" /><b>MR</b>Mirror</label
-            ><label class="mod"
-              ><input type="checkbox" value="RD" /><b>RD</b>Random</label
-            ><label class="mod"
-              ><input type="checkbox" value="UD" /><b>UD</b>Upside Down</label
-            >
-          </fieldset>
-          <label class="field"
-            >Random seed<input id="seed" type="number" step="1" value="1"
-          /></label>
-          <label class="field"
-            >Approach rate
-            <input
-              id="ar"
-              type="number"
-              min="0"
-              max="11"
-              step="0.1"
-              placeholder="Map"
-          /></label>
-          <label class="field"
-            >Circle size / keys
-            <input
-              id="cs"
-              type="number"
-              min="1"
-              max="18"
-              step="0.1"
-              placeholder="Map"
-          /></label>
-        </section>
-        <footer class="credit">
-          <span id="version">Map preview</span><span>by 18-LAB</span>
-        </footer>
+            ✕
+          </button>
+        </div>
+        <div class="v-panel__body v-scroll">
+          <section
+            class="v-stack"
+            id="skin-panel"
+            aria-labelledby="skin-heading"
+          >
+            <h3 class="v-label" id="skin-heading">Skin</h3>
+            <div class="skin-active">
+              <strong id="skin-name">—</strong>
+              <span class="v-muted" id="skin-source"></span>
+            </div>
+            <p
+              class="v-muted skin-message"
+              id="skin-message"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <div class="pair">
+              <button class="v-btn" id="current-skin">Use client skin</button>
+              <select
+                class="v-select"
+                id="builtin-skin"
+                aria-label="Built-in look"
+              >
+                <option value="">Built-in look…</option>
+                <option value="argon">Argon</option>
+                <option value="argon-pro">Argon Pro</option>
+                <option value="triangles">Triangles</option>
+                <option value="legacy">Classic</option>
+              </select>
+              <label class="v-btn v-file"
+                ><input
+                  id="skin-osk"
+                  type="file"
+                  accept=".osk,.zip,application/zip"
+                />.osk file</label
+              >
+              <label class="v-btn v-file"
+                ><input
+                  id="skin-folder"
+                  type="file"
+                  webkitdirectory
+                  multiple
+                />Skin folder</label
+              >
+            </div>
+          </section>
+          <section class="v-stack" aria-labelledby="speed-heading">
+            <h3 class="v-label" id="speed-heading">Speed</h3>
+            <div class="pair">
+              <label class="v-field"
+                ><span>Mania scroll speed</span
+                ><input
+                  class="v-input"
+                  id="scroll"
+                  type="number"
+                  min="1"
+                  max="40"
+                  step="1"
+                  placeholder="Client"
+              /></label>
+              <label class="v-field"
+                ><span>Note speed</span
+                ><input
+                  class="v-input"
+                  id="note-speed"
+                  type="number"
+                  min="0.1"
+                  max="5"
+                  step="0.1"
+                  value="1"
+              /></label>
+            </div>
+          </section>
+          <section class="v-stack" aria-labelledby="ruleset-heading">
+            <h3 class="v-label" id="ruleset-heading">Ruleset</h3>
+            <div class="pair">
+              <label class="v-field"
+                ><span>Play as</span
+                ><select class="v-select" id="ruleset">
+                  <option value="">The map's own</option>
+                  <option value="0">osu!</option>
+                  <option value="1">osu!taiko</option>
+                  <option value="2">osu!catch</option>
+                  <option value="3">osu!mania</option>
+                </select></label
+              >
+              <label class="v-field"
+                ><span>Mania keys</span
+                ><select class="v-select" id="keys">
+                  <option value="">Automatic</option>
+                  <option value="1">1K</option>
+                  <option value="2">2K</option>
+                  <option value="3">3K</option>
+                  <option value="4">4K</option>
+                  <option value="5">5K</option>
+                  <option value="6">6K</option>
+                  <option value="7">7K</option>
+                  <option value="8">8K</option>
+                  <option value="9">9K</option>
+                  <option value="10">10K</option>
+                </select></label
+              >
+            </div>
+            <label class="v-check"
+              ><input
+                class="v-toggle"
+                id="dual"
+                type="checkbox"
+                role="switch"
+                value="DS" />Dual stages<span
+                class="v-help"
+                tabindex="0"
+                role="img"
+                aria-label="Drawn as one wide stage."
+                data-tip="Drawn as one wide stage."
+              ></span
+            ></label>
+          </section>
+          <section class="v-stack" aria-labelledby="mods-heading">
+            <div class="section-head">
+              <h3 class="v-label" id="mods-heading">Mods</h3>
+              <span
+                class="v-help"
+                tabindex="0"
+                role="img"
+                data-tip-pos="left"
+                aria-label="Follows the client's mods while following the game."
+                data-tip="Follows the client's mods while following the game."
+              ></span>
+            </div>
+            <fieldset class="mods" id="mods" aria-labelledby="mods-heading">
+              <label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="HR"
+                />Hard Rock</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="EZ"
+                />Easy</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="HD"
+                />Hidden</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="FI"
+                />Fade In</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="FL"
+                />Flashlight</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="MR"
+                />Mirror</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="RD"
+                />Random</label
+              ><label class="v-check"
+                ><input
+                  class="v-toggle"
+                  type="checkbox"
+                  role="switch"
+                  value="UD"
+                />Upside Down</label
+              >
+            </fieldset>
+            <div class="pair triple">
+              <label class="v-field"
+                ><span>Random seed</span
+                ><input
+                  class="v-input"
+                  id="seed"
+                  type="number"
+                  step="1"
+                  value="1"
+              /></label>
+              <label class="v-field"
+                ><span>Approach rate</span
+                ><input
+                  class="v-input"
+                  id="ar"
+                  type="number"
+                  min="0"
+                  max="11"
+                  step="0.1"
+                  placeholder="Map"
+              /></label>
+              <label class="v-field"
+                ><span>Circle size</span
+                ><input
+                  class="v-input"
+                  id="cs"
+                  type="number"
+                  min="1"
+                  max="18"
+                  step="0.1"
+                  placeholder="Map"
+              /></label>
+            </div>
+          </section>
+        </div>
       </aside>
-    </div>
-    <footer class="transport" id="transport" hidden>
-      <button id="play" class="primary" disabled>Play</button>
-      <button id="mute" aria-pressed="true">Muted</button>
-      <input
-        id="seek"
-        aria-label="Seek"
-        type="range"
-        min="0"
-        max="1000"
-        value="0"
-        step="1"
-      /><label class="rate"
-        >Rate
-        <input
-          id="rate"
-          type="number"
-          min="0.25"
-          max="3"
-          value="1"
-          step="0.05"
-        /><span aria-hidden="true">×</span></label
-      ><label class="button file"
-        >Audio<input id="audio-file" type="file" accept="audio/*"
-      /></label>
-    </footer>
+    </main>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

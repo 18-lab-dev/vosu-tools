@@ -50,8 +50,6 @@ function look(family: string | null): BuiltinSkinName {
     : "legacy";
 }
 
-const elsewhere = "Load an .osk file or a skin folder for a specific skin.";
-
 /** Interprets the host's skin report. */
 export async function readCurrentSkin(
   fetcher: typeof fetch = fetch,
@@ -62,7 +60,7 @@ export async function readCurrentSkin(
   } catch {
     return {
       kind: "unavailable",
-      message: `Could not reach vosu to ask for the current skin; showing the classic look. ${elsewhere}`,
+      message: "Could not reach vosu; showing the classic look.",
     };
   }
   let info: HostSkinInfo | undefined;
@@ -88,13 +86,14 @@ export async function readCurrentSkin(
   if (!info)
     return {
       kind: "unavailable",
-      message: `This vosu version does not report the current skin (update vosu to 1.2 or later); showing the classic look. ${elsewhere}`,
+      message:
+        "This vosu does not report the current skin; showing the classic look.",
     };
   if (!info.client)
     return {
       kind: "unavailable",
       info,
-      message: `No osu! client is connected; showing the classic look. ${elsewhere}`,
+      message: "No osu! client is connected; showing the classic look.",
     };
   if (info.builtin) {
     const name = info.name ?? builtinNames[info.builtin] ?? info.builtin;
@@ -106,7 +105,7 @@ export async function readCurrentSkin(
       coloursFromFiles: false,
       message:
         info.builtin === "retro"
-          ? `lazer built-in skin “${name}” is shown with the classic look.`
+          ? `“${name}” is shown with the classic look.`
           : undefined,
     };
   }
@@ -125,7 +124,7 @@ export async function readCurrentSkin(
     return {
       kind: "unavailable",
       info,
-      message: `vosu reports that the files of “${name}” are unavailable; showing the classic look. ${elsewhere}`,
+      message: `Files of “${name}” are unavailable; showing the classic look.`,
     };
   return { kind: "files", info, name, fallback: "legacy" };
 }

@@ -34,14 +34,6 @@ import {
 import { hostSkinFiles, readCurrentSkin } from "./skin-source";
 import "./style.css";
 
-// The tool owns its look; the dashboard's mode is only a hint.
-const applyScheme = () => {
-  document.documentElement.dataset.scheme =
-    vosu.colorScheme ??
-    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-};
-applyScheme();
-
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const canvas = $<HTMLCanvasElement>("playfield"),
@@ -50,9 +42,9 @@ const canvas = $<HTMLCanvasElement>("playfield"),
   hiddenState = $("hidden-state"),
   followButton = $<HTMLButtonElement>("follow"),
   followStatus = $("follow-status"),
+  followDot = $("follow-dot"),
   timeOutput = $<HTMLOutputElement>("time"),
   progress = $("progress"),
-  progressFill = $("progress-fill"),
   transport = $("transport"),
   play = $<HTMLButtonElement>("play"),
   seek = $<HTMLInputElement>("seek"),
@@ -71,7 +63,6 @@ const canvas = $<HTMLCanvasElement>("playfield"),
   rulesetSelect = $<HTMLSelectElement>("ruleset"),
   keysSelect = $<HTMLSelectElement>("keys"),
   dualInput = $<HTMLInputElement>("dual"),
-  rulesetNote = $("ruleset-note"),
   audio = new Audio();
 
 let renderer: Renderer | undefined,
@@ -110,8 +101,14 @@ const formatTime = (ms: number) => {
   const t = Math.max(0, Math.round(ms));
   return `${Math.floor(t / 60000)}:${String(Math.floor(t / 1000) % 60).padStart(2, "0")}.${String(t % 1000).padStart(3, "0")}`;
 };
+/** One short line in the status toast; empty hides it. */
+function say(message: string, tone: "info" | "error" = "info"): void {
+  status.textContent = message;
+  if (tone === "error") status.dataset.tone = "error";
+  else delete status.dataset.tone;
+}
 function showError(error: unknown): void {
-  status.textContent = error instanceof Error ? error.message : String(error);
+  say(error instanceof Error ? error.message : String(error), "error");
 }
 function skinNotice(
   message: string,
@@ -135,10 +132,26 @@ const stateNames: Record<number, string> = {
 
 /* ------------------------------------------------------------ renderer */
 
+/**
+ * The playfield stays a dark screen in both modes, as skins are drawn for one:
+ * the sunken surface in dark mode, the ink colour in light mode.
+ */
+function playfieldColour(): GPUColor {
+  const root = getComputedStyle(document.documentElement),
+    light = root.colorScheme.includes("light"),
+    token = root.getPropertyValue(light ? "--fg" : "--bg-sunken").trim(),
+    probe = new OffscreenCanvas(1, 1).getContext("2d")!;
+  probe.fillStyle = token || "#0b0c0d";
+  probe.fillRect(0, 0, 1, 1);
+  const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
+  return { r: r / 255, g: g / 255, b: b / 255, a: 1 };
+}
+
 function ensureRenderer(): Promise<Renderer> {
   rendererReady ??= createRenderer({
     canvas,
     skin: selectedSkin,
+    clearColour: playfieldColour(),
     presentation:
       new URLSearchParams(location.search).get("presentation") === "bitmap"
         ? "bitmap"
@@ -155,7 +168,7 @@ function ensureRenderer(): Promise<Renderer> {
       // A later attempt (next map) may succeed, e.g. after a GPU reset.
       rendererReady = undefined;
       throw new Error(
-        `Map preview needs WebGPU, which this browser could not start (${error instanceof Error ? error.message : String(error)}). Use a current Chrome, Edge or Firefox with hardware acceleration on.`,
+        `WebGPU could not start: ${error instanceof Error ? error.message : String(error)}`,
       );
     },
   );
@@ -297,7 +310,10 @@ function tick(): void {
   }
   timeOutput.value = formatTime(now);
   const duration = Math.max(1, map.duration);
-  progressFill.style.transform = `scaleX(${Math.min(1, Math.max(0, now / duration))})`;
+  progress.style.setProperty(
+    "--v-value",
+    String(Math.min(1, Math.max(0, now / duration))),
+  );
   if (!following && document.activeElement !== seek) seek.value = String(now);
 }
 requestAnimationFrame(tick);
@@ -361,17 +377,8 @@ function updateRulesetControls(): void {
   keysSelect.options[0].textContent = automaticKeys
     ? `Automatic (${automaticKeys}K)`
     : "Automatic";
-  const dual =
-    osuMap && ruleset === 3 && mods.some((mod) => mod.acronym === "DS");
-  rulesetNote.textContent =
-    source && !osuMap
-      ? `Only osu! maps convert; this one is written for ${rulesetNames[source.mode]}.`
-      : (following
-          ? "Following the game: the client's ruleset, key mods and Dual Stages apply. Converts follow osu!lazer."
-          : "Converts follow osu!lazer: the same patterns, key count and scroll speed.") +
-        (dual
-          ? " Dual Stages is drawn as one wide stage; the client shows two."
-          : "");
+  const osuOnly = source && !osuMap;
+  rulesetSelect.title = osuOnly ? "Only osu! maps convert." : "";
 }
 /** Loads the game's selected map when it changes. */
 async function followMap(force = false): Promise<void> {
@@ -380,16 +387,23 @@ async function followMap(force = false): Promise<void> {
   mapKey = key;
   const seq = ++loadSequence;
   if (!key && !force) return;
-  status.textContent = "Loading the selected beatmap…";
+  say("Loading the selected beatmap…");
   try {
     const response = await fetch("/files/beatmap/file", { cache: "no-store" });
-    if (!response.ok)
-      throw new Error(
-        `vosu has no selected beatmap file (${response.status}). Pick a map in osu!, or open an .osu file.`,
-      );
+    if (!response.ok) {
+      if (seq !== loadSequence) return;
+      // Without a client there is simply nothing selected yet.
+      if (game.client)
+        say(
+          `vosu could not serve the selected beatmap (${response.status}).`,
+          "error",
+        );
+      else say("No beatmap selected.");
+      return;
+    }
     const text = await response.text();
     if (seq !== loadSequence || !following) return;
-    status.textContent = "";
+    say("");
     await openMap(text, "from the game");
   } catch (error) {
     if (seq === loadSequence) showError(error);
@@ -406,22 +420,17 @@ function updateFollowNotice(): void {
     source.mode === 0 &&
     playedRuleset() !== 0
   )
-    notes.push(
-      "Converted the way osu!lazer converts; osu!stable's conversion can differ in places.",
-    );
+    notes.push("Converted as osu!lazer does; stable may differ.");
   if (
     following &&
     game.mods.some(
       (mod) => mod.acronym.toUpperCase() === "RD" && mod.settings?.seed == null,
     )
   )
-    notes.push(
-      "Random is selected but the client has not chosen its seed yet, so notes are shown unshuffled.",
-    );
+    notes.push("Random has no seed yet; notes are unshuffled.");
   const next = notes.join(" ");
-  if (next) status.textContent = next;
-  else if (followNotice && status.textContent === followNotice)
-    status.textContent = "";
+  if (next) say(next);
+  else if (followNotice && status.textContent === followNotice) say("");
   followNotice = next;
 }
 
@@ -434,12 +443,9 @@ function setFollowing(next: boolean): void {
   progress.hidden = !next || !settings.showProgress;
   for (const input of [...modInputs, ...overrideInputs]) input.disabled = next;
   updateRulesetControls();
-  $("mods-note").textContent = next
-    ? "Following the game: the client's selected mods apply."
-    : "Manual preview: choose mods here.";
   if (next) {
     audio.pause();
-    status.textContent = "";
+    say("");
     void followMap(true);
   }
   sceneKey = "";
@@ -447,13 +453,15 @@ function setFollowing(next: boolean): void {
 }
 function updateStatusChip(): void {
   let text: string,
-    state: string = liveStatus;
-  if (!following) {
-    text = "Manual preview";
-    state = "manual";
-  } else if (liveStatus === "connecting") text = "Connecting to vosu…";
-  else if (liveStatus === "lost") text = "vosu disconnected · retrying";
-  else if (liveStatus === "waiting" || !game.client)
+    dot: "ok" | "busy" | "warn" | "" = "";
+  if (!following) text = "Manual preview";
+  else if (liveStatus === "connecting") {
+    text = "Connecting to vosu…";
+    dot = "busy";
+  } else if (liveStatus === "lost") {
+    text = "vosu disconnected · retrying";
+    dot = "warn";
+  } else if (liveStatus === "waiting" || !game.client)
     text = "vosu connected · no game";
   else {
     const where =
@@ -463,9 +471,11 @@ function updateStatusChip(): void {
           : "watching a replay"
         : (stateNames[game.state ?? -1] ?? "in game");
     text = `${game.client} · ${where}`;
+    dot = "ok";
   }
   followStatus.textContent = text;
-  followStatus.dataset.state = state;
+  if (dot) followDot.dataset.state = dot;
+  else delete followDot.dataset.state;
 }
 function updateHidden(): void {
   const next = hiddenForGameplay(game);
@@ -607,8 +617,8 @@ function useClientSkin(announce = true): Promise<void> {
         installSkin(builtin("legacy"), "Classic", "fallback look");
         skinNotice(
           host.failures
-            ? `vosu could not serve the files of “${current.name}”; showing the classic look.`
-            : `“${current.name}” has no skin.ini or gameplay elements the preview draws; showing the classic look.`,
+            ? `vosu could not serve “${current.name}”; showing the classic look.`
+            : `“${current.name}” has nothing to draw; showing the classic look.`,
           "notice",
         );
         return;
@@ -640,10 +650,7 @@ async function userSkin(
     return;
   }
   if (!used) {
-    skinNotice(
-      `“${name}” contains no skin.ini or gameplay elements the preview draws; the current skin stays.`,
-      "notice",
-    );
+    skinNotice(`“${name}” has nothing to draw.`, "notice");
     return;
   }
   skinChoice = "user";
@@ -653,7 +660,7 @@ async function userSkin(
     `${source} · ${fileCount(used)} used`,
     [...loaded.assets.values()],
   );
-  skinNotice(`Loaded “${name}”. Missing elements use the classic look.`);
+  skinNotice(`Loaded “${name}”.`);
 }
 function applySkinSetting(): void {
   if (settings.skin === "client") void useClientSkin();
@@ -673,22 +680,34 @@ async function loadSettings(initial: boolean): Promise<void> {
     : "Client";
   if (initial) {
     noteSpeedInput.value = String(settings.noteSpeed);
-    setDrawer(settings.controlsOpen);
+    // The user's last choice in this tool wins over the dashboard default.
+    const stored = localStorage.getItem(CONTROLS_KEY);
+    setDrawer(stored === null ? settings.controlsOpen : stored === "1", false);
     if (source === "defaults")
-      skinNotice("This vosu has no settings route for tools; defaults apply.");
+      skinNotice("Defaults apply: this vosu has no tool settings.");
   }
   if (initial || previous.skin !== settings.skin) applySkinSetting();
   sceneKey = "";
 }
-function setDrawer(open: boolean): void {
+// Per tool on the shared overlay origin, like the mute toggle.
+const CONTROLS_KEY = "vosu-tools:map-preview:controls-open";
+/** Shows or hides the docked controls panel; the playfield resizes beside it. */
+function setDrawer(open: boolean, remember = true): void {
+  if (!open && drawer.contains(document.activeElement)) controlsToggle.focus();
   drawer.hidden = !open;
   controlsToggle.setAttribute("aria-expanded", String(open));
+  if (remember) localStorage.setItem(CONTROLS_KEY, open ? "1" : "0");
 }
 
 /* ------------------------------------------------------------ events */
 
 followButton.onclick = () => setFollowing(!following);
 controlsToggle.onclick = () => setDrawer(drawer.hidden);
+$<HTMLButtonElement>("controls-close").onclick = () => setDrawer(false);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !event.defaultPrevented && !drawer.hidden)
+    setDrawer(false);
+});
 $<HTMLButtonElement>("current-skin").onclick = () => void useClientSkin();
 builtinSelect.onchange = () => {
   const value = builtinSelect.value as BuiltinSkinName | "";
@@ -741,8 +760,7 @@ muteButton.onclick = () => {
 };
 audio.onerror = () => {
   play.disabled = true;
-  status.textContent =
-    "This audio could not be played. Choose the map's audio file; seeking still previews map time.";
+  say("This audio could not be played.", "error");
 };
 seek.oninput = () => {
   manualTime = Number(seek.value);
@@ -765,7 +783,7 @@ $<HTMLInputElement>("map-file").onchange = async (event) => {
   manualTime = 0;
   try {
     await openMap(await file.text(), file.name);
-    status.textContent = "Choose the map's audio file to play it back.";
+    say("");
   } catch (error) {
     showError(error);
   }
@@ -777,7 +795,7 @@ $<HTMLInputElement>("audio-file").onchange = (event) => {
   objectUrl = URL.createObjectURL(file);
   audio.src = objectUrl;
   play.disabled = !map;
-  status.textContent = "";
+  say("");
 };
 $<HTMLInputElement>("skin-osk").onchange = (event) => {
   const input = event.target as HTMLInputElement,
@@ -827,8 +845,7 @@ window.addEventListener("pagehide", () => {
 
 try {
   await vosu.ready;
-  applyScheme();
-  $("version").textContent = `Map preview ${vosu.tool.version}`.trim();
+  $("version").textContent = vosu.tool.version;
   await loadSettings(true);
   setFollowing(true);
   followGame(
