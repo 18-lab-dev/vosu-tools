@@ -3,7 +3,8 @@
  * direct WebGPU presentation, 600 frames advancing 1/60 s through the map.
  *
  * Query: ?map=<url>&start=<ms>&skin=builtin:<name>|files:<base url>
- * Result: window.__perf = { skinMs, compileMs, cpu: {...}, gpu: {...} | null }
+ * Result: window.__perf = { skinMs, compileMs, cpu, gpuPass | null, drawCalls,
+ *   textureMB } (draw calls per frame; GPU textures the renderer created).
  */
 import { parseOsu } from "@vosu-tools/osu-parse";
 import {
@@ -62,7 +63,22 @@ async function run() {
   }
   const skinMs = performance.now() - skinStart;
   const canvas = document.querySelector("canvas")!;
+  // Texture memory the renderer allocates (atlas pages included).
+  let textureBytes = 0;
+  const createTexture = device.createTexture.bind(device);
+  device.createTexture = (descriptor) => {
+    const [w, h = 1, layers = 1] = [...(descriptor.size as Iterable<number>)];
+    textureBytes += w * h * layers * 4;
+    return createTexture(descriptor);
+  };
   const renderer = await createRenderer({ canvas, device, skin });
+  // Draw calls per frame.
+  let draws = 0;
+  const draw = GPURenderPassEncoder.prototype.draw;
+  GPURenderPassEncoder.prototype.draw = function (...args) {
+    draws++;
+    return draw.apply(this, args);
+  };
   const compileStart = performance.now();
   renderer.setBeatmap(map, { scrollSpeed: 24 });
   const compileMs = performance.now() - compileStart;
@@ -83,10 +99,12 @@ async function run() {
     : undefined;
   const cpu: number[] = [],
     gpu: number[] = [],
-    done: number[] = [];
+    done: number[] = [],
+    drawCalls: number[] = [];
   let time = Number(params.get("start") ?? 0);
   for (let frame = 0; frame < 660; frame++, time += 1000 / 60) {
     const start = performance.now();
+    draws = 0;
     renderer.renderAt(time, {
       timestampWrites: querySet
         ? { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 }
@@ -110,6 +128,7 @@ async function run() {
     // The first 60 frames warm pipelines and caches.
     if (frame >= 60) {
       cpu.push(submitted - start);
+      drawCalls.push(draws);
       done.push(finished - start);
     }
     const frameDone = Promise.withResolvers<number>();
@@ -125,6 +144,8 @@ async function run() {
     cpu: stats(cpu),
     submitToGpuDone: stats(done),
     gpuPass: gpu.length ? stats(gpu) : null,
+    drawCalls: stats(drawCalls),
+    textureMB: textureBytes / 2 ** 20,
   };
 }
 run().then(

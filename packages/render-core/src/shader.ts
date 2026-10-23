@@ -1,10 +1,10 @@
 export const shader = /* wgsl */ `
 struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:vec4f }
 @group(0) @binding(0) var<uniform> g:Globals;
-@group(0) @binding(1) var atlas:texture_2d<f32>;
+@group(0) @binding(1) var atlas:texture_2d_array<f32>;
 @group(0) @binding(2) var atlasSampler:sampler;
 @group(0) @binding(3) var<storage,read> frameUV:array<vec4f>;
-struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f }
+struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32 }
 @vertex fn vs(@builtin(vertex_index) index:u32,@location(0) geometry:vec4f,@location(1) life:vec4f,@location(2) tint:vec4f,@location(3) motion:vec4f,@location(4) uv:vec4f,@location(5) shape:vec4f)->Vertex{
  let corners=array<vec2f,6>(vec2f(-0.5,-0.5),vec2f(0.5,-0.5),vec2f(-0.5,0.5),vec2f(-0.5,0.5),vec2f(0.5,-0.5),vec2f(0.5,0.5));
  let now=g.viewport.x;let kind=u32(motion.x);let mode=u32(g.viewport.w);var centre=geometry.xy;var size=geometry.zw;var alpha=tint.a;var angle=0.0;var bodyV=1.0;
@@ -38,12 +38,16 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(g.flags.y>0.0 && mode==3u && life.z > -1e8){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
  if(g.flags.z>0.0 && mode==3u){centre.y=384.0-centre.y;}
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
- let local=corners[index]*size;let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
- let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point-vec2f(256.0,192.0))*scale;
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
- var selected=uv;if((code==10.0 || code==13.0) && shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);selected=frameUV[u32(shape.y)+frame];}
- var corner=corners[index]+0.5;if(flipV){corner.y=1.0-corner.y;}corner.y*=bodyV;
- var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}result.colour=vec4f(rgb,alpha);result.uv=selected.xy+corner*selected.zw;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
+ // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
+ var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
+ // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
+ let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
+ let t=mix(t0,t1,corners[index].y+0.5);
+ let local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
+ let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point-vec2f(256.0,192.0))*scale;
+ let row=select(t,1.0-t,flipV)*bodyV;let stripV=(row-rows.x)/max(0.000001,rows.y-rows.x);
+ var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}result.colour=vec4f(rgb,alpha);result.uv=vec2f(selected.x+(corners[index].x+0.5)*selected.z,selected.y+stripV*selected.w);result.layer=layer;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
 }
 @fragment fn fs(v:Vertex)->@location(0) vec4f{
  let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);
@@ -57,7 +61,7 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(shape==6u){var nearest=10.0;for(var i=0u;i<6u;i++){let row=select(0.0,0.55,i>2u);let x=f32(i%3u)*0.55-0.55;nearest=min(nearest,length(v.local-vec2f(x,row-0.3))/0.4);}coverage=1.0-smoothstep(1.0-aa,1.0,nearest);}
  if(shape==8u){let outer=length(v.local-vec2f(-0.15,-0.3));let inner=length(v.local-vec2f(0.15,-0.5));coverage=(1.0-smoothstep(1.0-aa,1.0,outer))*smoothstep(0.74-aa,0.74,inner);}
  if(shape==9u){coverage=1.0-smoothstep(1.0-aa,1.0,d);let rim=smoothstep(0.72,0.78,d);colour=vec4f(mix(vec3f(0.86,0.65,0.5),vec3f(0.45,0.48,0.5),rim),colour.a);if(abs(v.local.x)<0.025){colour=vec4f(0.2,0.2,0.2,colour.a);}}
- if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
+ if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,v.layer,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
  if(shape==12u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);let r=length(q);coverage=1.0-smoothstep(1.0-aa,1.0,r);
   let shadowPass=v.shape.z>5.0;let border=select(abs(v.shape.z),v.shape.z-10.0,shadowPass);let profile=floor(v.region.w/10.0+0.0001);let bodyAlpha=v.region.w-profile*10.0;let accent=colour.rgb;var c=v.region.rgb;var a=1.0;let shadow=0.078125;
   if(v.shape.z<0.0){let t=1.0-r*(1.0-border);let f=clamp((t-border)/max(0.0001,1.0-border),0.0,1.0);

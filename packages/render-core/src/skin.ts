@@ -1,5 +1,6 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
+import { planAtlas, type AtlasStrip } from "./atlas";
 import { normaliseManiaImage } from "./mania";
 export interface Skin {
   name: string;
@@ -55,6 +56,44 @@ export interface AtlasRegion {
   first?: number;
   count?: number;
   fps?: number;
+  /** Array texture page (atlas.ts). */
+  layer?: number;
+  /** Tall images: their strips from top to bottom (atlas.ts). */
+  strips?: AtlasStrip[];
+  /** Frame-table entries of the plain image (`first` is the animation's, when animated). */
+  still?: number;
+  /** Frame-table entries per animation frame: the most strips of any frame. */
+  stride?: number;
+}
+
+/** A region's strips; one covering the whole image when it is not split. */
+export function regionStrips(region: AtlasRegion): AtlasStrip[] {
+  const { u, v, w, h, layer = 0 } = region;
+  return region.strips ?? [{ u, v, w, h, layer, a: 0, b: 1 }];
+}
+
+/**
+ * The instances that draw a region: one per strip, each with its frame-table
+ * entry and (for stills) its UV rectangle. `still` draws the plain image;
+ * otherwise the animation, if any. `maxRow` (a fraction of the image height)
+ * skips strips that can never show.
+ */
+export function regionInstances(
+  region: AtlasRegion,
+  still: boolean,
+  maxRow = 1,
+): { entry: number; uv: AtlasStrip }[] {
+  const strips = regionStrips(region),
+    animated = !still && (region.count ?? 0) > 1,
+    count = animated ? (region.stride ?? strips.length) : strips.length,
+    base = (animated ? region.first : (region.still ?? region.first)) ?? 0,
+    out: { entry: number; uv: AtlasStrip }[] = [];
+  for (let k = 0; k < count; k++) {
+    const uv = strips[k] ?? strips[0];
+    if (k > 0 && strips[k] && strips[k].a >= maxRow) break;
+    out.push({ entry: base + k, uv });
+  }
+  return out;
 }
 export const assetNames = [
   "hitcircle",
@@ -268,7 +307,16 @@ export async function loadSkin(
   );
   return skin;
 }
-/** One atlas and one immutable region table; animations select UVs entirely in WGSL. */
+/**
+ * Skin images on array-texture pages (see atlas.ts) and one immutable frame
+ * table; animations and strips select UVs entirely in WGSL.
+ *
+ * The frame table holds two vec4 per entry: the UV rectangle, then
+ * (a, b, layer, stride) where [a, b] are the image rows the entry holds
+ * (fractions of the image height) and `stride` the entries per animation
+ * frame. A region's entries start at `first`: frame f, strip k is entry
+ * `first + f * stride + k`.
+ */
 export function buildAtlas(
   device: GPUDevice,
   skin?: Skin,
@@ -277,73 +325,36 @@ export function buildAtlas(
   regions: Map<string, AtlasRegion>;
   frames: Float32Array<ArrayBuffer>;
 } {
-  const size = Math.min(4096, device.limits.maxTextureDimension2D),
-    canvas = new OffscreenCanvas(size, size),
-    ctx = canvas.getContext("2d")!;
-  const regions = new Map<string, AtlasRegion>();
-  let x = 2,
-    y = 2,
-    row = 0;
-  const add = (
-    name: string,
-    image: CanvasImageSource,
-    width: number,
-    height: number,
-    pixelScale = 1,
-    blank = false,
-  ) => {
-    const logicalWidth = width / pixelScale,
-      logicalHeight = height / pixelScale,
-      // Per axis, so very long images (mania hold bodies tens of thousands of
-      // pixels tall) keep their full width; regions map the whole image anyway.
-      w = Math.max(1, Math.min(1024, Math.ceil(width))),
-      h = Math.max(1, Math.min(1024, Math.ceil(height)));
-    if (x + w + 2 > size) {
-      x = 2;
-      y += row + 4;
-      row = 0;
+  const sources = new Map<
+    string,
+    {
+      image: CanvasImageSource;
+      width: number;
+      height: number;
+      scale: number;
+      blank: boolean;
     }
-    if (y + h + 2 > size)
-      throw Error("Skin gameplay atlas exceeds GPU texture capacity");
-    if (blank) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x, y, w, h);
-    } else ctx.drawImage(image, x, y, w, h);
-    regions.set(name, {
-      u: x / size,
-      v: y / size,
-      w: w / size,
-      h: h / size,
-      width: logicalWidth,
-      height: logicalHeight,
-    });
-    x += w + 4;
-    row = Math.max(row, h);
-  };
-  if (skin) {
-    const packed = new Map<ImageBitmap, AtlasRegion>();
-    const images = [...skin.assets].sort(
-      (a, b) => Math.min(1024, b[1].height) - Math.min(1024, a[1].height),
-    );
-    for (const [name, image] of images) {
-      const existing = packed.get(image);
-      if (existing) {
-        regions.set(name, { ...existing });
+  >();
+  const owners = new Map<ImageBitmap, string>(),
+    aliases = new Map<string, string>();
+  if (skin)
+    for (const [name, image] of skin.assets) {
+      const owner = owners.get(image);
+      if (owner) {
+        aliases.set(name, owner);
         continue;
       }
-      add(
-        name,
+      owners.set(image, name);
+      sources.set(name, {
         image,
-        image.width,
-        image.height,
-        skin.pixelScale?.get(name) ?? 1,
-        skin.blank?.has(name) ?? false,
-      );
-      packed.set(image, regions.get(name)!);
+        width: image.width,
+        height: image.height,
+        scale: skin.pixelScale?.get(name) ?? 1,
+        blank: skin.blank?.has(name) ?? false,
+      });
     }
-  }
   for (let i = 0; i < 10; i++)
-    if (!regions.has(`default-${i}`)) {
+    if (!sources.has(`default-${i}`) && !aliases.has(`default-${i}`)) {
       const digit = new OffscreenCanvas(64, 80),
         c = digit.getContext("2d")!;
       c.fillStyle = "#fff";
@@ -351,38 +362,130 @@ export function buildAtlas(
       c.textAlign = "center";
       c.textBaseline = "middle";
       c.fillText(String(i), 32, 42);
-      add(`default-${i}`, digit, 64, 80);
+      sources.set(`default-${i}`, {
+        image: digit,
+        width: 64,
+        height: 80,
+        scale: 1,
+        blank: false,
+      });
     }
-  const frames: number[] = [];
-  const frameRate = skin?.frameRate ?? -1;
-  for (const [name, region] of regions) {
-    region.first = frames.length / 4;
-    region.count = 1;
-    region.fps =
-      frameRate > 0 ? frameRate : (skin?.animations?.get(name)?.length ?? 1);
-    frames.push(region.u, region.v, region.w, region.h);
-    const animation = skin?.animations?.get(name);
-    if (animation?.length) {
-      region.first = frames.length / 4;
-      region.count = animation.length;
-      for (const frame of animation) {
-        const uv = regions.get(frame)!;
-        frames.push(uv.u, uv.v, uv.w, uv.h);
-      }
-    }
+  const plan = planAtlas(
+    [...sources].map(([key, { width, height }]) => ({ key, width, height })),
+    device.limits,
+  );
+  if (plan.downscaled.length)
+    console.warn(
+      `Skin images wider than this GPU allows (${device.limits.maxTextureDimension2D} px) are scaled down: ${plan.downscaled.join(", ")}`,
+    );
+  const { pageWidth, pageHeight, pages } = plan;
+  const regions = new Map<string, AtlasRegion>();
+  for (const [name, source] of sources) {
+    const placement = plan.placements.get(name)!;
+    const strips: AtlasStrip[] = placement.pieces.map((piece) => ({
+      u: piece.x / pageWidth,
+      v: piece.y / pageHeight,
+      w: piece.width / pageWidth,
+      h: piece.height / pageHeight,
+      layer: piece.page,
+      a: piece.top / placement.height,
+      b: piece.bottom / placement.height,
+    }));
+    const [first] = strips;
+    regions.set(name, {
+      u: first.u,
+      v: first.v,
+      w: first.w,
+      h: first.h,
+      layer: first.layer,
+      width: source.width / source.scale,
+      height: source.height / source.scale,
+      ...(strips.length > 1 ? { strips } : {}),
+    });
   }
+  for (const [name, owner] of aliases)
+    regions.set(name, { ...regions.get(owner)! });
+  // Pixels: one canvas reused for every page.
   const texture = device.createTexture({
-    size: [size, size],
+    size: [pageWidth, pageHeight, pages],
     format: "rgba8unorm",
     usage:
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_DST |
       GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  device.queue.copyExternalImageToTexture(
-    { source: canvas },
-    { texture, premultipliedAlpha: false },
-    [size, size],
-  );
-  return { texture, regions, frames: new Float32Array(frames) };
+  const canvas = new OffscreenCanvas(pageWidth, pageHeight),
+    ctx = canvas.getContext("2d")!;
+  ctx.imageSmoothingQuality = "high";
+  for (let page = 0; page < pages; page++) {
+    ctx.clearRect(0, 0, pageWidth, pageHeight);
+    for (const [name, source] of sources) {
+      const placement = plan.placements.get(name)!,
+        rows = source.height / placement.height;
+      for (const piece of placement.pieces) {
+        if (piece.page !== page) continue;
+        const top = piece.top - piece.gutterTop,
+          height = piece.bottom + piece.gutterBottom - top,
+          y = piece.y - piece.gutterTop;
+        if (source.blank) {
+          ctx.fillStyle = "#000";
+          ctx.fillRect(piece.x, y, piece.width, height);
+        } else
+          ctx.drawImage(
+            source.image,
+            0,
+            top * rows,
+            source.width,
+            height * rows,
+            piece.x,
+            y,
+            piece.width,
+            height,
+          );
+      }
+    }
+    device.queue.copyExternalImageToTexture(
+      { source: canvas },
+      { texture, origin: [0, 0, page], premultipliedAlpha: false },
+      [pageWidth, pageHeight],
+    );
+  }
+  const values: number[] = [];
+  const frameRate = skin?.frameRate ?? -1;
+  const push = (strip: AtlasStrip | undefined, stride: number) =>
+    strip
+      ? values.push(
+          strip.u,
+          strip.v,
+          strip.w,
+          strip.h,
+          strip.a,
+          strip.b,
+          strip.layer,
+          stride,
+        )
+      : // A frame with fewer strips than the animation's widest frame.
+        values.push(0, 0, 0, 0, 2, 2, 0, stride);
+  for (const [name, region] of regions) {
+    const own = regionStrips(region);
+    region.still = region.first = values.length / 8;
+    region.count = 1;
+    region.stride = own.length;
+    region.fps =
+      frameRate > 0 ? frameRate : (skin?.animations?.get(name)?.length ?? 1);
+    for (const strip of own) push(strip, own.length);
+    const animation = skin?.animations?.get(name);
+    if (animation?.length) {
+      const frames = animation.map((frame) =>
+          regionStrips(regions.get(frame)!),
+        ),
+        stride = Math.max(...frames.map((f) => f.length));
+      region.first = values.length / 8;
+      region.count = animation.length;
+      region.stride = stride;
+      for (const frame of frames)
+        for (let k = 0; k < stride; k++) push(frame[k], stride);
+    }
+  }
+  return { texture, regions, frames: new Float32Array(values) };
 }

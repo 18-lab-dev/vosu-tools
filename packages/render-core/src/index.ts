@@ -8,11 +8,7 @@ import {
 import { buildAtlas, type Skin } from "./skin";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
-export {
-  loadSkin,
-  assetNames,
-  legacySliderStyle,
-} from "./skin";
+export { loadSkin, assetNames, legacySliderStyle } from "./skin";
 export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
@@ -172,7 +168,11 @@ export async function createRenderer(
         visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
         buffer: { type: "uniform" },
       },
-      { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: {} },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.FRAGMENT,
+        texture: { viewDimension: "2d-array" },
+      },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
       {
         binding: 3,
@@ -227,7 +227,10 @@ export async function createRenderer(
       layout,
       entries: [
         { binding: 0, resource: { buffer: uniformBuffer } },
-        { binding: 1, resource: atlas.texture.createView() },
+        {
+          binding: 1,
+          resource: atlas.texture.createView({ dimension: "2d-array" }),
+        },
         { binding: 2, resource: sampler },
         { binding: 3, resource: { buffer: regionBuffer } },
       ],
