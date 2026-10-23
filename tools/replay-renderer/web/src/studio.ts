@@ -225,15 +225,15 @@ export async function loadTrack(
         columns,
       );
       if (!simulation.verified)
-        warning = `Judgement counts could not be reproduced (${Object.entries(
+        warning = `Counters hidden: judgements differ (${Object.entries(
           simulation.differences,
         )
-          .map(([result, d]) => `${result} ${d.expected} recorded vs ${d.actual}`)
-          .join(", ")}), so combo, accuracy and judgement counters are hidden. The playfield and input are unaffected.`;
+          .map(([result, d]) => `${result} ${d.expected}≠${d.actual}`)
+          .join(", ")})`;
     } catch (e) {
       warning = String(e);
     }
-  } else warning = "Judgement HUD unavailable for this ruleset";
+  } else warning = "No judgement counters for this ruleset";
   return {
     id,
     replay,

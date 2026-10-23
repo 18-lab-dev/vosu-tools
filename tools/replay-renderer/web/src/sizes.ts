@@ -147,7 +147,7 @@ export class SizePicker {
   ) {
     root.className = "sizes";
     this.button.type = "button";
-    this.button.className = "size-trigger";
+    this.button.className = "v-select size-trigger";
     this.button.setAttribute("aria-haspopup", "listbox");
     this.button.setAttribute("aria-expanded", "false");
     this.button.setAttribute("aria-labelledby", `${labelId} size-value`);
@@ -162,7 +162,7 @@ export class SizePicker {
     const custom = document.createElement("div");
     custom.className = "size-custom";
     const heading = document.createElement("p");
-    heading.className = "size-group";
+    heading.className = "size-group v-label";
     heading.textContent = "Custom";
     const row = document.createElement("div");
     row.className = "size-inputs";
@@ -174,6 +174,7 @@ export class SizePicker {
       input.min = "64";
       input.max = "7680";
       input.step = "2";
+      input.className = "v-input";
       input.setAttribute("aria-label", label);
       input.oninput = () => this.validate();
     }
@@ -182,6 +183,7 @@ export class SizePicker {
     times.setAttribute("aria-hidden", "true");
     const use = document.createElement("button");
     use.type = "button";
+    use.className = "v-btn v-btn--sm";
     use.textContent = "Use";
     use.onclick = () => {
       const size = this.customSize();
@@ -190,13 +192,14 @@ export class SizePicker {
     row.append(this.width, times, this.height, use);
     const saveRow = document.createElement("div");
     saveRow.className = "size-inputs";
-    this.name.placeholder = "Name, e.g. Stream overlay";
+    this.name.className = "v-input";
+    this.name.placeholder = "Name";
     this.name.maxLength = 48;
     this.name.setAttribute("aria-label", "Name for this size");
     const save = document.createElement("button");
     save.type = "button";
     save.textContent = "Save";
-    save.className = "size-save";
+    save.className = "v-btn v-btn--sm size-save";
     save.onclick = () => void this.saveCustom();
     saveRow.append(this.name, save);
     this.problem.className = "size-problem";
@@ -299,7 +302,7 @@ export class SizePicker {
     this.options = [];
     for (const { group, options } of this.allOptions()) {
       const heading = document.createElement("p");
-      heading.className = "size-group";
+      heading.className = "size-group v-label";
       heading.setAttribute("role", "presentation");
       heading.textContent = group;
       this.list.append(heading);
@@ -320,7 +323,7 @@ export class SizePicker {
         if (option.saved) {
           const remove = document.createElement("button");
           remove.type = "button";
-          remove.className = "quiet size-remove";
+          remove.className = "v-btn v-btn--sm v-btn--ghost v-btn--icon size-remove";
           remove.textContent = "×";
           remove.tabIndex = -1;
           remove.disabled = !this.canWrite;
