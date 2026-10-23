@@ -7,13 +7,10 @@ type RatePoint = {rate:number;msd:{overall:number}|null};
 const SYSTEMS = ['etterna','etterna-native','quaver','interlude','osu','nps'] as const;
 type System = typeof SYSTEMS[number];
 type Settings = {follow_game:boolean;show_etterna:boolean;show_quaver:boolean;show_interlude:boolean;show_osu:boolean;show_reform:boolean;timeline_system:System;local_window:number;local_hop:number;strain_window:number;strain_hop:number;rate_step:string};
+type Notice = {message:string;tone:'busy'|'warn'|'error'};
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 const input = (id:string) => $<HTMLInputElement>(id);
-const status = (message:string,state:'busy'|'ready'|'warn'|'error'='ready') => {const el=$('status');el.textContent=message;el.title=message;el.dataset.state=state;};
 const fmt = (n:number|null|undefined) => n == null ? '—' : n.toFixed(2);
-const lightQuery = matchMedia('(prefers-color-scheme: light)');
-// The dashboard's mode wins; older bridges lack colorScheme, so follow the OS.
-document.documentElement.dataset.scheme = vosu.colorScheme ?? (lightQuery.matches ? 'light' : 'dark');
 
 // Effective settings: bridge helper, then the UI-readable route, then schema defaults.
 const flag=(value:unknown,fallback:boolean)=>typeof value==='boolean'?value:fallback;
@@ -41,15 +38,15 @@ async function loadSettings():Promise<Settings> {
 let settings=normalize();
 let rating:Rating|undefined, timeline:Timeline|undefined, curve:RatePoint[]|undefined, selection:number|undefined, generation=0;
 let pendingFile:File|undefined, fileName:string|undefined, follow=true, timelineTouched=false, analysedKey='', pending:number|undefined;
+let notice:Notice|undefined;
 const live={connected:false,connecting:true,checksum:'',rate:1,mods:'',state:-1,time:0,mode:''};
-const app=document.querySelector<HTMLElement>('.app')!;
 const canvas=$<HTMLCanvasElement>('timeline'), density=$<HTMLCanvasElement>('density');
 
-// Canvas cannot read light-dark() tokens, so resolve them through a probe.
+// Charts read the theme tokens; the probe resolves any colour syntax to rgb().
 const probe=document.createElement('i');probe.hidden=true;document.body.append(probe);
 function paint(token:string){probe.style.color=`var(--${token})`;return getComputedStyle(probe).color;}
-const MONO='"Martian Mono", ui-monospace, monospace';
-const labelSize=()=>Math.round(parseFloat(getComputedStyle(document.documentElement).fontSize)*.68);
+const mono=()=>getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim()||'monospace';
+const labelSize=()=>Math.round(parseFloat(getComputedStyle(document.documentElement).fontSize)*.6875);
 
 async function api<T>(path:string,init?:RequestInit):Promise<T> {
  const response = await vosu.fetch(path,init);
@@ -57,44 +54,47 @@ async function api<T>(path:string,init?:RequestInit):Promise<T> {
  if(!response.ok) throw Error(result.error || `Mania ratings unavailable (${response.status})`);
  return result as T;
 }
+// Bar status: one dot and a word; warnings and errors also raise the toast.
+function status(message='',tone?:Notice['tone']){notice=tone?{message,tone}:undefined;setLive();}
 function setLive(){
- const el=$('live');
- const state=!live.connected?(live.connecting?'connecting':'offline'):!follow?'manual':live.state===2?'playing':'live';
- el.dataset.state=state;
- el.textContent={connecting:'Connecting',offline:'Offline',manual:'Manual',playing:'In play',live:'Live'}[state];
- el.title=state==='manual'?'Not following the game; press Follow game to resume':state==='offline'?'vosu telemetry disconnected; the bridge reconnects automatically':state==='connecting'?'Connecting to vosu telemetry':'Following the map and rate selected in osu!';
+ const link=!live.connected?(live.connecting?'connecting':'offline'):!follow?'manual':live.state===2?'playing':'live';
+ const words={connecting:'Connecting',offline:'Offline',manual:'Manual',playing:'In play',live:'Live'};
+ const dot={connecting:'',offline:'error',manual:'warn',playing:'ok',live:'ok'}[link];
+ $('dot').dataset.state=notice?.tone??dot;
+ $('live').textContent=notice?.tone==='busy'?'Analysing':words[link];
+ $('live').title=link==='offline'?'vosu telemetry disconnected; reconnecting':link==='manual'?'Not following the game':'';
  $('follow').setAttribute('aria-pressed',String(follow));
  const mods=$('mods');mods.hidden=!live.mods||live.mods==='NM';mods.textContent=live.mods;
+ const toast=$('toast');toast.hidden=!notice||notice.tone==='busy';toast.textContent=notice?.message??'';
+ if(notice?.tone==='error')toast.dataset.tone='error';else delete toast.dataset.tone;
+}
+function stat(label:string,value:string,unit?:string,help?:string,tag:'div'|'li'='div'){
+ const item=document.createElement(tag);item.className='v-stat';
+ const name=document.createElement('span');name.className='v-stat__label';name.textContent=label;
+ if(help){const tip=document.createElement('span');tip.className='v-help';tip.tabIndex=0;tip.setAttribute('role','img');tip.setAttribute('aria-label',help);tip.dataset.tip=help;tip.dataset.tipPos='left';name.append(tip);}
+ const number=document.createElement('span');number.className='v-stat__value';number.textContent=value;
+ if(unit){const small=document.createElement('span');small.className='v-stat__unit';small.textContent=unit;number.append(small);}
+ item.append(name,number);return item;
 }
 function cards(r:Rating) {
  const target=$('summary'); target.replaceChildren();
- const rows:[string,boolean,string,number|null|undefined,string][]=[
-  ['etterna',settings.show_etterna,'Etterna',r.msd?.overall,'MSD · MINACALC 527'],['quaver',settings.show_quaver,'Quaver',r.quaver,'DIFFICULTY'],
-  ['interlude',settings.show_interlude,'Interlude',r.interlude,'PHYSICAL'],['osu',settings.show_osu,'osu!mania',r.stars,'STARS · REFERENCE'],
- ];
- for(const [system,shown,label,value,unit] of rows) {
-  if(!shown)continue;
-  const card=document.createElement('article'); card.dataset.system=system;
-  const name=document.createElement('h3'); name.textContent=label;
-  const number=document.createElement('strong'); number.textContent=fmt(value);
-  const caption=document.createElement('small'); caption.textContent=unit;
-  card.append(name,number,caption);target.append(card);
- }
- if(settings.show_reform){
-  const card=document.createElement('article');card.dataset.system='reform';card.className='reform';
-  const name=document.createElement('h3');name.textContent='Reform estimate';
-  const number=document.createElement('strong');number.textContent=r.dan?r.dan.label:'—';
-  const caption=document.createElement('small');caption.textContent=r.dan?`${fmt(r.dan.value)} · EXPERIMENTAL, NOT A CERTIFICATION`:'OUTSIDE CALIBRATION OR UNSUPPORTED KEYS';
-  card.append(name,number,caption);target.append(card);
- }
+ if(settings.show_etterna)target.append(stat('Etterna',fmt(r.msd?.overall),'MSD'));
+ if(settings.show_quaver)target.append(stat('Quaver',fmt(r.quaver)));
+ if(settings.show_interlude)target.append(stat('Interlude',fmt(r.interlude)));
+ if(settings.show_osu)target.append(stat('osu!mania',fmt(r.stars),'★'));
+ if(settings.show_reform)target.append(stat('Reform',r.dan?r.dan.label.replace(/^Reform /,''):'—',r.dan?fmt(r.dan.value):undefined,'Experimental dan estimate from MinaCalc overall MSD (4K); not a certification.'));
  $('skills').replaceChildren();
  const skills=Object.entries(r.msd||{}).filter(([key])=>key!=='overall');
  const top=skills.filter(([key])=>key!=='stamina').reduce<[string,number]|undefined>((best,entry)=>!best||entry[1]>best[1]?entry:best,undefined);
+ const max=Math.max(30,...Object.values(r.msd||{}));
  for(const [name,value] of skills) {
-  const row=document.createElement('div'); row.className=name===top?.[0]?'skill top':'skill';
+  const row=document.createElement('div');row.className='skill';
+  if(name===top?.[0])row.setAttribute('aria-current','true');
   const label=document.createElement('span');label.textContent=name.replace('speed',' speed');
-  const bar=document.createElement('meter');bar.min=0;bar.max=Math.max(30,...Object.values(r.msd||{}));bar.value=value;
-  const number=document.createElement('b');number.textContent=fmt(value);row.append(label,bar,number);$('skills').append(row);
+  const bar=document.createElement('div');bar.className='v-meter';bar.style.setProperty('--v-value',String(value/max));
+  bar.setAttribute('role','meter');bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax',String(max));bar.setAttribute('aria-valuenow',String(value));bar.setAttribute('aria-label',label.textContent);
+  const number=document.createElement('span');number.className='v-num';number.textContent=fmt(value);
+  row.append(label,bar,number);$('skills').append(row);
  }
 }
 function frame(element:Element){return element.parentElement as HTMLElement;}
@@ -106,41 +106,45 @@ function draw(target:HTMLCanvasElement,points:Point[],field:'value'|'nps',range?
  const local=field==='value'&&timeline?.mode==='local_msd';
  const max=local?Math.max(40,Math.ceil(Math.max(peak,timeline?.overall||0)/10)*10):peak;
  const top=size+6,bottom=size+10,plot=Math.max(1,h-top-bottom),y=(v:number)=>h-bottom-v/max*plot;
- const ink=paint('ink'),muted=paint('muted'),surface=paint('surface'),bands=[0,1,2,3,4].map(i=>paint(`band-${i}`)),nps=paint('sys-nps');
+ const fg=paint('fg'),muted=paint('muted'),back=paint('bg-sunken'),accent=paint('accent');
  const playing=live.state===2&&follow&&rating?.checksum===live.checksum;
- ctx.clearRect(0,0,w,h);ctx.font=`400 ${size}px ${MONO}`;ctx.lineWidth=1;
- // Data-aligned rules: every 10 MSD in local mode (the colour band edges), quarters otherwise.
+ ctx.clearRect(0,0,w,h);ctx.font=`400 ${size}px ${mono()}`;ctx.lineWidth=1;
+ // Data-aligned rules: every 10 MSD in local mode (the band edges), quarters otherwise.
  const steps=local?Array.from({length:max/10-1},(_,i)=>(i+1)*10):[1,2,3].map(i=>i*max/4);
- ctx.strokeStyle=paint('rule-strong');ctx.globalAlpha=.7;
+ ctx.strokeStyle=paint('rule');
  for(const v of steps){const ly=Math.round(y(v))+.5;ctx.beginPath();ctx.moveTo(0,ly);ctx.lineTo(w,ly);ctx.stroke();}
+ // Difficulty bands <10 / 10–20 / 20–30 / 30–40 / 40+: one accent, rising strength; 40+ in the text colour.
+ const strength=[.32,.5,.7,.9,1];
  for(const p of points){
-  const x=p.time/duration*w,bar=Math.max(1,(timeline?.hop||1)/duration*w);
-  ctx.globalAlpha=playing&&p.time>live.time?.35:1;
-  ctx.fillStyle=field==='nps'?nps:bands[p.value<10?0:p.value<20?1:p.value<30?2:p.value<40?3:4];
+  const x=p.time/duration*w,bar=Math.max(1,(timeline?.hop||1)/duration*w),band=Math.min(4,Math.floor(p.value/10));
+  const future=playing&&p.time>live.time?.35:1;
+  ctx.fillStyle=field==='nps'?muted:band===4?fg:accent;
+  ctx.globalAlpha=(field==='nps'?.8:strength[band])*future;
   ctx.fillRect(x,y(p[field]),bar,p[field]/max*plot);
  }
  ctx.globalAlpha=1;
- // Labels sit on a paper chip so they stay legible over dense bars.
- const chip=(text:string,x:number,baseline:number,color:string)=>{const width=ctx.measureText(text).width;ctx.fillStyle=surface;ctx.globalAlpha=.85;ctx.fillRect(x-3,baseline-size,width+6,size+4);ctx.globalAlpha=1;ctx.fillStyle=color;ctx.fillText(text,x,baseline);};
+ // Labels sit on a chip so they stay legible over dense bars.
+ const chip=(text:string,x:number,baseline:number,color:string)=>{const width=ctx.measureText(text).width;ctx.fillStyle=back;ctx.globalAlpha=.85;ctx.fillRect(x-3,baseline-size,width+6,size+4);ctx.globalAlpha=1;ctx.fillStyle=color;ctx.fillText(text,x,baseline);};
  for(const v of steps)chip(local?String(v):v.toFixed(1),5,Math.max(top,y(v)-4),muted);
  if(local&&timeline?.overall!==undefined){
-  const ly=y(timeline.overall);ctx.setLineDash([3,4]);ctx.strokeStyle=ink;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,ly);ctx.lineTo(w,ly);ctx.stroke();ctx.setLineDash([]);
-  const label=`MAP ${timeline.overall.toFixed(2)} MSD`;
-  chip(label,Math.max(5,w-ctx.measureText(label).width-8),Math.max(top,ly-6),ink);
+  const ly=y(timeline.overall);ctx.setLineDash([3,4]);ctx.strokeStyle=fg;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(0,ly);ctx.lineTo(w,ly);ctx.stroke();ctx.setLineDash([]);
+  const label=`Map ${timeline.overall.toFixed(2)} MSD`;
+  chip(label,Math.max(5,w-ctx.measureText(label).width-8),Math.max(top,ly-6),fg);
  }
  ctx.fillStyle=muted;
  const clock=(s:number)=>`${Math.floor(s/60)}:${Math.floor(s%60).toString().padStart(2,'0')}`;
  const end=clock(duration);
- ctx.fillText(`0:00 · ${local?`0–${max} MSD · `:''}peak ${peak.toFixed(1)}`,5,h-5);ctx.fillText(end,w-ctx.measureText(end).width-6,h-5);
+ const axis=field==='nps'?`0:00 · notes/s · peak ${peak.toFixed(1)}`:`0:00 · ${timeline?.units??''} · ${timeline?.window}s / ${timeline?.hop}s · peak ${peak.toFixed(1)}`;
+ ctx.fillText(axis,5,h-5);ctx.fillText(end,w-ctx.measureText(end).width-6,h-5);
  if(range){
   const x0=range[0]/duration*w,x1=range[1]/duration*w;
-  ctx.fillStyle=paint('pen');ctx.globalAlpha=.16;ctx.fillRect(x0,0,x1-x0,h);ctx.globalAlpha=1;
-  ctx.strokeStyle=paint('pen');ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x0,0);ctx.lineTo(x0,h);ctx.moveTo(x1,0);ctx.lineTo(x1,h);ctx.stroke();
+  ctx.fillStyle=accent;ctx.globalAlpha=.16;ctx.fillRect(x0,0,x1-x0,h);ctx.globalAlpha=1;
+  ctx.strokeStyle=accent;ctx.lineWidth=1.5;ctx.beginPath();ctx.moveTo(x0,0);ctx.lineTo(x0,h);ctx.moveTo(x1,0);ctx.lineTo(x1,h);ctx.stroke();
  }
  if(playing){
   const x=Math.max(0,Math.min(w,live.time/duration*w));
-  ctx.strokeStyle=ink;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
-  chip(clock(Math.max(0,live.time)),Math.min(w-50,x+6),top,ink);
+  ctx.strokeStyle=fg;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
+  chip(clock(Math.max(0,live.time)),Math.min(w-50,x+6),top,fg);
  }
 }
 function svg<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<string,string|number>,text?:string) {
@@ -160,26 +164,27 @@ function rateCurve() {
  const x=(rate:number)=>left+(rate-.5)/1.5*(right-left),y=(v:number)=>base-v/max*(base-top);
  for(const fraction of [.25,.5,.75,1]){
   const value=max*fraction;
-  target.append(svg('line',{class:'grid',x1:left,x2:right,y1:y(value),y2:y(value)}),svg('text',{x:6,y:y(value)+size/3,'font-size':size},value.toFixed(0)));
+  target.append(svg('line',{class:'grid',x1:left,x2:right,y1:y(value),y2:y(value)}),svg('text',{x:6,y:y(value)+size/3},value.toFixed(0)));
  }
  if(!follow&&live.connected&&live.rate>=.5&&live.rate<=2)target.append(svg('line',{class:'game',x1:x(live.rate),x2:x(live.rate),y1:top,y2:base}));
  target.append(svg('polyline',{class:'trace',points:curve.map(p=>`${x(p.rate)},${y(p.msd?.overall||0)}`).join(' ')}));
- const every=Math.max(1,Math.round(.25/(curve[1]?.rate-curve[0]?.rate||.25)));
- for(const r of curve.filter((_,i)=>i%every===0))target.append(svg('text',{x:x(r.rate),y:h-size*.7,'text-anchor':'middle','font-size':size},`${r.rate.toFixed(2)}×`));
+ // Label every 0.25× (or 0.5× when the plot is too narrow for that).
+ const step=curve[1]?.rate-curve[0]?.rate||.25,labelStep=.25/1.5*(right-left)>=size*4.5?.25:.5;
+ const every=Math.max(1,Math.round(labelStep/step));
+ for(const r of curve.filter((_,i)=>i%every===0))target.append(svg('text',{x:x(r.rate),y:h-size*.7,'text-anchor':'middle'},`${r.rate.toFixed(2)}×`));
  const current=rating&&curve.find(p=>Math.abs(p.rate-rating!.rate)<1e-6);
  if(current?.msd)target.append(svg('circle',{class:'marker',cx:x(current.rate),cy:y(current.msd.overall),r:size*.4}));
  // Five curve steps centred on the analysed rate (nearest step when off-grid).
  const analysed=rating?.rate??1,nearest=curve.reduce((best,p,i)=>Math.abs(p.rate-analysed)<Math.abs(curve![best].rate-analysed)?i:best,0);
  const first=Math.max(0,Math.min(curve.length-5,nearest-2));
  for(const p of curve.slice(first,first+5)){
-  const item=document.createElement('li'),value=document.createElement('b');
-  item.textContent=`${p.rate.toFixed(2)}×`;value.textContent=fmt(p.msd?.overall);item.append(value);
+  const item=stat(`${p.rate.toFixed(2)}×`,fmt(p.msd?.overall),undefined,undefined,'li');item.classList.add('v-stat--sm');
   if(Math.abs(p.rate-analysed)<1e-6)item.setAttribute('aria-current','true');
   ladder.append(item);
  }
 }
 function redraw(){
- for(const element of [canvas,density,$('curve')])frame(element).dataset.state=rating?'ready':'empty';
+ $('empty').hidden=Boolean(rating);
  if(timeline){draw(canvas,timeline.points,'value');draw(density,timeline.points,'nps');}
  rateCurve();
 }
@@ -194,7 +199,6 @@ async function loadTimeline(id:number) {
  const t=await api<Timeline>(`v1/beatmap/${rating.checksum}/timeline?rate=${rating.rate}&system=${system}&window=${input('window').value}&hop=${input('hop').value}`);
  if(id!==generation)return;
  timeline=t;redraw();
- $('timeline-caption').textContent=`${t.units} · ${t.window}s ${t.mode==='local_msd'?'centred, reset-context ':''}window / ${t.hop}s hop / no smoothing · chart-time axis. ${t.mode==='local_msd'?'Dotted = whole-map MSD. Bands <10 / 10–20 / 20–30 / 30–40 / 40+. ':''}Drag a phrase to rate it.`;
 }
 function selectedRate(){return follow?live.rate:Number(input('rate').value);}
 // Following: the game's selection. Manual: a newly opened file, else the chart on
@@ -202,29 +206,28 @@ function selectedRate(){return follow?live.rate:Number(input('rate').value);}
 async function analyze() {
  const id=++generation,file=pendingFile,rate=selectedRate(),shown=!follow?rating:undefined;
  pendingFile=undefined;
- if(!(rate>=.5&&rate<=2)){app.classList.toggle('stale',Boolean(rating));status(`Rate ${rate.toFixed(2)}× is outside the supported 0.50–2.00× range${rating?'; showing the last analysis':''}.`,'warn');return;}
- if(!file&&!shown&&!live.checksum){status(live.connected?'No beatmap selected in osu!. Pick an osu!mania chart in song select.':'Waiting for vosu telemetry…','warn');return;}
+ if(!(rate>=.5&&rate<=2)){document.body.classList.toggle('stale',Boolean(rating));status(`Rate ${rate.toFixed(2)}× is outside 0.50–2.00×.`,'warn');return;}
+ if(!file&&!shown&&!live.checksum){status();return;}
  input('rate').value=rate.toFixed(2);
- status(file?`Calculating ${file.name}…`:'Calculating native models…','busy');
+ status('','busy');
  try {
   const r=await api<Rating>(file?`v1/calculate?rate=${rate}`:shown?`v1/beatmap/${shown.checksum}?rate=${rate}`:`v1/beatmap/current?rate=${rate}`,file?{method:'POST',body:await file.arrayBuffer()}:undefined);
   if(id!==generation)return;
   if(r.unsupported){
-   const mode=live.mode&&live.mode!=='mania'&&!file?` (selected map ruleset: ${live.mode})`:'';
-   app.classList.toggle('stale',Boolean(rating));
-   const reason=r.unsupported.charAt(0).toUpperCase()+r.unsupported.slice(1);
-   status(`${reason}${mode}.${rating?` Showing the last analysed chart: ${rating.title} [${rating.version}].`:''}`,'warn');
+   const mode=live.mode&&live.mode!=='mania'&&!file?` (${live.mode})`:'';
+   document.body.classList.toggle('stale',Boolean(rating));
+   status(`${r.unsupported.charAt(0).toUpperCase()}${r.unsupported.slice(1)}${mode}.`,'warn');
    return;
   }
   fileName=file?file.name:shown?.checksum===r.checksum?fileName:undefined;
-  rating=r;analysedKey=follow?`${r.checksum}:${rate}`:'';app.classList.remove('stale');cards(r);
-  $('title').textContent=fileName ?? `${r.artist} — ${r.title} [${r.version}]`;$('title').title=$('title').textContent!;
-  $('meta').textContent=`${r.keys}K · ${r.notes.toLocaleString()} notes · ${r.rate.toFixed(2)}× · ${fileName?'local file':follow?'selected in osu!':'manual'} · md5 ${r.checksum.slice(0,10)}…`;
+  rating=r;analysedKey=follow?`${r.checksum}:${rate}`:'';document.body.classList.remove('stale');cards(r);
+  $('title').textContent=fileName ?? `${r.artist} — ${r.title} [${r.version}]`;$('title').title=`${$('title').textContent} · md5 ${r.checksum}`;
+  $('meta').textContent=`${r.keys}K · ${r.notes.toLocaleString()} notes · ${r.rate.toFixed(2)}×`;
   await loadTimeline(id);
   const result=await api<{rates:RatePoint[]}>(`v1/beatmap/${r.checksum}/rates?step=${settings.rate_step}`);
   if(id!==generation)return;curve=result.rates;rateCurve();
-  status('Analysis ready · each model has its own scale; values are not comparable across systems.');
- }catch(e){if(id===generation){app.classList.toggle('stale',Boolean(rating));status(String(e),'error');}}
+  status();
+ }catch(e){if(id===generation){document.body.classList.toggle('stale',Boolean(rating));status(e instanceof Error?e.message:String(e),'error');}}
 }
 function schedule(delay=250){window.clearTimeout(pending);pending=window.setTimeout(()=>void analyze(),delay);}
 async function refreshSettings(){
@@ -238,12 +241,12 @@ function section() {
  if(!rating)return;
  const r0=rating;
  void api<{rating:Rating}>(`v1/beatmap/${r0.checksum}/section?start=${input('start').value}&end=${input('end').value}&rate=${r0.rate}`)
-  .then(result=>{const r=result.rating;$('section-result').textContent=`Etterna ${fmt(r.msd?.overall)} · Quaver ${fmt(r.quaver)} · Interlude ${fmt(r.interlude)} · ${fmt(r.stars)} ★ (reset context)`;})
-  .catch(e=>{$('section-result').textContent=String(e);});
+  .then(result=>{const r=result.rating;$('section-result').textContent=`Etterna ${fmt(r.msd?.overall)} · Quaver ${fmt(r.quaver)} · Interlude ${fmt(r.interlude)} · ${fmt(r.stars)} ★`;})
+  .catch(e=>{$('section-result').textContent=e instanceof Error?e.message:String(e);});
 }
 
 // Live telemetry: selected map, rate, mods and play position.
-const FIELDS=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number','/play/mods/name','/beatmap/mode/name'];
+const FIELDS=['/beatmap/checksum','/beatmap/time/live','/play/mods/rate','/state/number','/play/mods/name','/beatmap/mode/name'] as const;
 // The bridge owns the socket and its reconnect backoff; vosu 1.2.0 bridges report
 // the connection through onStatus, older ones only deliver frames.
 function connect(){
@@ -287,19 +290,17 @@ $('system').onchange=()=>{
 };
 const resize=new ResizeObserver(redraw);
 for(const element of [canvas,density,$('curve')])resize.observe(frame(element));
-// Canvas text needs the bundled mono face; repaint once it has loaded.
+// Canvas text uses the theme's mono face; repaint once it has loaded.
 void document.fonts.ready.then(redraw);
-// Without a dashboard hint the palette follows the OS live; repaint canvases with it.
-lightQuery.addEventListener('change',()=>{if(vosu.colorScheme)return;document.documentElement.dataset.scheme=lightQuery.matches?'light':'dark';redraw();});
 // Dashboard edits to settings apply when the page comes back into view.
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')void refreshSettings();});
 
 await vosu.ready;
 $<HTMLAnchorElement>('dashboard').href=vosu.dashboardUrl;
 input('file').disabled=!vosu.canWrite;
-if(!vosu.canWrite)$('file').closest('label')!.title='Open Mania ratings from the dashboard to analyse a local file';
+const picker=$('file').closest('label')!;
+picker.setAttribute('aria-disabled',String(!vosu.canWrite));
+if(!vosu.canWrite)picker.title='Open from the dashboard to analyse a local file';
 await refreshSettings();
 follow=settings.follow_game;setLive();redraw();
-if(follow)status('Waiting for vosu telemetry…','busy');
-else status('Manual mode · set a rate or open a .osu file, or press Follow game.','warn');
 connect();

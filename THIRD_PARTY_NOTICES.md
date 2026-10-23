@@ -49,12 +49,6 @@ Each section records third-party code, data, or assets included in this reposito
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
   and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.
-- UI fonts, bundled unmodified as WOFF2 latin/latin-ext subsets from
-  Fontsource 5.3.0 in `tools/mania-ratings/web/src/fonts`: Newsreader (copyright
-  2020 The Newsreader Project Authors) and Martian Mono (copyright 2020 The
-  Martian Mono Project Authors), both SIL OFL 1.1; licenses
-  `tools/mania-ratings/licenses/Newsreader-OFL.txt` and
-  `tools/mania-ratings/licenses/MartianMono-OFL.txt`.
 - Icon and banner art (`tools/mania-ratings/assets`) are original to this project.
 
 ## Beatmap downloader / osu-db
