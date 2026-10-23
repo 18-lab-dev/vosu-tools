@@ -10,7 +10,7 @@ Each section records third-party code, data, or assets included in this reposito
 - The original trainer implementation was ported from vosu commit `4c06922` under MIT OR Apache-2.0.
 - Slider curve parsing/calculation: rosu-map 0.2.1, MaxOhn, MIT. License: `tools/practice/licenses/rosu-map-MIT.txt`.
 - Fast vector-length reference formula: osuTK/OpenTK MathHelper, MIT, copyright Stefanos Apostolopoulos. License: `tools/practice/licenses/osuTK-MIT.txt`. No graphics/runtime library is linked.
-- The practice tool icon and banner (`tools/practice/assets/`) are original artwork. Its UI uses the fonts of vosu's shared theme and bundles none.
+- The practice tool icon and banner (`tools/practice/art/`) are original artwork. Its UI uses the fonts of vosu's shared theme and bundles none.
 - The practice UI's playfield preview bundles the workspace `packages/render-core` and `packages/osu-parse` (project code) and their npm dependencies (see "Map preview and shared render-core"); packaging records the bundled packages and their license texts from the UI's source maps.
 ## server-pp calculators
 
@@ -49,7 +49,7 @@ Each section records third-party code, data, or assets included in this reposito
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
   and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.
-- Icon and banner art (`tools/mania-ratings/assets`) are original to this project.
+- Icon and banner art (`tools/mania-ratings/art`) are original to this project.
 
 ## Beatmap downloader / osu-db
 
@@ -61,7 +61,7 @@ No code from mirror implementations or osu-web is included.
 Downloader Rust dependencies and their selected permissive license texts
 are shipped by the package license generator; see `tools/downloader/Cargo.toml`.
 
-The icon and banner artwork in `tools/downloader/assets/` is original.
+The icon and banner artwork in `tools/downloader/art/` is original.
 
 ## Map preview and shared render-core
 
@@ -92,4 +92,4 @@ The published `dasp` family 0.11.0 crates and `dasp_window` 0.11.1 omit the upst
 - Realm core 20.1.2, commit `3aba889bd9c93c91ea7906b9ec4b60a5c5dcab45` (the native pin in Realm .NET 20.1.0): Apache-2.0. Vendored build source in `crates/realm-reader/native/realm-core-20.1.2.tar.gz`; package text in `tools/lazer-library/licenses/realm-core-Apache-2.0.txt`. Two portability patches preserve integer-min constant semantics for clang-cl and use core's scalar implementations for clang-cl rather than raising the CPU baseline.
 - Native bundled dependencies: S2 geometry (Apache-2.0), Intel RDFP Math 20U2 (BSD-3-Clause), mpark variant, nlohmann JSON and jsonsl (MIT), SHA-1 by Steve Reid and kalven SHA-2 (public domain). Their original source notices remain in the archive; redistribution texts ship in `tools/lazer-library/licenses/`. SHA-1 pin `d9ae30f34095107ece9dceb224839f0dc2f9c1c7`; SHA-2 pin `0e9aebf34101c6aa89355fd76ac9cd886735dee1`.
 - Rust dependencies are permissively licensed: cmake, notify, chrono, tempfile, clap, serde/serde_json, thiserror, axum, tokio, libc, unicase, tower, md-5 and the existing SDK; release packaging collects their resolved dependency texts. No osu! client assets or private Realm data ship.
-- The teal catalog-table icon and three-to-one banner are original project artwork.
+- The icon and banner (`tools/lazer-library/art/`) are original project artwork.

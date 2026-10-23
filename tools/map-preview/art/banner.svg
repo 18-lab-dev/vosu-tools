@@ -1,66 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 400" width="1200" height="400">
-  <title>Map preview: one beatmap timeline in four rulesets</title>
-  <rect width="1200" height="400" fill="#15120f"/>
-
-  <!-- Viewer-gate registration marks. -->
-  <g fill="none" stroke="#5a5045" stroke-width="3" stroke-linecap="square">
-    <path d="M60 64 V40 H84"/>
-    <path d="M1140 64 V40 H1116"/>
-    <path d="M60 336 V360 H84"/>
-    <path d="M1140 336 V360 H1116"/>
-  </g>
-
-  <!-- osu!: slider with approach circle. -->
-  <g>
-    <path d="M190 236 C 214 140, 286 110, 336 124" fill="none" stroke="#f2c14e" stroke-width="52" stroke-linecap="round"/>
-    <path d="M190 236 C 214 140, 286 110, 336 124" fill="none" stroke="#2a231c" stroke-width="36" stroke-linecap="round"/>
-    <circle cx="336" cy="124" r="17" fill="none" stroke="#f2c14e" stroke-width="6"/>
-    <circle cx="190" cy="236" r="76" fill="none" stroke="#ff6b57" stroke-width="7" opacity="0.85"/>
-    <circle cx="190" cy="236" r="42" fill="#ff6b57" stroke="#f1e9dc" stroke-width="9"/>
-    <circle cx="190" cy="236" r="11" fill="#f1e9dc"/>
-  </g>
-
-  <!-- taiko: lane with judgement ring and incoming notes. -->
-  <g>
-    <rect x="404" y="164" width="226" height="76" rx="8" fill="#1e1a16"/>
-    <circle cx="444" cy="202" r="26" fill="none" stroke="#a89d8c" stroke-width="4"/>
-    <circle cx="500" cy="202" r="20" fill="#ff6b57" stroke="#f1e9dc" stroke-width="4"/>
-    <circle cx="548" cy="202" r="20" fill="#f2c14e" stroke="#f1e9dc" stroke-width="4"/>
-    <circle cx="604" cy="202" r="29" fill="#ff6b57" stroke="#f1e9dc" stroke-width="5"/>
-  </g>
-
-  <!-- catch: fruit falling in an arc onto the catcher plate. -->
-  <g>
-    <circle cx="700" cy="104" r="17" fill="#f2c14e" stroke="#f1e9dc" stroke-width="4"/>
-    <circle cx="742" cy="150" r="17" fill="#ff6b57" stroke="#f1e9dc" stroke-width="4"/>
-    <circle cx="770" cy="196" r="8" fill="#f1e9dc"/>
-    <circle cx="786" cy="230" r="17" fill="#f2c14e" stroke="#f1e9dc" stroke-width="4"/>
-    <rect x="730" y="268" width="104" height="16" rx="8" fill="#f1e9dc"/>
-  </g>
-
-  <!-- mania: four columns, notes, one hold, and the judgement line. -->
-  <g>
-    <rect x="880" y="76" width="200" height="210" fill="#1e1a16"/>
-    <g stroke="#3b342c" stroke-width="2">
-      <path d="M930 76 V286"/><path d="M980 76 V286"/><path d="M1030 76 V286"/>
-    </g>
-    <rect x="886" y="104" width="38" height="14" rx="3" fill="#f1e9dc"/>
-    <rect x="936" y="150" width="38" height="14" rx="3" fill="#ff6b57"/>
-    <rect x="986" y="96" width="38" height="140" rx="3" fill="#f2c14e"/>
-    <rect x="1036" y="188" width="38" height="14" rx="3" fill="#f1e9dc"/>
-    <rect x="886" y="214" width="38" height="14" rx="3" fill="#f1e9dc"/>
-    <rect x="880" y="258" width="200" height="4" fill="#ff6b57"/>
-  </g>
-
-  <!-- Shared timeline with the playhead. -->
-  <g>
-    <path d="M120 330 H1080" stroke="#3b342c" stroke-width="2"/>
-    <g stroke="#5a5045" stroke-width="2">
-      <path d="M120 322 V338"/><path d="M240 326 V334"/><path d="M360 322 V338"/><path d="M480 326 V334"/>
-      <path d="M600 322 V338"/><path d="M720 326 V334"/><path d="M840 322 V338"/><path d="M960 326 V334"/><path d="M1080 322 V338"/>
-    </g>
-    <path d="M120 330 H662" stroke="#ff6b57" stroke-width="4"/>
-    <path d="M662 300 V350" stroke="#f2c14e" stroke-width="4"/>
-    <path d="M650 296 H674 L662 310 Z" fill="#f2c14e"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400">
+<style>@media (prefers-color-scheme:dark){.bg{fill:#0b0c0d}.g{stroke:#ebe8e1;stroke-opacity:.06}.r{stroke:#3b3f45}.m{stroke:#7e8288}.a{stroke:#ff963f}.mf{fill:#7e8288}}</style>
+<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path class="g" d="M40 .5H.5V40" fill="none" stroke="#175fad" stroke-opacity=".08"/></pattern><mask id="body"><path d="M560 252C660 252 690 148 800 148" fill="none" stroke="#fff" stroke-width="96" stroke-linecap="round"/><path d="M560 252C660 252 690 148 800 148" fill="none" stroke="#000" stroke-width="86" stroke-linecap="round"/></mask></defs>
+<rect class="bg" width="1200" height="400" fill="#e7e6df"/>
+<rect width="1200" height="400" fill="url(#grid)"/>
+<g class="r" fill="none" stroke="#a7b2bd" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><circle cx="110" cy="250" r="46"/><circle cx="330" cy="150" r="46"/><path d="M166 230l8-4M222 206l8-4M276 182l8-4M388 168l8 4M444 196l8 4M500 222l8 4"/></g>
+<g class="mf" fill="#5b6775"><rect width="1200" height="400" mask="url(#body)"/></g>
+<g class="m" fill="none" stroke="#5b6775" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><circle cx="560" cy="252" r="34"/><circle cx="800" cy="148" r="22"/><circle cx="1010" cy="214" r="46"/></g>
+<g class="r" fill="none" stroke="#a7b2bd" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M864 168l8 4M916 190l8 4"/></g>
+<g class="a" fill="none" stroke="#175fad" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"><circle cx="1010" cy="214" r="86"/></g>
 </svg>

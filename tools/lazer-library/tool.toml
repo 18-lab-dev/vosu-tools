@@ -4,8 +4,8 @@ name = "Lazer library"
 version = "0.1.0"
 description = "Read-only access to lazer beatmaps, skins and replay files from consistent Realm snapshots."
 author = "18-LAB"
-icon = "assets/icon.svg"
-banner = "assets/banner.svg"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [service]
 command = ["bin/vosu-lazer-library"]

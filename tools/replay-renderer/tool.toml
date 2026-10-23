@@ -4,8 +4,8 @@ name = "Replay renderer"
 version = "0.1.0"
 description = "A deterministic, skin-aware replay video studio"
 author = "18-LAB"
-icon = "icon.svg"
-banner = "banner.svg"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
 
 [ui]
 root = "web/dist"
