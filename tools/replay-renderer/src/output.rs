@@ -49,6 +49,9 @@ pub(super) struct Sizes {
     /// Page size last used per installed overlay id.
     #[serde(default)]
     overlays: BTreeMap<String, PageSize>,
+    /// Layout chosen in the studio; absent means `auto`.
+    #[serde(default)]
+    layout: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub(super) struct PageSize {
@@ -147,6 +150,27 @@ pub(super) async fn set_last(
     Ok(Json(sizes))
 }
 
+/// Layouts the compositor understands; `auto` picks by output aspect.
+pub(super) const LAYOUTS: [&str; 4] = ["auto", "side-by-side", "stacked", "grid"];
+#[derive(Deserialize)]
+pub(super) struct LayoutChoice {
+    layout: String,
+}
+/// Remembers the layout picked in the studio (the default is `auto`).
+pub(super) async fn set_layout(
+    State(app): State<App>,
+    Json(input): Json<LayoutChoice>,
+) -> Result<Json<Sizes>, Error> {
+    if !LAYOUTS.contains(&input.layout.as_str()) {
+        return Err(error("Unknown layout"));
+    }
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    sizes.layout = (input.layout != "auto").then_some(input.layout);
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
+}
+
 /// Overlay page size limits, as the render service enforces them.
 const PAGE: std::ops::RangeInclusive<u32> = 16..=4096;
 
@@ -199,7 +223,8 @@ pub(super) fn overlay_entry(entry: &Value, remembered: Option<&PageSize>) -> Opt
         .unwrap_or((None, None));
     Some(json!({
         "id": id,
-        "name": entry["nickname"].as_str().filter(|s| !s.is_empty()).or(entry["name"].as_str()).unwrap_or(id),
+        "name": entry["name"].as_str().filter(|s| !s.is_empty()).unwrap_or(id),
+        "nickname": entry["nickname"].as_str().filter(|s| !s.is_empty()),
         "author": entry["author"],
         "folder": folder,
         "width": width,
@@ -240,7 +265,13 @@ pub(super) async fn installed_overlays(State(app): State<App>) -> Result<Json<Va
             )
         })
         .collect::<Vec<_>>();
-    overlays.sort_by_key(|o| o["name"].as_str().unwrap_or("").to_lowercase());
+    overlays.sort_by_key(|o| {
+        o["nickname"]
+            .as_str()
+            .or(o["name"].as_str())
+            .unwrap_or("")
+            .to_lowercase()
+    });
     Ok(Json(json!({"available": true, "overlays": overlays})))
 }
 
@@ -327,8 +358,25 @@ pub(super) fn defaults(settings: &Value) -> Value {
     let resolution = setting(settings, "resolution")
         .and_then(|r| parse_size(r).ok())
         .map_or_else(|| "1920x1080".to_owned(), |(w, h)| format!("{w}x{h}"));
-    json!({"fps": fps, "resolution": resolution, "output_dir": output_dir(settings)})
+    let ms = |key: &str, default: u32| {
+        number(key)
+            .filter(|v| (0.0..=f64::from(MAX_OUTRO_MS)).contains(v))
+            .map_or(default, |v| v.round() as u32)
+    };
+    let outro = ms("outro_ms", 1250);
+    json!({
+        "fps": fps,
+        "resolution": resolution,
+        "output_dir": output_dir(settings),
+        "outro_ms": outro,
+        "fade_ms": ms("fade_ms", 250).min(outro),
+    })
 }
+/// lazer's player entry: hidden for 250 ms, then faded in over 250 ms.
+pub(super) const ENTRY_HOLD_MS: u32 = 250;
+pub(super) const ENTRY_FADE_MS: u32 = 250;
+/// Longest outro (and fade) a render accepts, milliseconds.
+pub(super) const MAX_OUTRO_MS: u32 = 60_000;
 
 #[cfg(test)]
 mod tests {

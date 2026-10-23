@@ -20,6 +20,12 @@ pub(super) struct Request {
     layout: String,
     #[serde(default)]
     overlays: Vec<crate::overlays::Overlay>,
+    /// Time after the last object and the fade at its end, wall-clock ms;
+    /// absent: the tool settings (lazer timing by default).
+    #[serde(default)]
+    outro_ms: Option<u32>,
+    #[serde(default)]
+    fade_ms: Option<u32>,
 }
 #[derive(Clone)]
 struct Worker {
@@ -33,6 +39,12 @@ struct Worker {
     encoder: Arc<Mutex<Option<Child>>>,
     frames: Arc<Mutex<u64>>,
     start: Instant,
+    /// One overlay runtime per track that shows overlays, each on its own
+    /// private origin so its pages read that track's state.
+    overlays: Arc<Vec<Instance>>,
+}
+struct Instance {
+    track: usize,
     overlays: Arc<crate::overlays::Overlays>,
 }
 pub(super) async fn start(
@@ -42,12 +54,24 @@ pub(super) async fn start(
     if request.replays.is_empty()
         || request.replays.len() > 16
         || !(1..=240).contains(&request.fps)
-        || !matches!(request.layout.as_str(), "side-by-side" | "stacked" | "grid")
+        || !crate::output::LAYOUTS.contains(&request.layout.as_str())
     {
         return Err(error("Invalid render configuration"));
     }
     let (width, height) = crate::output::parse_size(&request.resolution)?;
     let settings: Value = app.env.client().settings().await.map_err(error)?;
+    let defaults = crate::output::defaults(&settings);
+    let outro = request
+        .outro_ms
+        .unwrap_or(defaults["outro_ms"].as_u64().unwrap_or(1250) as u32);
+    let fade = request
+        .fade_ms
+        .unwrap_or(defaults["fade_ms"].as_u64().unwrap_or(250) as u32)
+        .min(outro);
+    if outro > crate::output::MAX_OUTRO_MS {
+        return Err(error("Outro must be at most 60 000 ms"));
+    }
+    (request.outro_ms, request.fade_ms) = (Some(outro), Some(fade));
     let relative = !request.out.is_absolute();
     request.out = crate::output::resolve_out(&request.out, &settings)?;
     if relative && let Some(folder) = request.out.parent() {
@@ -65,13 +89,27 @@ pub(super) async fn start(
             parse_setting(&format!("{key}={value}")).map_err(error)?;
         }
     }
-    crate::overlays::Overlays::validate(&mut request.overlays)?;
+    crate::overlays::Overlays::validate(&mut request.overlays, request.replays.len())?;
+    let instances = (0..request.replays.len())
+        .filter_map(|track| {
+            let layers: Vec<_> = request
+                .overlays
+                .iter()
+                .filter(|layer| layer.shows(track))
+                .cloned()
+                .collect();
+            (!layers.is_empty()).then(|| Instance {
+                track,
+                overlays: crate::overlays::Overlays::new(layers),
+            })
+        })
+        .collect::<Vec<_>>();
     let id = uuid::Uuid::new_v4().to_string();
     app.jobs.lock().await.insert(id.clone(),json!({"state":"queued","progress":0.0,"message":"Starting private headless renderer","result":null}));
     let worker = Worker {
         app,
         id: id.clone(),
-        overlays: crate::overlays::Overlays::new(request.overlays.clone()),
+        overlays: Arc::new(instances),
         staged: request.out.with_file_name(format!(".vosu-render-{id}.mp4")),
         request,
         width,
@@ -130,20 +168,23 @@ async fn run(worker: Worker) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let url = format!("http://127.0.0.1:{port}/{cap}/export.html");
-    worker
-        .overlays
-        .origin(format!("http://127.0.0.1:{port}"))
-        .await;
-    let overlay_routes = crate::overlays::routes(worker.overlays.clone());
-    let server = tokio::spawn(async move {
-        let _ = axum::serve(
-            listener,
-            Router::new()
-                .nest(&format!("/{cap}"), router)
-                .merge(overlay_routes),
-        )
-        .await;
-    });
+    let mut servers = vec![tokio::spawn(async move {
+        let _ = axum::serve(listener, Router::new().nest(&format!("/{cap}"), router)).await;
+    })];
+    for instance in worker.overlays.iter() {
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .map_err(|e| e.to_string())?;
+        let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        instance
+            .overlays
+            .origin(format!("http://127.0.0.1:{port}"))
+            .await;
+        let routes = crate::overlays::routes(instance.overlays.clone());
+        servers.push(tokio::spawn(async move {
+            let _ = axum::serve(listener, routes).await;
+        }));
+    }
     // The capability never enters the host overlay origin; this private browser has no vosu credentials.
     let profile = worker
         .app
@@ -167,7 +208,7 @@ async fn run(worker: Worker) -> Result<(), String> {
         } else {
             &[][..]
         })
-        .args(if worker.request.overlays.is_empty() {
+        .args(if worker.overlays.is_empty() {
             &[][..]
         } else {
             &[
@@ -185,13 +226,13 @@ async fn run(worker: Worker) -> Result<(), String> {
     let mut child = match spawned {
         Ok(child) => child,
         Err(error) => {
-            server.abort();
+            servers.iter().for_each(|server| server.abort());
             return Err(format!(
                 "Cannot launch Chromium; set VOSU_RENDER_CHROMIUM: {error}"
             ));
         }
     };
-    if !worker.request.overlays.is_empty() {
+    if !worker.overlays.is_empty() {
         let endpoint = tokio::time::timeout(std::time::Duration::from_secs(30), async {
             loop {
                 if let Ok(text) =
@@ -210,7 +251,9 @@ async fn run(worker: Worker) -> Result<(), String> {
         })
         .await
         .map_err(|_| "Managed browser did not expose its private overlay debugger".to_owned())?;
-        worker.overlays.debug(endpoint).await;
+        for instance in worker.overlays.iter() {
+            instance.overlays.debug(endpoint.clone()).await;
+        }
     }
     let result = loop {
         let state = worker.app.jobs.lock().await[&worker.id]["state"]
@@ -240,7 +283,7 @@ async fn run(worker: Worker) -> Result<(), String> {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     };
     let _ = child.kill().await;
-    server.abort();
+    servers.iter().for_each(|server| server.abort());
     let _ = tokio::fs::remove_dir_all(profile).await;
     result
 }
@@ -285,9 +328,20 @@ async fn web(Path(path): Path<String>) -> Result<Response, Error> {
 }
 #[derive(Deserialize)]
 struct Begin {
+    /// The first track's map: its song is the soundtrack.
     hash: String,
     rate: f64,
     frames: u64,
+    /// Map time of the first frame; negative during a lead-in before the song.
+    #[serde(default)]
+    start_ms: f64,
+    /// Every track's map, mods and initial state, for its overlay runtime.
+    #[serde(default)]
+    tracks: Vec<TrackBegin>,
+}
+#[derive(Deserialize)]
+struct TrackBegin {
+    hash: String,
     #[serde(default)]
     mods: u32,
     #[serde(default)]
@@ -301,21 +355,21 @@ async fn begin(
     if encoder.is_some() {
         return Err(error("Encoder already started"));
     }
-    if ![0.75, 1.0, 1.5].contains(&input.rate) || input.frames == 0 {
+    if ![0.75, 1.0, 1.5].contains(&input.rate) || input.frames == 0 || !input.start_ms.is_finite() {
         return Err(error("Invalid export clock"));
     }
     let map = crate::library::find_map(&worker.app, &input.hash).await?;
     let text = tokio::fs::read_to_string(map.osu()).await.map_err(error)?;
-    if !worker.request.overlays.is_empty() {
-        worker
+    for instance in worker.overlays.iter() {
+        let track = input
+            .tracks
+            .get(instance.track)
+            .ok_or_else(|| error("Missing overlay track state"))?;
+        let files = crate::library::find_map(&worker.app, &track.hash).await?;
+        let bytes = tokio::fs::read(files.osu()).await.map_err(error)?;
+        instance
             .overlays
-            .configure(
-                map.clone(),
-                text.as_bytes().to_vec(),
-                input.rate,
-                input.mods,
-                input.initial,
-            )
+            .configure(files, bytes, input.rate, track.mods, track.initial.clone())
             .await?;
     }
     let audio = text
@@ -360,7 +414,12 @@ async fn begin(
             "-c:a",
             "aac",
             "-af",
-            &format!("atempo={},apad", input.rate),
+            &audio_filter(
+                input.rate,
+                input.start_ms,
+                input.frames as f64 / f64::from(worker.request.fps),
+                worker.request.fade_ms.unwrap_or(0),
+            ),
             "-shortest",
         ])
         .arg(&worker.staged)
@@ -378,6 +437,33 @@ async fn begin(
     *encoder = Some(child);
     worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":"Rendering frames","total_frames":input.frames,"result":null}));
     Ok(Json(json!({"ready":true})))
+}
+/// The song on the video clock: tempo for the replay rate, silence during a
+/// lead-in (or the map start skipped), lazer's entry fade in and the outro fade out.
+fn audio_filter(rate: f64, start_ms: f64, seconds: f64, fade_ms: u32) -> String {
+    let mut filters = Vec::new();
+    if start_ms > 0.0 {
+        filters.push(format!(
+            "atrim=start={:.3},asetpts=PTS-STARTPTS",
+            start_ms / 1000.0
+        ));
+    }
+    filters.push(format!("atempo={rate}"));
+    if start_ms < 0.0 {
+        filters.push(format!("adelay={:.0}:all=1", -start_ms / rate));
+    }
+    filters.push("apad".to_owned());
+    let hold = f64::from(crate::output::ENTRY_HOLD_MS) / 1000.0;
+    let entry = f64::from(crate::output::ENTRY_FADE_MS) / 1000.0;
+    filters.push(format!("afade=t=in:st={hold:.3}:d={entry:.3}"));
+    if fade_ms > 0 {
+        let fade = f64::from(fade_ms) / 1000.0;
+        filters.push(format!(
+            "afade=t=out:st={:.3}:d={fade:.3}",
+            (seconds - fade).max(0.0)
+        ));
+    }
+    filters.join(",")
 }
 async fn frame(State(worker): State<Worker>, body: Bytes) -> Result<Json<Value>, Error> {
     if body.len() != worker.width as usize * worker.height as usize * 4 {
@@ -451,12 +537,39 @@ async fn fail(State(worker): State<Worker>, Json(value): Json<Value>) -> Json<Va
     Json(json!({"received":true}))
 }
 
+/// One overlay frame for every track that shows overlays: `states` holds each
+/// track's state (indexed by track), the answer each runtime's page images.
 async fn frame_state(
     State(worker): State<Worker>,
-    Json(value): Json<Value>,
-) -> Result<Json<Vec<crate::overlays::Image>>, Error> {
+    Json(states): Json<Vec<Value>>,
+) -> Result<Json<Vec<Value>>, Error> {
     if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" {
         return Err(error("Render cancelled"));
     }
-    Ok(Json(worker.overlays.frame(value).await?))
+    let frames = worker.overlays.iter().map(|instance| {
+        let state = states.get(instance.track).cloned();
+        async move {
+            let state = state.ok_or_else(|| error("Missing overlay track state"))?;
+            let images = instance.overlays.frame(state).await?;
+            Ok::<_, Error>(json!({"track": instance.track, "images": images}))
+        }
+    });
+    Ok(Json(futures_util::future::try_join_all(frames).await?))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn audio_follows_lead_in_rate_and_fades() {
+        // Lead-in two seconds before the song at 1.5×: 1333 ms of silence first.
+        assert_eq!(
+            audio_filter(1.5, -2000.0, 60.0, 250),
+            "atempo=1.5,adelay=1333:all=1,apad,afade=t=in:st=0.250:d=0.250,afade=t=out:st=59.750:d=0.250"
+        );
+        // A render starting after the song begins skips into it; no fade out requested.
+        assert_eq!(
+            audio_filter(1.0, 1500.0, 10.0, 0),
+            "atrim=start=1.500,asetpts=PTS-STARTPTS,atempo=1,apad,afade=t=in:st=0.250:d=0.250"
+        );
+    }
 }

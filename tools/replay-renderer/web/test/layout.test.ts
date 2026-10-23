@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import {
+  HUD,
+  HUD_KEYS,
   VIEW,
+  gridFor,
+  hudBox,
+  hudTransformFor,
+  layoutCells,
   contentBounds,
+  fitBounds,
   fitScale,
   guidesFor,
   place,
@@ -103,4 +110,69 @@ test("corner resizes keep the opposite corner and the aspect ratio", () => {
   expect(box).toEqual({ x: 100, y: 100, width: 400, height: 200 });
   const nw = resizeBox(start, "nw", { x: 250, y: 50 }, {}).box;
   expect(nw).toEqual({ x: 250, y: 50, width: 50, height: 150 });
+});
+
+test("layouts follow the output aspect", () => {
+  // One track always gets the whole frame.
+  expect(gridFor(1, 1080, 1920, "grid")).toEqual({ columns: 1, rows: 1 });
+  // Side by side is a row on landscape and a column on portrait.
+  expect(gridFor(2, 1920, 1080, "side-by-side")).toEqual({ columns: 2, rows: 1 });
+  expect(gridFor(2, 1080, 1920, "side-by-side")).toEqual({ columns: 1, rows: 2 });
+  expect(gridFor(3, 3840, 1080, "stacked")).toEqual({ columns: 1, rows: 3 });
+  // Grid keeps cells as large as possible on their short side.
+  expect(gridFor(4, 1920, 1080, "grid")).toEqual({ columns: 2, rows: 2 });
+  expect(gridFor(4, 5120, 1440, "grid")).toEqual({ columns: 4, rows: 1 });
+  expect(gridFor(3, 1080, 1920, "grid")).toEqual({ columns: 1, rows: 3 });
+  expect(gridFor(6, 1080, 1350, "grid")).toEqual({ columns: 2, rows: 3 });
+  // Auto: side by side for two, a grid for more.
+  expect(gridFor(2, 1080, 1920, "auto")).toEqual({ columns: 1, rows: 2 });
+  expect(gridFor(2, 2560, 1080, "auto")).toEqual({ columns: 2, rows: 1 });
+  expect(gridFor(4, 1080, 1080, "auto")).toEqual({ columns: 2, rows: 2 });
+});
+
+test("cells tile the frame with gaps and whole pixels", () => {
+  const cells = layoutCells(2, 1080, 1920, "auto");
+  expect(cells).toEqual([
+    { x: 0, y: 0, width: 1080, height: 956 },
+    { x: 0, y: 964, width: 1080, height: 956 },
+  ]);
+  const grid = layoutCells(3, 1920, 1080, "grid");
+  expect(grid.length).toBe(3);
+  for (const cell of grid) {
+    expect(cell.x + cell.width).toBeLessThanOrEqual(1920);
+    expect(cell.y + cell.height).toBeLessThanOrEqual(1080);
+  }
+  expect(() => layoutCells(0, 1920, 1080, "auto")).toThrow();
+});
+
+test("HUD layers anchor at their corner and scale with the cell's short side", () => {
+  const cell = { x: 100, y: 0, width: 1080, height: 1920 };
+  // Score is right-anchored: its right edge sits at x = 0.98 of the cell.
+  const score = hudBox(cell, "score", { x: 0.98, y: 0.02, scale: 1 });
+  close(score.x + score.width, 100 + 0.98 * 1080);
+  close(score.height, HUD.score.height);
+  // Combo is bottom-anchored.
+  const combo = hudBox(cell, "combo", { x: 0.02, y: 0.98, scale: 2 });
+  close(combo.y + combo.height, 0.98 * 1920);
+  close(combo.height, HUD.combo.height * 2);
+  // A half-size cell halves the HUD.
+  close(hudBox({ x: 0, y: 0, width: 540, height: 960 }, "health", { x: 0, y: 0, scale: 1 }).width, HUD.health.width / 2);
+  for (const key of HUD_KEYS) {
+    const t = { x: 0.31, y: 0.77, scale: 1.4 };
+    const back = hudTransformFor(cell, key, hudBox(cell, key, t));
+    close(back.x, t.x);
+    close(back.y, t.y);
+    close(back.scale, t.scale);
+  }
+});
+
+test("mania stages fit by their width only, so equal skins scale equally", () => {
+  // Two probes of the same stage: one found transparent rows at the top.
+  const a = fitBounds(3, { x: 166, y: -48, width: 180, height: 480 });
+  const b = fitBounds(3, { x: 166, y: 10, width: 180, height: 400 });
+  expect(a).toEqual(b);
+  expect(place(cell, a, { x: 0, y: 0, scale: 1 })).toEqual(place(cell, b, { x: 0, y: 0, scale: 1 }));
+  // Taiko keeps its measured strip.
+  const strip = { x: -64, y: 69, width: 640, height: 132 };
+  expect(fitBounds(1, strip)).toEqual(strip);
 });

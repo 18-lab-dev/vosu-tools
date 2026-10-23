@@ -52,6 +52,10 @@
         <div class="v-panel__head">
           <span class="v-label">Timeline</span>
           <span class="v-badge" id="track-count">0</span>
+          <span class="v-bar__spacer"></span>
+          <button id="timeline-expand" type="button" class="v-btn v-btn--sm v-btn--ghost v-btn--icon" aria-label="Expand timeline" aria-haspopup="dialog">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.5" /></svg>
+          </button>
         </div>
         <ol id="tracks" class="v-panel__body v-scroll tracks"></ol>
       </section>
@@ -80,11 +84,16 @@
             <label class="v-field"><span>Frame rate</span><input id="fps" class="v-input" type="number" min="1" max="240" value="60" /></label>
             <label class="v-field"><span>Layout</span>
               <select id="layout" class="v-select">
+                <option value="auto">Auto</option>
                 <option value="side-by-side">Side by side</option>
                 <option value="stacked">Stacked</option>
                 <option value="grid">Grid</option>
               </select>
             </label>
+          </div>
+          <div class="pair">
+            <label class="v-field"><span>Outro (ms)</span><input id="outro" class="v-input" type="number" min="0" max="60000" step="50" value="1250" /></label>
+            <label class="v-field"><span>Fade (ms)</span><input id="fade" class="v-input" type="number" min="0" max="60000" step="50" value="250" /></label>
           </div>
           <label class="v-field"><span>File name</span><input id="out" class="v-input" placeholder="replay.mp4" spellcheck="false" /></label>
           <span id="folder" class="v-mono v-muted folder"></span>
@@ -119,6 +128,13 @@
         </div>
       </section>
     </main>
+    <dialog id="timeline-modal" class="v-drawer timeline-modal" aria-labelledby="timeline-modal-title">
+      <div class="v-drawer__head">
+        <h2 id="timeline-modal-title">Timeline</h2>
+        <button id="timeline-close" type="button" class="v-btn v-btn--sm v-btn--ghost">Close</button>
+      </div>
+      <div id="timeline-modal-body" class="v-drawer__body"></div>
+    </dialog>
     <div id="toast" class="v-toast" role="status" hidden></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

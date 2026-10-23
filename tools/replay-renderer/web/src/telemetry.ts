@@ -5,6 +5,8 @@ import type { Track } from "./studio";
 export function telemetry(
   track: Pick<Track, "replay" | "map" | "simulation">,
   time: number,
+  /** Map time of the video's first frame: the overlay clock starts there. */
+  start = 0,
 ) {
   const { replay, map, simulation } = track,
     frame = frameAt(replay, time),
@@ -101,7 +103,7 @@ export function telemetry(
       sequence: 0,
       verified,
       counts,
-      wallMs: time / replay.rate,
+      wallMs: (time - start) / replay.rate,
       time,
       epochMs:
         Number((replay.timestamp - 621355968000000000n) / 10000n) -

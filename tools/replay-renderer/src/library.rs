@@ -980,8 +980,8 @@ mod tests {
         assert_eq!(
             listed["overlays"],
             json!([
-                {"id":"accuracy by sxlvia","name":"accuracy","author":"sxlvia","folder":"/static/accuracy by sxlvia","width":180,"height":80},
-                {"id":"iq-display","name":"Brain","author":null,"folder":"/static/iq-display","width":null,"height":null},
+                {"id":"accuracy by sxlvia","name":"accuracy","nickname":null,"author":"sxlvia","folder":"/static/accuracy by sxlvia","width":180,"height":80},
+                {"id":"iq-display","name":"IQ Display","nickname":"Brain","author":null,"folder":"/static/iq-display","width":null,"height":null},
             ])
         );
         let stored = crate::output::set_overlay_size(

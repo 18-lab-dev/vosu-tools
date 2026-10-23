@@ -34,15 +34,18 @@ const hitValues: Record<Result, number> = {
   n50: 50,
   miss: 0,
 };
+import { assertCompatible } from "@vosu-tools/render-export";
 import {
-  layoutRects,
-  assertCompatible,
-  type Layout,
-} from "@vosu-tools/render-export";
-import {
+  HUD,
+  HUD_KEYS,
   VIEW,
   contentBounds,
+  fitBounds,
+  hudBox,
+  layoutCells,
   place,
+  type HudKey,
+  type Layout,
   type Rect,
   type Transform,
 } from "./layout";
@@ -63,7 +66,35 @@ export interface Track extends Preset {
   background: ImageBitmap | null;
   /** Visible playfield extent in world units (see `probeContent`). */
   content: Rect;
+  /** Running score, when the judgements verified (see `scoreCurve`). */
+  score: ScoreCurve | null;
   dispose(): void;
+}
+/** Score over time: judgement values so far, scaled to the recorded final score. */
+export interface ScoreCurve {
+  times: number[];
+  scores: number[];
+}
+export function scoreCurve(simulation: Simulation, finalScore: number): ScoreCurve {
+  const times: number[] = [],
+    values: number[] = [];
+  let total = 0;
+  for (const event of simulation.events) {
+    total += hitValues[event.result];
+    times.push(event.time);
+    values.push(total);
+  }
+  return { times, scores: values.map((value) => (total ? Math.round((finalScore * value) / total) : 0)) };
+}
+export function scoreAt(curve: ScoreCurve, time: number) {
+  let low = 0,
+    high = curve.times.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (curve.times[middle] <= time) low = middle + 1;
+    else high = middle;
+  }
+  return low ? curve.scores[low - 1] : 0;
 }
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
 /** A failed service call; `details` is the JSON error body when there is one. */
@@ -128,12 +159,13 @@ async function probeContent(renderer: Renderer, mode: number): Promise<Rect> {
     for (let y = 0; y < height; y++)
       pixels.set(source.subarray(y * stride, y * stride + width * 4), y * width * 4);
     buffer.unmap();
-    return contentBounds(pixels, width, height);
+    return fitBounds(mode, contentBounds(pixels, width, height));
   } finally {
     texture.destroy();
     buffer.destroy();
   }
 }
+const KNOWN = new Set(settingSchema.map((rule) => rule.key));
 /** Built-in skins are drawn once per page and shared by every track. */
 const builtins = new Map<BuiltinSkinName, Skin>();
 function builtin(name: BuiltinSkinName) {
@@ -162,7 +194,8 @@ export async function loadTrack(
         .filter((rule) => rule.modes.includes(replay.mode))
         .map((rule) => [rule.key, rule.default]),
     ),
-    ...preset.settings,
+    // Settings this version no longer has (old presets) are dropped.
+    ...Object.fromEntries(Object.entries(preset.settings).filter(([key]) => KNOWN.has(key))),
   };
   const raw = parseOsu(
     await (
@@ -293,7 +326,7 @@ export async function loadTrack(
     } catch (e) {
       warning = String(e);
     }
-  } else warning = "No judgement counters for this ruleset";
+  } else warning = "Combo, accuracy and score: taiko and mania only";
   return {
     id,
     replay,
@@ -305,6 +338,7 @@ export async function loadTrack(
     settings,
     background,
     content,
+    score: simulation?.verified ? scoreCurve(simulation, replay.score) : null,
     dispose() {
       renderer.destroy();
       background?.close();
@@ -322,6 +356,72 @@ export function transformOf(track: Pick<Track, "settings">): Transform {
     scale: track.settings["playfield.scale"] ?? 1,
   };
 }
+const DEFAULTS = Object.fromEntries(settingSchema.map((rule) => [rule.key, rule.default]));
+/** A HUD layer's placement, from its render settings. */
+export function hudTransform(track: Pick<Track, "settings">, key: HudKey): Transform {
+  const value = (axis: string) =>
+    track.settings[`hud.${key}.${axis}`] ?? DEFAULTS[`hud.${key}.${axis}`];
+  return { x: value("x"), y: value("y"), scale: value("scale") };
+}
+/** Whether a HUD layer is switched on for this track. */
+export const hudShown = (track: Pick<Track, "settings">, key: HudKey) =>
+  (track.settings[`hud.${key}`] ?? 1) !== 0;
+const HUD_INK = "#f6f3ee",
+  HUD_SHADOW = "rgba(0, 0, 0, 0.7)";
+/**
+ * Draws a track's enabled HUD layers. Combo, accuracy and score appear only
+ * when the replay's judgements verified; health follows the recorded life graph.
+ */
+function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, time: number) {
+  const state = track.simulation?.verified ? stateAt(track.replay, track.simulation, time) : null;
+  for (const key of HUD_KEYS) {
+    if (!hudShown(track, key)) continue;
+    const box = hudBox(cell, key, hudTransform(track, key));
+    context.save();
+    if (key === "health") {
+      const health = healthAt(track.replay, time);
+      if (health !== null) {
+        context.fillStyle = "rgba(0, 0, 0, 0.45)";
+        context.fillRect(box.x, box.y, box.width, box.height);
+        context.fillStyle = HUD_INK;
+        context.fillRect(box.x, box.y, box.width * health, box.height);
+      }
+      context.restore();
+      continue;
+    }
+    const text =
+      key === "score"
+        ? track.score && state
+          ? String(scoreAt(track.score, time)).padStart(8, "0")
+          : null
+        : key === "accuracy"
+          ? state
+            ? `${(state.accuracy * 100).toFixed(2)}%`
+            : null
+          : state?.combo != null
+            ? `${state.combo}x`
+            : null;
+    if (text) {
+      const right = HUD[key].anchorX === 1;
+      context.font = `700 ${Math.round(box.height * 0.86)}px monospace`;
+      context.textAlign = right ? "right" : "left";
+      context.textBaseline = "middle";
+      context.shadowColor = HUD_SHADOW;
+      context.shadowBlur = box.height * 0.12;
+      context.fillStyle = HUD_INK;
+      context.fillText(text, right ? box.x + box.width : box.x, box.y + box.height / 2, box.width);
+    }
+    context.restore();
+  }
+}
+/** lazer: gameplay starts two seconds before the first object. */
+const LEAD_IN_MS = 2000;
+/** lazer's Player entry: hidden for 250 ms, then a 250 ms fade in. */
+export const ENTRY_HOLD_MS = 250,
+  ENTRY_FADE_MS = 250;
+/** lazer: results 1000 ms after completion, the player fading out over 250 ms. */
+export const DEFAULT_OUTRO_MS = 1250,
+  DEFAULT_FADE_MS = 250;
 export class Composition {
   canvas = document.createElement("canvas");
   context: CanvasRenderingContext2D;
@@ -356,7 +456,7 @@ export class Composition {
   }
   /** Layout cells in output pixels, one per track. */
   cells(): Rect[] {
-    return layoutRects(this.tracks.length, this.width, this.height, this.layout);
+    return layoutCells(this.tracks.length, this.width, this.height, this.layout);
   }
   /** (Re)creates render targets sized for every playfield's current scale. */
   resize(width: number, height: number, layout: Layout) {
@@ -411,9 +511,11 @@ export class Composition {
       })),
     );
   }
-  async renderOffline(time: number): Promise<HTMLCanvasElement> {
+  /** Draws the frame at map `time`. `fade` false leaves the fade to the caller
+   *  (the MP4 export composites overlay pages first). */
+  async renderOffline(time: number, { fade = true } = {}): Promise<HTMLCanvasElement> {
     const context = this.frameContext;
-    context.fillStyle = "#111214";
+    context.fillStyle = "#000";
     context.fillRect(0, 0, this.width, this.height);
     const rects = this.cells();
     // Backgrounds first: a playfield moved over a neighbouring cell stays on top.
@@ -465,20 +567,11 @@ export class Composition {
           scale: settings["cursor.size"] ?? 1,
         },
         cursorTrail: trail,
+        // Pressed mania keys light the stage's own key images (part of the skin).
         keys:
           track.replay.mode === 3
             ? columnKeys(frame, Math.round(track.map.difficulty.cs))
             : undefined,
-        judgements: track.simulation?.verified
-          ? track.simulation.events
-              .filter((event) => event.time <= time && event.time > time - 300)
-              .map((event) => ({
-                x: event.x,
-                y: event.y,
-                time: event.time,
-                result: hitValues[event.result],
-              }))
-          : [],
       });
       const { width: tw, height: th } = resource;
       const commands = track.renderer.device.createCommandEncoder();
@@ -503,74 +596,55 @@ export class Composition {
         height: th,
       });
       context.drawImage(resource.canvas, draw.x, draw.y, draw.width, draw.height);
-      const state = track.simulation?.verified
-        ? stateAt(track.replay, track.simulation, time)
-        : null;
-      context.fillStyle = "#111214";
-      context.fillRect(rect.x, rect.y, rect.width, 34);
-      context.fillStyle = "#ff963f";
-      context.font = `${Math.max(12, Math.round(rect.height / 30))}px monospace`;
-      const hud = [
-        settings["hud.player"] !== 0 ? track.replay.player : "",
-        state && state.combo !== null && settings["hud.combo"] !== 0
-          ? `${state.combo}x`
-          : "",
-        state && settings["hud.accuracy"] !== 0
-          ? `${(state.accuracy * 100).toFixed(2)}%`
-          : "",
-      ].filter(Boolean);
-      context.fillText(hud.join("  "), rect.x + 12, rect.y + 23);
-      if (state && settings["hud.judgements"] !== 0) {
-        context.font = "12px monospace";
-        context.fillText(
-          Object.entries(state.counts)
-            .map(([key, value]) => `${key}:${value}`)
-            .join("  "),
-          rect.x + 12,
-          rect.y + 50,
-        );
-      }
-      if (
-        settings.key_overlay !== 0 &&
-        (track.replay.mode === 1 || track.replay.mode === 3)
-      ) {
-        const keys =
-          track.replay.mode === 3
-            ? columnKeys(frame, Math.round(track.map.difficulty.cs))
-            : Array.from(
-                { length: 4 },
-                (_, key) => !!(frame.keys & (1 << key)),
-              );
-        keys.forEach((pressed, key) => {
-          context.fillStyle = pressed ? "#ff963f" : "#303239";
-          context.fillRect(
-            rect.x + 12 + key * 26,
-            rect.y + rect.height - 24,
-            22,
-            12,
-          );
-        });
-      }
-      const health = healthAt(track.replay, time);
-      if (health !== null && settings["hud.health"] !== 0) {
-        context.fillStyle = "#3a3c3f";
-        context.fillRect(rect.x, rect.y + 32, rect.width, 3);
-        context.fillStyle = "#ff963f";
-        context.fillRect(rect.x, rect.y + 32, rect.width * health, 3);
-      }
     }
+    // HUD layers last: they stay above every playfield, wherever those were moved.
+    this.tracks.forEach((track, i) => drawHud(context, track, rects[i], time));
+    if (fade) this.fade(time, context);
     // Publish atomically: GPU readback must not blank the previous visible preview.
     this.context.drawImage(this.staging, 0, 0);
     return this.canvas;
   }
-  get duration() {
-    return (
-      Math.max(
-        ...this.tracks.map((t) =>
-          Math.max(t.map.duration, t.replay.frames.at(-1)?.time ?? 0),
-        ),
-      ) + 1500
+  /** Outro after the last object and the fade at its end (wall-clock ms);
+   *  lazer shows results 1000 ms after the last judgement, fading out over 250 ms. */
+  timing = { outroMs: DEFAULT_OUTRO_MS, fadeMs: DEFAULT_FADE_MS };
+  /** First rendered map time: lazer's gameplay start, two seconds before the
+   *  first object (earlier when the map asks for a longer audio lead-in), never after 0. */
+  get start() {
+    return Math.min(
+      ...this.tracks.map((t) => {
+        const first = t.map.objects[0]?.time ?? 0,
+          leadIn = Number(t.map.general.AudioLeadIn) || 0;
+        return Math.min(0, first - LEAD_IN_MS, leadIn > 0 ? first - leadIn : 0);
+      }),
     );
+  }
+  /** Last rendered map time: the last object's end plus the outro. */
+  get end() {
+    const rate = this.tracks[0]?.replay.rate ?? 1;
+    return Math.max(...this.tracks.map((t) => t.map.duration)) + this.timing.outroMs * rate;
+  }
+  get duration() {
+    return this.end - this.start;
+  }
+  /** Black over the picture at `time`: lazer's entry (250 ms black, then a
+   *  250 ms fade in) and the fade out at the end of the outro. 0 = clear. */
+  dimAt(time: number) {
+    const rate = this.tracks[0]?.replay.rate ?? 1,
+      sinceStart = (time - this.start) / rate,
+      untilEnd = (this.end - time) / rate,
+      fade = this.timing.fadeMs;
+    const entry = Math.min(1, Math.max(0, 1 - (sinceStart - ENTRY_HOLD_MS) / ENTRY_FADE_MS));
+    const exit = fade > 0 ? Math.min(1, Math.max(0, 1 - untilEnd / fade)) : untilEnd <= 0 ? 1 : 0;
+    return Math.max(entry, exit);
+  }
+  /** Fades the finished frame (after overlays, when the caller adds them). */
+  fade(time: number, context = this.context) {
+    const dim = this.dimAt(time);
+    if (dim <= 0) return;
+    context.save();
+    context.fillStyle = `rgba(0, 0, 0, ${dim})`;
+    context.fillRect(0, 0, this.width, this.height);
+    context.restore();
   }
   releaseTargets() {
     for (const resource of this.readbacks) {

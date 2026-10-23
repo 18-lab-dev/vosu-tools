@@ -1,8 +1,12 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import { parseReplay } from "@vosu-tools/replay";
-import { exportWebM, type Layout } from "@vosu-tools/render-export";
+import { exportWebM } from "@vosu-tools/render-export";
 import {
   Composition,
+  DEFAULT_FADE_MS,
+  DEFAULT_OUTRO_MS,
+  ENTRY_FADE_MS,
+  ENTRY_HOLD_MS,
   loadTrack,
   checked,
   ApiError,
@@ -16,6 +20,7 @@ import { LayoutEditor } from "./editor";
 import { SkinLibrary, type SkinContext } from "./skins";
 import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
 import { SizePicker, parseSize, type SizeStore } from "./sizes";
+import { LAYOUTS, type Layout } from "./layout";
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -80,12 +85,37 @@ function refreshComposition() {
   el("gate").style.setProperty("--ar", `${outW} / ${outH}`);
   const layout = el<HTMLSelectElement>("layout").value as Layout;
   composition = new Composition(tracks, width, height, layout);
+  composition.timing = timing();
   composition.validate();
   el("preview").replaceChildren(composition.canvas);
-  el<HTMLInputElement>("seek").max = String(composition.duration);
-  el("duration").textContent = timecode(composition.duration);
+  refreshTimeline();
   editor.render();
 }
+/** Outro and fade for this composition, from the Output fields (defaults: tool settings). */
+function timing() {
+  const value = (id: string, fallback: number) => {
+    const n = Number(el<HTMLInputElement>(id).value);
+    return Number.isFinite(n) && n >= 0 ? Math.min(n, 60000) : fallback;
+  };
+  const outroMs = value("outro", DEFAULT_OUTRO_MS);
+  return { outroMs, fadeMs: Math.min(outroMs, value("fade", DEFAULT_FADE_MS)) };
+}
+/** Seek range and duration follow the composition's lead-in and outro. */
+function refreshTimeline() {
+  if (!composition) return;
+  const seek = el<HTMLInputElement>("seek");
+  seek.min = String(composition.start);
+  seek.max = String(composition.end);
+  time = Math.min(composition.end, Math.max(composition.start, time));
+  seek.value = String(time);
+  el("duration").textContent = timecode(composition.duration / (tracks[0]?.replay.rate ?? 1));
+}
+for (const id of ["outro", "fade"])
+  el(id).onchange = () => {
+    if (!composition) return;
+    composition.timing = timing();
+    refreshTimeline();
+  };
 let swapping = 0;
 /** Applies a track/composition change between preview frames, so an in-flight
  *  GPU readback never sees a destroyed buffer. */
@@ -128,6 +158,12 @@ function syncAudio(force = false) {
     if (!audio.paused) audio.pause();
     return;
   }
+  // Before the song starts (lead-in) there is nothing to play yet.
+  if (time < 0) {
+    if (!audio.paused) audio.pause();
+    return;
+  }
+  audio.volume = 1 - (composition?.dimAt(time) ?? 0);
   const target = time / 1000;
   if (force || audio.paused || Math.abs(audio.currentTime - target) > 0.08)
     audio.currentTime = target;
@@ -207,9 +243,13 @@ function settingsEditor(track: Track) {
   grid.className = "settings-grid";
   details.append(summary, grid);
   const controls: Record<string, HTMLInputElement> = {};
-  // Playfield position and size are edited in the preview's layout editor.
+  // Placement is edited in the preview's layout editor; layer switches live
+  // in the track's Layers group.
   for (const rule of settingSchema.filter(
-    (rule) => rule.modes.includes(track.replay.mode) && !rule.key.startsWith("playfield."),
+    (rule) =>
+      rule.modes.includes(track.replay.mode) &&
+      rule.control !== "layout" &&
+      !LAYER_SWITCHES.has(rule.key),
   )) {
     const label = document.createElement("label"),
       caption = document.createElement("span"),
@@ -256,6 +296,81 @@ function button(label: string, className = "v-btn v-btn--sm") {
   node.textContent = label;
   return node;
 }
+/** Built-in layers switched per track in the Layers group (HUD, hit lighting). */
+const LAYER_SWITCHES = new Map<string, string>([
+  ["hud.score", "Score"],
+  ["hud.accuracy", "Accuracy"],
+  ["hud.combo", "Combo"],
+  ["hud.health", "Health bar"],
+  ["hit_lighting", "Hit lighting"],
+]);
+/** Reloads a track with a new skin or settings and swaps it in between frames. */
+async function reloadTrack(track: Track, preset: Preset) {
+  const updated = await loadTrack(
+    track.id,
+    new Uint8Array(await (await fetcher(`v1/replays/${track.id}`)).arrayBuffer()),
+    preset,
+    fetcher,
+    { currentBuiltin: skins.builtin },
+  );
+  await betweenFrames(() => {
+    tracks[tracks.indexOf(track)] = updated;
+    track.dispose();
+    refreshComposition();
+  });
+  renderTracks();
+  return updated;
+}
+/** Per-track switches for the built-in layers and every overlay. HUD layers and
+ *  overlays switch live; hit lighting is part of the playfield, so it reloads. */
+function layerSwitches(track: Track) {
+  const group = document.createElement("fieldset"),
+    legend = document.createElement("legend");
+  group.className = "track-layers";
+  legend.className = "v-label";
+  legend.textContent = "Layers";
+  group.append(legend);
+  const check = (caption: string, checked: boolean, onchange: (on: boolean) => void) => {
+    const label = document.createElement("label"),
+      input = document.createElement("input"),
+      text = document.createElement("span");
+    label.className = "v-check";
+    input.type = "checkbox";
+    input.checked = checked;
+    input.onchange = () => onchange(input.checked);
+    text.textContent = caption;
+    label.title = caption;
+    label.append(input, text);
+    group.append(label);
+    return input;
+  };
+  for (const [key, caption] of LAYER_SWITCHES) {
+    const rule = settingSchema.find((r) => r.key === key)!;
+    if (!rule.modes.includes(track.replay.mode)) continue;
+    const input = check(caption, (track.settings[key] ?? rule.default) !== 0, (on) => {
+      if (key === "hit_lighting") {
+        input.disabled = true;
+        reloadTrack(track, { skin: track.skin, settings: { ...track.settings, [key]: Number(on) } }).catch(
+          (error) => {
+            input.disabled = false;
+            input.checked = !on;
+            report(error);
+          },
+        );
+        return;
+      }
+      track.settings[key] = Number(on);
+      editor.render();
+    });
+  }
+  for (const layer of overlayEditor.layers)
+    check(layer.name, !layer.hidden.has(track.id), (on) => {
+      if (on) layer.hidden.delete(track.id);
+      else layer.hidden.add(track.id);
+      editor.render();
+    });
+  return group;
+}
 function renderTracks() {
   const list = el("tracks");
   list.replaceChildren();
@@ -295,21 +410,7 @@ function renderTracks() {
     apply.onclick = async () => {
       apply.disabled = true;
       try {
-        const updated = await loadTrack(
-          track.id,
-          new Uint8Array(
-            await (await fetcher(`v1/replays/${track.id}`)).arrayBuffer(),
-          ),
-          { skin: skin.value || null, settings: editor.read() },
-          fetcher,
-          { currentBuiltin: skins.builtin },
-        );
-        await betweenFrames(() => {
-          tracks[tracks.indexOf(track)] = updated;
-          track.dispose();
-          refreshComposition();
-        });
-        renderTracks();
+        const updated = await reloadTrack(track, { skin: skin.value || null, settings: editor.read() });
         inform(`Updated ${updated.replay.player}`);
       } catch (error) {
         apply.disabled = false;
@@ -352,7 +453,7 @@ function renderTracks() {
       line.textContent = note;
       row.append(line);
     }
-    row.append(editor.details, actions);
+    row.append(layerSwitches(track), editor.details, actions);
     list.append(row);
   });
   el<HTMLInputElement>("out").placeholder = outName();
@@ -437,8 +538,15 @@ await vosu.ready;
 /** Page sizes the overlay had when it was last committed, to remember changes. */
 const remembered = new WeakMap<Layer, string>();
 const overlayEditor: OverlayEditor = new OverlayEditor(el("overlay-layout"), {
-  changed: () => editor.render(),
-  select: (layer) => editor.select({ kind: "overlay", layer }),
+  changed: () => {
+    editor.render();
+    // Every track card lists the overlays it can switch off.
+    renderTracks();
+  },
+  select: (layer) => {
+    const track = tracks.find((t) => !layer.hidden.has(t.id));
+    editor.select(track ? { kind: "overlay", layer, track } : null);
+  },
   selected: () => (editor.selected?.kind === "overlay" ? editor.selected.layer : null),
 });
 const field = (id: string) => el<HTMLInputElement>(id);
@@ -469,6 +577,8 @@ const editor: LayoutEditor = new LayoutEditor(
         betweenFrames(() => composition?.retarget()).catch(report);
         return;
       }
+      // HUD layers are drawn on the frame canvas: the next preview frame shows them.
+      if (item.kind === "hud") return;
       const { layer } = item,
         page = `${layer.width}x${layer.height}`;
       if (layer.id && vosu.canWrite && remembered.get(layer) !== page) {
@@ -507,10 +617,16 @@ if (!vosu.canWrite) {
       fps: number;
       resolution: string;
       output_dir: string | null;
+      outro_ms: number;
+      fade_ms: number;
     };
     el<HTMLInputElement>("fps").value = String(defaults.fps);
+    el<HTMLInputElement>("outro").value = String(defaults.outro_ms);
+    el<HTMLInputElement>("fade").value = String(defaults.fade_ms);
     el("folder").textContent = defaults.output_dir ?? "No output folder: use an absolute path";
     const store = (await (await fetcher("v1/sizes")).json()) as SizeStore;
+    if (LAYOUTS.includes(store.layout as Layout))
+      el<HTMLSelectElement>("layout").value = store.layout as Layout;
     sizes.set(
       parseSize(store.last) ?? parseSize(defaults.resolution) ?? { width: 1920, height: 1080 },
       store,
@@ -520,9 +636,9 @@ if (!vosu.canWrite) {
     library.show("map");
     // Optional: without the listing, overlays are added as custom folders.
     fetcher("v1/overlays")
-      .then((response) => response.json() as Promise<{ overlays: InstalledOverlay[] }>)
-      .then(({ overlays }) => {
-        overlayEditor.setInstalled(overlays);
+      .then((response) => response.json() as Promise<{ available: boolean; overlays: InstalledOverlay[] }>)
+      .then(({ available, overlays }) => {
+        overlayEditor.setInstalled(overlays, available);
         editor.render();
       })
       .catch(report);
@@ -568,7 +684,31 @@ drop.ondrop = async (event) => {
   await addFiles(event.dataTransfer?.files ?? []);
 };
 el("refresh").onclick = () => void library.refresh();
-el("layout").onchange = () => betweenFrames(refreshComposition).catch(report);
+// Expanded timeline: the same live track list moves into a large dialog and back.
+const timelineModal = el<HTMLDialogElement>("timeline-modal"),
+  timelineHome = el("tracks").parentElement!;
+el("timeline-expand").onclick = () => {
+  el("timeline-modal-body").append(el("tracks"));
+  timelineModal.showModal();
+};
+el("timeline-close").onclick = () => timelineModal.close();
+// A click on the dialog itself (not its contents) is a click on the dimmed backdrop.
+timelineModal.onclick = (event) => {
+  if (event.target === timelineModal) timelineModal.close();
+};
+timelineModal.onclose = () => {
+  timelineHome.append(el("tracks"));
+  el("timeline-expand").focus();
+};
+el("layout").onchange = () => {
+  betweenFrames(refreshComposition).catch(report);
+  if (vosu.canWrite)
+    fetcher("v1/sizes/layout", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ layout: el<HTMLSelectElement>("layout").value }),
+    }).catch(report);
+};
 function setPlaying(next: boolean) {
   playing = next;
   el("play").setAttribute("aria-label", playing ? "Pause" : "Play");
@@ -586,8 +726,8 @@ el<HTMLInputElement>("seek").oninput = () => {
 async function animate(now: number) {
   if (playing && composition) {
     time += (now - last) * (tracks[0]?.replay.rate ?? 1);
-    if (time > composition.duration) {
-      time = 0;
+    if (time > composition.end) {
+      time = composition.start;
       setPlaying(false);
     }
     el<HTMLInputElement>("seek").value = String(time);
@@ -604,7 +744,9 @@ async function animate(now: number) {
     }
   }
   last = now;
-  el("time").textContent = timecode(time);
+  el("time").textContent = timecode(
+    composition ? (time - composition.start) / (tracks[0]?.replay.rate ?? 1) : 0,
+  );
   requestAnimationFrame(animate);
 }
 requestAnimationFrame(animate);
@@ -626,8 +768,10 @@ el("queue").onclick = async () => {
       fps: Number(el<HTMLInputElement>("fps").value),
       resolution: `${sizes.size.width}x${sizes.size.height}`,
       layout: el<HTMLSelectElement>("layout").value,
-      overlays: overlayEditor.read(),
+      overlays: overlayEditor.read(tracks.map((t) => t.id)),
       out: outName(),
+      outro_ms: composition.timing.outroMs,
+      fade_ms: composition.timing.fadeMs,
     };
     const { job } = await (
       await fetcher("v1/render", {
@@ -709,14 +853,17 @@ el("webm").onclick = async () => {
     composition.releaseTargets();
     const { width, height } = sizes.size;
     const full = new Composition(tracks, width, height, composition.layout);
+    full.timing = composition.timing;
     try {
       const blob = await exportWebM({
         fps: Number(el<HTMLInputElement>("fps").value),
         width,
         height,
+        startMs: full.start,
         durationMs: full.duration,
         rate: first.replay.rate,
         audio: song,
+        fade: { inDelayMs: ENTRY_HOLD_MS, inMs: ENTRY_FADE_MS, outMs: full.timing.fadeMs },
         render: (t) => full.renderOffline(t),
         progress: (p) => {
           inform(`Encoding WebM ${(p * 100).toFixed(0)}%`);

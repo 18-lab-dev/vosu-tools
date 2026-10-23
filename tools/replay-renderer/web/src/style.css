@@ -169,13 +169,14 @@
   display: grid;
   place-items: center;
 }
+/* The output frame letterboxed at its own aspect ratio, as large as the stage
+   allows; nothing is drawn around it, so the preview is the picture. */
 .gate {
   --ar: 16 / 9;
   position: relative;
   width: min(100cqw, calc(100cqh * (var(--ar))));
   aspect-ratio: var(--ar);
   background: var(--bg-sunken);
-  border: var(--hair) solid var(--rule);
 }
 .gate-canvas {
   position: absolute;
@@ -196,13 +197,20 @@
   overflow: hidden;
   user-select: none;
 }
+/* Boxes stay out of the picture until the pointer is over the preview (or one is
+   selected), so the preview shows exactly what the export draws. */
 .lay-box {
   position: absolute;
-  border: 1px dashed color-mix(in srgb, var(--fg) 45%, transparent);
+  border: 1px dashed transparent;
   cursor: move;
   touch-action: none;
 }
-.lay-box--overlay {
+.editor:hover .lay-box,
+.editor:focus-within .lay-box {
+  border-color: color-mix(in srgb, var(--fg) 45%, transparent);
+}
+.editor:hover .lay-box--overlay,
+.editor:focus-within .lay-box--overlay {
   border-color: color-mix(in srgb, var(--signal) 70%, transparent);
   background: color-mix(in srgb, var(--signal) 8%, transparent);
 }
@@ -355,6 +363,59 @@
 }
 .layer .folder {
   grid-column: 1 / -1;
+}
+.layer__title {
+  display: grid;
+  min-width: 0;
+}
+.layer__name,
+.layer__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer__meta {
+  font-size: var(--step--2);
+}
+/* Overlay picker: search, matches, then the by-path options. */
+.overlay-picker {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.overlay-options {
+  max-height: 16rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.overlay-option {
+  display: grid;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.overlay-option:hover {
+  background: var(--hover);
+}
+.overlay-option[aria-selected="true"] {
+  background: var(--selected);
+}
+.overlay-option__name,
+.overlay-option__meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.overlay-option__meta {
+  font-size: var(--step--2);
+}
+.overlay-status {
+  margin: 0;
+  font-size: var(--step--1);
 }
 .inspector {
   display: grid;
@@ -521,4 +582,42 @@
   #now {
     display: none;
   }
+}
+
+/* Expanded timeline: a large centred dialog on the design system's drawer. */
+.timeline-modal {
+  width: min(80rem, calc(100vw - 4rem));
+  height: min(52rem, calc(100dvh - 4rem));
+  margin: auto;
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+}
+.timeline-modal .tracks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  align-content: start;
+  gap: var(--space-2);
+  overflow: visible;
+  padding: 0;
+}
+.track-layers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.track-layers legend {
+  float: left;
+  width: 100%;
+  margin-bottom: var(--space-1);
+  padding: 0;
+}
+.track-layers .v-check span {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
