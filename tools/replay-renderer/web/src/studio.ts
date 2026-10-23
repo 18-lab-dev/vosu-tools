@@ -50,6 +50,7 @@ import {
   type Transform,
 } from "./layout";
 import { BUILTIN } from "./skins";
+import { drawInspector, type InspectedLayer } from "./inspector";
 import settingSchema from "../../render-settings.json";
 export interface Preset {
   skin?: string | null;
@@ -317,12 +318,17 @@ export async function loadTrack(
         map.difficulty.od,
         columns,
       );
+      const differences = Object.entries(simulation.differences).map(
+        ([result, d]) => `${result} ${d.expected}≠${d.actual}`,
+      );
       if (!simulation.verified)
-        warning = `Counters hidden: judgements differ (${Object.entries(
-          simulation.differences,
-        )
-          .map(([result, d]) => `${result} ${d.expected}≠${d.actual}`)
-          .join(", ")})`;
+        warning = differences.length
+          ? `Counters hidden: judgements differ (${differences.join(", ")})`
+          : `Counters hidden: ${simulation.warnings.join("; ")}`;
+      else if (!simulation.comboVerified)
+        warning = simulation.warnings.length
+          ? `Combo hidden: ${simulation.warnings.join("; ")}`
+          : `Combo hidden: max combo ${replay.maxCombo} not reproduced`;
     } catch (e) {
       warning = String(e);
     }
@@ -357,11 +363,12 @@ export function transformOf(track: Pick<Track, "settings">): Transform {
   };
 }
 const DEFAULTS = Object.fromEntries(settingSchema.map((rule) => [rule.key, rule.default]));
-/** A HUD layer's placement, from its render settings. */
+/** A HUD layer's placement, from its render settings: distance from its cell
+ *  corner (HUD units) and scale. */
 export function hudTransform(track: Pick<Track, "settings">, key: HudKey): Transform {
   const value = (axis: string) =>
     track.settings[`hud.${key}.${axis}`] ?? DEFAULTS[`hud.${key}.${axis}`];
-  return { x: value("x"), y: value("y"), scale: value("scale") };
+  return { x: value("dx"), y: value("dy"), scale: value("scale") };
 }
 /** Whether a HUD layer is switched on for this track. */
 export const hudShown = (track: Pick<Track, "settings">, key: HudKey) =>
@@ -456,7 +463,13 @@ export class Composition {
   }
   /** Layout cells in output pixels, one per track. */
   cells(): Rect[] {
-    return layoutCells(this.tracks.length, this.width, this.height, this.layout);
+    return layoutCells(
+      this.tracks.length,
+      this.width,
+      this.height,
+      this.layout,
+      this.tracks.map((track) => track.content),
+    );
   }
   /** (Re)creates render targets sized for every playfield's current scale. */
   resize(width: number, height: number, layout: Layout) {
@@ -518,6 +531,14 @@ export class Composition {
     context.fillStyle = "#000";
     context.fillRect(0, 0, this.width, this.height);
     const rects = this.cells();
+    const layers: InspectedLayer[] = [];
+    let started = performance.now();
+    const took = () => {
+      const now = performance.now(),
+        ms = now - started;
+      started = now;
+      return ms;
+    };
     // Backgrounds first: a playfield moved over a neighbouring cell stays on top.
     this.tracks.forEach((track, i) => {
       const rect = rects[i],
@@ -539,6 +560,7 @@ export class Composition {
       context.fillStyle = `rgba(0,0,0,${track.settings.background_dim ?? 0.85})`;
       context.fillRect(rect.x, rect.y, rect.width, rect.height);
       context.restore();
+      layers.push({ name: `V${i + 1} background`, kind: "background", box: rect, ms: took() });
     });
     for (let i = 0; i < this.tracks.length; i++) {
       const track = this.tracks[i],
@@ -591,15 +613,26 @@ export class Composition {
       resource.buffer.unmap();
       resource.canvas.getContext("2d")!.putImageData(resource.pixels, 0, 0);
       // Playfields may be moved anywhere in the frame, so they clip to it.
-      const { draw } = place(rect, track.content, transformOf(track), {
+      const { draw, box } = place(rect, track.content, transformOf(track), {
         width: tw,
         height: th,
       });
       context.drawImage(resource.canvas, draw.x, draw.y, draw.width, draw.height);
+      layers.push({ name: `V${i + 1} playfield`, kind: "playfield", box, ms: took() });
     }
     // HUD layers last: they stay above every playfield, wherever those were moved.
-    this.tracks.forEach((track, i) => drawHud(context, track, rects[i], time));
-    if (fade) this.fade(time, context);
+    this.tracks.forEach((track, i) => {
+      drawHud(context, track, rects[i], time);
+      const ms = took();
+      for (const key of HUD_KEYS)
+        if (hudShown(track, key))
+          layers.push({ name: `V${i + 1} ${key}`, kind: "hud", box: hudBox(rects[i], key, hudTransform(track, key)), ms: key === "score" ? ms : null });
+    });
+    this.inspected = layers;
+    if (fade) {
+      this.fade(time, context);
+      if (this.inspect) this.drawInspector(time, this.overlayBoxes, context);
+    }
     // Publish atomically: GPU readback must not blank the previous visible preview.
     this.context.drawImage(this.staging, 0, 0);
     return this.canvas;
@@ -636,6 +669,23 @@ export class Composition {
     const entry = Math.min(1, Math.max(0, 1 - (sinceStart - ENTRY_HOLD_MS) / ENTRY_FADE_MS));
     const exit = fade > 0 ? Math.min(1, Math.max(0, 1 - untilEnd / fade)) : untilEnd <= 0 ? 1 : 0;
     return Math.max(entry, exit);
+  }
+  /** Development aid: draw the composition inspector over each frame. */
+  inspect = false;
+  /** Overlay boxes the preview shows in the inspector (pages render only in MP4). */
+  overlayBoxes: InspectedLayer[] = [];
+  /** The last frame's layers in paint order, with their draw times. */
+  inspected: InspectedLayer[] = [];
+  /** Draws the inspector over the finished frame; `overlays` are layers the
+   *  caller painted after `renderOffline` (overlay pages in the MP4 export, or
+   *  their boxes in the preview). */
+  drawInspector(time: number, overlays: readonly InspectedLayer[], context = this.context) {
+    drawInspector(context, this, this.cells(), [...this.inspected, ...overlays], {
+      time,
+      start: this.start,
+      end: this.end,
+      dim: this.dimAt(time),
+    });
   }
   /** Fades the finished frame (after overlays, when the caller adds them). */
   fade(time: number, context = this.context) {

@@ -73,6 +73,8 @@ export function simulate(
   )
     throw new Error("Key-count/conversion mods require a converted beatmap");
   const warnings: string[] = [],
+    // Gaps that affect only the combo: graded counts and accuracy still verify.
+    comboWarnings: string[] = [],
     raw: Omit<Judgement, "combo" | "counts" | "accuracy">[] = [];
   let previous = 0;
   const presses: { time: number; key: number; used: boolean }[] = [],
@@ -106,7 +108,8 @@ export function simulate(
       replay.mode === 1 &&
       (note.kind === "slider" || note.kind === "spinner")
     ) {
-      warnings.push("Taiko drumroll/spinner bonus combo is not reconstructed");
+      if (!comboWarnings.length)
+        comboWarnings.push("Taiko drumroll/spinner bonus combo is not reconstructed");
       return;
     }
     // An early hit does not unlock the next note until the previous note's scheduled time.
@@ -230,10 +233,10 @@ export function simulate(
   return {
     events,
     counts,
-    comboVerified: maxCombo === replay.maxCombo,
+    comboVerified: maxCombo === replay.maxCombo && !comboWarnings.length,
     verified: !Object.keys(differences).length && !warnings.length,
     differences,
-    warnings,
+    warnings: [...warnings, ...comboWarnings],
   };
 }
 export function stateAt(replay: Replay, simulation: Simulation, time: number) {

@@ -26,6 +26,9 @@ pub(super) struct Request {
     outro_ms: Option<u32>,
     #[serde(default)]
     fade_ms: Option<u32>,
+    /// Debug export: the composition inspector is drawn into every frame.
+    #[serde(default)]
+    inspect: bool,
 }
 #[derive(Clone)]
 struct Worker {

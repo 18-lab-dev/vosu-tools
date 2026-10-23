@@ -130,23 +130,23 @@
     "control": "toggle"
   },
   {
-    "key": "hud.score.x",
-    "label": "Score horizontal position (cell widths)",
+    "key": "hud.score.dx",
+    "label": "Score horizontal distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.98,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
-    "key": "hud.score.y",
-    "label": "Score vertical position (cell heights)",
+    "key": "hud.score.dy",
+    "label": "Score vertical distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.02,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
@@ -160,23 +160,23 @@
     "control": "layout"
   },
   {
-    "key": "hud.accuracy.x",
-    "label": "Accuracy horizontal position (cell widths)",
+    "key": "hud.accuracy.dx",
+    "label": "Accuracy horizontal distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.98,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
-    "key": "hud.accuracy.y",
-    "label": "Accuracy vertical position (cell heights)",
+    "key": "hud.accuracy.dy",
+    "label": "Accuracy vertical distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.1,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 98,
     "control": "layout"
   },
   {
@@ -190,23 +190,23 @@
     "control": "layout"
   },
   {
-    "key": "hud.combo.x",
-    "label": "Combo horizontal position (cell widths)",
+    "key": "hud.combo.dx",
+    "label": "Combo horizontal distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.02,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
-    "key": "hud.combo.y",
-    "label": "Combo vertical position (cell heights)",
+    "key": "hud.combo.dy",
+    "label": "Combo vertical distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.98,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
@@ -220,23 +220,23 @@
     "control": "layout"
   },
   {
-    "key": "hud.health.x",
-    "label": "Health bar horizontal position (cell widths)",
+    "key": "hud.health.dx",
+    "label": "Health bar horizontal distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.02,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {
-    "key": "hud.health.y",
-    "label": "Health bar vertical position (cell heights)",
+    "key": "hud.health.dy",
+    "label": "Health bar vertical distance from its corner (HUD units)",
     "modes": [0, 1, 2, 3],
-    "min": -4,
-    "max": 4,
-    "step": 0.01,
-    "default": 0.02,
+    "min": -20000,
+    "max": 20000,
+    "step": 0.1,
+    "default": 20,
     "control": "layout"
   },
   {

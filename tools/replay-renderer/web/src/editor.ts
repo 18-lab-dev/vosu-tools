@@ -2,8 +2,10 @@ import settingSchema from "../../render-settings.json";
 import {
   DEFAULT_TRANSFORM,
   HUD_KEYS,
+  freeSpot,
   guidesFor,
   hudBox,
+  hudUnit,
   hudTransformFor,
   layoutCells,
   place,
@@ -83,6 +85,43 @@ export class LayoutEditor {
     inspector.reset.onclick = () => this.reset();
     new ResizeObserver(() => this.render()).observe(gate);
   }
+  /**
+   * Where a new overlay page of `width`×`height` (output px) goes, as an offset
+   * from the cell's corner: the first spot clear of every shown track's
+   * playfield, HUD layers and other overlays; failing that, one that only
+   * overlaps a playfield (a mania stage can leave no room beside it); failing
+   * that, under the health bar of the first cell.
+   */
+  spotFor(width: number, height: number, except?: Layer): { x: number; y: number } {
+    const tracks = this.host.tracks(),
+      cells = this.cells();
+    if (!tracks.length) return { x: 0, y: 0 };
+    const items = this.items().filter((item) => !(item.kind === "overlay" && item.layer === except));
+    const unit = hudUnit(cells[0]);
+    const options = { margin: Math.max(4, Math.round(20 * unit)), step: Math.max(4, Math.round(8 * unit)) };
+    const scene = (avoidPlayfields: boolean) =>
+      tracks.map((track, i) => ({
+        cell: cells[i],
+        obstacles: items
+          .filter((item) => item.track === track && (avoidPlayfields || item.kind !== "playfield"))
+          .map((item) => this.boxOf(item)),
+      }));
+    const spot = freeSpot(scene(true), width, height, options) ?? freeSpot(scene(false), width, height, options);
+    if (spot) return spot;
+    const health = hudBox(cells[0], "health", hudTransform(tracks[0], "health"));
+    return { x: Math.round(health.x - cells[0].x), y: Math.round(health.y + health.height - cells[0].y + 20 * unit) };
+  }
+  /** Overlay boxes in the frame, for the composition inspector. */
+  overlayBoxes() {
+    return this.items()
+      .filter((item) => item.kind === "overlay")
+      .map((item) => ({
+        name: `V${this.host.tracks().indexOf(item.track) + 1} ${this.label(item)}`,
+        kind: "overlay" as const,
+        box: this.boxOf(item),
+        ms: null,
+      }));
+  }
   get selected() {
     return this.selection;
   }
@@ -96,7 +135,7 @@ export class LayoutEditor {
     const tracks = this.host.tracks();
     if (!tracks.length) return [];
     const { width, height } = this.host.output();
-    return layoutCells(tracks.length, width, height, this.host.layout());
+    return layoutCells(tracks.length, width, height, this.host.layout(), tracks.map((track) => track.content));
   }
   private boxOf(item: Item): Rect {
     const cell = this.cells()[this.host.tracks().indexOf(item.track)];
@@ -156,8 +195,8 @@ export class LayoutEditor {
       const t = hudTransformFor(this.cells()[index], item.key, box);
       const s = item.track.settings,
         prefix = `hud.${item.key}`;
-      s[`${prefix}.x`] = round(clamp(t.x, limit(`${prefix}.x`)));
-      s[`${prefix}.y`] = round(clamp(t.y, limit(`${prefix}.y`)));
+      s[`${prefix}.dx`] = round(clamp(t.x, limit(`${prefix}.dx`)));
+      s[`${prefix}.dy`] = round(clamp(t.y, limit(`${prefix}.dy`)));
       if (resized) s[`${prefix}.scale`] = round(clamp(t.scale, limit(`${prefix}.scale`)));
       return;
     }
@@ -175,11 +214,14 @@ export class LayoutEditor {
       item.track.settings["playfield.y"] = DEFAULT_TRANSFORM.y;
       item.track.settings["playfield.scale"] = DEFAULT_TRANSFORM.scale;
     } else if (item.kind === "hud") {
-      for (const axis of ["x", "y", "scale"]) {
+      for (const axis of ["dx", "dy", "scale"]) {
         const key = `hud.${item.key}.${axis}`;
         item.track.settings[key] = DEFAULTS[key];
       }
-    } else Object.assign(item.layer, { x: 0, y: 0, scale: 1, opacity: 1 });
+    } else {
+      const l = item.layer;
+      Object.assign(l, { scale: 1, opacity: 1 }, this.spotFor(l.width, l.height, l));
+    }
     this.host.changed(item, true);
     this.render();
   }

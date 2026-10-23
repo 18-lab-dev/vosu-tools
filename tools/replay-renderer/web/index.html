@@ -80,21 +80,14 @@
             <span id="size-label">Resolution</span>
             <div id="size-picker"></div>
           </div>
-          <div class="pair">
-            <label class="v-field"><span>Frame rate</span><input id="fps" class="v-input" type="number" min="1" max="240" value="60" /></label>
-            <label class="v-field"><span>Layout</span>
-              <select id="layout" class="v-select">
-                <option value="auto">Auto</option>
-                <option value="side-by-side">Side by side</option>
-                <option value="stacked">Stacked</option>
-                <option value="grid">Grid</option>
-              </select>
-            </label>
-          </div>
-          <div class="pair">
-            <label class="v-field"><span>Outro (ms)</span><input id="outro" class="v-input" type="number" min="0" max="60000" step="50" value="1250" /></label>
-            <label class="v-field"><span>Fade (ms)</span><input id="fade" class="v-input" type="number" min="0" max="60000" step="50" value="250" /></label>
-          </div>
+          <label class="v-field"><span>Layout</span>
+            <select id="layout" class="v-select">
+              <option value="auto">Auto</option>
+              <option value="side-by-side">Side by side</option>
+              <option value="stacked">Stacked</option>
+              <option value="grid">Grid</option>
+            </select>
+          </label>
           <label class="v-field"><span>File name</span><input id="out" class="v-input" placeholder="replay.mp4" spellcheck="false" /></label>
           <span id="folder" class="v-mono v-muted folder"></span>
           <div class="v-row">
@@ -102,29 +95,42 @@
             <button id="webm" type="button" class="v-btn">Export WebM</button>
           </div>
           <ol id="jobs" class="jobs"></ol>
-          <div class="subhead">
-            <span class="v-label">Layout</span>
-            <span class="v-bar__spacer"></span>
-            <button id="layout-reset" type="button" class="v-btn v-btn--sm v-btn--ghost">Reset</button>
-          </div>
-          <p id="layout-empty" class="v-muted">Select a playfield or overlay in the preview.</p>
-          <div id="inspector" class="inspector" hidden>
-            <span id="inspector-title" class="inspector-title"></span>
-            <div class="inspector-grid">
-              <label class="v-field"><span>X</span><input id="lay-x" class="v-input" type="number" step="1" /></label>
-              <label class="v-field"><span>Y</span><input id="lay-y" class="v-input" type="number" step="1" /></label>
-              <label class="v-field"><span>W</span><input id="lay-w" class="v-input" type="number" step="1" min="1" /></label>
-              <label class="v-field"><span>H</span><input id="lay-h" class="v-input" type="number" step="1" min="1" /></label>
-              <label class="v-field"><span>Scale</span><input id="lay-scale" class="v-input" type="number" step="0.05" min="0.05" /></label>
-              <label class="v-field"><span>Opacity</span><input id="lay-opacity" class="v-input" type="number" step="0.05" min="0" max="1" /></label>
+          <section id="layout-section" class="selection" aria-labelledby="inspector-title" hidden>
+            <div class="subhead">
+              <span id="inspector-title" class="v-label inspector-title"></span>
+              <span class="v-bar__spacer"></span>
+              <button id="layout-reset" type="button" class="v-btn v-btn--sm v-btn--ghost">Reset</button>
             </div>
-          </div>
-          <div class="subhead"><span class="v-label">Skins</span></div>
-          <p id="current-skin" class="skin-current"></p>
-          <label class="v-btn v-file"><input id="osk" type="file" accept=".osk,.zip" />Import .osk</label>
-          <span id="import-status" class="v-muted" role="status"></span>
-          <ul id="imported" class="imported"></ul>
+            <div id="inspector" class="inspector">
+              <div class="inspector-grid">
+                <label class="v-field"><span>X</span><input id="lay-x" class="v-input" type="number" step="1" /></label>
+                <label class="v-field"><span>Y</span><input id="lay-y" class="v-input" type="number" step="1" /></label>
+                <label class="v-field"><span>W</span><input id="lay-w" class="v-input" type="number" step="1" min="1" /></label>
+                <label class="v-field"><span>H</span><input id="lay-h" class="v-input" type="number" step="1" min="1" /></label>
+                <label class="v-field"><span>Scale</span><input id="lay-scale" class="v-input" type="number" step="0.05" min="0.05" /></label>
+                <label class="v-field"><span>Opacity</span><input id="lay-opacity" class="v-input" type="number" step="0.05" min="0" max="1" /></label>
+              </div>
+            </div>
+          </section>
           <div id="overlay-layout" class="overlays"></div>
+          <details class="advanced">
+            <summary>Advanced</summary>
+            <div class="advanced__body">
+              <div class="pair">
+                <label class="v-field"><span>Frame rate</span><input id="fps" class="v-input" type="number" min="1" max="240" value="60" /></label>
+                <span></span>
+              </div>
+              <div class="pair">
+                <label class="v-field"><span>Outro (ms)</span><input id="outro" class="v-input" type="number" min="0" max="60000" step="50" value="1250" /></label>
+                <label class="v-field"><span>Fade (ms)</span><input id="fade" class="v-input" type="number" min="0" max="60000" step="50" value="250" /></label>
+              </div>
+              <div class="subhead"><span class="v-label">Skins</span></div>
+              <p id="current-skin" class="skin-current"></p>
+              <label class="v-btn v-file"><input id="osk" type="file" accept=".osk,.zip" />Import .osk</label>
+              <span id="import-status" class="v-muted" role="status"></span>
+              <ul id="imported" class="imported"></ul>
+            </div>
+          </details>
         </div>
       </section>
     </main>
