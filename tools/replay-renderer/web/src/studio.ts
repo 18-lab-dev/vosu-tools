@@ -17,9 +17,14 @@ import {
   type Mod,
 } from "@vosu-tools/osu-parse";
 import {
+  builtinSkin,
+  builtinSkinNames,
   createRenderer,
   loadSkin,
+  withFallback,
+  type BuiltinSkinName,
   type Renderer,
+  type Skin,
 } from "@vosu-tools/render-core";
 const hitValues: Record<Result, number> = {
   geki: 320,
@@ -78,13 +83,27 @@ export async function checked(response: Response): Promise<Response> {
   return response;
 }
 let sharedDevice: Promise<GPUDevice> | undefined;
+/** Built-in skins are drawn once per page and shared by every track. */
+const builtins = new Map<BuiltinSkinName, Skin>();
+function builtin(name: BuiltinSkinName) {
+  let skin = builtins.get(name);
+  if (!skin) builtins.set(name, (skin = builtinSkin(name)));
+  return skin;
+}
+export interface LoadOptions {
+  /** Service route prefix for map and skin files. */
+  assetPrefix?: string;
+  /** lazer built-in id (`argon`, …) when the client's current skin has no files. */
+  currentBuiltin?: string | null;
+}
 export async function loadTrack(
   id: string,
   bytes: Uint8Array,
   preset: Preset,
   fetcher: Fetcher,
-  assetPrefix = "v1/assets",
+  options: LoadOptions = {},
 ): Promise<Track> {
+  const assetPrefix = options.assetPrefix ?? "v1/assets";
   const replay = await parseReplay(bytes);
   const settings = {
     ...Object.fromEntries(
@@ -121,20 +140,31 @@ export async function loadTrack(
     if (replay.mods & bit) mods.push({ acronym });
   const map = applyMods(raw, mods);
   const columns = Math.round(map.difficulty.cs);
-  let skin;
-  try {
-    skin = await loadSkin(async (filename) => {
-      const query = new URLSearchParams({ kind: "skin", path: filename });
-      if (preset.skin) query.set("skin", preset.skin);
-      try {
-        const response = await fetcher(`${assetPrefix}?${query}`);
-        return response.ok ? response.blob() : null;
-      } catch {
-        return null;
-      }
-    }, preset.skin ?? "Current skin");
-  } catch (e) {
-    throw new Error(`Skin load failed: ${e}`);
+  // lazer's built-in current skin has no files: draw it. File skins keep the
+  // classic look for any element they lack, as the clients do.
+  let skin: Skin,
+    owned: ImageBitmap[] = [];
+  const current = options.currentBuiltin;
+  if (!preset.skin && builtinSkinNames.includes(current as BuiltinSkinName))
+    skin = builtin(current as BuiltinSkinName);
+  else {
+    let loaded: Skin;
+    try {
+      loaded = await loadSkin(async (filename) => {
+        const query = new URLSearchParams({ kind: "skin", path: filename });
+        if (preset.skin) query.set("skin", preset.skin);
+        try {
+          const response = await fetcher(`${assetPrefix}?${query}`);
+          return response.ok ? response.blob() : null;
+        } catch {
+          return null;
+        }
+      }, preset.skin ?? "Current skin");
+    } catch (e) {
+      throw new Error(`Skin load failed: ${e}`);
+    }
+    owned = [...loaded.assets.values()];
+    skin = withFallback(loaded, builtin("legacy"));
   }
   let background: ImageBitmap | null = null;
   const backgroundFile = raw.events
@@ -217,7 +247,8 @@ export async function loadTrack(
     dispose() {
       renderer.destroy();
       background?.close();
-      for (const bitmap of skin.assets.values()) bitmap.close();
+      // Built-in skins are shared between tracks; only file-skin bitmaps are ours.
+      for (const bitmap of owned) bitmap.close();
     },
     warning,
   };

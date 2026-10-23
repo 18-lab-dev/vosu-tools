@@ -11,7 +11,7 @@ The studio exposes the same settings under each replay's **Render settings** dis
 A replay stores only its beatmap's MD5, so the exact difficulty must be installed locally. The service looks it up in two places, in this order:
 
 1. **stable Songs**: the folder vosu reports for an attached stable client, or the tool's `osu_dir` / `songs_dir` settings. The folder is indexed by MD5 once and cached.
-2. **lazer**: through the optional **Lazer library** tool (`lazer-library`), via `GET /tools/lazer-library/api/v1/beatmaps/by-md5/<md5>`. Files are read from lazer's hashed store, and only after checking that the `.osu` MD5 matches and that every path stays inside `<lazer>/files`. The library is called on its public read routes without a token, so it stays optional; listing it in `[[requires]]` would block the studio whenever it is missing.
+2. **lazer**: through the optional **Lazer library** tool (`lazer-library`), via `GET /tools/lazer-library/api/v1/beatmaps/by-md5/<md5>`. Files are read from lazer's hashed store, and only after checking that the `.osu` MD5 matches and that every path stays inside `<lazer>/files`. The library is an optional dependency: it is used only through its read routes, which any tool token may call, and it is not listed in `[[requires]]`, which would block the studio whenever it is missing.
 
 If neither has the map, the service answers 404 with `{"code":"map_missing","md5","searched":[…]}`. The studio turns that into a note above the monitor. The note names the MD5 and every place it searched, offers Copy MD5, and, when the Beatmap downloader is installed, a **Find in Beatmap downloader** link (`/tools/downloader/#md5=<md5>`).
 
@@ -32,7 +32,9 @@ Settings the dashboard can edit without opening the studio:
 
 Each track picks its skin independently:
 
-- **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, triangles, legacy, …) are drawn by the game and have no files; the studio says so and renders those tracks with its own default skin.
+- **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, argon-pro, triangles, legacy) have no files. For those, the studio and the MP4 export use render-core's own drawing of that built-in (`builtinSkin`), and the UI says so. When no current skin is reported, tracks use the classic look.
+
+  File skins of any source fall back to render-core's classic (`legacy`) drawing for elements they do not provide (`withFallback`), as the clients do.
 - **osu! Skins folder**: any folder under the stable installation's `Skins` directory.
 - **Imported .osk**: archives imported in the studio's **Skins** panel or with `vosux replay-renderer skins import <file.osk> [--name NAME]`. They are unpacked into the tool's data directory (`skins/<name>`), never into osu! folders; re-importing a name replaces that copy only after the new one is complete. Presets and `--skin` refer to them as `imported/<name>`; `skins list` and `skins delete` manage them.
 

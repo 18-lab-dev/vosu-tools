@@ -247,7 +247,11 @@ async fn run(worker: Worker) -> Result<(), String> {
 async fn spec(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
     let mut value = json!(worker.request);
     value["presets"] = json!(*worker.app.presets.lock().await);
-    value["default_settings"] = host_context(&worker.app).await?["default_settings"].clone();
+    let context = host_context(&worker.app).await?;
+    value["default_settings"] = context["default_settings"].clone();
+    value["current_skin"] = crate::skins::current(&worker.app, &context)
+        .await
+        .describe();
     Ok(Json(value))
 }
 async fn private_asset(

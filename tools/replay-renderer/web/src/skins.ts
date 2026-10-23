@@ -58,17 +58,19 @@ export class SkinLibrary {
       ? this.imported.includes(value.slice(IMPORTED.length))
       : this.installed.includes(value);
   }
-  /** Explains a skin choice that renders with the studio's default skin. */
+  /** lazer built-in id to draw for Current skin tracks, if any. */
+  get builtin() {
+    return this.current.source === "builtin" ? this.current.builtin : null;
+  }
+  /** Explains a skin choice that cannot render as chosen. */
   note(value: string) {
     if (value) {
       return this.available(value)
         ? ""
         : `${value} is no longer available; pick another skin.`;
     }
-    if (this.current.source === "builtin")
-      return `lazer's built-in ${this.current.builtin} skin has no files, so this track uses the studio's default skin.`;
     if (this.current.source === "none")
-      return "vosu reports no current skin, so this track uses the studio's default skin.";
+      return "vosu reports no current skin, so this track uses the classic look.";
     return "";
   }
   select(value: string) {
@@ -95,9 +97,9 @@ export class SkinLibrary {
       case "vosu":
         return `Current skin · ${this.current.name ?? "unnamed"}`;
       case "builtin":
-        return `Current skin · ${this.current.builtin} built-in (studio default)`;
+        return `Current skin · ${this.current.builtin} (built-in)`;
       default:
-        return "Current skin · unavailable (studio default)";
+        return "Current skin · unavailable (classic look)";
     }
   }
   private render() {
@@ -108,8 +110,8 @@ export class SkinLibrary {
     detail.textContent = {
       folder: "Current skin, read from your osu! stable Skins folder.",
       vosu: "Current lazer skin, read through vosu.",
-      builtin: `lazer's built-in ${current.builtin} skin is drawn by the game and has no files. Tracks set to Current skin use the studio's default skin; import the .osk you want instead.`,
-      none: "vosu reports no current skin. Tracks set to Current skin use the studio's default skin.",
+      builtin: `lazer's built-in ${current.builtin} skin has no files; Current skin tracks use the studio's own drawing of it. Import an .osk for an exact file skin.`,
+      none: "vosu reports no current skin. Current skin tracks use the classic look.",
     }[current.source];
     this.view.current.classList.toggle(
       "fallback",
