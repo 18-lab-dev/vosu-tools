@@ -1,18 +1,22 @@
 //! Building a mixed skin from a plan: a new stable skin folder (created in a
-//! hidden staging folder and renamed into place) or a lazer `.osk` archive.
+//! hidden staging folder and renamed into place), or an `.osk` streamed to
+//! the browser as a download.
 
 use crate::{
     App, Failure, failure,
     library::{self, relative},
 };
-use axum::http::StatusCode;
+use axum::{body::Bytes, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
+use tokio::sync::mpsc;
 
 pub const MAX_PLAN_FILES: usize = 20_000;
 pub const MAX_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -31,12 +35,6 @@ pub fn blank_png() -> Vec<u8> {
     out
 }
 
-#[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
-#[serde(rename_all = "lowercase")]
-pub enum Target {
-    Stable,
-    Osk,
-}
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "lowercase")]
 pub enum BlankKind {
@@ -71,7 +69,6 @@ pub struct Blank {
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Plan {
     pub name: String,
-    pub target: Target,
     #[serde(default)]
     pub overwrite: bool,
     pub ini: String,
@@ -85,7 +82,6 @@ pub struct Built {
     pub path: String,
     pub replaced: bool,
     pub files: usize,
-    pub opened: bool,
 }
 
 /// Validates a skin folder / archive name for both Windows and Linux.
@@ -148,28 +144,74 @@ fn blank(kind: BlankKind) -> Vec<u8> {
     }
 }
 
-/// Receives every output file in plan order.
-trait Sink {
-    fn put(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure>;
-}
-struct FolderSink(PathBuf);
-impl Sink for FolderSink {
-    fn put(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
-        let target = self.0.join(relative(path)?);
-        if let Some(parent) = target.parent() {
-            fs::create_dir_all(parent).map_err(failure)?;
-        }
-        fs::write(target, bytes).map_err(failure)
+/// A shared buffer the streaming zip writer appends to; drained after every
+/// file so at most one file's bytes wait in memory.
+#[derive(Clone, Default)]
+struct Pipe(Arc<Mutex<Vec<u8>>>);
+impl Write for Pipe {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("pipe lock").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
     }
 }
-struct ZipSink(zip::ZipWriter<fs::File>);
-impl Sink for ZipSink {
-    fn put(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated)
-            .last_modified_time(zip::DateTime::default());
-        self.0.start_file(path, options).map_err(failure)?;
-        self.0.write_all(bytes).map_err(failure)
+pub type Chunk = Result<Bytes, std::io::Error>;
+
+/// Receives every output file in plan order.
+enum Sink {
+    Folder(PathBuf),
+    Zip {
+        zip: Box<zip::ZipWriter<zip::write::StreamWriter<Pipe>>>,
+        pipe: Pipe,
+        tx: mpsc::Sender<Chunk>,
+    },
+}
+impl Sink {
+    async fn put(&mut self, path: &str, bytes: &[u8]) -> Result<(), Failure> {
+        match self {
+            Sink::Folder(root) => {
+                let target = root.join(relative(path)?);
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent).map_err(failure)?;
+                }
+                fs::write(target, bytes).map_err(failure)
+            }
+            Sink::Zip { zip, pipe, tx } => {
+                // Images and audio are compressed already; deflating them costs time for nothing.
+                let method = if path.rsplit('.').next().is_some_and(|ext| {
+                    ["png", "jpg", "jpeg", "ogg", "mp3"]
+                        .contains(&ext.to_ascii_lowercase().as_str())
+                }) {
+                    zip::CompressionMethod::Stored
+                } else {
+                    zip::CompressionMethod::Deflated
+                };
+                let options = zip::write::SimpleFileOptions::default()
+                    .compression_method(method)
+                    .last_modified_time(zip::DateTime::default());
+                zip.start_file(path, options).map_err(failure)?;
+                zip.write_all(bytes).map_err(failure)?;
+                Self::drain(pipe, tx).await
+            }
+        }
+    }
+    async fn drain(pipe: &Pipe, tx: &mpsc::Sender<Chunk>) -> Result<(), Failure> {
+        let bytes = std::mem::take(&mut *pipe.0.lock().expect("pipe lock"));
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        tx.send(Ok(Bytes::from(bytes)))
+            .await
+            .map_err(|_| failure("The download was cancelled."))
+    }
+    async fn finish(self) -> Result<(), Failure> {
+        if let Sink::Zip { zip, pipe, tx } = self {
+            zip.finish().map_err(failure)?;
+            Self::drain(&pipe, &tx).await?;
+        }
+        Ok(())
     }
 }
 
@@ -177,7 +219,7 @@ async fn fill(
     app: &App,
     plan: &Plan,
     credits: Option<String>,
-    sink: &mut (dyn Sink + Send),
+    sink: &mut Sink,
 ) -> Result<usize, Failure> {
     let mut total = 0u64;
     let mut files = 0;
@@ -192,17 +234,17 @@ async fn fill(
             if total > MAX_TOTAL_BYTES {
                 return Err(failure("The mixed skin exceeds 2 GiB."));
             }
-            sink.put(to, &bytes)?;
+            sink.put(to, &bytes).await?;
             files += 1;
         }
     }
     for item in &plan.blanks {
-        sink.put(&item.to, &blank(item.kind))?;
+        sink.put(&item.to, &blank(item.kind)).await?;
         files += 1;
     }
-    sink.put("skin.ini", plan.ini.as_bytes())?;
+    sink.put("skin.ini", plan.ini.as_bytes()).await?;
     if let Some(text) = credits {
-        sink.put("skin-studio-credits.txt", text.as_bytes())?;
+        sink.put("skin-studio-credits.txt", text.as_bytes()).await?;
     }
     Ok(files)
 }
@@ -267,110 +309,114 @@ fn exists(dest: &Path) -> Failure {
     )
 }
 
+/// Builds the plan as a new folder in the stable Skins folder.
 pub async fn build(app: &App, plan: Plan) -> Result<Built, Failure> {
     let name = skin_name(&plan.name)?.to_owned();
     targets(&plan)?;
-    let settings = library::settings(app).await;
-    let library = library::library(app).await?;
-    let credits = if settings.credits {
-        Some(credits(app, &plan).await?)
-    } else {
-        None
-    };
-    match plan.target {
-        Target::Stable => {
-            let root = PathBuf::from(library.stable_dir.ok_or_else(|| {
-                failure("No stable Skins folder: attach vosu to osu!stable or set the Skins folder in this tool's settings.")
-            })?);
-            let dest = root.join(&name);
-            if dest.exists() && !plan.overwrite {
-                return Err(exists(&dest));
-            }
-            let staging = tempfile::Builder::new()
-                .prefix(".skin-studio-")
-                .tempdir_in(&root)
-                .map_err(failure)?;
-            let mut sink = FolderSink(staging.path().to_path_buf());
-            let files = fill(app, &plan, credits, &mut sink).await?;
-            let staged = staging.keep();
-            let replaced = tokio::task::spawn_blocking({
-                let dest = dest.clone();
-                let staged = staged.clone();
-                move || place(&staged, &dest, plan.overwrite)
-            })
-            .await
-            .map_err(failure)?
-            .inspect_err(|_| {
-                let _ = fs::remove_dir_all(&staged);
-            })?;
-            Ok(Built {
-                path: dest.to_string_lossy().into_owned(),
-                replaced,
-                files,
-                opened: false,
-            })
-        }
-        Target::Osk => {
-            let dir = library::export_dir(&settings, &app.data_dir);
-            fs::create_dir_all(&dir).map_err(failure)?;
-            let dest = dir.join(format!("{name}.osk"));
-            let replaced = dest.exists();
-            if replaced && !plan.overwrite {
-                return Err(exists(&dest));
-            }
-            let temp = tempfile::Builder::new()
-                .prefix(".skin-studio-")
-                .suffix(".osk")
-                .tempfile_in(&dir)
-                .map_err(failure)?;
-            let (file, temp_path) = temp.into_parts();
-            let mut sink = ZipSink(zip::ZipWriter::new(file));
-            let files = fill(app, &plan, credits, &mut sink).await?;
-            sink.0
-                .finish()
-                .map_err(failure)?
-                .sync_all()
-                .map_err(failure)?;
-            if plan.overwrite {
-                temp_path.persist(&dest).map_err(failure)?;
-            } else {
-                temp_path
-                    .persist_noclobber(&dest)
-                    .map_err(|_| exists(&dest))?;
-            }
-            app.exports.lock().await.insert(dest.clone());
-            let opened = settings.open_osk && open(&dest).is_ok();
-            Ok(Built {
-                path: dest.to_string_lossy().into_owned(),
-                replaced,
-                files,
-                opened,
-            })
-        }
+    let credits = credits_for(app, &plan).await?;
+    let root = PathBuf::from(library::library(app).await?.stable_dir.ok_or_else(|| {
+        failure("No stable Skins folder: attach vosu to osu!stable or set the Skins folder in this tool's settings.")
+    })?);
+    let dest = root.join(&name);
+    if dest.exists() && !plan.overwrite {
+        return Err(exists(&dest));
     }
+    let staging = tempfile::Builder::new()
+        .prefix(".skin-studio-")
+        .tempdir_in(&root)
+        .map_err(failure)?;
+    let mut sink = Sink::Folder(staging.path().to_path_buf());
+    let files = fill(app, &plan, credits, &mut sink).await?;
+    let staged = staging.keep();
+    let replaced = tokio::task::spawn_blocking({
+        let dest = dest.clone();
+        let staged = staged.clone();
+        move || place(&staged, &dest, plan.overwrite)
+    })
+    .await
+    .map_err(failure)?
+    .inspect_err(|_| {
+        let _ = fs::remove_dir_all(&staged);
+    })?;
+    Ok(Built {
+        path: dest.to_string_lossy().into_owned(),
+        replaced,
+        files,
+    })
 }
 
-/// Hands a file to the operating system's default handler (lazer for .osk).
-pub fn open(path: &Path) -> std::io::Result<()> {
-    let mut command = if cfg!(windows) {
-        let mut c = std::process::Command::new("explorer");
-        c.arg(path);
-        c
-    } else if cfg!(target_os = "macos") {
-        let mut c = std::process::Command::new("open");
-        c.arg(path);
-        c
+async fn credits_for(app: &App, plan: &Plan) -> Result<Option<String>, Failure> {
+    Ok(if library::settings(app).await.credits {
+        Some(credits(app, plan).await?)
     } else {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(path);
-        c
+        None
+    })
+}
+
+/// A plan accepted for download, waiting for its single GET.
+pub struct Pending {
+    pub created: Instant,
+    pub plan: Plan,
+}
+/// How long an accepted export waits for its download to start.
+pub const PENDING_FOR: Duration = Duration::from_secs(120);
+
+/// Validates a plan for an .osk download; the returned plan is what the
+/// download route will stream.
+pub async fn prepare(app: &App, plan: Plan) -> Result<Plan, Failure> {
+    skin_name(&plan.name)?;
+    targets(&plan)?;
+    // Every source must still be in the library before the response starts:
+    // errors after the first byte can only abort the download.
+    for source in &plan.sources {
+        library::resolve(app, &source.skin).await?;
+    }
+    Ok(plan)
+}
+
+/// `name.osk` for Content-Disposition: an ASCII fallback plus the exact
+/// UTF-8 name (RFC 6266 / 5987).
+pub fn disposition(name: &str) -> String {
+    let file = format!("{}.osk", name.trim());
+    let ascii: String = file
+        .chars()
+        .map(|c| {
+            if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!(
+        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
+        library::segment(&file)
+    )
+}
+
+/// Streams the plan as an .osk (zip) into `tx`, one file in memory at a time.
+pub async fn stream(app: App, plan: Plan, tx: mpsc::Sender<Chunk>) {
+    let credits = match credits_for(&app, &plan).await {
+        Ok(credits) => credits,
+        Err((_, error)) => {
+            let _ = tx.send(Err(std::io::Error::other(error))).await;
+            return;
+        }
     };
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map(drop)
+    let pipe = Pipe::default();
+    let mut sink = Sink::Zip {
+        zip: Box::new(zip::ZipWriter::new_stream(pipe.clone())),
+        pipe,
+        tx: tx.clone(),
+    };
+    let result = match fill(&app, &plan, credits, &mut sink).await {
+        Ok(_) => sink.finish().await,
+        Err(error) => Err(error),
+    };
+    if let Err((_, error)) = result {
+        // The status line is sent already; an error item aborts the response.
+        let _ = tx.send(Err(std::io::Error::other(error))).await;
+    }
 }
 
 #[cfg(test)]
@@ -380,7 +426,6 @@ mod tests {
     fn plan(files: Vec<FileMap>, blanks: Vec<Blank>) -> Plan {
         Plan {
             name: "Mix".into(),
-            target: Target::Stable,
             overwrite: false,
             ini: "[General]\nName: Mix\n".into(),
             sources: vec![PlanSource {
@@ -422,7 +467,7 @@ mod tests {
             assert!(targets(&plan(files, vec![])).is_err());
         }
         let parsed: Plan = serde_json::from_str(
-            r#"{"name":"M","target":"osk","ini":"","sources":[{"skin":"/s","files":["a.png",["b.png","c.png"]]}]}"#,
+            r#"{"name":"M","ini":"","sources":[{"skin":"/s","files":["a.png",["b.png","c.png"]]}]}"#,
         )
         .unwrap();
         assert_eq!(parsed.sources[0].files[1].parts(), ("b.png", "c.png"));
@@ -452,6 +497,57 @@ mod tests {
             .map(|e| e.unwrap().file_name())
             .collect();
         assert_eq!(left, ["Mix"]);
+    }
+    #[test]
+    fn disposition_keeps_unicode_names() {
+        assert_eq!(
+            disposition("My mix"),
+            "attachment; filename=\"My mix.osk\"; filename*=UTF-8''My%20mix.osk"
+        );
+        let jp = disposition("「シルビア」 v1");
+        assert!(
+            jp.starts_with("attachment; filename=\"______ v1.osk\";"),
+            "{jp}"
+        );
+        assert!(
+            jp.ends_with("%E3%80%8C%E3%82%B7%E3%83%AB%E3%83%93%E3%82%A2%E3%80%8D%20v1.osk"),
+            "{jp}"
+        );
+    }
+    #[tokio::test]
+    async fn streamed_osk_is_a_valid_zip() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let pipe = Pipe::default();
+        let mut sink = Sink::Zip {
+            zip: Box::new(zip::ZipWriter::new_stream(pipe.clone())),
+            pipe,
+            tx,
+        };
+        let reader = tokio::spawn(async move {
+            let mut out = Vec::new();
+            let mut chunks = 0;
+            while let Some(chunk) = rx.recv().await {
+                out.extend_from_slice(&chunk.unwrap());
+                chunks += 1;
+            }
+            (out, chunks)
+        });
+        let big = vec![7u8; 300_000];
+        sink.put("hitcircle@2x.png", &big).await.unwrap();
+        sink.put("mania/note1.png", &blank_png()).await.unwrap();
+        sink.put("skin.ini", b"[General]\nName: M\n").await.unwrap();
+        sink.finish().await.unwrap();
+        let (bytes, chunks) = reader.await.unwrap();
+        // One chunk per file plus the central directory: never the whole archive at once.
+        assert!(chunks >= 4, "{chunks}");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        assert_eq!(archive.len(), 3);
+        let mut ini = String::new();
+        std::io::Read::read_to_string(&mut archive.by_name("skin.ini").unwrap(), &mut ini).unwrap();
+        assert_eq!(ini, "[General]\nName: M\n");
+        let entry = archive.by_name("hitcircle@2x.png").unwrap();
+        assert_eq!(entry.size(), 300_000);
+        assert_eq!(entry.compression(), zip::CompressionMethod::Stored);
     }
     #[test]
     fn blank_png_decodes() {

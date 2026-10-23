@@ -2,7 +2,22 @@
 // from which skin, which elements to blank, and the merged skin.ini.
 
 import { resolve } from "@vosu-tools/skin-spec";
-import { type Group, elementFiles, groups, imageExt, stem } from "./groups";
+import {
+  type Group,
+  audioExt,
+  elementFiles,
+  groups,
+  imageExt,
+  stem,
+} from "./groups";
+import {
+  type AssetRef,
+  type Override,
+  type OverrideNote,
+  applyOverride,
+  imageValue,
+  parseAssetId,
+} from "./assets";
 import {
   type Ini,
   entries,
@@ -28,11 +43,12 @@ export interface Recipe {
   name: string;
   base: string | null;
   picks: Record<string, Pick>;
+  /** Single assets by asset id (`image:hitcircle`, `font:default`, …); they win over picks. */
+  overrides?: Record<string, Override>;
 }
 export type FileMap = string | [string, string];
 export interface Plan {
   name: string;
-  target: "stable" | "osk";
   overwrite: boolean;
   ini: string;
   sources: { skin: string; files: FileMap[] }[];
@@ -122,12 +138,33 @@ export interface Composed {
   plan: Plan;
   /** Files per contributing skin, for the summary. */
   counts: Map<string, number>;
+  /** Per override (by asset id): what it carried and what it offers. */
+  notes: Map<string, OverrideNote>;
+  /**
+   * Per picked group: elements the base had that the mix no longer has, so
+   * the client draws its built-in look for them.
+   */
+  fallbacks: Map<string, string[]>;
+}
+
+/** Element name of a file: its stem without an animation frame number. */
+const unitName = (file: string) => stem(file).replace(/-\d+$/, "");
+
+/** Lower-cased stems and frame bases present in the output. */
+function present(out: Map<string, unknown>): Set<string> {
+  const names = new Set<string>();
+  for (const path of out.keys()) {
+    if (!imageExt.test(path)) continue;
+    const s = stem(path);
+    names.add(s);
+    names.add(s.replace(/-?\d+$/, ""));
+  }
+  return names;
 }
 
 export function compose(
   recipe: Recipe,
   skins: Map<string, SkinData>,
-  target: Plan["target"],
 ): Composed {
   const base = recipe.base ? skins.get(recipe.base) : undefined;
   // Output path (lower-cased) → source.
@@ -143,12 +180,15 @@ export function compose(
       if (!ignored(file))
         out.set(file.toLowerCase(), { skin: base.key, from: file });
 
+  const removed = new Map<string, string[]>();
   for (const [id, pick] of Object.entries(recipe.picks)) {
     const group = groupById(id);
     if (!group) continue;
-    if (base)
-      for (const file of groupFiles(group, base))
-        out.delete(file.toLowerCase());
+    if (base) {
+      const owned = groupFiles(group, base);
+      for (const file of owned) out.delete(file.toLowerCase());
+      if (pick.kind !== "blank") removed.set(id, owned);
+    }
     const source = pick.kind === "skin" ? skins.get(pick.key) : undefined;
     if (group.maniaKeys !== undefined) {
       const block =
@@ -177,7 +217,61 @@ export function compose(
         const to = `${element.name}.${element.audio ? "wav" : "png"}`;
         out.set(to.toLowerCase(), { blank: element.audio ? "wav" : "png", to });
       }
+      // Wildcard elements (`mania-*`, …) have no fixed names: every file the
+      // base had in the group becomes blank under its own name, so the client
+      // finds an invisible file instead of falling back to its default skin.
+      if (base && group.maniaKeys === undefined)
+        for (const to of groupFiles(group, base))
+          out.set(to.toLowerCase(), {
+            blank: audioExt.test(to) ? "wav" : "png",
+            to,
+          });
     }
+  }
+
+  const notes = new Map<string, OverrideNote>();
+  for (const [id, override] of Object.entries(recipe.overrides ?? {})) {
+    const ref: AssetRef | undefined = parseAssetId(id);
+    const source = skins.get(override.skin);
+    if (!ref || !source) continue;
+    notes.set(
+      id,
+      applyOverride(
+        ref,
+        override,
+        { files: source.files, ini: parseIni(source.text) },
+        ini,
+        out,
+        (from) => ({ skin: source.key, from }),
+      ),
+    );
+  }
+
+  // A skin.ini key the mix keeps (say another key count's `StageHint`) still
+  // names a base file a pick removed: keep that file, so the client finds it
+  // instead of drawing its built-in look.
+  if (base) {
+    const have = present(out);
+    for (const section of ini)
+      for (const e of entries([section], section.name, /.*/)) {
+        if (resolve(section.name, e.key)?.type !== "image") continue;
+        const target = imageValue(e.value);
+        if (!target || target.includes("..") || have.has(target)) continue;
+        const files = referenced(base.files, [{ section: section.name, ...e }]);
+        for (const from of files)
+          out.set(from.toLowerCase(), { skin: base.key, from });
+        if (files.length) have.add(target);
+      }
+  }
+  const fallbacks = new Map<string, string[]>();
+  const have = present(out);
+  for (const [id, files] of removed) {
+    const lost = new Set(
+      files.filter((f) => imageExt.test(f) && !have.has(stem(f))).map(unitName),
+    );
+    for (const f of files)
+      if (audioExt.test(f) && !out.has(f.toLowerCase())) lost.add(unitName(f));
+    if (lost.size) fallbacks.set(id, [...lost].sort());
   }
 
   setValue(ini, "General", "Name", recipe.name.trim());
@@ -200,13 +294,14 @@ export function compose(
   return {
     plan: {
       name: recipe.name.trim(),
-      target,
       overwrite: false,
       ini: serializeIni(ini),
       sources: [...sources].map(([skin, files]) => ({ skin, files })),
       blanks,
     },
     counts,
+    notes,
+    fallbacks,
   };
 }
 
@@ -217,5 +312,6 @@ export const recipeSkins = (recipe: Recipe) => [
     ...Object.values(recipe.picks).flatMap((p) =>
       p.kind === "skin" ? [p.key] : [],
     ),
+    ...Object.values(recipe.overrides ?? {}).map((o) => o.skin),
   ]),
 ];

@@ -9,14 +9,15 @@ export interface Section {
 export type Ini = Section[];
 
 const header = /^\s*\[([^\]]+)\]\s*$/;
-const keyOf = (line: string) => {
+export const keyOf = (line: string) => {
   const trimmed = line.trim();
   if (!trimmed || trimmed.startsWith("//") || trimmed.startsWith(";"))
     return undefined;
   const colon = trimmed.indexOf(":");
   return colon > 0 ? trimmed.slice(0, colon).trim() : undefined;
 };
-const valueOf = (line: string) => line.slice(line.indexOf(":") + 1).trim();
+export const valueOf = (line: string) =>
+  line.slice(line.indexOf(":") + 1).trim();
 
 export function parseIni(text: string): Ini {
   const sections: Ini = [{ name: "", lines: [] }];
@@ -142,4 +143,38 @@ export function replaceMania(ini: Ini, keys: number, block?: Section) {
   } else if (copy) {
     ini.push(copy);
   }
+}
+
+/** The `[Mania]` block for `keys`, created (with its `Keys` line) when missing. */
+export function maniaBlock(ini: Ini, keys: number): Section {
+  const found = maniaBlocks(ini).get(keys);
+  if (found) return found;
+  const block: Section = {
+    name: "Mania",
+    lines: ["[Mania]", `Keys: ${keys}`, ""],
+  };
+  const last = ini.at(-1);
+  if (last && last.lines.at(-1)?.trim() !== "") last.lines.push("");
+  ini.push(block);
+  return block;
+}
+
+/** Sets `key` in one section object, in place where it is, else at its end. */
+export function setInSection(section: Section, key: string, value: string) {
+  const line = `${key}: ${value}`;
+  let done = false;
+  section.lines = section.lines.flatMap((l) => {
+    if (keyOf(l) !== key) return [l];
+    if (done) return [];
+    done = true;
+    return [l.slice(0, l.length - l.trimStart().length) + line];
+  });
+  if (done) return;
+  let at = section.lines.length;
+  while (at > 1 && section.lines[at - 1].trim() === "") at--;
+  section.lines.splice(at, 0, line);
+}
+
+export function removeInSection(section: Section, key: string) {
+  section.lines = section.lines.filter((l) => keyOf(l) !== key);
 }

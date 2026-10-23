@@ -1,5 +1,8 @@
 {
   "extends": "../../../packages/tool-web/tsconfig.tool.json",
-  "compilerOptions": { "resolveJsonModule": true },
+  "compilerOptions": {
+    "resolveJsonModule": true,
+    "types": ["vite/client", "@webgpu/types"]
+  },
   "include": ["src", "vite.config.ts"]
 }

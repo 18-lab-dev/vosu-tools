@@ -5,7 +5,8 @@ mod library;
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    body::Body,
+    extract::{Path as UrlPath, Query, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -14,14 +15,14 @@ use library::{FileEntry, Library, Skin, Source};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     fs,
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use vosu_tool_sdk::{Client, ToolEnv};
 
 pub type Failure = (StatusCode, String);
@@ -36,7 +37,6 @@ pub struct App {
     pub client: Client,
     /// Token-free client for other tools' open read routes.
     pub http: reqwest::Client,
-    pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
     writes: Arc<Mutex<()>>,
     /// Folders the user added from a write session, persisted in the data dir.
@@ -44,8 +44,8 @@ pub struct App {
     added_file: Arc<Path>,
     /// Recently listed skins, so bursts of asset reads skip re-listing.
     pub known: Arc<Mutex<Option<Known>>>,
-    /// .osk files exported by this service, the only files it will open.
-    pub exports: Arc<Mutex<HashSet<PathBuf>>>,
+    /// Accepted .osk exports by one-time id, each downloaded at most once.
+    exports: Arc<Mutex<HashMap<String, build::Pending>>>,
 }
 
 async fn list(State(app): State<App>) -> Result<Json<Library>, Failure> {
@@ -328,20 +328,69 @@ async fn create(
     Ok(Json(built))
 }
 
-#[derive(Deserialize)]
-struct Open {
-    path: String,
+#[derive(Serialize)]
+struct Export {
+    /// Relative to this tool's API: `v1/exports/<id>`.
+    url: String,
+    filename: String,
 }
-/// Re-opens an .osk this service exported (lazer imports it).
-async fn open(State(app): State<App>, Json(open): Json<Open>) -> Result<StatusCode, Failure> {
-    let path = PathBuf::from(open.path);
-    if !app.exports.lock().await.contains(&path) || !path.is_file() {
-        return Err(failure(
-            "Only .osk files exported in this session can be opened.",
-        ));
-    }
-    build::open(&path).map_err(failure)?;
-    Ok(StatusCode::NO_CONTENT)
+/// Accepts a plan for an .osk download (write route) and returns a one-time
+/// download URL. The GET is a plain browser download, so it carries no
+/// session; the unguessable id, its single use and a short expiry stand in.
+async fn export(
+    State(app): State<App>,
+    Json(plan): Json<build::Plan>,
+) -> Result<Json<Export>, Failure> {
+    let plan = build::prepare(&app, plan).await?;
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    let filename = format!("{}.osk", plan.name.trim());
+    let mut exports = app.exports.lock().await;
+    exports.retain(|_, pending| pending.created.elapsed() < build::PENDING_FOR);
+    exports.insert(
+        id.clone(),
+        build::Pending {
+            created: Instant::now(),
+            plan,
+        },
+    );
+    Ok(Json(Export {
+        url: format!("v1/exports/{id}"),
+        filename,
+    }))
+}
+/// Streams an accepted export as `<name>.osk` with an attachment disposition.
+async fn download(
+    State(app): State<App>,
+    UrlPath(id): UrlPath<String>,
+) -> Result<Response, Failure> {
+    let pending = app
+        .exports
+        .lock()
+        .await
+        .remove(&id)
+        .filter(|pending| pending.created.elapsed() < build::PENDING_FOR)
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            "This download has expired; export again.".to_owned(),
+        ))?;
+    let disposition = build::disposition(&pending.plan.name);
+    let (tx, rx) = mpsc::channel::<build::Chunk>(4);
+    tokio::spawn(build::stream(app, pending.plan, tx));
+    let body = Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv().await.map(|chunk| (chunk, rx))
+    }));
+    let mut response = body.into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition).map_err(failure)?,
+    );
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 pub fn router(app: App) -> Router {
@@ -354,7 +403,8 @@ pub fn router(app: App) -> Router {
         .route("/v1/folders/add", post(add_folder))
         .route("/v1/folders/forget", post(forget_folder))
         .route("/v1/build", post(create))
-        .route("/v1/open", post(open))
+        .route("/v1/exports", post(export))
+        .route("/v1/exports/{id}", get(download))
         .with_state(app)
 }
 
@@ -374,13 +424,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = App {
         client: env.client(),
         http: reqwest::Client::new(),
-        data_dir: env.data_dir.clone(),
         cache_dir: env.cache_dir.clone(),
         writes: Arc::new(Mutex::new(())),
         added: Arc::new(Mutex::new(added)),
         added_file: added_file.into(),
         known: Arc::new(Mutex::new(None)),
-        exports: Arc::new(Mutex::new(HashSet::new())),
+        exports: Arc::new(Mutex::new(HashMap::new())),
     };
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())

@@ -11,10 +11,13 @@
   "dependencies": {
     "@vosu-tools/skin-spec": "workspace:*",
     "@vosu-tools/tool-web": "workspace:*",
-    "monaco-editor": "0.52.2"
+    "monaco-editor": "0.52.2",
+    "@vosu-tools/render-core": "workspace:*",
+    "@vosu-tools/demo-maps": "workspace:*"
   },
   "devDependencies": {
     "vite": "^6.1.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "@webgpu/types": "latest"
   }
 }

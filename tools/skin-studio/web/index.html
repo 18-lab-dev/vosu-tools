@@ -30,6 +30,15 @@
         >
           skin.ini
         </button>
+        <button
+          id="tab-preview"
+          role="tab"
+          type="button"
+          aria-selected="false"
+          aria-controls="preview-view"
+        >
+          Preview
+        </button>
       </div>
       <span id="status" class="v-muted status" role="status"></span>
       <span class="v-bar__spacer"></span>
@@ -90,6 +99,15 @@
           <span id="focus-name" class="focus-name">Skin</span>
           <span id="focus-meta" class="v-muted v-mono focus-meta"></span>
           <ol id="colour-bar" class="colour-bar" aria-label="Skin colours"></ol>
+          <button
+            id="focus-osk"
+            type="button"
+            class="v-btn v-btn--sm"
+            title="Download this skin as an .osk"
+            disabled
+          >
+            Download .osk
+          </button>
           <button id="use-base" type="button" class="v-btn v-btn--sm" disabled>
             Use as mix base
           </button>
@@ -152,6 +170,72 @@
           </div>
         </section>
 
+        <section
+          id="preview-view"
+          class="preview-view"
+          role="tabpanel"
+          aria-labelledby="tab-preview"
+          hidden
+        >
+          <div class="v-toolbar">
+            <div class="v-seg" role="group" aria-label="Preview skin">
+              <button id="pv-focus" type="button" aria-pressed="true">
+                Selected skin
+              </button>
+              <button id="pv-mix" type="button" aria-pressed="false">
+                Mix draft
+              </button>
+            </div>
+            <span class="v-toolbar__sep"></span>
+            <div
+              id="pv-rulesets"
+              class="v-seg"
+              role="group"
+              aria-label="Ruleset"
+            >
+              <button type="button" data-demo="osu" aria-pressed="true">
+                osu!
+              </button>
+              <button type="button" data-demo="taiko" aria-pressed="false">
+                Taiko
+              </button>
+              <button type="button" data-demo="fruits" aria-pressed="false">
+                Catch
+              </button>
+              <button type="button" data-demo="mania" aria-pressed="false">
+                Mania
+              </button>
+            </div>
+            <div
+              id="pv-keys"
+              class="v-seg"
+              role="group"
+              aria-label="Keys"
+              hidden
+            >
+              <button type="button" data-keys="4" aria-pressed="true">
+                4K
+              </button>
+              <button type="button" data-keys="7" aria-pressed="false">
+                7K
+              </button>
+            </div>
+            <span class="v-bar__spacer"></span>
+            <span id="pv-state" class="v-muted pv-state" role="status"></span>
+            <button
+              id="pv-play"
+              type="button"
+              class="v-btn v-btn--sm"
+              aria-pressed="true"
+            >
+              Pause
+            </button>
+          </div>
+          <div id="pv-stage" class="pv-stage">
+            <canvas id="pv-canvas" aria-label="Gameplay preview"></canvas>
+          </div>
+        </section>
+
         <p id="guide" class="v-empty">Select a skin.</p>
       </section>
 
@@ -205,7 +289,7 @@
             Create stable skin
           </button>
           <button id="build-osk" type="button" class="v-btn" disabled>
-            Export .osk
+            Download .osk
           </button>
           <div class="v-row">
             <button

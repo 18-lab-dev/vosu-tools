@@ -3,6 +3,7 @@
 use clap::{Parser, Subcommand};
 use reqwest::Method;
 use serde_json::{Value, json};
+use std::{io::Write, path::PathBuf};
 use vosu_tool_sdk::{
     ToolEnv,
     cli::{print_result, table, text},
@@ -10,7 +11,7 @@ use vosu_tool_sdk::{
 };
 
 #[derive(Parser)]
-#[command(about = "Browse skins and build stable skin folders or lazer .osk files")]
+#[command(about = "Browse skins; build stable skin folders or save .osk files")]
 struct Args {
     #[command(subcommand)]
     command: Command,
@@ -22,7 +23,7 @@ struct Args {
 enum Command {
     /// List stable, added and lazer skins
     List,
-    /// Copy one whole skin into a new stable skin or a lazer .osk
+    /// Copy one whole skin into an .osk file (or a new stable skin)
     Export {
         /// Skin name (case-insensitive) or library key
         skin: String,
@@ -30,21 +31,64 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
         /// Create a stable skin folder instead of an .osk
-        #[arg(long)]
+        #[arg(long, conflicts_with = "out")]
         stable: bool,
-        /// Replace an existing skin or .osk of the same name
+        /// .osk path; defaults to `<name>.osk` in the current folder
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Replace an existing skin or file of the same name
         #[arg(long)]
         overwrite: bool,
     },
-    /// Build from a plan JSON file saved by the studio (see the tool README)
+    /// Build a plan JSON saved by the studio ("Download plan") as a stable skin
     Build {
-        plan: std::path::PathBuf,
-        /// Override the plan's target: `stable` or `osk`
+        plan: PathBuf,
+        /// Save an .osk at this path instead of creating a stable skin
         #[arg(long)]
-        target: Option<String>,
+        osk: Option<PathBuf>,
         #[arg(long)]
         overwrite: bool,
     },
+}
+
+/// Saves a plan as an .osk through the service's streamed export.
+async fn save_osk(
+    client: &vosu_tool_sdk::Client,
+    plan: &Value,
+    out: Option<PathBuf>,
+    overwrite: bool,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let export: Value = send_json(client.own(Method::POST, "v1/exports").json(plan)).await?;
+    let path = out.unwrap_or_else(|| PathBuf::from(text(&export["filename"])));
+    let replaced = path.exists();
+    if replaced && !overwrite {
+        return Err(format!("{} exists; pass --overwrite to replace it.", path.display()).into());
+    }
+    let mut response = client
+        .own(Method::GET, export["url"].as_str().unwrap_or_default())
+        .send()
+        .await?
+        .error_for_status()?;
+    let dir = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => PathBuf::from("."),
+    };
+    let mut temp = tempfile::Builder::new()
+        .prefix(".skin-studio-")
+        .suffix(".osk")
+        .tempfile_in(&dir)?;
+    let mut bytes = 0u64;
+    while let Some(chunk) = response.chunk().await? {
+        temp.write_all(&chunk)?;
+        bytes += chunk.len() as u64;
+    }
+    temp.as_file().sync_all()?;
+    if overwrite {
+        temp.persist(&path)?;
+    } else {
+        temp.persist_noclobber(&path)?;
+    }
+    Ok(json!({ "path": path.to_string_lossy(), "bytes": bytes, "replaced": replaced }))
 }
 
 pub async fn run(
@@ -59,6 +103,7 @@ pub async fn run(
             skin,
             name,
             stable,
+            out,
             overwrite,
         } => {
             let library: Value = client.own_json("v1/library").await?;
@@ -97,26 +142,29 @@ pub async fn run(
                 .collect();
             let plan = json!({
                 "name": name.unwrap_or_else(|| found["name"].as_str().unwrap_or("Skin").to_owned()),
-                "target": if stable { "stable" } else { "osk" },
                 "overwrite": overwrite,
                 "ini": snapshot["text"],
                 "sources": [{"skin": key, "files": files}],
             });
-            send_json(client.own(Method::POST, "v1/build").json(&plan)).await?
+            if stable {
+                send_json(client.own(Method::POST, "v1/build").json(&plan)).await?
+            } else {
+                save_osk(&client, &plan, out, overwrite).await?
+            }
         }
         Command::Build {
             plan,
-            target,
+            osk,
             overwrite,
         } => {
             let mut plan: Value = serde_json::from_slice(&std::fs::read(plan)?)?;
-            if let Some(target) = target {
-                plan["target"] = json!(target);
-            }
             if overwrite {
                 plan["overwrite"] = json!(true);
             }
-            send_json(client.own(Method::POST, "v1/build").json(&plan)).await?
+            match osk {
+                Some(path) => save_osk(&client, &plan, Some(path), overwrite).await?,
+                None => send_json(client.own(Method::POST, "v1/build").json(&plan)).await?,
+            }
         }
     };
     print_result(&value, args.json, || {
@@ -142,21 +190,26 @@ pub async fn run(
                 out.push_str(&format!("\nLazer skins: {error}"));
             }
             out
+        } else if let Some(bytes) = value["bytes"].as_u64() {
+            format!(
+                "{} {} ({bytes} bytes)",
+                if value["replaced"] == true {
+                    "Replaced"
+                } else {
+                    "Saved"
+                },
+                text(&value["path"])
+            )
         } else {
             format!(
-                "{} {} ({} files){}",
+                "{} {} ({} files)",
                 if value["replaced"] == true {
                     "Replaced"
                 } else {
                     "Created"
                 },
                 text(&value["path"]),
-                value["files"],
-                if value["opened"] == true {
-                    "; opened for import"
-                } else {
-                    ""
-                }
+                value["files"]
             )
         }
     })?;
