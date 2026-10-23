@@ -32,12 +32,14 @@ Settings the dashboard can edit without opening the studio:
 
 ## Skins
 
-Each track picks its skin independently:
+Each track picks its skin independently. The track's **Skin** menu starts from the player's preset and can be changed for that replay alone; **Save preset** keeps the choice for the player. The menu lists every source:
 
 - **Current skin**: the osu! client's active skin. For stable, the service reads the skin folder vosu reports (or the `skin` name under a configured `osu_dir`). For lazer, it reads the skin's files through vosu's public `/files/skin/<path>` route, guided by the `GET /files/skin/` descriptor (`{client, name, files, builtin}`). lazer's built-in skins (argon, argon-pro, triangles, legacy) have no files. For those, the studio and the MP4 export use render-core's own drawing of that built-in (`builtinSkin`), and the UI says so. When no current skin is reported, tracks use the classic look.
 
   File skins of any source fall back to render-core's classic (`legacy`) drawing for elements they do not provide (`withFallback`), as the clients do.
+- **lazer**: skins in lazer's library, listed and read through the optional **Lazer library** tool (`GET /tools/lazer-library/api/v1/skins`, then `…/skins/<id>/file/<name>`), read-only. Presets and `--skin` refer to them as `lazer/<id>`. Ids and file names that could leave the library are rejected. Without the library tool the group is empty.
 - **osu! Skins folder**: any folder under the stable installation's `Skins` directory.
+- **Built-in**: render-core's drawings of lazer's Argon, Argon Pro, Triangles and Classic looks, as `builtin/argon`, `builtin/argon-pro`, `builtin/triangles` and `builtin/legacy`.
 - **Imported .osk**: archives imported with the studio's **Import .osk** button (Output › Skins) or with `vosux replay-renderer skins import <file.osk> [--name NAME]`. They are unpacked into the tool's data directory (`skins/<name>`), never into osu! folders; re-importing a name replaces that copy only after the new one is complete. Presets and `--skin` refer to them as `imported/<name>`; `skins list` and `skins delete` manage them.
 
 vosu forwards at most 1 MiB per request body, so imports are sent as ordered parts: `POST /v1/skins/uploads?name=&size=` (archives up to 512 MiB) returns `{upload, part_size}`, each `POST /v1/skins/uploads/<id>?offset=<n>` appends one part, and `POST /v1/skins/uploads/<id>/finish` validates and unpacks (no unsafe paths or symlinks, at most 20 000 entries and 1 GiB expanded). At most four imports run at once; parts idle for 30 minutes are discarded when the next import starts, and every unfinished upload is cleared when the service restarts.
@@ -52,10 +54,14 @@ vosu forwards at most 1 MiB per request body, so imports are sent as ordered par
 - `cursor.size`, `cursor.trail_ms`: osu!/catch cursor scale and deterministic look-back trail length. Trails are resampled from recorded replay coordinates, never accumulated from preview history.
 - `hit_lighting`: mania skin stage and normal/hold hit lighting.
 - `key_overlay`: input-state indicators for mania columns or the four taiko buttons.
-- `playfield.scale`, `playfield.x`, `playfield.y`: per-replay playfield scale and viewport-relative centre offsets, clipped to the assigned layout cell. The background and HUD do not move with the playfield.
+- `playfield.scale`, `playfield.x`, `playfield.y`: per-replay playfield scale and centre offsets in cell widths/heights. At scale 1 the playfield's visible extent (a mania stage, the taiko strip, the osu!/catch field), measured from what the renderer draws, fills its layout cell's height, or its width when the cell is narrower than the playfield. The background stays in the cell; playfields may be moved over neighbouring cells. These three are set with the layout editor rather than in **Render settings**.
 - `hud.player`, `hud.combo`, `hud.accuracy`, `hud.health`, `hud.judgements`: independent display toggles. Combo, accuracy and judgement counters are displayed only after the replay's stored judgement counts verify; health interpolates the replay's recorded life graph.
 
 Player presets use exact player names, including Unicode, and apply automatically on import. A per-render setting overrides the preset; the preset overrides tool defaults. Different-difficulty grouping requires the same positive BeatmapSetID, and all tracks must use the same rate. Audio comes from the first track.
+
+### Layout editor
+
+Click a playfield or overlay box on the preview to select it. Drag to move; drag a corner to resize (playfields always keep their aspect ratio, overlays with Shift). Edges and centres snap to the canvas and the layout cells; hold Alt to move or resize freely. Arrow keys nudge by one output pixel, Shift+arrow by ten. **Layout** in the Output panel shows the selection's X, Y, W, H, scale and opacity in output pixels and keeps them in sync; **Reset** returns it to the layout default. Positions are stored per replay (playfields) and per overlay layer and are used unchanged by both exports.
 
 ## Export runtimes
 
@@ -63,9 +69,9 @@ The Rust service drives Chrome Headless Shell and streams fixed-clock RGBA frame
 
 Browser export uses WebCodecs VP9/Opus and writes WebM, with OfflineAudioContext rate/gain mixing. Both paths use the same absolute map-time compositor and GPUTexture readback; preview frames are staged before publication so asynchronous readback cannot blank the currently displayed frame.
 
-## Installed overlay pages (native MP4)
+## Overlay pages (native MP4)
 
-Add installed overlay folders under the studio's **Overlays** section (Output panel). Each layer has an independent page viewport, output X/Y, scale and opacity. These controls feed the native render queue; they do not iframe or execute an overlay inside the studio. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
+**Overlays** in the Output panel lists the overlays installed in vosu, by dashboard nickname or name, from `GET /tools/_host/v1/overlays`. A layer's page size starts from the overlay's `metadata.txt` resolution; once resized, the size is remembered per overlay in the tool's data folder (`sizes.json`). **Custom folder** takes an absolute folder path for overlays that are not installed, and is the only option on vosu builds without that route. Each layer has an independent page size, output X/Y, scale and opacity. These controls feed the native render queue; the studio draws only the layer's box and does not iframe or execute the overlay. Browser-only WebM export explicitly rejects overlay layers instead of silently omitting them.
 
 The CLI accepts repeated `--overlay /absolute/overlay-folder` arguments. Each folder must contain `index.html`; CLI layers default to the full output viewport at (0, 0). The service render request accepts `overlays: [{folder,width,height,x,y,scale,opacity,settings}]` for custom layouts and per-layer setting overrides. Defaults are read from the overlay's own `settings.json`.
 

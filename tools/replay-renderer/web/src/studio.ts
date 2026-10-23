@@ -39,6 +39,14 @@ import {
   assertCompatible,
   type Layout,
 } from "@vosu-tools/render-export";
+import {
+  VIEW,
+  contentBounds,
+  place,
+  type Rect,
+  type Transform,
+} from "./layout";
+import { BUILTIN } from "./skins";
 import settingSchema from "../../render-settings.json";
 export interface Preset {
   skin?: string | null;
@@ -53,6 +61,8 @@ export interface Track extends Preset {
   canvas: HTMLCanvasElement;
   warning: string;
   background: ImageBitmap | null;
+  /** Visible playfield extent in world units (see `probeContent`). */
+  content: Rect;
   dispose(): void;
 }
 export type Fetcher = (path: string, init?: RequestInit) => Promise<Response>;
@@ -83,6 +93,47 @@ export async function checked(response: Response): Promise<Response> {
   return response;
 }
 let sharedDevice: Promise<GPUDevice> | undefined;
+/**
+ * The playfield's visible extent in world units. osu! and catch use the
+ * whole 640×480 view; mania stages and the taiko strip are measured from a
+ * reference render, so any skin's stage width is respected.
+ */
+async function probeContent(renderer: Renderer, mode: number): Promise<Rect> {
+  if (mode === 0 || mode === 2) return { ...VIEW };
+  const { width, height } = VIEW;
+  const device = renderer.device;
+  const stride = Math.ceil((width * 4) / 256) * 256;
+  const texture = device.createTexture({
+    size: [width, height],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+  });
+  const buffer = device.createBuffer({
+    size: stride * height,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+  });
+  try {
+    renderer.resize(width, height);
+    renderer.renderAt(0, { target: texture.createView() });
+    const commands = device.createCommandEncoder();
+    commands.copyTextureToBuffer(
+      { texture },
+      { buffer, bytesPerRow: stride },
+      { width, height },
+    );
+    device.queue.submit([commands.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const source = new Uint8Array(buffer.getMappedRange());
+    const pixels = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++)
+      pixels.set(source.subarray(y * stride, y * stride + width * 4), y * width * 4);
+    buffer.unmap();
+    return contentBounds(pixels, width, height);
+  } finally {
+    texture.destroy();
+    buffer.destroy();
+  }
+}
 /** Built-in skins are drawn once per page and shared by every track. */
 const builtins = new Map<BuiltinSkinName, Skin>();
 function builtin(name: BuiltinSkinName) {
@@ -140,13 +191,21 @@ export async function loadTrack(
     if (replay.mods & bit) mods.push({ acronym });
   const map = applyMods(raw, mods);
   const columns = Math.round(map.difficulty.cs);
+  // Skin values: "" current skin, "builtin/<id>" a drawn lazer look, else
+  // files from the service (stable folder, "imported/…", "lazer/<id>").
   // lazer's built-in current skin has no files: draw it. File skins keep the
   // classic look for any element they lack, as the clients do.
   let skin: Skin,
     owned: ImageBitmap[] = [];
-  const current = options.currentBuiltin;
-  if (!preset.skin && builtinSkinNames.includes(current as BuiltinSkinName))
-    skin = builtin(current as BuiltinSkinName);
+  const drawn = preset.skin?.startsWith(BUILTIN)
+    ? preset.skin.slice(BUILTIN.length)
+    : preset.skin
+      ? null
+      : options.currentBuiltin;
+  if (drawn && builtinSkinNames.includes(drawn as BuiltinSkinName))
+    skin = builtin(drawn as BuiltinSkinName);
+  else if (preset.skin?.startsWith(BUILTIN))
+    throw new Error(`Unknown built-in skin ${preset.skin}`);
   else {
     let loaded: Skin;
     try {
@@ -199,6 +258,7 @@ export async function loadTrack(
     noteSpeed: settings.note_speed,
     hitLighting: settings.hit_lighting !== 0,
   });
+  const content = await probeContent(renderer, replay.mode);
   let simulation: Simulation | null = null,
     warning = "";
   if (replay.mode === 1 || replay.mode === 3) {
@@ -244,6 +304,7 @@ export async function loadTrack(
     skin: preset.skin,
     settings,
     background,
+    content,
     dispose() {
       renderer.destroy();
       background?.close();
@@ -251,6 +312,14 @@ export async function loadTrack(
       for (const bitmap of owned) bitmap.close();
     },
     warning,
+  };
+}
+/** A track's playfield transform, from its render settings. */
+export function transformOf(track: Pick<Track, "settings">): Transform {
+  return {
+    x: track.settings["playfield.x"] ?? 0,
+    y: track.settings["playfield.y"] ?? 0,
+    scale: track.settings["playfield.scale"] ?? 1,
   };
 }
 export class Composition {
@@ -261,6 +330,8 @@ export class Composition {
   private readbacks: {
     texture: GPUTexture;
     buffer: GPUBuffer;
+    width: number;
+    height: number;
     stride: number;
     pixels: ImageData;
     canvas: HTMLCanvasElement;
@@ -283,6 +354,11 @@ export class Composition {
     this.frameContext = frameContext;
     this.resize(width, height, layout);
   }
+  /** Layout cells in output pixels, one per track. */
+  cells(): Rect[] {
+    return layoutRects(this.tracks.length, this.width, this.height, this.layout);
+  }
+  /** (Re)creates render targets sized for every playfield's current scale. */
   resize(width: number, height: number, layout: Layout) {
     this.width = width;
     this.height = height;
@@ -291,33 +367,37 @@ export class Composition {
     this.canvas.height = height;
     this.staging.width = width;
     this.staging.height = height;
-    for (const resource of this.readbacks) {
-      resource.texture.destroy();
-      resource.buffer.destroy();
-    }
-    this.readbacks = [];
-    layoutRects(this.tracks.length, width, height, layout).forEach((r, i) => {
-      const renderer = this.tracks[i].renderer;
-      renderer.resize(r.width, r.height);
-      const stride = Math.ceil((r.width * 4) / 256) * 256;
+    this.releaseTargets();
+    this.cells().forEach((cell, i) => {
+      const track = this.tracks[i],
+        renderer = track.renderer,
+        { width: w, height: h } = place(cell, track.content, transformOf(track)).target;
+      renderer.resize(w, h);
+      const stride = Math.ceil((w * 4) / 256) * 256;
       const canvas = document.createElement("canvas");
-      canvas.width = r.width;
-      canvas.height = r.height;
+      canvas.width = w;
+      canvas.height = h;
       this.readbacks.push({
         texture: renderer.device.createTexture({
-          size: [r.width, r.height],
+          size: [w, h],
           format: "rgba8unorm",
           usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
         }),
         buffer: renderer.device.createBuffer({
-          size: stride * r.height,
+          size: stride * h,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         }),
+        width: w,
+        height: h,
         stride,
-        pixels: new ImageData(r.width, r.height),
+        pixels: new ImageData(w, h),
         canvas,
       });
     });
+  }
+  /** Re-renders targets at the playfields' current scales (after an edit). */
+  retarget() {
+    this.resize(this.width, this.height, this.layout);
   }
   validate() {
     assertCompatible(
@@ -335,12 +415,29 @@ export class Composition {
     const context = this.frameContext;
     context.fillStyle = "#111214";
     context.fillRect(0, 0, this.width, this.height);
-    const rects = layoutRects(
-      this.tracks.length,
-      this.width,
-      this.height,
-      this.layout,
-    );
+    const rects = this.cells();
+    // Backgrounds first: a playfield moved over a neighbouring cell stays on top.
+    this.tracks.forEach((track, i) => {
+      const rect = rects[i],
+        bg = track.background;
+      if (!bg) return;
+      context.save();
+      context.beginPath();
+      context.rect(rect.x, rect.y, rect.width, rect.height);
+      context.clip();
+      // Cover the cell, cropping the image rather than stretching it.
+      const cover = Math.max(rect.width / bg.width, rect.height / bg.height);
+      context.drawImage(
+        bg,
+        rect.x + (rect.width - bg.width * cover) / 2,
+        rect.y + (rect.height - bg.height * cover) / 2,
+        bg.width * cover,
+        bg.height * cover,
+      );
+      context.fillStyle = `rgba(0,0,0,${track.settings.background_dim ?? 0.85})`;
+      context.fillRect(rect.x, rect.y, rect.width, rect.height);
+      context.restore();
+    });
     for (let i = 0; i < this.tracks.length; i++) {
       const track = this.tracks[i],
         frame = frameAt(track.replay, time),
@@ -383,51 +480,29 @@ export class Composition {
               }))
           : [],
       });
+      const { width: tw, height: th } = resource;
       const commands = track.renderer.device.createCommandEncoder();
       commands.copyTextureToBuffer(
         { texture: resource.texture },
         { buffer: resource.buffer, bytesPerRow: resource.stride },
-        { width: rect.width, height: rect.height },
+        { width: tw, height: th },
       );
       track.renderer.device.queue.submit([commands.finish()]);
       await resource.buffer.mapAsync(GPUMapMode.READ);
       const source = new Uint8Array(resource.buffer.getMappedRange());
-      for (let y = 0; y < rect.height; y++)
+      for (let y = 0; y < th; y++)
         resource.pixels.data.set(
-          source.subarray(
-            y * resource.stride,
-            y * resource.stride + rect.width * 4,
-          ),
-          y * rect.width * 4,
+          source.subarray(y * resource.stride, y * resource.stride + tw * 4),
+          y * tw * 4,
         );
       resource.buffer.unmap();
       resource.canvas.getContext("2d")!.putImageData(resource.pixels, 0, 0);
-      context.save();
-      context.beginPath();
-      context.rect(rect.x, rect.y, rect.width, rect.height);
-      context.clip();
-      if (track.background) {
-        context.drawImage(
-          track.background,
-          rect.x,
-          rect.y,
-          rect.width,
-          rect.height,
-        );
-        context.fillStyle = `rgba(0,0,0,${settings.background_dim ?? 0.85})`;
-        context.fillRect(rect.x, rect.y, rect.width, rect.height);
-      }
-      const scale = settings["playfield.scale"] ?? 1;
-      const x = rect.x + rect.width * (0.5 + (settings["playfield.x"] ?? 0)),
-        y = rect.y + rect.height * (0.5 + (settings["playfield.y"] ?? 0));
-      context.drawImage(
-        resource.canvas,
-        x - (rect.width * scale) / 2,
-        y - (rect.height * scale) / 2,
-        rect.width * scale,
-        rect.height * scale,
-      );
-      context.restore();
+      // Playfields may be moved anywhere in the frame, so they clip to it.
+      const { draw } = place(rect, track.content, transformOf(track), {
+        width: tw,
+        height: th,
+      });
+      context.drawImage(resource.canvas, draw.x, draw.y, draw.width, draw.height);
       const state = track.simulation?.verified
         ? stateAt(track.replay, track.simulation, time)
         : null;
