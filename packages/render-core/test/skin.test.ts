@@ -4,7 +4,7 @@ import { compileScene } from "../src/scene";
 import type { Skin, AtlasRegion } from "../src/skin";
 const source =
   "osu file format v14\n[General]\nMode:3\n[Difficulty]\nCircleSize:4\n[TimingPoints]\n0,500,4,1,0,100,1,0\n[HitObjects]\n64,192,1000,128,0,2000:0:0:0:0:";
-test("skin-defined stage, normal/pressed keys, lighting and tiled hold body use atlas instances", () => {
+test("skin-defined stage, normal/pressed keys, lighting and repeating hold body use atlas instances", () => {
   const sections = parseSkinIni(
     "[General]\nVersion:2.7\nAnimationFramerate:20\n[Mania]\nKeys:4\nColumnStart:286.67\nColumnWidth:70,70,70,70\nColumnSpacing:2,2,2\nHitPosition:457\nLightPosition:440\nNoteBodyStyle:1\nStageLeft:left\nStageRight:right\nStageBottom:bottom\nStageHint:hint\nStageLight:light\nKeyImage0:key\nKeyImage0D:pressed\nNoteImage0:note\nNoteImage0H:note\nNoteImage0L:body\nNoteImage0T:tail",
   );
@@ -35,30 +35,38 @@ test("skin-defined stage, normal/pressed keys, lighting and tiled hold body use 
       fps: 20,
     });
   const scene = compileScene(parseOsu(source), {}, regions, skin),
-    motions: number[] = [],
-    body: number[][] = [];
-  for (let i = 0; i < scene.count; i++) {
-    const instance = [...scene.data.slice(i * 24, i * 24 + 24)];
-    motions.push(instance[12]);
-    if (instance[12] === 2) body.push(instance);
-  }
+    instances = Array.from({ length: scene.count }, (_, i) => [
+      ...scene.data.slice(i * 24, i * 24 + 24),
+    ]),
+    motions = instances.map((instance) => instance[12]);
   expect(motions).toContain(11);
   expect(motions).toContain(12);
   expect(motions).toContain(13);
+  // NoteBodyStyle 1 is not Stretch: lazer's 32800-unit body (kind 14).
+  const body = instances.filter((instance) => instance[12] === 14);
   expect(body).toHaveLength(1);
+  // Hit position 457: 36.8 lazer units above the stage's bottom edge (render y 409).
   expect(body[0][15]).toBe(409);
-  expect(body[0][22]).toBe(2);
-  expect(body[0][23]).toBe(-60);
+  expect(body[0][21]).toBe(8);
+  expect(body[0][23]).toBeCloseTo(1000 / 30);
+  // Half the head's and tail's heights: 140×70 images at the 112-unit column width.
+  expect(body[0][1]).toBeCloseTo(56 / 1.6 / 2);
+  expect(body[0][3]).toBeCloseTo(56 / 1.6 / 2);
   expect(body[0].slice(8, 11)).toEqual([1, 1, 1]);
-  const bottom = scene.data.slice(-24);
+  // Stage bottom: 1.6× the image, on the stage's bottom edge.
+  const bottom = instances.at(-1)!;
   expect(bottom[21]).toBe(2);
-  expect(bottom[2]).toBe(87.5);
-  expect(bottom[3]).toBe(43.75);
-  expect(bottom[1] + bottom[3] / 2).toBe(432);
-  const light = Array.from({ length: scene.count }, (_, i) =>
-    scene.data.subarray(i * 24, i * 24 + 24),
-  ).find((instance) => instance[12] === 13)!;
-  expect(light[1] + light[3] / 2).toBe(392);
+  expect(bottom[2]).toBeCloseTo(140);
+  expect(bottom[3]).toBeCloseTo(70);
+  expect(bottom[1] + bottom[3] / 2).toBeCloseTo(432);
+  // Keys: column wide, the image's own height (70 lazer units), on the bottom edge.
+  const key = instances.find((instance) => instance[12] === 11)!;
+  expect(key[2]).toBeCloseTo(70);
+  expect(key[3]).toBeCloseTo(70 / 1.6);
+  expect(key[1] + key[3] / 2).toBeCloseTo(432);
+  // Column light: bottom edge on LightPosition 440.
+  const light = instances.find((instance) => instance[12] === 13)!;
+  expect(light[1] + light[3] / 2).toBeCloseTo(392);
   expect(light[23]).toBe(60);
   const unlit = compileScene(
     parseOsu(source),

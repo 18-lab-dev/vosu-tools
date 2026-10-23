@@ -4,7 +4,7 @@ import { compileScene } from "../src/scene";
 import type { Skin, AtlasRegion } from "../src/skin";
 const text =
   "osu file format v14\n[General]\nMode:3\n[Difficulty]\nCircleSize:4\n[TimingPoints]\n0,500,4,1,0,100,1,0\n1000,250,4,1,0,100,1,0\n[HitObjects]\n64,192,2000,128,0,6000:0:0:0:0:";
-test("bottom-cascaded hold bodies are distinct from top cascade and stretching", () => {
+test("Stretch bodies stretch over the hold; every other NoteBodyStyle uses lazer's 32800-unit body", () => {
   const regions = new Map<string, AtlasRegion>([
     [
       "body",
@@ -21,30 +21,31 @@ test("bottom-cascaded hold bodies are distinct from top cascade and stretching",
       },
     ],
   ]);
-  for (const [style, motion, tiled] of [
-    [0, 2, false],
-    [1, 2, true],
-    [2, 14, true],
+  for (const [version, style, motion] of [
+    ["2.7", "0", 2],
+    ["2.7", "Stretch", 2],
+    ["2.7", "1", 14],
+    ["2.7", "RepeatTop", 14],
+    ["2.7", "RepeatBottom", 14],
+    ["2.7", "RepeatTopAndBottom", 14],
+    // Without NoteBodyStyle: Stretch below skin version 2.5, RepeatBottom from it.
+    ["2.4", "", 2],
+    ["2.5", "", 14],
   ] as const) {
     const skin: Skin = {
       name: "cascade",
       assets: new Map(),
+      version: Number(version),
       sections: parseSkinIni(
-        `[Mania]\nKeys:4\nNoteImage0L:body\nNoteBodyStyle:${style}`,
+        `[General]\nVersion:${version}\n[Mania]\nKeys:4\nNoteImage0L:body\n${style ? `NoteBodyStyle:${style}` : ""}`,
       ),
     };
     const scene = compileScene(parseOsu(text), {}, regions, skin);
-    let body = -1;
-    for (let i = 0; i < scene.count; i++)
-      if (
-        scene.data[i * 24 + 12] === motion &&
-        scene.data[i * 24 + 5] > scene.data[i * 24 + 4]
-      ) {
-        body = i;
-        break;
-      }
-    expect(body).toBeGreaterThanOrEqual(0);
-    expect(scene.data[body * 24 + 23] < 0).toBe(tiled);
+    const bodies = Array.from(
+      { length: scene.count },
+      (_, i) => scene.data[i * 24 + 12],
+    ).filter((kind) => kind === 2 || kind === 14);
+    expect(bodies).toEqual([motion]);
   }
 });
 test("mania uses duration-weighted BPM normalization without discontinuities", () => {
@@ -58,5 +59,7 @@ test("mania uses duration-weighted BPM normalization without discontinuities", (
   expect(scrollPosition(map.timing, 999, "mania", scene.scrollBase)).toBe(
     499.5,
   );
-  expect(scene.speed).toBeCloseTo((20 * 480) / 11485);
+  // lazer: one time range (11485 / speed ms) moves notes from the stage top to
+  // the default hit position, 402 legacy units.
+  expect(scene.speed).toBeCloseTo((20 * 402) / 11485);
 });

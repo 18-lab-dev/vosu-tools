@@ -126,7 +126,8 @@ export function applyField(
           : legacy && legacy > 0
             ? legacy
             : null);
-      state.mania.scrollUp = number(record(mania.scrollDirection).number) === 1;
+      // lazer's ManiaScrollingDirection (vosu's names): 0 = up, 1 = down.
+      state.mania.scrollUp = number(record(mania.scrollDirection).number) === 0;
       break;
     }
     case "/settings/skin/ignoreBeatmapSkins":
@@ -162,17 +163,38 @@ export function applyField(
 }
 
 /**
- * Extrapolates the client's clock between frames. Reported rate and running
- * state are used directly; otherwise they are estimated from how live time
- * advanced between frames.
+ * Extrapolates the client's clock between frames. With lazer, vosu reports
+ * the beatmap track's own clock: its running state and actual playback rate
+ * (aggregate tempo × frequency, so DT/NC/HT/DC and custom speed changes, in
+ * song select too), which are used as they are. Without a reported clock
+ * (stable, whose reported rate is only the selected mods' rate, or older
+ * vosu) the rate is measured from how live time advances, seeded with the
+ * reported one. Small disagreements between the extrapolation and a new frame
+ * are slewed out, so the preview never steps backwards while playing and
+ * cannot drift; larger ones (seeks) snap.
  */
 export class LiveClock {
+  /** Corrections smaller than this are spread over SLEW_MS instead of jumping. */
+  static readonly SNAP_MS = 120;
+  static readonly SLEW_MS = 200;
+  /** Extrapolate at most this long without frames, then hold. */
+  static readonly HOLD_MS = 1000;
   private time = 0;
   private at = 0;
   private rate = 1;
   private running = false;
   private known = false;
   private estimatedRate = 1;
+  private measured = false;
+  /** The furthest reported time and when it was reached (frames can arrive out of order of sampling). */
+  private furthest = 0;
+  private advancedAt = 0;
+  /** Start of the window the rate is estimated over (frames' jitter averages out). */
+  private windowTime = 0;
+  private windowAt = 0;
+  /** Reported minus extrapolated time at the last frame, applied over `slew` ms. */
+  private correction = 0;
+  private slew = LiveClock.SLEW_MS;
 
   update(
     time: number | null,
@@ -185,17 +207,69 @@ export class LiveClock {
       this.running = false;
       return;
     }
-    if (this.known && now > this.at) {
-      const advanced = time - this.time,
-        elapsed = now - this.at,
-        observed = advanced / elapsed;
-      // Small forward steps are playback; anything else is a seek or a pause.
-      if (advanced > 0 && observed > 0.2 && observed < 4)
-        this.estimatedRate = this.estimatedRate * 0.7 + observed * 0.3;
-      this.running = running ?? (advanced > 0 && elapsed < 1000);
-    } else this.running = running ?? false;
-    this.rate = rate ?? this.estimatedRate;
-    this.time = time;
+    const predicted = this.known ? this.read(now)! : time,
+      error = time - predicted,
+      wasRunning = this.running;
+    // A seek: backwards past jitter, or ahead of anything playback explains
+    // (the extrapolation while playing, the elapsed time while held). Time
+    // that stays put while the extrapolation runs on is a pause.
+    const seek =
+      !this.known ||
+      time < this.furthest - LiveClock.SNAP_MS ||
+      (wasRunning &&
+        Math.abs(error) >= LiveClock.SNAP_MS &&
+        time - this.furthest >= LiveClock.SNAP_MS) ||
+      (!wasRunning &&
+        time - this.furthest > (now - this.advancedAt) * 4 + LiveClock.SNAP_MS);
+    if (seek) {
+      // Playback state carries over a seek; the first frame starts held.
+      this.running = running ?? (this.known && this.running);
+      this.furthest = time;
+      this.advancedAt = now;
+      this.windowTime = time;
+      this.windowAt = now;
+    } else {
+      if (time > this.furthest) {
+        this.furthest = time;
+        this.advancedAt = now;
+      }
+      // Without a reported state, no progress for a while means paused.
+      this.running = running ?? now - this.advancedAt < 300;
+      // Estimate the rate over at least half a second of steady playback.
+      const span = now - this.windowAt;
+      if (!this.running || !wasRunning) {
+        this.windowTime = time;
+        this.windowAt = now;
+      } else if (span >= 500) {
+        const observed = (time - this.windowTime) / span;
+        if (observed > 0.2 && observed < 4) {
+          this.estimatedRate = observed;
+          this.measured = true;
+        }
+        this.windowTime = time;
+        this.windowAt = now;
+      }
+    }
+    this.rate =
+      running !== null && rate !== null
+        ? rate
+        : this.measured
+          ? this.estimatedRate
+          : (rate ?? this.estimatedRate);
+    if (
+      this.known &&
+      wasRunning &&
+      this.running &&
+      Math.abs(error) < LiveClock.SNAP_MS
+    ) {
+      this.time = predicted;
+      this.correction = error;
+      // Pulling back runs at no more than half the playback rate.
+      this.slew = Math.max(LiveClock.SLEW_MS, (-2 * error) / this.rate);
+    } else {
+      this.time = time;
+      this.correction = 0;
+    }
     this.at = now;
     this.known = true;
   }
@@ -203,11 +277,11 @@ export class LiveClock {
   /** Map milliseconds at `now`; null before the first frame. */
   read(now: number): number | null {
     if (!this.known) return null;
-    // Without frames for a while, hold position rather than drift.
-    const elapsed = this.running
-      ? Math.min(Math.max(0, now - this.at), 250)
-      : 0;
-    return this.time + elapsed * this.rate;
+    const elapsed = Math.max(0, now - this.at),
+      // Without frames for a while, hold position rather than drift.
+      played = this.running ? Math.min(elapsed, LiveClock.HOLD_MS) : 0,
+      slewed = this.correction * Math.min(1, elapsed / this.slew);
+    return this.time + played * this.rate + slewed;
   }
 }
 

@@ -725,6 +725,20 @@ play.onclick = async () => {
   }
 };
 audio.onended = () => (play.textContent = "Play");
+// Muted unless the user unmuted this tool before; tools share the overlay
+// origin's storage, hence the tool id in the key.
+const MUTE_KEY = "vosu-tools:map-preview:muted",
+  muteButton = $<HTMLButtonElement>("mute");
+function setMuted(muted: boolean): void {
+  audio.muted = muted;
+  muteButton.setAttribute("aria-pressed", String(muted));
+  muteButton.textContent = muted ? "Muted" : "Sound on";
+}
+setMuted(localStorage.getItem(MUTE_KEY) !== "0");
+muteButton.onclick = () => {
+  setMuted(!audio.muted);
+  localStorage.setItem(MUTE_KEY, audio.muted ? "1" : "0");
+};
 audio.onerror = () => {
   play.disabled = true;
   status.textContent =

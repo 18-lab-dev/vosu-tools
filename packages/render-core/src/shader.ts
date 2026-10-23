@@ -7,10 +7,11 @@ struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:v
 struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f }
 @vertex fn vs(@builtin(vertex_index) index:u32,@location(0) geometry:vec4f,@location(1) life:vec4f,@location(2) tint:vec4f,@location(3) motion:vec4f,@location(4) uv:vec4f,@location(5) shape:vec4f)->Vertex{
  let corners=array<vec2f,6>(vec2f(-0.5,-0.5),vec2f(0.5,-0.5),vec2f(-0.5,0.5),vec2f(-0.5,0.5),vec2f(0.5,-0.5),vec2f(0.5,0.5));
- let now=g.viewport.x;let kind=u32(motion.x);let mode=u32(g.viewport.w);var centre=geometry.xy;var size=geometry.zw;var alpha=tint.a;var angle=0.0;
+ let now=g.viewport.x;let kind=u32(motion.x);let mode=u32(g.viewport.w);var centre=geometry.xy;var size=geometry.zw;var alpha=tint.a;var angle=0.0;var bodyV=1.0;
  if(now<life.z||now>life.w){alpha=0.0;}
  if(kind==1u){centre.y=motion.w-(motion.y-g.timing.y)*g.timing.x-size.y*0.5;if(life.y>life.x){centre.y=min(centre.y,motion.w-size.y*0.5);}else if(now>life.x){alpha=0.0;} }
- if(kind==2u || kind==14u){let head=min(motion.w,motion.w-(motion.y-g.timing.y)*g.timing.x);let tail=motion.w-(motion.z-g.timing.y)*g.timing.x;centre.y=(head+tail)*0.5;size.y=max(0.0,head-tail);}
+ if(kind==2u || kind==14u){let tailLine=motion.w-(motion.z-g.timing.y)*g.timing.x;let headLine=motion.w-(motion.y-g.timing.y)*g.timing.x;let top=tailLine-geometry.w;let bottom=min(headLine,motion.w)-geometry.y;let full=headLine-geometry.y-top;let span=select(full,max(full,20500.0),kind==14u);centre.y=(top+bottom)*0.5;size.y=max(0.0,bottom-top);bodyV=size.y/max(0.0001,span);}
+ if(kind==22u){centre.y=motion.w-(motion.y-g.timing.y)*g.timing.x-geometry.y;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/150.0,0.0,1.0);}}
  if(kind==3u){centre.x=geometry.x+(life.x-now)*motion.y;}
  if(mode==1u && kind==3u && now>life.x){alpha=0.0;}
  if(kind==4u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;}
@@ -30,8 +31,10 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
  let local=corners[index]*size;let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
  let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point-vec2f(256.0,192.0))*scale;
- var selected=uv;if(shape.x==10.0 && shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);selected=frameUV[u32(shape.y)+frame];}
- var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;result.colour=vec4f(tint.rgb,alpha);result.uv=selected.xy+(corners[index]+0.5)*selected.zw;let repeat=select(0.0,size.y/max(1.0,size.x*selected.w/max(0.0001,selected.z)),(kind==2u || kind==14u) && shape.w<0.0)*select(1.0,-1.0,kind==14u);result.shape=vec4f(shape.x,size.x/max(0.01,size.y),shape.y,repeat);result.world=point;result.region=selected;return result;
+ var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
+ var selected=uv;if((code==10.0 || code==13.0) && shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);selected=frameUV[u32(shape.y)+frame];}
+ var corner=corners[index]+0.5;if(flipV){corner.y=1.0-corner.y;}corner.y*=bodyV;
+ var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;result.colour=vec4f(tint.rgb,alpha);result.uv=selected.xy+corner*selected.zw;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,0.0);result.world=point;result.region=selected;return result;
 }
 @fragment fn fs(v:Vertex)->@location(0) vec4f{
  let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);
@@ -44,7 +47,7 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(shape==6u){var nearest=10.0;for(var i=0u;i<6u;i++){let row=select(0.0,0.55,i>2u);let x=f32(i%3u)*0.55-0.55;nearest=min(nearest,length(v.local-vec2f(x,row-0.3))/0.4);}coverage=1.0-smoothstep(1.0-aa,1.0,nearest);}
  if(shape==8u){let outer=length(v.local-vec2f(-0.15,-0.3));let inner=length(v.local-vec2f(0.15,-0.5));coverage=(1.0-smoothstep(1.0-aa,1.0,outer))*smoothstep(0.74-aa,0.74,inner);}
  if(shape==9u){coverage=1.0-smoothstep(1.0-aa,1.0,d);let rim=smoothstep(0.72,0.78,d);colour=vec4f(mix(vec3f(0.86,0.65,0.5),vec3f(0.45,0.48,0.5),rim),colour.a);if(abs(v.local.x)<0.025){colour=vec4f(0.2,0.2,0.2,colour.a);}}
- if(shape==10u){var uv=v.uv;if(v.shape.w!=0.0){let coordinate=v.local.y*0.5+0.5;let phase=select(coordinate*abs(v.shape.w),(coordinate-1.0)*abs(v.shape.w)+1.0,v.shape.w<0.0);uv.y=v.region.y+fract(phase)*v.region.w;}let tex=textureSampleLevel(atlas,atlasSampler,uv,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
+ if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
  if(shape==12u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);let r=length(q);coverage=1.0-smoothstep(1.0-aa,1.0,r);
   let shadowPass=v.shape.z>5.0;let border=select(abs(v.shape.z),v.shape.z-10.0,shadowPass);let profile=floor(v.region.w/10.0+0.0001);let bodyAlpha=v.region.w-profile*10.0;let accent=colour.rgb;var c=v.region.rgb;var a=1.0;let shadow=0.078125;
   if(v.shape.z<0.0){let t=1.0-r*(1.0-border);let f=clamp((t-border)/max(0.0001,1.0-border),0.0,1.0);
@@ -54,6 +57,6 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
   colour=vec4f(c,colour.a*a);}
  if(shape==11u){let spoke=pow(max(0.0,cos(atan2(v.local.y,v.local.x)*6.0)),8.0);coverage=(1.0-smoothstep(1.0-aa,1.0,d))*max(smoothstep(0.83,0.88,d),spoke*smoothstep(0.25,0.35,d));}
  if(g.cursor.z>0.0){coverage*=1.0-smoothstep(90.0,125.0,distance(v.world,g.cursor.xy));}
- let alpha=colour.a*coverage;if(alpha<0.002){discard;}return vec4f(colour.rgb*alpha,alpha);
+ let alpha=colour.a*coverage;if(alpha<0.002){discard;}if(shape==13u){return vec4f(colour.rgb*alpha,0.0);}return vec4f(colour.rgb*alpha,alpha);
 }
 `;
