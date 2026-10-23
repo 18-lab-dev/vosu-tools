@@ -49,7 +49,7 @@ const canvas = $<HTMLCanvasElement>("playfield"),
   play = $<HTMLButtonElement>("play"),
   seek = $<HTMLInputElement>("seek"),
   rate = $<HTMLInputElement>("rate"),
-  drawer = $<HTMLDialogElement>("controls"),
+  drawer = $("controls"),
   controlsToggle = $<HTMLButtonElement>("controls-toggle"),
   skinPanel = $("skin-panel"),
   skinName = $("skin-name"),
@@ -680,30 +680,33 @@ async function loadSettings(initial: boolean): Promise<void> {
     : "Client";
   if (initial) {
     noteSpeedInput.value = String(settings.noteSpeed);
-    setDrawer(settings.controlsOpen);
+    // The user's last choice in this tool wins over the dashboard default.
+    const stored = localStorage.getItem(CONTROLS_KEY);
+    setDrawer(stored === null ? settings.controlsOpen : stored === "1", false);
     if (source === "defaults")
       skinNotice("Defaults apply: this vosu has no tool settings.");
   }
   if (initial || previous.skin !== settings.skin) applySkinSetting();
   sceneKey = "";
 }
-function setDrawer(open: boolean): void {
-  if (open && !drawer.open) drawer.showModal();
-  else if (!open && drawer.open) drawer.close();
+// Per tool on the shared overlay origin, like the mute toggle.
+const CONTROLS_KEY = "vosu-tools:map-preview:controls-open";
+/** Shows or hides the docked controls panel; the playfield resizes beside it. */
+function setDrawer(open: boolean, remember = true): void {
+  if (!open && drawer.contains(document.activeElement)) controlsToggle.focus();
+  drawer.hidden = !open;
   controlsToggle.setAttribute("aria-expanded", String(open));
+  if (remember) localStorage.setItem(CONTROLS_KEY, open ? "1" : "0");
 }
 
 /* ------------------------------------------------------------ events */
 
 followButton.onclick = () => setFollowing(!following);
-controlsToggle.onclick = () => setDrawer(!drawer.open);
+controlsToggle.onclick = () => setDrawer(drawer.hidden);
 $<HTMLButtonElement>("controls-close").onclick = () => setDrawer(false);
-// Escape closes the dialog itself; a click on the backdrop closes it too.
-drawer.addEventListener("close", () =>
-  controlsToggle.setAttribute("aria-expanded", "false"),
-);
-drawer.addEventListener("click", (event) => {
-  if (event.target === drawer) setDrawer(false);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !event.defaultPrevented && !drawer.hidden)
+    setDrawer(false);
 });
 $<HTMLButtonElement>("current-skin").onclick = () => void useClientSkin();
 builtinSelect.onchange = () => {

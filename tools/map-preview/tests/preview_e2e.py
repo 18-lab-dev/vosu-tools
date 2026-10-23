@@ -41,6 +41,25 @@ MAPS = {
 SKINS = {'ralsei': '- # {center} RALSEI 『ラルセイ』- FULL # - v2', 'staircase': '- Staircase!mania'}
 # vosu's own design system (read-only), served like /tools/_host/v1/theme.css.
 VOSU_ASSETS = Path(os.environ.get('VOSU_ASSETS', Path.home() / 'gh/vosu-ecosystem/vosu-wt/dev-1.2.0/assets/server'))
+CONTROLS_KEY = 'vosu-tools:map-preview:controls-open'
+
+
+async def set_controls(page, open_: bool):
+    """Opens or closes the docked controls panel with its toggle."""
+    if (await page.locator('#controls-toggle').get_attribute('aria-expanded') == 'true') != open_:
+        await page.locator('#controls-toggle').click()
+    assert await page.locator('#controls').is_visible() == open_
+
+
+async def playfield_unblocked(page) -> bool:
+    """The playfield's centre and corners hit the canvas itself, and no modal is open."""
+    return await page.evaluate('''() => {
+        const r = document.querySelector('#stage').getBoundingClientRect();
+        const points = [[0.5, 0.5], [0.05, 0.05], [0.95, 0.05], [0.05, 0.9], [0.95, 0.9]];
+        return !document.querySelector('dialog[open]') && points.every(([x, y]) =>
+            document.elementFromPoint(r.x + r.width * x, r.y + r.height * y)?.id === 'playfield');
+    }''')
+
 
 BRIDGE = """
 const fragment = new URLSearchParams(location.hash.slice(1));
@@ -305,12 +324,20 @@ async def checks(host: Host, osk: Path, evidence: Path):
         game.set('/play/mods/array', [{'acronym': 'HD'}, {'acronym': 'CS'}])
         await settle(page)
         await page.locator('#controls-toggle').click()
+        await settle(page, 300)
         await page.screenshot(path=str(evidence / 'controls-open-1920x1080.png'))
         assert await page.locator('#mods input[value=HD]').is_disabled()
         assert await page.locator('#mods input[value=HD]').is_checked()
+        # The panel docks beside the playfield: nothing covers or dims it, and
+        # the playfield shrinks to make room.
+        assert await playfield_unblocked(page), 'controls must not cover the playfield'
+        assert (await page.locator('#stage').bounding_box())['width'] <= 1920 - 300
+        assert await page.evaluate(f"localStorage.getItem('{CONTROLS_KEY}')") == '1'
         await page.keyboard.press('Escape')
         assert not await page.locator('#controls').is_visible()
         assert await page.locator('#controls-toggle').get_attribute('aria-expanded') == 'false'
+        assert await page.evaluate(f"localStorage.getItem('{CONTROLS_KEY}')") == '0'
+        assert (await page.locator('#stage').bounding_box())['width'] == 1920
 
         # 7. Manual preview: open an .osu file, then follow the game again.
         await page.locator('#map-file').set_input_files(str(host.maps['taiko']))
@@ -363,10 +390,15 @@ async def checks(host: Host, osk: Path, evidence: Path):
                 page = await open_page(game, theme, width, height)
                 await shows(page, '#title', 'Hikiray')
                 await settle(page)
+                # The open/closed choice persists across loads.
+                stored = await page.evaluate(f"localStorage.getItem('{CONTROLS_KEY}')")
+                expanded = await page.locator('#controls-toggle').get_attribute('aria-expanded')
+                assert (expanded == 'true') == (stored == '1'), (stored, expanded)
                 for drawer in ('closed', 'open'):
+                    await set_controls(page, drawer == 'open')
+                    await settle(page, 300)
                     if drawer == 'open':
-                        await page.locator('#controls-toggle').click()
-                        await settle(page, 300)
+                        assert await playfield_unblocked(page), f'controls cover the playfield at {width}'
                     fit = await page.evaluate(fits)
                     if width > 390:
                         assert fit['scroll'] <= fit['height'], f'page scrolls at {width}x{height} {theme} {drawer}: {fit}'

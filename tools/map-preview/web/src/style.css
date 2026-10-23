@@ -56,11 +56,23 @@
   text-align: right;
 }
 
-/* The playfield is full-bleed: no padding around the stage. */
+/* The playfield is full-bleed: no padding around the stage. The controls
+   panel docks beside it (non-modal), and the playfield resizes. */
 .preview {
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   padding: 0;
+}
+
+.preview:has(> .controls:not([hidden])) {
+  grid-template-columns: minmax(0, 1fr) min(22rem, 45vw);
+}
+
+.work {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 .stage {
@@ -111,14 +123,22 @@
   display: none;
 }
 
-/* ------------------------------------------------------------ drawer */
+/* ------------------------------------------------------------ controls */
 
-.v-drawer__head > h2 {
-  font: inherit;
-  font-weight: 600;
+.controls {
+  border-width: 0 0 0 var(--hair);
+  border-radius: 0;
 }
 
-.v-drawer__body h3 {
+.controls .v-panel__head > h2 {
+  margin: 0;
+}
+
+.controls .v-panel__body {
+  gap: var(--space-4);
+}
+
+.controls h3 {
   margin: 0;
 }
 
@@ -181,6 +201,18 @@
 @media (max-width: 60rem) {
   .map-detail {
     display: none;
+  }
+}
+
+/* Narrow: the panel stacks under the playfield instead of beside it. */
+@media (max-width: 48rem) {
+  .preview:has(> .controls:not([hidden])) {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .controls {
+    border-width: var(--hair) 0 0;
   }
 }
 

@@ -18,7 +18,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from preview_e2e import CHROME, DIST, MAPS, ORIGIN, PORT, Game, Host, handler
+from preview_e2e import CHROME, DIST, MAPS, ORIGIN, PORT, Game, Host, handler, playfield_unblocked, set_controls
 
 # osu!lazer 2026.1005.0 converting Hikiray - Zero Two [Insane] (oracle output).
 LAZER = {'taiko': 777, 'mania': (893, 7), 'mania4K': (784, 4), 'maniaDS': (881, 14)}
@@ -92,7 +92,7 @@ async def checks(host: Host, evidence: Path):
         game.set('/play/mods/array', [{'acronym': 'DS'}])
         count, keys = LAZER['maniaDS']
         await shows(page, '#detail', f'{count} objects · {keys}K')
-        await page.locator('#controls-toggle').click()
+        await set_controls(page, True)
         assert await page.locator('#ruleset').input_value() == '3'
         assert await page.locator('#ruleset').is_disabled()
         assert await page.locator('#dual').is_checked()
@@ -117,7 +117,7 @@ async def checks(host: Host, evidence: Path):
         await shows(page, '#follow-status', 'Manual preview')
         # The ruleset last followed carries over; the drawer can change it.
         await shows(page, '#mode', 'catch')
-        await page.locator('#controls-toggle').click()
+        await set_controls(page, True)
         assert not await page.locator('#ruleset').is_disabled()
         assert await page.locator('#keys').is_disabled()
         await page.locator('#ruleset').select_option('3')
@@ -130,6 +130,8 @@ async def checks(host: Host, evidence: Path):
         await page.locator('#seek').evaluate("s => { s.value = '38000'; s.dispatchEvent(new Event('input')); }")
         await page.wait_for_timeout(700)
         await page.screenshot(path=str(evidence / 'manual-mania-convert-4K-drawer-1920x1080.png'))
+        # Changes apply live beside the panel, which never covers the playfield.
+        assert await playfield_unblocked(page)
         await page.locator('#ruleset').select_option('1')
         await shows(page, '#detail', f"{LAZER['taiko']} objects")
         assert await page.locator('#keys').is_disabled()
@@ -139,7 +141,7 @@ async def checks(host: Host, evidence: Path):
         page = await open_page(game, 'light', 760, 900)
         game.set('/settings/mode/number', 3)
         await shows(page, '#detail', 'converted from osu!')
-        await page.locator('#controls-toggle').click()
+        await set_controls(page, True)
         await page.locator('#ruleset-heading').scroll_into_view_if_needed()
         await page.wait_for_timeout(700)
         scroll = await page.evaluate('[document.documentElement.scrollWidth, innerWidth]')

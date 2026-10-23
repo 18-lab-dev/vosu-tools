@@ -28,6 +28,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from preview_e2e import CONTROLS_KEY, playfield_unblocked, set_controls
+
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'http://127.0.0.1:25650'
 CHROME = Path.home() / '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome'
@@ -107,15 +109,20 @@ async def browser_checks(launch, evidence: Path, map_file: Path | None):
                     await page.locator('#seek').evaluate(
                         "s => { s.value = String(Math.min(60000, Number(s.max) / 2)); s.dispatchEvent(new Event('input')); }")
                 await page.wait_for_timeout(700)
+                # The panel's open/closed choice persists across loads.
+                stored = await page.evaluate(f"localStorage.getItem('{CONTROLS_KEY}')")
+                expanded = await page.locator('#controls-toggle').get_attribute('aria-expanded')
+                assert (expanded == 'true') == (stored == '1'), (stored, expanded)
                 for drawer in ('closed', 'open'):
+                    await set_controls(page, drawer == 'open')
                     if drawer == 'open':
-                        await page.locator('#controls-toggle').click()
+                        assert await playfield_unblocked(page), f'controls cover the playfield at {width}'
                         if index == 0:
                             await page.locator('#current-skin').click()
                             await page.wait_for_function(
                                 "!document.querySelector('#skin-panel').hasAttribute('aria-busy')", timeout=30000)
                             state['skinMessage'] = await page.locator('#skin-message').text_content()
-                        await page.wait_for_timeout(300)
+                    await page.wait_for_timeout(300)
                     fit = await page.evaluate(FITS)
                     assert fit['scroll'] <= fit['height'], f'page scrolls at {width}x{height} {theme} {drawer}: {fit}'
                     assert fit['wide'] <= fit['width'] and not fit['out'], f'overflow at {width} {theme} {drawer}: {fit}'

@@ -43,7 +43,7 @@
     "uniqueID": "controls_open",
     "type": "checkbox",
     "title": "Open the controls panel on start",
-    "description": "Start with the skin, speed, ruleset and mods drawer open over the playfield.",
+    "description": "Start with the skin, speed, ruleset and mods panel open beside the playfield. Once you open or close it in the tool, that choice is remembered instead.",
     "options": "",
     "value": false
   }
