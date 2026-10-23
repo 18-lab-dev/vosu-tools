@@ -69,12 +69,14 @@ Not modelled (lazer draws them from gameplay state the preview does not
 simulate): judgement sprites, kiai glow and drum hits in taiko; caught-fruit
 stacks on the plate, catch hit lighting, explosions and dash trails.
 
-The oversized-texture rule (`Skin.blank`) follows osu!framework 2026.921.1:
-`Texture.SetData` only checks `upload.Bounds`, which is empty for whole-image
-uploads, so `GLTexture` calls `glTexImage2D` beyond `GL_MAX_TEXTURE_SIZE`,
-which fails and leaves an incomplete texture that samples (0, 0, 0, 1). The
-headless test renderer has no such limit, so the golden harness cannot show
-it; `test/texture-limit.test.ts` covers the loader side.
+The optional oversized-texture rule (`Skin.blank`, off unless a caller passes
+`maxTextureSize`) is a source-reading hypothesis from osu!framework 2026.921.1,
+not a verified render: `Texture.SetData` only checks `upload.Bounds`, which is
+empty for whole-image uploads, so the GL backend may call `glTexImage2D` beyond
+`GL_MAX_TEXTURE_SIZE`; what the client then draws depends on the renderer
+backend (GL, Vulkan, Metal, D3D11) and driver. The headless harness has no such
+limit, so no lazer render backs it; `test/texture-limit.test.ts` covers only the
+loader side.
 
 `test/reference/VosuLayout.cs` does the same for taiko and catch
 (`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`).

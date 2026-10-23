@@ -10,7 +10,6 @@ import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
 export {
   loadSkin,
-  LAZER_MAX_TEXTURE_SIZE,
   assetNames,
   legacySliderStyle,
 } from "./skin";

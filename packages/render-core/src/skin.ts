@@ -139,15 +139,13 @@ const animated = new Set([
   "spinner-glow",
 ]);
 /** Resolves logical asset names once. SD dimensions survive @2x selection and atlas packing. */
-/**
- * The largest image osu!lazer can draw: GL_MAX_TEXTURE_SIZE on current
- * desktop GPUs. Larger images (mania hold bodies of some skins) are kept as
- * lazer keeps them, but marked `blank` (see `Skin.blank`).
- */
-export const LAZER_MAX_TEXTURE_SIZE = 32768;
-
 export interface LoadSkinOptions {
-  /** Images larger than this on either axis are drawn black (default LAZER_MAX_TEXTURE_SIZE). */
+  /**
+   * Images larger than this on either axis are marked `blank` (drawn black),
+   * emulating a client whose GPU upload fails. Off unless given: the limit
+   * and the resulting pixels depend on the client's renderer backend and GPU,
+   * and no measured value is reported to tools yet.
+   */
   maxTextureSize?: number;
 }
 
@@ -156,7 +154,7 @@ export async function loadSkin(
   name = "Client skin",
   options: LoadSkinOptions = {},
 ): Promise<Skin> {
-  const maxTextureSize = options.maxTextureSize ?? LAZER_MAX_TEXTURE_SIZE;
+  const maxTextureSize = options.maxTextureSize ?? Infinity;
   const skin: Skin = {
     name,
     assets: new Map(),
