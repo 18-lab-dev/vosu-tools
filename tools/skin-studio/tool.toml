@@ -2,7 +2,7 @@ manifest_version = 1
 id = "skin-studio"
 name = "Skin studio"
 version = "0.1.0"
-description = "Browse stable and lazer skins, preview elements, animations and hitsounds, mix element groups into a new stable skin or lazer .osk, and edit skin.ini"
+description = "Browse stable and lazer skins, preview elements and gameplay in every ruleset, mix element groups or single assets into a new stable skin or a downloadable .osk, and edit skin.ini"
 author = "18-LAB"
 icon = "art/icon.svg"
 banner = "art/banner.svg"
@@ -16,11 +16,11 @@ startup = "on-demand"
 
 [cli]
 command = ["bin/vosu-skin-studio", "cli"]
-summary = "List skins; export a skin or a saved mix plan as a stable skin or lazer .osk"
+summary = "List skins; save a skin or a mix plan as an .osk or a new stable skin"
 
 [api]
-read = ["/v1/library", "/v1/skin", "/v1/asset", "/v1/animation"]
-write = ["/v1/save", "/v1/folders", "/v1/build", "/v1/open"]
+read = ["/v1/library", "/v1/skin", "/v1/asset", "/v1/animation", "/v1/exports"]
+write = ["/v1/save", "/v1/folders", "/v1/build", "/v1/exports"]
 
 [permissions]
 host = ["context"]

@@ -140,17 +140,43 @@
   border-radius: var(--radius);
 }
 .elements-view,
-.ini-view {
+.ini-view,
+.preview-view {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
 }
 .elements-view > .v-toolbar,
-.ini-view > .v-toolbar {
+.ini-view > .v-toolbar,
+.preview-view > .v-toolbar {
   flex: none;
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--hair) solid var(--rule);
+}
+.preview-view > .v-toolbar {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+.pv-state {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--step--1);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.pv-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+.pv-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 .groups {
   flex: 1;
@@ -252,6 +278,9 @@
   color: var(--muted);
   font-size: var(--step--2);
 }
+.tile .use {
+  align-self: start;
+}
 .tile.audio {
   flex-direction: row;
   grid-column: span 2;
@@ -261,6 +290,10 @@
   border: var(--hair) solid var(--rule);
   border-radius: var(--radius);
   cursor: default;
+}
+.tile.audio .use {
+  align-self: center;
+  margin-left: auto;
 }
 .missing {
   margin: var(--space-2) 0 0;
@@ -374,11 +407,43 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.mix-picks .pick-fallback {
+  display: block;
+  overflow: hidden;
+  color: var(--caution);
+  font-size: var(--step--2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .mix-picks .empty {
   display: block;
   padding: var(--space-3);
   border: 0;
   color: var(--muted);
+}
+.mix-picks li.override {
+  padding-left: var(--space-5);
+  border-bottom-style: dashed;
+}
+.override-name {
+  display: block;
+  overflow: hidden;
+  font-size: var(--step--2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.override-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+  margin-top: 2px;
+}
+.override-tools .v-select {
+  width: auto;
+  max-width: 12rem;
+  height: var(--control-h-sm);
+  font-size: var(--step--1);
 }
 .mix-foot {
   display: grid;

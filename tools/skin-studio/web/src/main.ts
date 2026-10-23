@@ -31,6 +31,18 @@ import {
   recipeSkins,
 } from "./plan";
 import { getValue, parseIni } from "./ini";
+import {
+  type AssetRef,
+  type Carry,
+  type OverrideNote,
+  assetId,
+  fontOf,
+  fontPrefixes,
+  parseAssetId,
+  unitFiles,
+} from "./assets";
+import { Preview, type Resolver } from "./preview";
+import type { DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
   key: string;
@@ -50,9 +62,8 @@ interface Library {
     builtin: string | null;
   } | null;
   stable_dir: string | null;
-  export_dir: string;
   lazer: { enabled: boolean; available: boolean; error: string | null };
-  settings: { start_ruleset: string; open_osk: boolean; credits: boolean };
+  settings: { start_ruleset: string; credits: boolean };
   skins: Skin[];
 }
 interface Snapshot {
@@ -107,7 +118,7 @@ const loaded = new Map<string, Loaded>();
 let focused: string | null = null;
 let category: Category = "osu";
 let categoryChosen = false;
-let view: "elements" | "ini" = "elements";
+let view: "elements" | "ini" | "preview" = "elements";
 let iniMode: "focus" | "mix" = "focus";
 let saving = false;
 let conflict = false;
@@ -117,6 +128,23 @@ let composedIni = "";
 let composeError = "";
 let counts = new Map<string, number>();
 let blanks = 0;
+let notes = new Map<string, OverrideNote>();
+/** Per picked group: base elements the client will draw from its own skin. */
+let fallbacks = new Map<string, string[]>();
+function fallbackLine(gid: string) {
+  const lost = fallbacks.get(gid);
+  if (!lost?.length) return null;
+  return h(
+    "span",
+    { class: "pick-fallback", title: lost.join("\n") },
+    lost.length === 1
+      ? `${lost[0]} falls back to osu!'s built-in look`
+      : `${lost.length} base elements fall back to osu!'s built-in look`,
+  );
+}
+/** The last composed plan (skin.ini replaced by the draft text when built). */
+let lastPlan: Plan | null = null;
+let mixVersion = 0;
 let currentSkinName: string | null = null;
 
 const RECIPE_KEY = "skin-studio:recipe";
@@ -547,13 +575,18 @@ function renderFocus() {
   );
   useBase.textContent =
     recipe.base === focused && focused ? "Mix base" : "Use as mix base";
+  const focusOsk = $<HTMLButtonElement>("#focus-osk");
+  focusOsk.disabled = !entry || !vosu.canWrite;
+  focusOsk.title = vosu.canWrite ? "" : "Read-only tab";
   renderColours();
-  $("#guide").hidden = !!focused || view === "ini";
+  $("#guide").hidden = !!focused || view !== "elements";
   $("#elements-view").hidden = !focused || view !== "elements";
   $("#ini-view").hidden = view !== "ini";
+  $("#preview-view").hidden = view !== "preview";
   renderCats();
   renderGroups();
   renderIni();
+  updatePreview();
 }
 
 // ---- elements --------------------------------------------------------------
@@ -585,10 +618,37 @@ function fps(data: SkinData, count: number) {
   return Number.isFinite(rate) && rate > 0 ? rate : count;
 }
 
-/** Collapses a group's files into preview tiles (frames become one tile). */
-function tiles(data: SkinData, owned: string[]): Node[] {
+/**
+ * Collapses a group's files into preview tiles, one per mix unit: frames and
+ * @2x variants join their image; in Numbers & fonts a prefix's glyphs are one font.
+ */
+function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
+  const nodes: Node[] = [];
+  const glyphs = new Map<string, string[]>();
+  if (fonts)
+    for (const file of owned) {
+      const prefix = fontOf(file);
+      if (prefix) glyphs.set(prefix, [...(glyphs.get(prefix) ?? []), file]);
+    }
+  for (const [prefix, files] of glyphs) {
+    const sample =
+      files.find((f) => /-0@2x\.[^.]+$/i.test(f)) ??
+      files.find((f) => /-0\.[^.]+$/i.test(f)) ??
+      files[0];
+    const count = new Set(files.map(stem)).size;
+    nodes.push(
+      tile(prefix, assetUrl(data.key, sample), `${count} glyphs`, {
+        ref: { kind: "font", name: prefix },
+        skin: data.key,
+      }),
+    );
+  }
   const byStem = new Map<string, string[]>();
+  // Glyphs of the skin's fonts (`hitcircle-1` under `HitCirclePrefix: hitcircle`)
+  // are not animation frames of the element with the prefix's name.
+  const prefixes = fonts ? undefined : fontPrefixes(parseIni(data.text));
   for (const file of owned) {
+    if (fonts ? fontOf(file) : prefixes!.has(fontOf(file) ?? "")) continue;
     const s = stem(file);
     byStem.set(s, [...(byStem.get(s) ?? []), file]);
   }
@@ -600,7 +660,6 @@ function tiles(data: SkinData, owned: string[]): Node[] {
       if (seq.length) animated.set(base, seq);
     }
   }
-  const nodes: Node[] = [];
   const covered = new Set<string>();
   for (const [base, seq] of animated) {
     for (const f of seq) covered.add(stem(f));
@@ -611,6 +670,7 @@ function tiles(data: SkinData, owned: string[]): Node[] {
         base,
         animationUrl(data.key, base),
         `${seq.length} frames · ${fps(data, seq.length)} fps${seq[0].includes("@2x") ? " · @2x" : ""}`,
+        { ref: { kind: "image", name: base }, skin: data.key },
       ),
     );
   }
@@ -623,12 +683,56 @@ function tiles(data: SkinData, owned: string[]): Node[] {
     }
     const hd = files.find((f) => /@2x\.[^.]+$/i.test(f));
     const file = hd ?? files[0];
-    nodes.push(tile(s, assetUrl(data.key, file), hd ? "@2x" : "SD"));
+    nodes.push(
+      tile(s, assetUrl(data.key, file), hd ? "@2x" : "SD", {
+        ref: { kind: "image", name: s },
+        skin: data.key,
+      }),
+    );
   }
   return nodes;
 }
 
-function tile(label: string, src: string, meta: string) {
+/** Takes one asset from a skin into the mix, or drops it when it already is. */
+function useAsset(ref: AssetRef, skin: string) {
+  const id = assetId(ref);
+  recipe.overrides ??= {};
+  if (recipe.overrides[id]?.skin === skin) delete recipe.overrides[id];
+  else recipe.overrides[id] = { skin };
+  persist();
+  renderGroups();
+  renderMix();
+  scheduleCompose();
+}
+
+/** The "Use in mix" toggle of a tile. */
+function useButton(unit: { ref: AssetRef; skin: string }, label: string) {
+  const current = recipe.overrides?.[assetId(unit.ref)];
+  const pressed = current?.skin === unit.skin;
+  const button = h(
+    "button",
+    {
+      type: "button",
+      class: "v-btn v-btn--sm use",
+      ariaPressed: String(pressed),
+      ariaLabel: `Use ${label} from this skin in the mix`,
+      title: current && !pressed ? `In mix from ${skinName(current.skin)}` : "",
+      onclick: (event: MouseEvent) => {
+        event.stopPropagation();
+        useAsset(unit.ref, unit.skin);
+      },
+    },
+    pressed ? "In mix" : "Use in mix",
+  );
+  return button;
+}
+
+function tile(
+  label: string,
+  src: string,
+  meta: string,
+  unit: { ref: AssetRef; skin: string },
+) {
   const figure = h(
     "figure",
     { class: "tile", tabIndex: 0, title: `${label} · ${meta}` },
@@ -643,10 +747,12 @@ function tile(label: string, src: string, meta: string) {
       h("span", { class: "tile-name" }, label),
       h("span", { class: "tile-meta" }, meta),
     ),
+    useButton(unit, label),
   );
   const toggle = () => figure.classList.toggle("zoomed");
   figure.onclick = toggle;
   figure.onkeydown = (e) => {
+    if (e.target !== figure) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       toggle();
@@ -695,6 +801,7 @@ function audioTile(data: SkinData, label: string, file: string) {
         `${file.split(".").pop()} · ${size ? `${Math.max(1, Math.round(size / 1024))} KB` : "empty"}`,
       ),
     ),
+    useButton({ ref: { kind: "sound", name: label }, skin: data.key }, label),
   );
 }
 const syncPlayer = () =>
@@ -781,7 +888,7 @@ function groupSection(group: Group, data: SkinData) {
         "Invisible images, silent sounds",
       ),
   );
-  const body = tiles(data, owned);
+  const body = tiles(data, owned, group.id === "numbers");
   return h(
     "section",
     { class: "group" },
@@ -866,21 +973,24 @@ $("#use-base").onclick = () => {
 };
 
 // ---- views -----------------------------------------------------------------
-function showView(next: "elements" | "ini") {
+function showView(next: typeof view) {
   view = next;
-  $("#tab-elements").setAttribute("aria-selected", String(view === "elements"));
-  $("#tab-ini").setAttribute("aria-selected", String(view === "ini"));
+  for (const name of ["elements", "ini", "preview"] as const)
+    $(`#tab-${name}`).setAttribute("aria-selected", String(view === name));
   $("#elements-view").hidden = view !== "elements" || !focused;
   $("#ini-view").hidden = view !== "ini";
-  $("#guide").hidden = !!focused || view === "ini";
+  $("#preview-view").hidden = view !== "preview";
+  $("#guide").hidden = !!focused || view !== "elements";
   if (view === "ini") {
     if (!focused) iniMode = "mix";
     renderIni();
     editor.layout();
   }
+  void showPreview(view === "preview");
 }
 $("#tab-elements").onclick = () => showView("elements");
 $("#tab-ini").onclick = () => showView("ini");
+$("#tab-preview").onclick = () => showView("preview");
 $("#ini-focus").onclick = () => {
   iniMode = "focus";
   renderIni();
@@ -917,7 +1027,7 @@ function scheduleCompose() {
   clearTimeout(composeTimer);
   composeTimer = window.setTimeout(() => void recompose(), 150);
 }
-async function composeFor(target: Plan["target"], fresh = false) {
+async function composeNow(fresh = false) {
   const keys = recipeSkins(recipe);
   const map = new Map<string, SkinData>();
   for (const key of keys) {
@@ -925,72 +1035,218 @@ async function composeFor(target: Plan["target"], fresh = false) {
       throw new Error(`${skinName(key)} is unavailable`);
     map.set(key, (await load(key, fresh)).data);
   }
-  return compose(recipe, map, target);
+  return compose(recipe, map);
+}
+/** The plan to build: the composed files with the draft skin.ini if edited. */
+async function planNow(fresh = false): Promise<Plan> {
+  const { plan } = await composeNow(fresh);
+  if (mixEdited() && mixModel.getValue()) plan.ini = mixModel.getValue();
+  return plan;
 }
 async function recompose() {
   try {
-    const composed = await composeFor("stable");
+    const composed = await composeNow();
     const wasEdited = mixEdited();
     composedIni = composed.plan.ini;
     counts = composed.counts;
     blanks = composed.plan.blanks.length;
+    notes = composed.notes;
+    fallbacks = composed.fallbacks;
+    lastPlan = composed.plan;
     composeError = "";
     if (!wasEdited || !mixModel.getValue()) mixModel.setValue(composedIni);
   } catch (error) {
     composeError = message(error);
   }
+  mixVersion++;
   renderMix();
   renderIni();
+  updatePreview();
+}
+
+const groupLabel = (id: string) =>
+  id === "other" ? "Other" : (groupById(id)?.label ?? id);
+
+/** Skins already read in this session that hold the unit, for "replace". */
+const holders = (ref: AssetRef) =>
+  [...loaded.values()]
+    .filter(
+      (l) =>
+        unitFiles(ref, l.data.files, fontPrefixes(parseIni(l.data.text)))
+          .length,
+    )
+    .map((l) => l.data.key);
+
+function setCarry(id: string, carry: Carry, on: boolean) {
+  const override = recipe.overrides?.[id];
+  if (!override) return;
+  const set = new Set(override.carry ?? []);
+  if (on) set.add(carry);
+  else set.delete(carry);
+  override.carry = [...set];
+  persist();
+  scheduleCompose();
+}
+
+function overrideRow(id: string) {
+  const override = recipe.overrides![id];
+  const ref = parseAssetId(id)!;
+  const note = notes.get(id);
+  const others = holders(ref);
+  if (!others.includes(override.skin)) others.unshift(override.skin);
+  const source = h(
+    "select",
+    {
+      class: "v-select",
+      ariaLabel: `${ref.name} from`,
+      onchange: (event: Event) => {
+        const target = event.currentTarget;
+        if (!(target instanceof HTMLSelectElement)) return;
+        recipe.overrides![id] = { skin: target.value };
+        persist();
+        renderGroups();
+        scheduleCompose();
+      },
+    },
+    ...others.map((key) =>
+      h(
+        "option",
+        { value: key, selected: key === override.skin },
+        skinName(key),
+      ),
+    ),
+  );
+  source.disabled = others.length < 2;
+  const badges: Node[] = [];
+  if (note?.carried.length)
+    badges.push(
+      h(
+        "span",
+        { class: "v-badge", title: note.carried.join("\n") },
+        `+${note.carried.length} skin.ini`,
+      ),
+    );
+  if (note?.unreferenced)
+    badges.push(
+      h(
+        "span",
+        {
+          class: "v-badge v-badge--warn",
+          title: "No skin.ini key names this file",
+        },
+        "unused",
+      ),
+    );
+  for (const offer of note?.offers ?? [])
+    badges.push(
+      h(
+        "button",
+        {
+          type: "button",
+          class: "v-btn v-btn--sm offer",
+          ariaPressed: String(offer.applied),
+          title: offer.changes.join("\n"),
+          onclick: () => setCarry(id, offer.id, !offer.applied),
+        },
+        offer.applied ? offer.label : `Carry ${offer.label.toLowerCase()}`,
+      ),
+    );
+  return h(
+    "li",
+    { class: "override" },
+    h(
+      "div",
+      {},
+      h(
+        "span",
+        { class: "v-mono override-name", title: id },
+        ref.kind === "font" ? `${ref.name}-*` : ref.name,
+      ),
+      h("div", { class: "override-tools" }, source, ...badges),
+    ),
+    h(
+      "button",
+      {
+        type: "button",
+        class: "v-btn v-btn--sm v-btn--ghost v-btn--icon",
+        ariaLabel: `Remove ${ref.name} from the mix`,
+        onclick: () => useAsset(ref, override.skin),
+      },
+      "×",
+    ),
+  );
 }
 
 function renderMix() {
   const base = recipe.base;
   $("#mix-base").textContent = base ? skinName(base) : "None";
   $("#mix-base-clear").hidden = !base;
-  const picks = Object.entries(recipe.picks)
-    .map(([id, pick]) => ({ id, pick, group: groupById(id) }))
-    .filter((p) => p.group);
-  $("#mix-picks").replaceChildren(
-    ...(picks.length
-      ? picks.map(({ id, pick, group }) =>
+  // Groups with a pick or with single-asset overrides, overrides listed under them.
+  const byGroup = new Map<string, string[]>();
+  for (const id of Object.keys(recipe.picks))
+    if (groupById(id)) byGroup.set(id, []);
+  for (const id of Object.keys(recipe.overrides ?? {})) {
+    const group = notes.get(id)?.group ?? "other";
+    byGroup.set(group, [...(byGroup.get(group) ?? []), id]);
+  }
+  const rows: Node[] = [];
+  for (const [gid, ids] of byGroup) {
+    const group = groupById(gid);
+    const pick = recipe.picks[gid];
+    rows.push(
+      h(
+        "li",
+        { class: pick ? "" : "group-only" },
+        h(
+          "div",
+          {},
           h(
-            "li",
+            "span",
             {},
+            groupLabel(gid),
+            " ",
             h(
-              "div",
-              {},
-              h(
-                "span",
-                {},
-                group!.label,
-                " ",
-                h(
-                  "span",
-                  { class: "v-muted" },
-                  categories.find((c) => c.id === group!.category)?.label ?? "",
-                ),
-              ),
-              h("span", { class: "pick-source" }, pickLabel(pick)),
+              "span",
+              { class: "v-muted" },
+              group
+                ? (categories.find((c) => c.id === group.category)?.label ?? "")
+                : "",
             ),
-            h(
+          ),
+          h(
+            "span",
+            { class: "pick-source" },
+            pick ? pickLabel(pick) : pickLabel(undefined),
+          ),
+          fallbackLine(gid),
+        ),
+        pick
+          ? h(
               "button",
               {
                 type: "button",
                 class: "v-btn v-btn--sm v-btn--ghost v-btn--icon",
-                ariaLabel: `Remove ${group!.label} from the mix`,
-                onclick: () => setPick(id, null),
+                ariaLabel: `Remove ${groupLabel(gid)} from the mix`,
+                onclick: () => setPick(gid, null),
               },
               "×",
-            ),
-          ),
-        )
+            )
+          : null,
+      ),
+      ...ids.map(overrideRow),
+    );
+  }
+  $("#mix-picks").replaceChildren(
+    ...(rows.length
+      ? rows
       : [h("li", { class: "empty" }, "No groups picked.")]),
   );
+  const overrides = Object.keys(recipe.overrides ?? {}).length;
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
   $("#mix-summary").replaceChildren(
     ...(composeError
       ? [h("span", { class: "error" }, composeError)]
-      : total || picks.length || base
+      : total || byGroup.size || base
         ? [
             `${total} files`,
             ...[...counts].map(([key, n]) => ` · ${n} ${skinName(key)}`),
@@ -998,11 +1254,11 @@ function renderMix() {
           ]
         : []),
   );
-  const empty = !base && !picks.length;
+  const empty = !base && !Object.keys(recipe.picks).length && !overrides;
   const reason = !vosu.canWrite
     ? "Read-only tab"
     : empty
-      ? "Pick a base or a group"
+      ? "Pick a base, a group or an asset"
       : composeError;
   const stable = $<HTMLButtonElement>("#build-stable");
   const osk = $<HTMLButtonElement>("#build-osk");
@@ -1013,8 +1269,7 @@ function renderMix() {
     (library?.stable_dir
       ? `${library.stable_dir}/${recipe.name.trim()}`
       : "No Skins folder");
-  osk.title =
-    reason || `${library?.export_dir ?? ""}/${recipe.name.trim()}.osk`;
+  osk.title = reason || `${recipe.name.trim()}.osk`;
 }
 $("#mix-base-clear").onclick = () => {
   recipe.base = null;
@@ -1026,7 +1281,7 @@ $("#mix-base-clear").onclick = () => {
 };
 $("#mix-reset").onclick = () => {
   if (!confirm("Clear the mix?")) return;
-  recipe = { name: recipe.name, base: null, picks: {} };
+  recipe = { name: recipe.name, base: null, picks: {}, overrides: {} };
   persist();
   mixModel.setValue("");
   composedIni = "";
@@ -1041,8 +1296,7 @@ $("#mix-ini").onclick = () => {
 };
 $("#mix-plan").onclick = async () => {
   try {
-    const { plan } = await composeFor(library?.stable_dir ? "stable" : "osk");
-    plan.ini = mixModel.getValue() || plan.ini;
+    const plan = await planNow();
     const link = h("a", {
       href: URL.createObjectURL(
         new Blob([JSON.stringify(plan, null, 2)], { type: "application/json" }),
@@ -1057,8 +1311,63 @@ $("#mix-plan").onclick = async () => {
   }
 };
 
+/**
+ * Hands a plan to the browser as `<name>.osk`: the service accepts it, then
+ * streams the archive from a one-time URL the page opens as a download.
+ */
+async function downloadOsk(plan: Plan) {
+  const exported = await post<{ url: string; filename: string }>(
+    "v1/exports",
+    plan,
+  );
+  const link = h("a", {
+    href: toolBase + exported.url,
+    download: exported.filename,
+  });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  return exported.filename;
+}
+
+/** A skin's display name as a valid skin/archive name. */
+const fileSafe = (name: string) =>
+  name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/^[.\s]+|[.\s]+$/g, "")
+    .slice(0, 120) || "Skin";
+
+$("#focus-osk").onclick = async () => {
+  if (!focused) return;
+  const entry = loaded.get(focused);
+  if (!entry) return;
+  try {
+    const name = fileSafe(skinName(focused));
+    const filename = await downloadOsk({
+      name,
+      overwrite: false,
+      ini: entry.snapshot.text,
+      sources: [
+        {
+          skin: focused,
+          files: entry.data.files.filter(
+            (f) =>
+              !/^skin\.ini$/i.test(f) &&
+              !/\.bak$/i.test(f) &&
+              !/^skin-studio-credits\.txt$/i.test(f),
+          ),
+        },
+      ],
+      blanks: [],
+    });
+    status.textContent = `Downloading ${filename}`;
+  } catch (error) {
+    status.textContent = message(error);
+  }
+};
+
 let building = false;
-async function buildMix(target: Plan["target"]) {
+async function buildMix(target: "stable" | "osk") {
   building = true;
   renderMix();
   const result = $("#mix-result");
@@ -1071,18 +1380,15 @@ async function buildMix(target: Plan["target"]) {
   );
   try {
     // Re-read every source so the plan matches the files on disk now.
-    const composed = await composeFor(target, true);
-    const plan = composed.plan;
-    plan.ini =
-      mixEdited() && mixModel.getValue()
-        ? mixModel.getValue()
-        : composed.plan.ini;
-    let built: {
-      path: string;
-      replaced: boolean;
-      files: number;
-      opened: boolean;
-    };
+    const plan = await planNow(true);
+    if (target === "osk") {
+      const filename = await downloadOsk(plan);
+      result.replaceChildren(
+        h("p", { class: "ok" }, `Downloading ${filename}`),
+      );
+      return;
+    }
+    let built: { path: string; replaced: boolean; files: number };
     try {
       built = await post("v1/build", plan);
     } catch (error) {
@@ -1093,34 +1399,14 @@ async function buildMix(target: Plan["target"]) {
       }
       built = await post("v1/build", { ...plan, overwrite: true });
     }
-    const nodes: Node[] = [
+    result.replaceChildren(
       h(
         "p",
         { class: "ok" },
         `${built.replaced ? "Replaced" : "Created"} · ${built.files} files`,
       ),
       h("p", { class: "v-mono v-muted" }, built.path),
-    ];
-    if (target === "osk")
-      nodes.push(
-        h(
-          "div",
-          {},
-          h(
-            "button",
-            {
-              type: "button",
-              class: "v-btn v-btn--sm",
-              onclick: () =>
-                void post("v1/open", { path: built.path })
-                  .then(() => (status.textContent = "Opened"))
-                  .catch((e) => (status.textContent = message(e))),
-            },
-            built.opened ? "Open again" : "Open with lazer",
-          ),
-        ),
-      );
-    result.replaceChildren(...nodes);
+    );
     status.textContent = "";
     await loadLibrary();
   } catch (error) {
@@ -1132,6 +1418,214 @@ async function buildMix(target: Plan["target"]) {
 }
 $("#build-stable").onclick = () => void buildMix("stable");
 $("#build-osk").onclick = () => void buildMix("osk");
+
+// ---- preview ----------------------------------------------------------------
+const PREVIEW_KEY = "skin-studio:preview";
+const previewPrefs: {
+  source: "focus" | "mix";
+  ruleset: string;
+  keys: number;
+  playing: boolean;
+} = (() => {
+  const fallback = {
+    source: "focus" as const,
+    ruleset: "",
+    keys: 4,
+    playing: true,
+  };
+  try {
+    return {
+      ...fallback,
+      ...JSON.parse(localStorage.getItem(PREVIEW_KEY) ?? "{}"),
+    };
+  } catch {
+    return fallback;
+  }
+})();
+const savePreview = () =>
+  localStorage.setItem(PREVIEW_KEY, JSON.stringify(previewPrefs));
+const pvState = $("#pv-state");
+const preview = new Preview(
+  $<HTMLCanvasElement>("#pv-canvas"),
+  $("#pv-stage"),
+  (text) => (pvState.textContent = text),
+);
+
+/** Fetched skin files, shared by every preview load (cleared when large). */
+const blobs = new Map<string, Promise<Blob | null>>();
+function fetchBlob(skin: string, file: string): Promise<Blob | null> {
+  const key = `${skin}\n${file}`;
+  let pending = blobs.get(key);
+  if (!pending) {
+    if (blobs.size > 4000) blobs.clear();
+    pending = fetch(assetUrl(skin, file), { credentials: "omit" }).then(
+      (r) => (r.ok ? r.blob() : null),
+      () => null,
+    );
+    blobs.set(key, pending);
+  }
+  return pending;
+}
+let blankPng: Promise<Blob> | undefined;
+const blank = (kind: "png" | "wav") =>
+  kind === "wav"
+    ? Promise.resolve(new Blob([]))
+    : (blankPng ??= new OffscreenCanvas(1, 1).convertToBlob({
+        type: "image/png",
+      }));
+const iniBlob = (text: string) =>
+  Promise.resolve(new Blob([text], { type: "text/plain" }));
+
+function focusResolver(key: string): Resolver | null {
+  const entry = loaded.get(key);
+  if (!entry) return null;
+  const names = new Map(entry.data.files.map((f) => [f.toLowerCase(), f]));
+  const text = focusModel.getValue();
+  return (file) => {
+    const lower = file.toLowerCase();
+    if (lower === "skin.ini")
+      return iniBlob(focused === key ? text : entry.snapshot.text);
+    const name = names.get(lower);
+    return name ? fetchBlob(key, name) : Promise.resolve(null);
+  };
+}
+function mixResolver(plan: Plan): Resolver {
+  const files = new Map<string, () => Promise<Blob | null>>();
+  for (const source of plan.sources)
+    for (const file of source.files) {
+      const [from, to] = typeof file === "string" ? [file, file] : file;
+      files.set(to.toLowerCase(), () => fetchBlob(source.skin, from));
+    }
+  for (const item of plan.blanks)
+    files.set(item.to.toLowerCase(), () => blank(item.kind));
+  const ini = mixModel.getValue() || plan.ini;
+  return (file) => {
+    const lower = file.toLowerCase();
+    if (lower === "skin.ini") return iniBlob(ini);
+    return files.get(lower)?.() ?? Promise.resolve(null);
+  };
+}
+
+function renderPreviewControls() {
+  $("#pv-focus").setAttribute(
+    "aria-pressed",
+    String(previewPrefs.source === "focus"),
+  );
+  $("#pv-mix").setAttribute(
+    "aria-pressed",
+    String(previewPrefs.source === "mix"),
+  );
+  for (const b of document.querySelectorAll<HTMLButtonElement>(
+    "#pv-rulesets button",
+  ))
+    b.setAttribute(
+      "aria-pressed",
+      String(b.dataset.demo === previewPrefs.ruleset),
+    );
+  for (const b of document.querySelectorAll<HTMLButtonElement>(
+    "#pv-keys button",
+  ))
+    b.setAttribute(
+      "aria-pressed",
+      String(Number(b.dataset.keys) === previewPrefs.keys),
+    );
+  $("#pv-keys").hidden = previewPrefs.ruleset !== "mania";
+  const play = $("#pv-play");
+  play.setAttribute("aria-pressed", String(previewPrefs.playing));
+  play.textContent = previewPrefs.playing ? "Pause" : "Play";
+}
+const demoId = (): DemoId =>
+  previewPrefs.ruleset === "mania"
+    ? previewPrefs.keys === 7
+      ? "mania-7k"
+      : "mania-4k"
+    : (previewPrefs.ruleset as DemoId);
+
+// skin.ini edits (draft or the selected skin's) reach the preview after a pause.
+let focusVersion = 0;
+const afterEdit = (bump: () => void) => {
+  let timer = 0;
+  return () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      bump();
+      updatePreview();
+    }, 400);
+  };
+};
+mixModel.onDidChangeContent(afterEdit(() => mixVersion++));
+focusModel.onDidChangeContent(afterEdit(() => focusVersion++));
+
+/** Hands the preview the skin it should draw now (cheap when unchanged). */
+function updatePreview() {
+  if (view !== "preview") return;
+  if (previewPrefs.source === "mix") {
+    void preview.setSource({
+      key: "mix",
+      version: mixVersion,
+      name: recipe.name,
+      resolve: lastPlan ? mixResolver(lastPlan) : null,
+    });
+  } else {
+    const entry = focused ? loaded.get(focused) : undefined;
+    void preview.setSource({
+      key: `skin:${focused ?? ""}`,
+      version: entry ? focusVersion + 1 : 0,
+      name: focused ? skinName(focused) : "",
+      resolve: focused ? focusResolver(focused) : null,
+    });
+  }
+}
+
+async function showPreview(visible: boolean) {
+  if (visible) {
+    if (!previewPrefs.ruleset)
+      previewPrefs.ruleset = ["osu", "taiko", "fruits", "mania"].includes(
+        category,
+      )
+        ? category
+        : "osu";
+    renderPreviewControls();
+    preview.setDemo(demoId());
+    preview.setPlaying(previewPrefs.playing);
+    updatePreview();
+  }
+  await preview.show(visible);
+}
+$("#pv-focus").onclick = () => {
+  previewPrefs.source = "focus";
+  savePreview();
+  renderPreviewControls();
+  updatePreview();
+};
+$("#pv-mix").onclick = () => {
+  previewPrefs.source = "mix";
+  savePreview();
+  renderPreviewControls();
+  updatePreview();
+};
+for (const b of document.querySelectorAll<HTMLButtonElement>(
+  "#pv-rulesets button",
+))
+  b.onclick = () => {
+    previewPrefs.ruleset = b.dataset.demo!;
+    savePreview();
+    renderPreviewControls();
+    preview.setDemo(demoId());
+  };
+for (const b of document.querySelectorAll<HTMLButtonElement>("#pv-keys button"))
+  b.onclick = () => {
+    previewPrefs.keys = Number(b.dataset.keys);
+    savePreview();
+    renderPreviewControls();
+    preview.setDemo(demoId());
+  };
+$("#pv-play").onclick = () => {
+  previewPrefs.playing = !previewPrefs.playing;
+  savePreview();
+  preview.setPlaying(previewPrefs.playing);
+  renderPreviewControls();
+};
 
 // ---- live game state -------------------------------------------------------
 const rulesets: Record<string, Category> = {

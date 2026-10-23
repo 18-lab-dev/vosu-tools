@@ -18,6 +18,18 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/demo-maps": {
+      "name": "@vosu-tools/demo-maps",
+      "version": "0.1.0",
+      "dependencies": {
+        "@vosu-tools/osu-parse": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+        "@vosu-tools/ruleset-convert": "workspace:*",
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/osu-parse": {
       "name": "@vosu-tools/osu-parse",
       "version": "0.1.0",
@@ -173,11 +185,14 @@
       "name": "@vosu-tools/skin-studio",
       "version": "0.1.0",
       "dependencies": {
+        "@vosu-tools/demo-maps": "workspace:*",
+        "@vosu-tools/render-core": "workspace:*",
         "@vosu-tools/skin-spec": "workspace:*",
         "@vosu-tools/tool-web": "workspace:*",
         "monaco-editor": "0.52.2",
       },
       "devDependencies": {
+        "@webgpu/types": "latest",
         "typescript": "^5.7.3",
         "vite": "^6.1.0",
       },
@@ -313,6 +328,8 @@
     "@vgpu/wgsl-std": ["@vgpu/wgsl-std@0.6.0", "", {}, "sha512-C2C52G40p+54FKPAVzaXlffi4hLKK5xViTuINVH/CfBWb70qOL2WJ7cBiEpY5guvXAWHCJ1wyg+n6RSy92XnsA=="],
 
     "@vosu-tools/client-skin": ["@vosu-tools/client-skin@workspace:packages/client-skin"],
+
+    "@vosu-tools/demo-maps": ["@vosu-tools/demo-maps@workspace:packages/demo-maps"],
 
     "@vosu-tools/downloader": ["@vosu-tools/downloader@workspace:tools/downloader/web"],
 

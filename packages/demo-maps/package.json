@@ -1,0 +1,19 @@
+{
+  "name": "@vosu-tools/demo-maps",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "exports": "./src/index.ts",
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@vosu-tools/osu-parse": "workspace:*"
+  },
+  "devDependencies": {
+    "@vosu-tools/ruleset-convert": "workspace:*",
+    "typescript": "^5.9.3",
+    "@types/bun": "latest"
+  }
+}

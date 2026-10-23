@@ -12,12 +12,22 @@ Browse osu! skins, preview their elements, mix element groups from several skins
 
 A mix is a base skin (optional) plus per-group picks: a source skin, `default` (leave the elements out so osu! uses its default skin) or `blank` (invisible 1×1 PNGs / silent samples). Groups are per ruleset (`web/src/groups.ts`): hit circles, combo colours, sliders, spinner, judgements; taiko drum, notes, judgements, pippidon; catch fruits, catcher; default mania elements plus one group per `[Mania]` key count (the whole block and the images it references); cursor; numbers and fonts (including files under their skin.ini prefixes); HUD, song select, mod icons, main menu, pause/fail, results; hitsounds, spinner/combo sounds, interface sounds. A group owns its element files (`name`, `name@2x`, animation frames `name-N`/`nameN`) and its skin.ini keys; image and prefix keys bring the files they reference.
 
-The UI composes the mix into a build plan and posts it to `POST /v1/build` (write route):
+`blank` writes an invisible file under the name of every file the base had in the group (`@2x` and animation frames included, so wildcard groups such as default mania elements are covered too); without one the client would fall back to its built-in look, e.g. lazer's grey classic `mania-stage-hint`. A base file that a skin.ini key the mix keeps still names (say another key count's `StageHint: mania-stage-hint`) is kept whatever its group's pick. When `default` or a source skin leaves base elements to the client's built-in look, the Mix panel says so in one line under the group.
+
+### Single assets
+
+On top of groups, a mix can take single assets from any skin (`overrides` in the recipe, `web/src/assets.ts`). A unit is an image with its `@2x` variant and animation frames, a sound, or a font (a skin.ini prefix's glyph set, e.g. `score-*`). An override wins over its group's pick and the base. Lookups follow the clients' legacy rules, so taking a file also carries the skin.ini keys that make the client draw it:
+
+- a `[Mania]` image key (`NoteImage0`, `KeyImage1D`, `StageLeft`, …) that names the file in the source's block for that key count is copied into the mix's block, so the mix draws the file instead of whatever its own block names;
+- a font unit sets its prefix key (`HitCirclePrefix`, `ScorePrefix`, `ComboPrefix`) to the copied prefix, keeping prefixes other units still use;
+- files that no key names and that are not looked up by default name are kept but marked "unused";
+- where an asset depends on configuration that would change other things (for example a font's `HitCircleOverlap`, a mania column's `ColumnWidth`), the Mix panel offers to carry it instead of doing it silently (`carry` in the override).
+
+The UI composes the mix into a build plan:
 
 ```json
 {
   "name": "My mix",
-  "target": "stable",
   "overwrite": false,
   "ini": "[General]\r\nName: My mix\r\n…",
   "sources": [{ "skin": "/…/Skins/Base", "files": ["hitcircle.png", ["from.png", "to.png"]] }],
@@ -25,24 +35,26 @@ The UI composes the mix into a build plan and posts it to `POST /v1/build` (writ
 }
 ```
 
-`skin` is a library key from `GET /v1/library` (an absolute folder, or `lazer:<id>`). Stable output is staged in a hidden folder inside `Skins` and renamed into place; an existing skin of the same name is replaced only with `overwrite: true` (the UI asks first) and is swapped atomically. `.osk` output (a zip lazer imports) is written to `export_dir` (default: Downloads) through a temporary file and, with `open_osk`, handed to the operating system so lazer imports it. With `credits`, `skin-studio-credits.txt` lists the source skins.
+`skin` is a library key from `GET /v1/library` (an absolute folder, or `lazer:<id>`). `POST /v1/build` (write route) creates a stable skin: output is staged in a hidden folder inside `Skins` and renamed into place; an existing skin of the same name is replaced only with `overwrite: true` (the UI asks first) and is swapped atomically. `POST /v1/exports` (write route) accepts the same plan for an `.osk` (a zip lazer imports) and answers `{"url":"v1/exports/<id>","filename":"<name>.osk"}`; `GET` on that URL streams the archive once as a download, within a few minutes. Nothing is written outside `Skins`; the browser saves the `.osk` where the user chooses. With `credits`, `skin-studio-credits.txt` lists the source skins.
 
-**Download plan** in the studio saves this JSON; `vosux skin-studio build plan.json [--target osk] [--overwrite]` builds it later.
+**Download plan** in the studio saves this JSON; `vosux skin-studio build plan.json [--osk out.osk] [--overwrite]` builds it later.
 
 ## Previews
 
 `GET /v1/asset?skin=&name=` serves images and audio; `GET /v1/animation?skin=&element=` assembles an element's frames into a looping APNG at the skin's `AnimationFramerate` (or the whole sequence over one second when unset), cached by content hash in the tool cache folder (`animations/`).
 
+The **Preview** tab plays a short looping demo map per ruleset (`packages/demo-maps`: osu!, taiko, catch, mania 4K and 7K) through the shared WebGPU renderer (`packages/render-core`) with the selected skin, including unsaved skin.ini edits, or the mix draft with its overrides. It is muted and draws nothing while hidden.
+
 ## CLI
 
 ```sh
 vosux skin-studio list [--json]
-vosux skin-studio export "<skin name or key>" [--name NAME] [--stable] [--overwrite]
-vosux skin-studio build plan.json [--target stable|osk] [--overwrite]
+vosux skin-studio export "<skin name or key>" [--name NAME] [--stable | --out FILE.osk] [--overwrite]
+vosux skin-studio build plan.json [--osk FILE.osk] [--overwrite]
 ```
 
 `export` copies one whole skin (for example a stable skin into a lazer `.osk`).
 
 ## Settings
 
-`settings.json`: Stable Skins folder, show lazer skins, `.osk` export folder, open `.osk` after export, credits file, and which ruleset's elements to show first (`follow` tracks the current beatmap's ruleset live).
+`settings.json`: Stable Skins folder, show lazer skins, credits file, and which ruleset's elements to show first (`follow` tracks the current beatmap's ruleset live).

@@ -14,20 +14,6 @@
     "value": true
   },
   {
-    "uniqueID": "export_dir",
-    "type": "text",
-    "title": ".osk export folder",
-    "description": "Absolute folder for lazer .osk exports. Leave empty for your Downloads folder.",
-    "value": ""
-  },
-  {
-    "uniqueID": "open_osk",
-    "type": "checkbox",
-    "title": "Open .osk after export",
-    "description": "Hand each exported .osk to the operating system so osu!lazer imports it.",
-    "value": true
-  },
-  {
     "uniqueID": "credits",
     "type": "checkbox",
     "title": "Write a credits file",
@@ -39,7 +25,13 @@
     "type": "options",
     "title": "Element tab",
     "description": "Which ruleset's elements the studio shows first: follow the current beatmap, or always one ruleset.",
-    "options": ["follow", "osu", "taiko", "fruits", "mania"],
+    "options": [
+      "follow",
+      "osu",
+      "taiko",
+      "fruits",
+      "mania"
+    ],
     "value": "follow"
   }
 ]

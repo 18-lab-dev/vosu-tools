@@ -119,7 +119,6 @@ test("a base plus one group swaps exactly that group's files and keys", () => {
       picks: { sliders: { kind: "skin", key: other.key } },
     },
     skins,
-    "stable",
   );
   const fromBase = copied(plan, base.key);
   expect(fromBase).toContain("hitcircle@2x.png");
@@ -157,7 +156,6 @@ test("fonts follow their skin.ini prefixes; combo colours move as a set", () => 
       },
     },
     skins,
-    "osk",
   );
   expect(copied(plan, other.key).sort()).toEqual(
     ["default-0.png", "numbers/hit-0.png", "numbers/hit-1@2x.png"].sort(),
@@ -166,7 +164,6 @@ test("fonts follow their skin.ini prefixes; combo colours move as a set", () => 
   expect(getValue(ini, "Fonts", "HitCirclePrefix")).toBe("numbers/hit");
   expect(getValue(ini, "Colours", "Combo1")).toBe("2,2,2");
   expect(getValue(ini, "Colours", "Combo2")).toBe("3,3,3");
-  expect(plan.target).toBe("osk");
 });
 
 test("mania key-count groups replace one [Mania] block with its images", () => {
@@ -185,7 +182,6 @@ test("mania key-count groups replace one [Mania] block with its images", () => {
       picks: { "mania-keys-4": { kind: "skin", key: other.key } },
     },
     skins,
-    "stable",
   );
   const blocks = maniaBlocks(parseIni(plan.ini));
   expect(serializeIni([blocks.get(4)!])).toContain("NoteImage0: mania/note1");
@@ -206,7 +202,6 @@ test("default removes and blank hides a group", () => {
       },
     },
     skins,
-    "stable",
   );
   const fromBase = copied(plan, base.key);
   expect(fromBase).not.toContain("hitcircle.png");
@@ -224,11 +219,88 @@ test("without a base the mix starts from a minimal skin.ini", () => {
       picks: { cursor: { kind: "skin", key: other.key } },
     },
     skins,
-    "stable",
   );
   expect(plan.sources).toEqual([]);
   const ini = parseIni(plan.ini);
   expect(getValue(ini, "General", "Name")).toBe("Fresh");
   expect(getValue(ini, "General", "Version")).toBe("latest");
   expect(group("cursor").ini?.length).toBe(4);
+});
+
+const gameOver: SkinData = {
+  key: "base",
+  name: "base",
+  files: [
+    "skin.ini",
+    "mania-stage-hint.png",
+    "mania-stage-light@2x.png",
+    "mania-hit300g-0.png",
+    "lightingN.png",
+  ],
+  text: "[General]\nName: base\n[Mania]\nKeys: 4\nJudgementLine: 0\n",
+};
+
+test("blank hides every base file of a wildcard group, frames and @2x included", () => {
+  const { plan } = compose(
+    { name: "mix", base: "base", picks: { "mania-shared": { kind: "blank" } } },
+    new Map([["base", gameOver]]),
+  );
+  const blanks = plan.blanks.map((b) => b.to.toLowerCase());
+  for (const file of [
+    "mania-stage-hint.png",
+    "mania-stage-light@2x.png",
+    "mania-hit300g-0.png",
+    "lightingn.png",
+  ])
+    expect(blanks).toContain(file);
+  const copied = plan.sources.flatMap((s) =>
+    s.files.map((f) => (typeof f === "string" ? f : f[1])),
+  );
+  expect(copied.filter((f) => /^mania-/i.test(f))).toEqual([]);
+  const block = maniaBlocks(parseIni(plan.ini)).get(4)!;
+  expect(block.lines.some((l) => /^JudgementLine:\s*0$/.test(l.trim()))).toBe(
+    true,
+  );
+});
+
+test("a base file a kept skin.ini key names survives its group's pick", () => {
+  const base: SkinData = {
+    ...gameOver,
+    files: [...gameOver.files, "mania-stage-bottom.png"],
+    text:
+      "[General]\nName: base\n[Mania]\nKeys: 4\nJudgementLine: 0\n" +
+      "[Mania]\nKeys: 10\nStageHint: mania-stage-hint\n",
+  };
+  const arturia: SkinData = {
+    key: "other",
+    name: "other",
+    files: ["skin.ini", "mania-stage-light.png"],
+    text: "[General]\nName: other\n",
+  };
+  for (const pick of [
+    { kind: "default" as const },
+    { kind: "skin" as const, key: "other" },
+  ]) {
+    const { plan, fallbacks } = compose(
+      { name: "mix", base: "base", picks: { "mania-shared": pick } },
+      new Map([
+        ["base", base],
+        ["other", arturia],
+      ]),
+    );
+    const from = (name: string) =>
+      plan.sources.find((s) => s.files.includes(name))?.skin;
+    // The 10K block still names the hint, so the base's file stays.
+    expect(from("mania-stage-hint.png")).toBe("base");
+    expect(
+      maniaBlocks(parseIni(plan.ini))
+        .get(10)!
+        .lines.some((l) => /StageHint: mania-stage-hint/.test(l)),
+    ).toBe(true);
+    // Nothing names the bottom or the 300g frames: they fall back, and say so.
+    expect(fallbacks.get("mania-shared")).toEqual(
+      expect.arrayContaining(["mania-hit300g", "mania-stage-bottom"]),
+    );
+    expect(fallbacks.get("mania-shared")).not.toContain("mania-stage-hint");
+  }
 });

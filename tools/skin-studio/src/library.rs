@@ -49,13 +49,12 @@ impl From<SkinContext> for CurrentSkin {
     }
 }
 
-/// Effective `settings.json` values.
+/// Effective `settings.json` values. Unknown ids (such as the removed
+/// `export_dir` and `open_osk`) are ignored.
 #[derive(Deserialize, Serialize, Clone, Debug)]
 #[serde(default)]
 pub struct Settings {
     pub stable_skins_dir: String,
-    pub export_dir: String,
-    pub open_osk: bool,
     pub credits: bool,
     pub lazer_skins: bool,
     pub start_ruleset: String,
@@ -64,8 +63,6 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             stable_skins_dir: String::new(),
-            export_dir: String::new(),
-            open_osk: true,
             credits: true,
             lazer_skins: true,
             start_ruleset: "follow".into(),
@@ -105,7 +102,6 @@ pub struct LazerStatus {
 #[derive(Serialize, Debug)]
 pub struct UiSettings {
     pub start_ruleset: String,
-    pub open_osk: bool,
     pub credits: bool,
 }
 #[derive(Serialize, Debug)]
@@ -114,7 +110,6 @@ pub struct Library {
     pub current: Option<CurrentSkin>,
     /// Where new stable skins are created; null when unknown.
     pub stable_dir: Option<String>,
-    pub export_dir: String,
     pub lazer: LazerStatus,
     pub settings: UiSettings,
     pub skins: Vec<Skin>,
@@ -194,18 +189,6 @@ pub fn stable_dir(settings: &Settings, osu_dir: Option<&Path>) -> Option<PathBuf
         PathBuf::from(configured)
     };
     dir.canonicalize().ok().filter(|d| d.is_dir())
-}
-
-/// Export folder for .osk files: setting, else Downloads, else the data dir.
-pub fn export_dir(settings: &Settings, data_dir: &Path) -> PathBuf {
-    let configured = settings.export_dir.trim();
-    if !configured.is_empty() {
-        return PathBuf::from(configured);
-    }
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
-    home.map(|h| PathBuf::from(h).join("Downloads"))
-        .filter(|d| d.is_dir())
-        .unwrap_or_else(|| data_dir.join("exports"))
 }
 
 #[derive(Deserialize)]
@@ -371,13 +354,9 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
         client: context.client,
         current: context.skin.map(CurrentSkin::from),
         stable_dir: stable.map(|d| d.to_string_lossy().into_owned()),
-        export_dir: export_dir(&settings, &app.data_dir)
-            .to_string_lossy()
-            .into_owned(),
         lazer,
         settings: UiSettings {
             start_ruleset: settings.start_ruleset,
-            open_osk: settings.open_osk,
             credits: settings.credits,
         },
         skins,
@@ -623,8 +602,9 @@ mod tests {
     }
     #[test]
     fn settings_defaults_and_paths() {
-        let s: Settings = serde_json::from_str("{}").unwrap();
-        assert!(s.open_osk && s.credits && s.lazer_skins);
+        let s: Settings =
+            serde_json::from_str(r#"{"export_dir":"/old","open_osk":false}"#).unwrap();
+        assert!(s.credits && s.lazer_skins);
         let dir = tempfile::tempdir().unwrap();
         let skins = dir.path().join("Skins");
         fs::create_dir(&skins).unwrap();
@@ -634,10 +614,13 @@ mod tests {
         );
         assert_eq!(stable_dir(&s, None), None);
         let custom = Settings {
-            export_dir: "/tmp/x".into(),
+            stable_skins_dir: skins.to_string_lossy().into_owned(),
             ..s
         };
-        assert_eq!(export_dir(&custom, dir.path()), PathBuf::from("/tmp/x"));
+        assert_eq!(
+            stable_dir(&custom, None),
+            Some(skins.canonicalize().unwrap())
+        );
         assert_eq!(segment("a b/é"), "a%20b%2F%C3%A9");
     }
 }
