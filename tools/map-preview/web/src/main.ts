@@ -8,6 +8,7 @@ import {
 import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
   createRenderer,
+  maniaKeysFor,
   type BuiltinSkinName,
   type RenderOptions,
   type Renderer,
@@ -92,6 +93,8 @@ function showError(error: unknown): void {
   say(error instanceof Error ? error.message : String(error), "error");
 }
 const skins = new ClientSkin({
+  // Mania images are decoded per scene (see refreshScene).
+  maniaKeys: [],
   onChange(state) {
     renderer?.setSkin(state.skin);
     if (state.busy) skinPanel.setAttribute("aria-busy", "true");
@@ -276,6 +279,13 @@ function refreshScene(force = false): void {
   const options = renderOptions(),
     key = JSON.stringify(options);
   if (!map || (!force && key === sceneKey)) return;
+  // The skin decodes mania images for the stage on screen only; the previous
+  // scene stays drawn until they are ready (onChange then refreshes).
+  const keys = maniaKeysFor(map, options);
+  if (!skins.hasManiaKeys(keys)) {
+    void skins.useManiaKeys(keys);
+    return;
+  }
   sceneKey = key;
   try {
     renderer.setBeatmap(map, options);

@@ -8,7 +8,14 @@ import {
 import { buildAtlas, type Skin } from "./skin";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
-export { loadSkin, assetNames, legacySliderStyle } from "./skin";
+export {
+  loadSkin,
+  loadManiaKeys,
+  maniaImageNames,
+  assetNames,
+  legacySliderStyle,
+} from "./skin";
+export { maniaKeysFor } from "./scene";
 export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";

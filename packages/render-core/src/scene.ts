@@ -41,6 +41,24 @@ export interface RenderOptions {
    */
   comboColourNormalisation?: number;
 }
+/**
+ * The mania key counts a scene of this map draws (empty for other rulesets),
+ * for `loadManiaKeys`: the stage follows the map's CS after Difficulty
+ * Adjust and the `cs` override, like `setBeatmap`.
+ */
+export function maniaKeysFor(
+  map: Beatmap,
+  options: RenderOptions = {},
+): number[] {
+  if (map.mode !== 3) return [];
+  let cs = map.difficulty.cs;
+  for (const mod of options.mods ?? [])
+    if (mod.acronym.toUpperCase() === "DA")
+      cs = Number(mod.settings?.circle_size ?? cs);
+  if (options.cs !== undefined) cs = options.cs;
+  return [Math.max(1, Math.round(cs))];
+}
+
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
   chunks: { first: number; count: number; from: number; until: number }[];

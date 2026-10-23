@@ -1,7 +1,7 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
 import { planAtlas, type AtlasStrip } from "./atlas";
-import { normaliseManiaImage } from "./mania";
+import { maniaConfig, maniaLayout, normaliseManiaImage } from "./mania";
 export interface Skin {
   name: string;
   assets: Map<string, ImageBitmap>;
@@ -186,6 +186,39 @@ export interface LoadSkinOptions {
    * and no measured value is reported to tools yet.
    */
   maxTextureSize?: number;
+  /**
+   * The mania key counts to decode images for (each key count has its own
+   * [Mania] images, and hold bodies can be tens of megabytes each). Every key
+   * count when omitted; `loadManiaKeys` switches the set later.
+   */
+  maniaKeys?: readonly number[];
+}
+
+/** How a loaded skin decodes more images later (`loadManiaKeys`). */
+interface SkinSource {
+  resolve: (file: string) => Promise<Blob | null>;
+  maxTextureSize: number;
+  /** Every image name a scene in some ruleset may look up, mania aside. */
+  general: ReadonlySet<string>;
+  /** Asset keys (frames included) that belong to mania only. */
+  mania: ReadonlySet<string>;
+}
+const sources = new WeakMap<Skin, SkinSource>();
+
+/** Default mania element names (shared by every key count without overrides). */
+const maniaDefaults = new Set(
+  assetNames.filter((n) => n.startsWith("mania-") || /^lighting[NL]$/.test(n)),
+);
+
+/** The mania images a stage of `keys` columns looks up (custom paths and the defaults they fall back to). */
+export function maniaImageNames(skin: Skin, keys: number): Set<string> {
+  const names = new Set<string>();
+  // Report every lookup as missing, so every fallback candidate is recorded too.
+  maniaLayout(maniaConfig(skin, keys), (name) => {
+    names.add(name);
+    return undefined;
+  });
+  return names;
 }
 
 export async function loadSkin(
@@ -193,7 +226,6 @@ export async function loadSkin(
   name = "Client skin",
   options: LoadSkinOptions = {},
 ): Promise<Skin> {
-  const maxTextureSize = options.maxTextureSize ?? Infinity;
   const skin: Skin = {
     name,
     assets: new Map(),
@@ -221,8 +253,7 @@ export async function loadSkin(
         const rule = resolveCommand(section, key);
         if (rule?.since && skin.version < rule.since) delete block[key];
       }
-  const names = new Set(assetNames),
-    animationNames = new Set(animated);
+  const maniaNames = new Set(maniaDefaults);
   for (const section of skin.sections.get("Mania") ?? [])
     for (const [key, value] of Object.entries(section))
       if (
@@ -232,11 +263,93 @@ export async function loadSkin(
       ) {
         const asset = normaliseManiaImage(value);
         section[key] = asset;
-        names.add(asset);
-        animationNames.add(asset);
+        maniaNames.add(asset);
       }
+  const generalNames = new Set(assetNames.filter((n) => !maniaDefaults.has(n)));
   const prefix = skin.sections.get("Fonts")?.[0]?.HitCirclePrefix ?? "default";
-  for (let i = 0; i < 10; i++) names.add(`${prefix}-${i}`);
+  for (let i = 0; i < 10; i++) generalNames.add(`${prefix}-${i}`);
+  // A custom mania path can name a general element; it is general then.
+  for (const name of generalNames) maniaNames.delete(name);
+  const source: SkinSource = {
+    resolve,
+    maxTextureSize: options.maxTextureSize ?? Infinity,
+    general: generalNames,
+    mania: new Set(),
+  };
+  sources.set(skin, source);
+  const wanted = options.maniaKeys
+    ? new Set(options.maniaKeys.flatMap((k) => [...maniaImageNames(skin, k)]))
+    : maniaNames;
+  const loadedMania = await decode(skin, source, [
+    ...generalNames,
+    ...[...wanted].filter((n) => !generalNames.has(n)),
+  ]);
+  source.mania = new Set(
+    [...loadedMania].filter((key) => !isGeneral(key, generalNames)),
+  );
+  return skin;
+}
+
+/** Whether an asset key (or animation frame key) belongs to a general element. */
+const isGeneral = (key: string, general: ReadonlySet<string>) =>
+  general.has(key) ||
+  general.has(key.replace(/-\d+$/, "")) ||
+  (key.startsWith("sliderb") && general.has("sliderb"));
+
+/**
+ * The skin with mania images for exactly these key counts: images already
+ * decoded are shared, new ones are decoded, and mania images of other key
+ * counts are left out (the caller closes them once nothing draws the old
+ * skin). Skins not made by `loadSkin` are returned unchanged.
+ */
+export async function loadManiaKeys(
+  skin: Skin,
+  keys: readonly number[],
+): Promise<Skin> {
+  const source = sources.get(skin);
+  if (!source) return skin;
+  const wanted = new Set(keys.flatMap((k) => [...maniaImageNames(skin, k)]));
+  for (const name of source.general) wanted.delete(name);
+  const next: Skin = {
+    ...skin,
+    assets: new Map(),
+    pixelScale: new Map(),
+    animations: new Map(),
+    blank: new Set(),
+  };
+  // Keep every general asset and the wanted mania ones (with their frames).
+  const keep = (key: string) =>
+    !source.mania.has(key) ||
+    wanted.has(key) ||
+    wanted.has(key.replace(/-\d+$/, ""));
+  for (const [key, bitmap] of skin.assets)
+    if (keep(key)) {
+      next.assets.set(key, bitmap);
+      next.pixelScale!.set(key, skin.pixelScale?.get(key) ?? 1);
+      if (skin.blank?.has(key)) next.blank!.add(key);
+    }
+  for (const [key, frames] of skin.animations ?? [])
+    if (keep(key)) next.animations!.set(key, frames);
+  const nextSource: SkinSource = { ...source, mania: new Set() };
+  sources.set(next, nextSource);
+  const missing = [...wanted].filter(
+    (name) => !next.assets.has(name) && !next.animations!.has(name),
+  );
+  await decode(next, nextSource, missing);
+  nextSource.mania = new Set(
+    [...next.assets.keys()].filter((key) => !isGeneral(key, source.general)),
+  );
+  return next;
+}
+
+/** Decodes the named images (and their animation frames) into the skin; returns the keys it added. */
+async function decode(
+  skin: Skin,
+  source: SkinSource,
+  names: readonly string[],
+): Promise<Set<string>> {
+  const added = new Set<string>();
+  const { resolve, maxTextureSize } = source;
   async function image(key: string, path = key): Promise<boolean> {
     if (skin.assets.has(key)) return true;
     const normalized = path.replace(/\\/g, "/").replace(/\.png$/i, "");
@@ -257,6 +370,7 @@ export async function loadSkin(
           if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize)
             skin.blank!.add(key);
           skin.assets.set(key, bitmap);
+          added.add(key);
           skin.pixelScale!.set(
             key,
             /@2x(?:\.png)?$/i.test(candidate + suffix) ? 2 : 1,
@@ -277,10 +391,11 @@ export async function loadSkin(
         const name = pending[cursor++];
         await image(name);
         if (
-          !animationNames.has(name) &&
+          !animated.has(name) &&
           !name.startsWith("mania-") &&
           !name.startsWith("mania/") &&
-          !/lighting/i.test(name)
+          !/lighting/i.test(name) &&
+          source.general.has(name)
         )
           continue;
         const frames: string[] = [];
@@ -300,12 +415,13 @@ export async function loadSkin(
           if (!skin.assets.has(name)) {
             skin.assets.set(name, skin.assets.get(frames[0])!);
             skin.pixelScale!.set(name, skin.pixelScale!.get(frames[0])!);
+            added.add(name);
           }
         }
       }
     }),
   );
-  return skin;
+  return added;
 }
 /**
  * Skin images on array-texture pages (see atlas.ts) and one immutable frame

@@ -18,12 +18,15 @@ export class Preview {
   private startTime = 0;
   private frame = 0;
   private skin: Skin | undefined;
+  private showing = 0;
   readonly audio = new Audio();
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly onTick: (outputMs: number, durationMs: number, playing: boolean) => void,
     private readonly onError: (message: string) => void,
+    /** Readies the skin for a map (mania images per key count) before it is drawn. */
+    private readonly prepare?: (map: Beatmap) => Promise<void>,
   ) {
     this.audio.preload = 'auto';
     new ResizeObserver(() => this.resize()).observe(canvas);
@@ -52,7 +55,11 @@ export class Preview {
     const map = parseOsu(next.osu);
     if (!map.objects.length) throw new Error('The result has no hit objects.');
     if (!('gpu' in navigator)) throw new Error('Preview needs WebGPU.');
+    const seq = ++this.showing;
     const renderer = await this.ensureRenderer();
+    // The previous map stays drawn until the skin has what this one needs.
+    await this.prepare?.(map);
+    if (seq !== this.showing) return;
     const keepTime = this.current !== null;
     this.current = next;
     this.map = map;
