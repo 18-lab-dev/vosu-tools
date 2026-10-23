@@ -240,6 +240,10 @@ function renderOptions(): RenderOptions {
     hitLighting: game.visual.hitLighting ?? undefined,
     beatmapColours: game.visual.beatmapColours ?? undefined,
     snakingIn: game.visual.snakingIn ?? undefined,
+    // lazer normalises combo colours (default 0.2); stable does not.
+    comboColourNormalisation:
+      game.visual.comboColourNormalisation ??
+      (game.client === "lazer" ? 0.2 : undefined),
   };
 }
 /** Re-converts when the played ruleset or key mods change. */

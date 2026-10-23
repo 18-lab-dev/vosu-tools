@@ -13,14 +13,27 @@ const region = (first: number): AtlasRegion => ({
   count: 1,
   fps: 60,
 });
-test("a skinned taiko hit position replaces rather than duplicates its geometric fallback", () => {
+test("a skinned taiko hit target replaces rather than duplicates its geometric fallback", () => {
+  // lazer uses the legacy hit target (approach circle + big circle) only when
+  // the skin has taikobigcircle.
   const map = parseOsu("[General]\nMode:1\n[HitObjects]\n256,192,1000,1,0"),
-    scene = compileScene(map, {}, new Map([["approachcircle", region(99)]]));
-  let count = 0;
-  for (let i = 0; i < scene.count; i++)
-    if (scene.data[i * 24 + 20] === 10 && scene.data[i * 24 + 21] === 99)
-      count++;
-  expect(count).toBe(1);
+    scene = compileScene(
+      map,
+      {},
+      new Map([
+        ["approachcircle", region(99)],
+        ["taikobigcircle", region(98)],
+      ]),
+    );
+  const sprites = new Map<number, number>();
+  let fallbacks = 0;
+  for (let i = 0; i < scene.count; i++) {
+    const d = scene.data.subarray(i * 24, i * 24 + 24);
+    if (d[20] === 10) sprites.set(d[21], (sprites.get(d[21]) ?? 0) + 1);
+    if (d[20] === 1 && d[12] === 0) fallbacks++;
+  }
+  expect(sprites.get(99)).toBe(1);
+  expect(fallbacks).toBe(0);
 });
 test("modern spinner images suppress legacy sprites only at the supported skin version", () => {
   const map = parseOsu("[HitObjects]\n256,192,1000,8,0,3000"),

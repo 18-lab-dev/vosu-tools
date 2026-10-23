@@ -11,18 +11,18 @@ read from the MIT-licensed osu! (lazer) source:
 - License: MIT, Copyright (c) 2025 ppy Pty Ltd (text in
   `tools/map-preview/licenses/ppy-osu-MIT.txt`)
 
-| Element | Source consulted (paths under the repository) | Used |
-| --- | --- | --- |
-| Argon hit circle | `osu.Game.Rulesets.Osu/Skinning/Argon/ArgonMainCirclePiece.cs` | Border thickness `128·2/58`, gradient thickness ×2.5, layer sizes, `Darken(4)`, `Darken(0.1)`, `Darken(0.5/0.6)` colour factors |
-| Argon slider body | `…/Argon/ArgonSliderBody.cs`, `…/Argon/OsuArgonSkinTransformer.cs` | Path radius (outer gradient size / 2), border = gradient thickness, body `Darken(4)`, body alpha 0.98 / 0.92 (Pro) |
-| Triangles slider body | `osu.Game.Rulesets.Osu/Skinning/SliderBody.cs`, `…/Default/DrawableSliderPath.cs` | Border portion 0.128, body alpha 0.8 → 0.3 from edge to centre |
-| Classic slider body | `osu.Game.Rulesets.Osu/Skinning/Legacy/LegacySliderBody.cs` | Shadow portion `1 − 59/64` at 0.25 black, border portion 0.1875, `Darken(0.1)` → lightened accent, body opacity 0.7 |
-| Triangles hit circle | `…/Default/MainCirclePiece.cs`, `CirclePiece.cs`, `RingPiece.cs` | 9 px white ring, additive triangles at 50 % |
-| Combo colours | `osu.Game/Skinning/ArgonSkin.cs`, `SkinConfiguration.cs`, `DefaultLegacySkin.cs` | Argon's six colours; the default four |
-| Argon mania | `osu.Game.Rulesets.Mania/Skinning/Argon/*` | Column colours per key count, note 42 high with 0.82 accent and 3.4 corners, 60 / 120 column widths, hold body `Darken(0.6)`, column background `Darken(3)` at 0.8 |
-| Triangles mania | `…/Mania/Skinning/Default/*`, `ManiaTrianglesSkinTransformer.cs`, `UI/Column.cs`, `UI/Stage.cs` | Odd / even / special column colours, note 12 high, widths 80 / 70, `HIT_TARGET_POSITION` 110 |
-| Classic mania keys, hit target | `…/Mania/Skinning/Legacy/LegacyKeyArea.cs`, `LegacyHitTarget.cs` | Key images keep their own height (124.8 units from HitPosition 402 to the stage edge); the hint is drawn 0.9 × 1.6025 times its height |
-| Taiko | `osu.Game.Rulesets.Taiko/Skinning/Argon/*`, `…/Default/CirclePiece.cs`, `Objects/Hit.cs` | Argon ring thicknesses 20/70 and 5/70 and colours; default centre `#bb1177` / rim `#2299bb`; 8 px ring |
+| Element                        | Source consulted (paths under the repository)                                                   | Used                                                                                                                                                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Argon hit circle               | `osu.Game.Rulesets.Osu/Skinning/Argon/ArgonMainCirclePiece.cs`                                  | Border thickness `128·2/58`, gradient thickness ×2.5, layer sizes, `Darken(4)`, `Darken(0.1)`, `Darken(0.5/0.6)` colour factors                                    |
+| Argon slider body              | `…/Argon/ArgonSliderBody.cs`, `…/Argon/OsuArgonSkinTransformer.cs`                              | Path radius (outer gradient size / 2), border = gradient thickness, body `Darken(4)`, body alpha 0.98 / 0.92 (Pro)                                                 |
+| Triangles slider body          | `osu.Game.Rulesets.Osu/Skinning/SliderBody.cs`, `…/Default/DrawableSliderPath.cs`               | Border portion 0.128, body alpha 0.8 → 0.3 from edge to centre                                                                                                     |
+| Classic slider body            | `osu.Game.Rulesets.Osu/Skinning/Legacy/LegacySliderBody.cs`                                     | Shadow portion `1 − 59/64` at 0.25 black, border portion 0.1875, `Darken(0.1)` → lightened accent, body opacity 0.7                                                |
+| Triangles hit circle           | `…/Default/MainCirclePiece.cs`, `CirclePiece.cs`, `RingPiece.cs`                                | 9 px white ring, additive triangles at 50 %                                                                                                                        |
+| Combo colours                  | `osu.Game/Skinning/ArgonSkin.cs`, `SkinConfiguration.cs`, `DefaultLegacySkin.cs`                | Argon's six colours; the default four                                                                                                                              |
+| Argon mania                    | `osu.Game.Rulesets.Mania/Skinning/Argon/*`                                                      | Column colours per key count, note 42 high with 0.82 accent and 3.4 corners, 60 / 120 column widths, hold body `Darken(0.6)`, column background `Darken(3)` at 0.8 |
+| Triangles mania                | `…/Mania/Skinning/Default/*`, `ManiaTrianglesSkinTransformer.cs`, `UI/Column.cs`, `UI/Stage.cs` | Odd / even / special column colours, note 12 high, widths 80 / 70, `HIT_TARGET_POSITION` 110                                                                       |
+| Classic mania keys, hit target | `…/Mania/Skinning/Legacy/LegacyKeyArea.cs`, `LegacyHitTarget.cs`                                | Key images keep their own height (124.8 units from HitPosition 402 to the stage edge); the hint is drawn 0.9 × 1.6025 times its height                             |
+| Taiko                          | `osu.Game.Rulesets.Taiko/Skinning/Argon/*`, `…/Default/CirclePiece.cs`, `Objects/Hit.cs`        | Argon ring thicknesses 20/70 and 5/70 and colours; default centre `#bb1177` / rim `#2299bb`; 8 px ring                                                             |
 
 Lazer stage units convert to legacy skin.ini units by dividing by 1.6
 (lazer's legacy `POSITION_SCALE_FACTOR`).
@@ -50,6 +50,34 @@ under its MIT license: `osu.Game/Skinning/LegacyManiaSkinDecoder.cs`,
 foreground, column background, key area, hit target, note, hold head, tail
 and body pieces, hit explosion, `ManiaLegacySkinTransformer`). Element sizes
 come from osu!framework's `Sprite` / `TextureAnimation` sizing (2026.921.1).
+
+# Provenance of the legacy taiko and catch layouts
+
+`src/taiko.ts`, `src/fruits.ts`, `src/colour.ts` and the matching parts of
+`src/shader.ts` are a port (translated code) of osu! (lazer) at the same tag,
+under its MIT license: `osu.Game.Rulesets.Taiko/UI/{TaikoPlayfieldAdjustmentContainer,TaikoPlayfield,DrawableTaikoRuleset}.cs`,
+the overlapping scroll algorithm, `osu.Game.Rulesets.Taiko/Skinning/Legacy/*`
+(scroller, playfield background, input drum, hit target, circle piece, drum
+roll, bar line, swell, hit explosion), `DrawableHit` / `DrawableDrumRoll`;
+`osu.Game.Rulesets.Catch/UI/{CatchPlayfieldAdjustmentContainer,CatchPlayfield,Catcher}.cs`,
+`Objects/Drawables/*`, `osu.Game.Rulesets.Catch/Skinning/Legacy/*`,
+`Replays/CatchAutoGenerator.cs` (the autoplay catcher), `osu.Game/Utils/StatelessRNG.cs`;
+and lazer's combo colour normalisation (`DrawableHitObject.UpdateComboColour`,
+`HSPAColour`, osu!framework 2026.921.1 `Interpolation.ValueAt`).
+
+Not modelled (lazer draws them from gameplay state the preview does not
+simulate): judgement sprites, kiai glow and drum hits in taiko; caught-fruit
+stacks on the plate, catch hit lighting, explosions and dash trails.
+
+The oversized-texture rule (`Skin.blank`) follows osu!framework 2026.921.1:
+`Texture.SetData` only checks `upload.Bounds`, which is empty for whole-image
+uploads, so `GLTexture` calls `glTexImage2D` beyond `GL_MAX_TEXTURE_SIZE`,
+which fails and leaves an incomplete texture that samples (0, 0, 0, 1). The
+headless test renderer has no such limit, so the golden harness cannot show
+it; `test/texture-limit.test.ts` covers the loader side.
+
+`test/reference/VosuLayout.cs` does the same for taiko and catch
+(`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`).
 
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never

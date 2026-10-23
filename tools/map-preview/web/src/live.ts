@@ -32,6 +32,8 @@ export interface GameState {
     hitLighting: boolean | null;
     beatmapColours: boolean | null;
     snakingIn: boolean | null;
+    /** lazer's combo colour normalisation (0-1); null on stable or when unknown. */
+    comboColourNormalisation: number | null;
   };
   skinFolder: string | null;
 }
@@ -81,7 +83,12 @@ export function emptyState(): GameState {
     mods: [],
     source: undefined,
     mania: { scrollSpeed: null, scrollUp: false },
-    visual: { hitLighting: null, beatmapColours: null, snakingIn: null },
+    visual: {
+      hitLighting: null,
+      beatmapColours: null,
+      snakingIn: null,
+      comboColourNormalisation: null,
+    },
     skinFolder: null,
   };
 }
@@ -137,6 +144,11 @@ export function applyField(
       const visual = record(value);
       state.visual.hitLighting = bool(visual.hitLighting);
       state.visual.snakingIn = bool(visual.snakingInSliders);
+      const amount = visual.comboColourNormalisation;
+      state.visual.comboColourNormalisation =
+        typeof amount === "number" && Number.isFinite(amount)
+          ? Math.min(1, Math.max(0, amount))
+          : null;
       const colours = bool(visual.beatmapColours);
       if (colours !== null) state.visual.beatmapColours = colours;
       break;

@@ -3,12 +3,12 @@ import {
   circleRadius,
   pathPosition,
   scrollPosition,
-  timingAt,
-  taikoVelocity,
 } from "@vosu-tools/osu-parse";
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
-import { catchObjects } from "@vosu-tools/ruleset-convert";
+import { normaliseComboColour } from "./colour";
+import { catchPreempt, compileCatch } from "./fruits";
 import { legacySliderStyle, type Skin, type AtlasRegion } from "./skin";
+import { compileTaiko } from "./taiko";
 import {
   atlasImageSize,
   DEFAULT_SCROLL_LENGTH,
@@ -30,6 +30,11 @@ export interface RenderOptions {
   maniaScrollUp?: boolean;
   /** Slider bodies grow along their path while approaching (clients' snaking sliders); default true. */
   snakingIn?: boolean;
+  /**
+   * osu!lazer's combo colour normalisation (0-1, lazer's default 0.2): combo
+   * colours move towards one perceived brightness. Omit for stable (none).
+   */
+  comboColourNormalisation?: number;
 }
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
@@ -39,6 +44,10 @@ export interface Scene {
   speed: number;
   scrollBase: number;
   catcher: { time: number; x: number; y?: number }[];
+  /** osu!catch hyper-dashes, when the catcher takes the hyper-dash colour. */
+  hyper: { start: number; end: number }[];
+  /** osu!taiko: world x left of which scrolling hit objects are masked. */
+  clipX: number;
 }
 const palette: readonly (readonly number[])[] = [
   [1, 0.52, 0.24],
@@ -59,7 +68,11 @@ export function compileScene(
   options: RenderOptions,
   regions: Map<string, AtlasRegion>,
   skin?: Skin,
+  /** Output width / height: osu!taiko's playfield depends on it (lazer's game space). */
+  aspect = 16 / 9,
 ): Scene {
+  let clipX = -1e9,
+    hyper: Scene["hyper"] = [];
   const values: number[] = [],
     preempt = approachTime(map.difficulty.ar),
     radius = circleRadius(map.difficulty.cs),
@@ -98,6 +111,9 @@ export function compileScene(
       : skinColours.length || !skin
         ? skinColours
         : defaultComboColours;
+  const shownColours = colours.map((c) =>
+    normaliseComboColour(c, options.comboColourNormalisation ?? 0),
+  );
   const border =
     (options.beatmapColours !== false
       ? map.colourSettings?.SliderBorder
@@ -122,7 +138,7 @@ export function compileScene(
     map.mode === 3
       ? ((options.scrollSpeed ?? 20) * DEFAULT_SCROLL_LENGTH) / 11485
       : map.mode === 2
-        ? 300 / preempt
+        ? 440 / catchPreempt(map.difficulty.ar)
         : 0;
   function add(
     x: number,
@@ -145,8 +161,25 @@ export function compileScene(
     r = 0,
     /** Shape parameters for untextured shapes, carried in the UV slot. */
     custom?: readonly [number, number, number, number],
+    /** Draw an animation's first frame only. */
+    still = false,
+    /**
+     * Keep only the centre of the image (fractions of its width and height),
+     * like osu!'s `WithMaximumSize`; implies the first frame.
+     */
+    crop?: readonly [number, number],
   ): void {
-    const uv = custom ? undefined : regions.get(asset);
+    const region = custom ? undefined : regions.get(asset),
+      uv =
+        region && crop
+          ? {
+              ...region,
+              u: region.u + (region.w * (1 - crop[0])) / 2,
+              v: region.v + (region.h * (1 - crop[1])) / 2,
+              w: region.w * crop[0],
+              h: region.h * crop[1],
+            }
+          : region;
     values.push(
       x,
       y,
@@ -168,9 +201,9 @@ export function compileScene(
       uv?.v ?? custom?.[1] ?? 0,
       uv?.w ?? custom?.[2] ?? 0,
       uv?.h ?? custom?.[3] ?? 0,
-      uv ? 10 : shape,
+      uv ? (shape === 13 ? 13 : 10) : shape,
       uv?.first ?? p,
-      uv?.count ?? q,
+      uv ? (still || crop ? 0 : (uv.count ?? q)) : q,
       uv
         ? (asset === "sliderb" || asset === "hitcircleoverlay"
             ? 60
@@ -305,7 +338,7 @@ export function compileScene(
       if (o.type & 2) {
         const offset = (o.stack * radius) / 10,
           colour =
-            colours[o.combo % colours.length] ??
+            shownColours[o.combo % shownColours.length] ??
             palette[o.combo % palette.length];
         if (sliderStyle) {
           const outer = radius * sliderStyle.radius,
@@ -425,7 +458,7 @@ export function compileScene(
         x = o.x - offset,
         y = o.y - offset,
         colour =
-          colours[o.combo % colours.length] ??
+          shownColours[o.combo % shownColours.length] ??
           palette[o.combo % palette.length];
       if (o.type & 8) {
         const modernSpinner =
@@ -814,57 +847,35 @@ export function compileScene(
     // LegacyBarLine (BarLineGenerator), centred in DrawableBarLine's one unit
     // above the bar's time; it fades out over 150 ms once it reaches the hit position.
     if (layout.barLine.colour[3] > 0 && layout.barLine.height > 0) {
-      const uninherited = map.timing.filter((point) => point.uninherited),
-        firstHit = map.objects.length
-          ? Math.min(...map.objects.map((o) => o.time))
-          : 0,
-        lastHit =
-          1 + map.objects.reduce((end, o) => Math.max(end, o.endTime), 0),
-        generationStart = Math.min(0, firstHit),
-        colour = layout.barLine.colour,
+      const colour = layout.barLine.colour,
         height = layout.barLine.height / MANIA_SCALE;
-      for (let i = 0; i < uninherited.length && map.objects.length; i++) {
-        const point = uninherited[i],
-          barLength = point.beatLength * point.meter,
-          end = uninherited[i + 1]?.time ?? lastHit + barLength;
-        if (!(barLength > 0)) continue;
-        let start =
-          point.time > generationStart
-            ? point.time
-            : point.time +
-              Math.ceil((generationStart - point.time) / barLength) * barLength;
-        if (point.effects & 8) start += barLength;
-        for (let t = start; end > t - 1e-3; t += barLength) {
-          const rounded = Math.round(t);
-          if (Math.abs(t - rounded) <= 1e-3) t = rounded;
-          values.push(
-            256,
-            0.5 / MANIA_SCALE,
-            layout.width / MANIA_SCALE,
-            height,
-            t,
-            t + 150,
-            t - 30000,
-            t + 150,
-            colour[0],
-            colour[1],
-            colour[2],
-            colour[3],
-            22,
-            scrollAt(t),
-            0,
-            hit,
-            0,
-            0,
-            0,
-            0,
-            4,
-            0,
-            0,
-            0,
-          );
-        }
-      }
+      for (const t of barLineTimes(map))
+        values.push(
+          256,
+          0.5 / MANIA_SCALE,
+          layout.width / MANIA_SCALE,
+          height,
+          t,
+          t + 150,
+          t - 30000,
+          t + 150,
+          colour[0],
+          colour[1],
+          colour[2],
+          colour[3],
+          22,
+          scrollAt(t),
+          0,
+          hit,
+          0,
+          0,
+          0,
+          0,
+          4,
+          0,
+          0,
+          0,
+        );
     }
     // LegacyKeyArea, under or over the notes (KeysUnderNotes).
     const keyLayers = () => {
@@ -961,413 +972,26 @@ export function compileScene(
           );
         }
   } else if (map.mode === 1) {
-    add(336, 135, 480, 96, 0, 0, -1e9, 1e9, [0.09, 0.09, 0.1], 4);
-    if (regions.has("taiko-slider"))
-      add(
-        256,
-        135,
-        640,
-        132,
-        0,
-        0,
-        -1e9,
-        1e9,
-        [1, 1, 1],
-        4,
-        0,
-        0,
-        0,
-        0,
-        "taiko-slider",
-      );
-    if (regions.has("taiko-bar-left"))
-      add(
-        16,
-        135,
-        160,
-        132,
-        0,
-        0,
-        -1e9,
-        1e9,
-        [1, 1, 1],
-        4,
-        0,
-        0,
-        0,
-        0,
-        "taiko-bar-left",
-      );
-    if (regions.has("taiko-bar-right"))
-      add(
-        576,
-        135,
-        32,
-        132,
-        0,
-        0,
-        -1e9,
-        1e9,
-        [1, 1, 1],
-        4,
-        0,
-        0,
-        0,
-        0,
-        "taiko-bar-right",
-      );
-    for (let i = 0; i < map.timing.length; i++) {
-      const timing = map.timing[i];
-      if (!timing.uninherited) continue;
-      const end =
-        map.timing.slice(i + 1).find((t) => t.uninherited)?.time ??
-        map.duration;
-      for (
-        let time = timing.time;
-        time < end;
-        time += timing.beatLength * timing.meter
-      ) {
-        const velocity = taikoVelocity(map, time, options.noteSpeed ?? 1);
-        add(
-          96,
-          135,
-          1,
-          96,
-          time,
-          time,
-          time - 480 / velocity,
-          time,
-          [0.35, 0.35, 0.38, 0.55],
-          4,
-          3,
-          velocity,
-        );
-      }
-    }
-    add(
-      96,
-      135,
-      90,
-      90,
-      0,
-      0,
-      -1e9,
-      1e9,
-      [1, 1, 1],
-      1,
-      0,
-      0,
-      0,
-      0,
-      "approachcircle",
-    );
-    add(
-      16,
-      135,
-      86,
-      86,
-      0,
-      0,
-      -1e9,
-      1e9,
-      [1, 1, 1],
-      9,
-      0,
-      0,
-      0,
-      0,
-      "taiko-drum-inner",
-    );
-    if (regions.has("taiko-drum-outer"))
-      add(
-        16,
-        135,
-        86,
-        86,
-        0,
-        0,
-        -1e9,
-        1e9,
-        [1, 1, 1],
-        4,
-        0,
-        0,
-        0,
-        0,
-        "taiko-drum-outer",
-      );
-    for (let i = map.objects.length - 1; i >= 0; i--) {
-      const o = map.objects[i],
-        rim = !!(o.sound & 10),
-        big = !!(o.sound & 4),
-        r = big ? 45 : 32,
-        t = timingAt(map.timing, o.time),
-        velocity = taikoVelocity(map, o.time, options.noteSpeed ?? 1),
-        lead = 480 / velocity;
-      if (o.type & 8) {
-        add(
-          96,
-          135,
-          90,
-          90,
-          o.time,
-          o.endTime,
-          o.time - lead,
-          o.endTime,
-          [0.9, 0.7, 0.2],
-          11,
-          7,
-        );
-        add(
-          96,
-          135,
-          96,
-          96,
-          o.time,
-          o.endTime,
-          o.time,
-          o.endTime,
-          [1, 0.9, 0.2],
-          1,
-          10,
-        );
-        continue;
-      }
-      if (o.type & 2) {
-        add(
-          96,
-          135,
-          Math.max(1, (o.endTime - o.time) * velocity),
-          r * 2,
-          o.time,
-          o.endTime,
-          o.time - lead,
-          o.endTime,
-          [1, 0.75, 0.25],
-          2,
-          4,
-          velocity,
-          0,
-          0,
-          "taiko-roll-middle",
-        );
-        add(
-          96,
-          135,
-          r * 2,
-          r * 2,
-          o.time,
-          o.endTime,
-          o.time - lead,
-          o.endTime,
-          [1, 0.4, 0.1],
-          0,
-          3,
-          velocity,
-          0,
-          0,
-          big ? "taikobigcircle" : "taikohitcircle",
-        );
-        if (regions.has("taiko-roll-end"))
-          add(
-            96,
-            135,
-            r * 2,
-            r * 2,
-            o.endTime,
-            o.endTime,
-            o.time - lead,
-            o.endTime,
-            [1, 1, 1],
-            0,
-            3,
-            velocity,
-            0,
-            0,
-            "taiko-roll-end",
-          );
-        const interval =
-          t.beatLength / (map.difficulty.sliderTickRate === 3 ? 6 : 8);
-        for (let time = o.time; time < o.endTime; time += interval)
-          add(
-            96,
-            135,
-            6,
-            6,
-            time,
-            time,
-            time - lead,
-            time,
-            [0.8, 0.35, 0.05],
-            0,
-            3,
-            velocity,
-          );
-        continue;
-      }
-      add(
-        96,
-        135,
-        r * 2,
-        r * 2,
-        o.time,
-        o.time,
-        o.time - lead,
-        o.time + 120,
-        rim
-          ? (skin?.style?.taiko?.rim ?? [0.22, 0.65, 0.85])
-          : (skin?.style?.taiko?.centre ?? [0.95, 0.25, 0.22]),
-        0,
-        3,
-        velocity,
-        0,
-        0,
-        big ? "taikobigcircle" : "taikohitcircle",
-      );
-      add(
-        96,
-        135,
-        r * 2,
-        r * 2,
-        o.time,
-        o.time,
-        o.time - lead,
-        o.time + 120,
-        [1, 1, 1],
-        1,
-        3,
-        velocity,
-        0,
-        0,
-        big ? "taikobigcircleoverlay" : "taikohitcircleoverlay",
-      );
-    }
+    clipX = compileTaiko(
+      map,
+      options,
+      regions,
+      skin,
+      add,
+      aspect,
+      barLineTimes(map),
+    ).clipX;
   } else {
-    // Fruits, droplets, tiny droplets and bananas exactly as lazer builds them
-    // (seeded offsets, Hard Rock offsets and hyper-dash marking included).
-    const kinds = { fruit: 0, droplet: 1, tiny: 2, banana: 3 } as const;
-    const fruits = catchObjects(map)
-      .map((o) => ({
-        time: o.time,
-        x: o.x,
-        kind: kinds[o.kind],
-        hyper: o.hyper,
-      }))
-      .sort((a, b) => a.time - b.time);
-    const size = Math.max(
-      8,
-      (106.75 * (1 - (0.7 * (map.difficulty.cs - 5)) / 5)) / 2,
+    const result = compileCatch(
+      map,
+      options,
+      regions,
+      skin,
+      add,
+      colours.length ? colours : defaultComboColours,
     );
-    for (let index = 0; index < fruits.length; index++) {
-      const fruit = fruits[index],
-        hyper = fruit.hyper;
-      if (fruit.kind !== 2) catcher.push({ time: fruit.time, x: fruit.x });
-      const r =
-        fruit.kind === 0
-          ? 15
-          : fruit.kind === 1
-            ? 7
-            : fruit.kind === 2
-              ? 3
-              : 12;
-      add(
-        fruit.x,
-        340,
-        r * 2,
-        r * 2,
-        fruit.time,
-        fruit.time,
-        fruit.time - preempt,
-        fruit.time + 100,
-        fruit.kind === 3
-          ? [1, 0.9, 0.1]
-          : palette[Math.floor(fruit.time / 1000) % palette.length],
-        fruit.kind === 3
-          ? 8
-          : fruit.kind === 0
-            ? 5 + (Math.floor(fruit.time / 1000) % 2)
-            : 0,
-        8,
-        0,
-        0,
-        0,
-        fruit.kind === 0
-          ? ["fruit-apple", "fruit-grapes", "fruit-orange"][
-              Math.floor(fruit.time / 1000) % 3
-            ]
-          : fruit.kind === 3
-            ? "fruit-bananas"
-            : "fruit-drop",
-      );
-      const fruitAsset =
-        fruit.kind === 0
-          ? ["fruit-apple", "fruit-grapes", "fruit-orange"][
-              Math.floor(fruit.time / 1000) % 3
-            ]
-          : fruit.kind === 3
-            ? "fruit-bananas"
-            : "fruit-drop";
-      if (regions.has(fruitAsset + "-overlay"))
-        add(
-          fruit.x,
-          340,
-          r * 2,
-          r * 2,
-          fruit.time,
-          fruit.time,
-          fruit.time - preempt,
-          fruit.time + 100,
-          [1, 1, 1],
-          4,
-          8,
-          0,
-          0,
-          0,
-          fruitAsset + "-overlay",
-        );
-      if (hyper)
-        add(
-          fruit.x,
-          340,
-          r * 2.8,
-          r * 2.8,
-          fruit.time,
-          fruit.time,
-          fruit.time - preempt,
-          fruit.time,
-          [1, 0.15, 0.1],
-          1,
-          8,
-        );
-    }
-    for (let state = 0; state < 3; state++) {
-      const name = [
-          "fruit-catcher-idle",
-          "fruit-catcher-kiai",
-          "fruit-catcher-fail",
-        ][state],
-        asset = regions.has(name) ? name : "fruit-catcher-idle",
-        uv = regions.get(asset),
-        w = size * 2,
-        h = uv ? (w * uv.h) / uv.w : 20;
-      add(
-        256,
-        350 + h / 2,
-        w,
-        h,
-        0,
-        0,
-        -1e9,
-        1e9,
-        [1, 1, 1],
-        4,
-        15 + state,
-        0,
-        0,
-        0,
-        asset,
-      );
-    }
+    catcher.push(...result.catcher);
+    hyper = result.hyper;
   }
   const data = new Float32Array(values),
     count = values.length / 24,
@@ -1386,7 +1010,7 @@ export function compileScene(
     data,
     chunks,
     count,
-    preempt,
+    preempt: map.mode === 2 ? catchPreempt(map.difficulty.ar) : preempt,
     scrollBase,
     speed:
       map.mode === 1
@@ -1395,5 +1019,38 @@ export function compileScene(
           ? speed * (options.noteSpeed ?? 1)
           : speed,
     catcher,
+    hyper,
+    clipX,
   };
+}
+
+/** Bar line times as lazer's `BarLineGenerator` places them. */
+export function barLineTimes(map: Beatmap): number[] {
+  const out: number[] = [];
+  if (!map.objects.length) return out;
+  const uninherited = map.timing.filter((point) => point.uninherited),
+    firstHit = map.objects.reduce(
+      (first, o) => Math.min(first, o.time),
+      Infinity,
+    ),
+    lastHit = 1 + map.objects.reduce((end, o) => Math.max(end, o.endTime), 0),
+    generationStart = Math.min(0, firstHit);
+  for (let i = 0; i < uninherited.length; i++) {
+    const point = uninherited[i],
+      barLength = point.beatLength * point.meter,
+      end = uninherited[i + 1]?.time ?? lastHit + barLength;
+    if (!(barLength > 0)) continue;
+    let start =
+      point.time > generationStart
+        ? point.time
+        : point.time +
+          Math.ceil((generationStart - point.time) / barLength) * barLength;
+    if (point.effects & 8) start += barLength;
+    for (let t = start; end > t - 1e-3; t += barLength) {
+      const rounded = Math.round(t);
+      if (Math.abs(t - rounded) <= 1e-3) t = rounded;
+      out.push(t);
+    }
+  }
+  return out;
 }

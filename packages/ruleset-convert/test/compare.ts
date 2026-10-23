@@ -38,6 +38,10 @@ export type OracleOutput =
         x: number;
         k: "fruit" | "droplet" | "tiny" | "banana";
         hyper: boolean;
+        /** IndexInBeatmap. */
+        i: number;
+        /** LastInCombo. */
+        l: boolean;
       }[];
     };
 
@@ -82,7 +86,14 @@ export function portOutput(
     objects: convertToCatch(legacyBeatmap(modded), {
       circleSize: modded.difficulty.cs,
       hardRock: modded.visualMods.includes("HR"),
-    }).map((o) => ({ t: o.time, x: o.x, k: o.kind, hyper: o.hyper })),
+    }).map((o) => ({
+      t: o.time,
+      x: o.x,
+      k: o.kind,
+      hyper: o.hyper,
+      i: o.index,
+      l: o.lastInCombo,
+    })),
   };
 }
 
