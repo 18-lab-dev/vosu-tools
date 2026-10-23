@@ -123,6 +123,31 @@ test("mania hold combined head and release errors", () => {
   expect(result.verified).toBe(true);
   expect(result.events[0].result).toBe("geki");
 });
+test("taiko drumrolls leave counts verified but not the combo", () => {
+  const replay: Replay = {
+    ...base,
+    mode: 1,
+    counts: { n300: 1, n100: 0, n50: 0, geki: 0, katu: 0, miss: 0 },
+    maxCombo: 1,
+    // Centre (key 1) pressed on the note, then released.
+    frames: [
+      { time: 1000, x: 0, y: 0, keys: 1 },
+      { time: 1050, x: 0, y: 0, keys: 0 },
+    ],
+  };
+  const result = simulate(
+    replay,
+    [
+      { time: 1000, kind: "circle" },
+      { time: 1500, endTime: 2000, kind: "slider" },
+      { time: 2500, endTime: 3000, kind: "slider" },
+    ],
+    5,
+  );
+  expect(result.verified).toBe(true);
+  expect(result.comboVerified).toBe(false);
+  expect(result.warnings).toEqual(["Taiko drumroll/spinner bonus combo is not reconstructed"]);
+});
 test("mismatched simulation cannot claim verification", () => {
   const replay = { ...base, frames: [] };
   const result = simulate(replay, [{ time: 1000, column: 0 }], 8);

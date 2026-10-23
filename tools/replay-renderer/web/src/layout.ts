@@ -32,35 +32,58 @@ export const CELL_GAP = 8;
  * - one track always gets the whole frame;
  * - side by side puts tracks in a row, or in a column on a portrait frame;
  * - stacked is always one column;
- * - grid picks the column count whose cells have the largest short side,
- *   preferring fewer empty cells on a tie;
- * - auto is side by side for two tracks and a grid for more.
+ * - grid picks the column count whose cells have the largest short side;
+ * - auto, given the tracks' playfield extents (`contents`), picks the column
+ *   count that draws the smallest playfield largest: taiko strips stack, mania
+ *   stages and osu! fields sit side by side when that makes them bigger. Without
+ *   extents it is side by side for two tracks and a grid for more.
+ * Ties go to fewer empty cells, then fewer columns.
  */
-export function gridFor(count: number, width: number, height: number, layout: Layout) {
+export function gridFor(
+  count: number,
+  width: number,
+  height: number,
+  layout: Layout,
+  contents?: readonly Rect[],
+) {
   if (count <= 1) return { columns: 1, rows: 1 };
-  const resolved = layout === "auto" ? (count <= 2 ? "side-by-side" : "grid") : layout;
-  if (resolved === "stacked" || (resolved === "side-by-side" && height > width))
+  if (layout === "auto" && !contents?.length) layout = count <= 2 ? "side-by-side" : "grid";
+  if (layout === "stacked" || (layout === "side-by-side" && height > width))
     return { columns: 1, rows: count };
-  if (resolved === "side-by-side") return { columns: count, rows: 1 };
-  let best = { columns: 1, rows: count, side: -1, empty: 0 };
+  if (layout === "side-by-side") return { columns: count, rows: 1 };
+  let best = { columns: 1, rows: count, score: -1, empty: 0 };
   for (let columns = 1; columns <= count; columns++) {
     const rows = Math.ceil(count / columns);
-    const side = Math.min(
-      (width - CELL_GAP * (columns - 1)) / columns,
-      (height - CELL_GAP * (rows - 1)) / rows,
-    );
+    const cell = {
+      x: 0,
+      y: 0,
+      width: (width - CELL_GAP * (columns - 1)) / columns,
+      height: (height - CELL_GAP * (rows - 1)) / rows,
+    };
+    const score =
+      layout === "auto"
+        ? Math.min(...contents!.map((content) => fitScale(cell, content)))
+        : Math.min(cell.width, cell.height);
     const empty = columns * rows - count;
-    if (side > best.side + 1e-9 || (Math.abs(side - best.side) <= 1e-9 && empty < best.empty))
-      best = { columns, rows, side, empty };
+    // Within 1 % counts as equal: prefer filled grids, then fewer columns.
+    if (score > best.score * 1.01 || (score >= best.score * 0.99 && empty < best.empty))
+      best = { columns, rows, score, empty };
   }
   return { columns: best.columns, rows: best.rows };
 }
 
-/** One cell per track, row by row, in whole output pixels. */
-export function layoutCells(count: number, width: number, height: number, layout: Layout): Rect[] {
+/** One cell per track, row by row, in whole output pixels. `contents` (the
+ *  tracks' playfield extents) let `auto` fit the playfields. */
+export function layoutCells(
+  count: number,
+  width: number,
+  height: number,
+  layout: Layout,
+  contents?: readonly Rect[],
+): Rect[] {
   if (!Number.isInteger(count) || count < 1 || count > 16 || !Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2)
     throw new Error("Invalid layout dimensions");
-  const { columns, rows } = gridFor(count, width, height, layout);
+  const { columns, rows } = gridFor(count, width, height, layout, contents);
   const cellWidth = (width - CELL_GAP * (columns - 1)) / columns,
     cellHeight = (height - CELL_GAP * (rows - 1)) / rows;
   if (cellWidth < 1 || cellHeight < 1) throw new Error("Layout is too small");
@@ -82,9 +105,11 @@ export function layoutCells(count: number, width: number, height: number, layout
 export type HudKey = "score" | "accuracy" | "combo" | "health";
 export const HUD_KEYS: readonly HudKey[] = ["score", "accuracy", "combo", "health"];
 /**
- * Size of each layer at scale 1 in a 1080 px cell (the short side), and the
- * corner its position names: `x`/`y` (cell fractions, from the settings) put
- * that corner of the box, so right-aligned text grows leftwards.
+ * Each layer's size at scale 1, in HUD units (a 1080 px short side), and the
+ * cell corner it hangs from (lazer's legacy/argon arrangement: health bar top
+ * left, score top right with accuracy under it, combo bottom left). A layer's
+ * position (`hud.<layer>.dx`/`.dy`) is its distance from that corner into the
+ * cell, in HUD units, so the HUD keeps its proportions in any cell shape.
  */
 export const HUD: Record<HudKey, { width: number; height: number; anchorX: 0 | 1; anchorY: 0 | 1 }> = {
   score: { width: 330, height: 72, anchorX: 1, anchorY: 0 },
@@ -92,29 +117,61 @@ export const HUD: Record<HudKey, { width: number; height: number; anchorX: 0 | 1
   combo: { width: 260, height: 84, anchorX: 0, anchorY: 1 },
   health: { width: 480, height: 14, anchorX: 0, anchorY: 0 },
 };
-/** HUD units per output pixel in `cell`: its short side over 1080. */
-const hudUnit = (cell: Rect) => Math.min(cell.width, cell.height) / 1080;
-/** Output-pixel box of a HUD layer placed at `transform` in `cell`. */
+/** Output pixels per HUD unit in `cell`: its short side over 1080. */
+export const hudUnit = (cell: Rect) => Math.min(cell.width, cell.height) / 1080;
+/** Output-pixel box of a HUD layer placed at `transform` (`x`/`y`: distance
+ *  from its corner, HUD units) in `cell`. */
 export function hudBox(cell: Rect, key: HudKey, transform: Transform): Rect {
   const spec = HUD[key],
-    unit = hudUnit(cell) * transform.scale;
-  const width = spec.width * unit,
-    height = spec.height * unit;
+    unit = hudUnit(cell);
+  const width = spec.width * unit * transform.scale,
+    height = spec.height * unit * transform.scale;
   return {
-    x: cell.x + transform.x * cell.width - spec.anchorX * width,
-    y: cell.y + transform.y * cell.height - spec.anchorY * height,
+    x: spec.anchorX ? cell.x + cell.width - transform.x * unit - width : cell.x + transform.x * unit,
+    y: spec.anchorY ? cell.y + cell.height - transform.y * unit - height : cell.y + transform.y * unit,
     width,
     height,
   };
 }
 /** The transform that puts a HUD layer's box at `box`; its height decides the scale. */
 export function hudTransformFor(cell: Rect, key: HudKey, box: Rect): Transform {
-  const spec = HUD[key];
+  const spec = HUD[key],
+    unit = hudUnit(cell);
   return {
-    x: (box.x + spec.anchorX * box.width - cell.x) / cell.width,
-    y: (box.y + spec.anchorY * box.height - cell.y) / cell.height,
-    scale: box.height / (spec.height * hudUnit(cell)),
+    x: (spec.anchorX ? cell.x + cell.width - box.x - box.width : box.x - cell.x) / unit,
+    y: (spec.anchorY ? cell.y + cell.height - box.y - box.height : box.y - cell.y) / unit,
+    scale: box.height / (spec.height * unit),
   };
+}
+
+const overlaps = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+/**
+ * Where a `width`×`height` box fits inside every cell without touching any of
+ * that cell's obstacles (playfield, HUD layers, other overlays; kept `margin`
+ * apart), as an offset from the cells' corner. Rows are tried top to bottom,
+ * each left to right, in steps of `step` pixels. Null when nothing is free.
+ */
+export function freeSpot(
+  cells: readonly { cell: Rect; obstacles: readonly Rect[] }[],
+  width: number,
+  height: number,
+  { step = 8, margin = 8 } = {},
+): { x: number; y: number } | null {
+  if (!cells.length) return null;
+  const room = {
+    width: Math.min(...cells.map((c) => c.cell.width)),
+    height: Math.min(...cells.map((c) => c.cell.height)),
+  };
+  for (let y = margin; y + height + margin <= room.height; y += step)
+    for (let x = margin; x + width + margin <= room.width; x += step) {
+      const free = cells.every(({ cell, obstacles }) => {
+        const box = { x: cell.x + x - margin, y: cell.y + y - margin, width: width + 2 * margin, height: height + 2 * margin };
+        return !obstacles.some((obstacle) => overlaps(box, obstacle));
+      });
+      if (free) return { x, y };
+    }
+  return null;
 }
 /** Pixels per world unit that make `content` fill `cell`: the cell height,
  *  unless the cell is narrower than the content's aspect ratio. */

@@ -86,11 +86,15 @@ function refreshComposition() {
   const layout = el<HTMLSelectElement>("layout").value as Layout;
   composition = new Composition(tracks, width, height, layout);
   composition.timing = timing();
+  composition.inspect = INSPECT;
   composition.validate();
   el("preview").replaceChildren(composition.canvas);
   refreshTimeline();
   editor.render();
 }
+/** Development aid: `?inspect` in the studio URL draws the composition
+ *  inspector over the preview and asks MP4 exports for it too. Off by default. */
+const INSPECT = new URLSearchParams(location.search).has("inspect");
 /** Outro and fade for this composition, from the Output fields (defaults: tool settings). */
 function timing() {
   const value = (id: string, fallback: number) => {
@@ -236,12 +240,8 @@ async function add(bytes: Uint8Array<ArrayBuffer>) {
   else inform(`Added ${replay.player}`);
 }
 function settingsEditor(track: Track) {
-  const details = document.createElement("details"),
-    summary = document.createElement("summary"),
-    grid = document.createElement("div");
-  summary.textContent = "Render settings";
+  const grid = document.createElement("div");
   grid.className = "settings-grid";
-  details.append(summary, grid);
   const controls: Record<string, HTMLInputElement> = {};
   // Placement is edited in the preview's layout editor; layer switches live
   // in the track's Layers group.
@@ -287,7 +287,7 @@ function settingsEditor(track: Track) {
     }
     return settings;
   };
-  return { details, read };
+  return { grid, read };
 }
 function button(label: string, className = "v-btn v-btn--sm") {
   const node = document.createElement("button");
@@ -371,6 +371,8 @@ function layerSwitches(track: Track) {
     });
   return group;
 }
+/** Track cards whose More disclosure is open, by track id. */
+const moreOpen = new Set<string>();
 function renderTracks() {
   const list = el("tracks");
   list.replaceChildren();
@@ -405,6 +407,16 @@ function renderTracks() {
     skinCaption.textContent = "Skin";
     const skin = skins.select(track.skin ?? "");
     skinField.append(skinCaption, skin);
+    // A skin choice applies at once; render settings wait for Apply.
+    skin.onchange = () => {
+      skin.disabled = true;
+      reloadTrack(track, { skin: skin.value || null, settings: track.settings })
+        .then((updated) => inform(`Updated ${updated.replay.player}`))
+        .catch((error) => {
+          skin.disabled = false;
+          report(error);
+        });
+    };
     const editor = settingsEditor(track);
     const apply = button("Apply");
     apply.onclick = async () => {
@@ -435,6 +447,7 @@ function renderTracks() {
       }
     };
     const remove = button("Remove", "v-btn v-btn--sm v-btn--ghost");
+    remove.setAttribute("aria-label", `Remove V${index + 1} ${track.replay.player}`);
     remove.onclick = () =>
       betweenFrames(() => {
         tracks.splice(tracks.indexOf(track), 1);
@@ -442,9 +455,18 @@ function renderTracks() {
         refreshComposition();
         renderTracks();
       }).catch(report);
-    const actions = document.createElement("div");
+    head.append(remove);
+    // Everything beyond the skin lives under More (kept open across re-renders).
+    const more = document.createElement("details"),
+      summary = document.createElement("summary"),
+      actions = document.createElement("div");
+    more.className = "more";
+    summary.textContent = "More";
+    more.open = moreOpen.has(track.id);
+    more.ontoggle = () => (more.open ? moreOpen.add(track.id) : moreOpen.delete(track.id));
     actions.className = "v-row";
-    actions.append(apply, save, remove);
+    actions.append(apply, save);
+    more.append(summary, layerSwitches(track), editor.grid, actions);
     row.append(head, map, skinField);
     for (const note of [skins.note(track.skin ?? ""), track.warning]) {
       if (!note) continue;
@@ -453,7 +475,7 @@ function renderTracks() {
       line.textContent = note;
       row.append(line);
     }
-    row.append(layerSwitches(track), editor.details, actions);
+    row.append(more);
     list.append(row);
   });
   el<HTMLInputElement>("out").placeholder = outName();
@@ -543,6 +565,7 @@ const overlayEditor: OverlayEditor = new OverlayEditor(el("overlay-layout"), {
     // Every track card lists the overlays it can switch off.
     renderTracks();
   },
+  spot: (width, height) => editor.spotFor(width, height),
   select: (layer) => {
     const track = tracks.find((t) => !layer.hidden.has(t.id));
     editor.select(track ? { kind: "overlay", layer, track } : null);
@@ -553,7 +576,8 @@ const field = (id: string) => el<HTMLInputElement>(id);
 const editor: LayoutEditor = new LayoutEditor(
   el("gate"),
   {
-    root: el("inspector"),
+    // The selection's fields appear only while something is selected.
+    root: el("layout-section"),
     title: el("inspector-title"),
     reset: el<HTMLButtonElement>("layout-reset"),
     fields: {
@@ -591,7 +615,6 @@ const editor: LayoutEditor = new LayoutEditor(
       }
     },
     selected(item) {
-      el("layout-empty").hidden = !!item;
       el<HTMLButtonElement>("layout-reset").disabled = !item;
       overlayEditor.render();
     },
@@ -735,6 +758,7 @@ async function animate(now: number) {
   }
   if (composition && !exporting && !swapping) {
     try {
+      if (INSPECT) composition.overlayBoxes = editor.overlayBoxes();
       previewFrame = composition.renderOffline(time);
       await previewFrame;
     } catch (error) {
@@ -770,6 +794,7 @@ el("queue").onclick = async () => {
       layout: el<HTMLSelectElement>("layout").value,
       overlays: overlayEditor.read(tracks.map((t) => t.id)),
       out: outName(),
+      inspect: INSPECT,
       outro_ms: composition.timing.outroMs,
       fade_ms: composition.timing.fadeMs,
     };

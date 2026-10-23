@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import settingSchema from "../../render-settings.json";
 import {
   HUD,
   HUD_KEYS,
@@ -9,12 +10,15 @@ import {
   layoutCells,
   contentBounds,
   fitBounds,
+  freeSpot,
   fitScale,
   guidesFor,
   place,
   resizeBox,
   snapMove,
   transformFor,
+  type HudKey,
+  type Rect,
 } from "../src/layout";
 
 const close = (a: number, b: number, digits = 6) => expect(a).toBeCloseTo(b, digits);
@@ -145,25 +149,89 @@ test("cells tile the frame with gaps and whole pixels", () => {
   expect(() => layoutCells(0, 1920, 1080, "auto")).toThrow();
 });
 
-test("HUD layers anchor at their corner and scale with the cell's short side", () => {
+test("HUD layers hang from their corner and scale with the cell's short side", () => {
   const cell = { x: 100, y: 0, width: 1080, height: 1920 };
-  // Score is right-anchored: its right edge sits at x = 0.98 of the cell.
-  const score = hudBox(cell, "score", { x: 0.98, y: 0.02, scale: 1 });
-  close(score.x + score.width, 100 + 0.98 * 1080);
+  // Score hangs from the top right: 20 units in from the right edge, 30 down.
+  const score = hudBox(cell, "score", { x: 20, y: 30, scale: 1 });
+  close(score.x + score.width, 100 + 1080 - 20);
+  close(score.y, 30);
   close(score.height, HUD.score.height);
-  // Combo is bottom-anchored.
-  const combo = hudBox(cell, "combo", { x: 0.02, y: 0.98, scale: 2 });
-  close(combo.y + combo.height, 0.98 * 1920);
+  // Combo hangs from the bottom left.
+  const combo = hudBox(cell, "combo", { x: 20, y: 20, scale: 2 });
+  close(combo.x, 120);
+  close(combo.y + combo.height, 1920 - 20);
   close(combo.height, HUD.combo.height * 2);
-  // A half-size cell halves the HUD.
-  close(hudBox({ x: 0, y: 0, width: 540, height: 960 }, "health", { x: 0, y: 0, scale: 1 }).width, HUD.health.width / 2);
+  // A half-size cell halves the HUD, offsets included.
+  const half = hudBox({ x: 0, y: 0, width: 540, height: 960 }, "health", { x: 20, y: 20, scale: 1 });
+  expect([half.x, half.y, half.width]).toEqual([10, 10, HUD.health.width / 2]);
   for (const key of HUD_KEYS) {
-    const t = { x: 0.31, y: 0.77, scale: 1.4 };
+    const t = { x: 31, y: 77, scale: 1.4 };
     const back = hudTransformFor(cell, key, hudBox(cell, key, t));
     close(back.x, t.x);
     close(back.y, t.y);
     close(back.scale, t.scale);
   }
+});
+
+const overlap = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+const defaultHud = (cell: Rect) => {
+  const value = (key: string) => settingSchema.find((rule) => rule.key === key)!.default;
+  return Object.fromEntries(
+    HUD_KEYS.map((key) => [
+      key,
+      hudBox(cell, key, { x: value(`hud.${key}.dx`), y: value(`hud.${key}.dy`), scale: value(`hud.${key}.scale`) }),
+    ]),
+  ) as Record<HudKey, Rect>;
+};
+
+test("the default HUD follows lazer's arrangement and never overlaps, in any cell", () => {
+  const frames = [
+    [1920, 1080], [2560, 1440], [1080, 1920], [1080, 1350], [1080, 1080], [3440, 1440], [5120, 1440], [854, 480], [720, 1280],
+  ];
+  for (const [width, height] of frames)
+    for (const layout of ["auto", "side-by-side", "stacked", "grid"] as const)
+      for (const count of [1, 2, 3, 4, 6])
+        for (const cell of layoutCells(count, width, height, layout)) {
+          const hud = defaultHud(cell);
+          const unit = Math.min(cell.width, cell.height) / 1080;
+          for (const box of Object.values(hud)) {
+            // Inside the cell, clear of its edges.
+            expect(box.x).toBeGreaterThanOrEqual(cell.x + 19 * unit);
+            expect(box.y).toBeGreaterThanOrEqual(cell.y + 19 * unit);
+            expect(box.x + box.width).toBeLessThanOrEqual(cell.x + cell.width - 19 * unit);
+            expect(box.y + box.height).toBeLessThanOrEqual(cell.y + cell.height - 19 * unit);
+          }
+          for (const [i, a] of HUD_KEYS.entries())
+            for (const b of HUD_KEYS.slice(i + 1)) expect(overlap(hud[a], hud[b])).toBe(false);
+          // Health top left, score top right, accuracy right under it, combo bottom left.
+          expect(hud.health.x).toBeLessThan(hud.score.x);
+          close(hud.score.x + hud.score.width, hud.accuracy.x + hud.accuracy.width);
+          expect(hud.accuracy.y).toBeGreaterThan(hud.score.y + hud.score.height);
+          expect(hud.accuracy.y - (hud.score.y + hud.score.height)).toBeLessThan(10 * unit);
+          expect(hud.combo.y).toBeGreaterThan(cell.y + cell.height / 2);
+          close(hud.combo.x, hud.health.x);
+        }
+});
+
+test("a new overlay goes where it covers nothing, in every player's cell", () => {
+  const cells = layoutCells(2, 1920, 1080, "side-by-side");
+  const stage = (cell: Rect) => ({ x: cell.x + cell.width / 2 - 200, y: cell.y, width: 400, height: cell.height });
+  const scene = cells.map((cell) => ({ cell, obstacles: [stage(cell), ...Object.values(defaultHud(cell))] }));
+  const spot = freeSpot(scene, 180, 80, { margin: 16, step: 8 })!;
+  expect(spot).not.toBeNull();
+  for (const { cell, obstacles } of scene) {
+    const box = { x: cell.x + spot.x, y: cell.y + spot.y, width: 180, height: 80 };
+    expect(box.x + box.width).toBeLessThanOrEqual(cell.x + cell.width);
+    for (const obstacle of obstacles) expect(overlap(box, obstacle)).toBe(false);
+  }
+  // Top-most first: right under the health bar on the left.
+  const health = defaultHud(cells[0]).health;
+  expect(spot.y).toBeGreaterThanOrEqual(health.y + health.height - cells[0].y + 16);
+  expect(spot.y).toBeLessThan(health.y + health.height - cells[0].y + 16 + 8);
+  // Nothing free: a page wider than the space beside the stage.
+  expect(freeSpot(scene, 700, 80, { margin: 16 })).toBeNull();
+  expect(freeSpot([], 10, 10)).toBeNull();
 });
 
 test("mania stages fit by their width only, so equal skins scale equally", () => {
@@ -175,4 +243,21 @@ test("mania stages fit by their width only, so equal skins scale equally", () =>
   // Taiko keeps its measured strip.
   const strip = { x: -64, y: 69, width: 640, height: 132 };
   expect(fitBounds(1, strip)).toEqual(strip);
+});
+
+test("auto layout makes the smallest playfield as large as it can", () => {
+  const taiko = { x: -64, y: 69, width: 640, height: 132 };
+  const maniaStage = { x: 166, y: -48, width: 180, height: 480 };
+  // Taiko strips stack on a wide frame; mania stages and osu! fields sit side by side.
+  expect(gridFor(2, 1920, 1080, "auto", [taiko, taiko])).toEqual({ columns: 1, rows: 2 });
+  expect(gridFor(2, 1920, 1080, "auto", [maniaStage, maniaStage])).toEqual({ columns: 2, rows: 1 });
+  expect(gridFor(2, 1920, 1080, "auto", [VIEW, VIEW])).toEqual({ columns: 2, rows: 1 });
+  // On a square frame two osu! fields stack (wider than tall), two stages do not.
+  expect(gridFor(2, 1080, 1080, "auto", [VIEW, VIEW])).toEqual({ columns: 1, rows: 2 });
+  expect(gridFor(2, 1080, 1080, "auto", [maniaStage, maniaStage])).toEqual({ columns: 2, rows: 1 });
+  // Four mania stages on 16:9: one row; four taiko strips: one column.
+  expect(gridFor(4, 1920, 1080, "auto", Array(4).fill(maniaStage))).toEqual({ columns: 4, rows: 1 });
+  expect(gridFor(4, 1920, 1080, "auto", Array(4).fill(taiko))).toEqual({ columns: 1, rows: 4 });
+  // Explicit layouts ignore the contents.
+  expect(gridFor(2, 1920, 1080, "side-by-side", [taiko, taiko])).toEqual({ columns: 2, rows: 1 });
 });

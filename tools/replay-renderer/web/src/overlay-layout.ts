@@ -112,6 +112,8 @@ export class OverlayEditor {
     private hooks: {
       /** A layer was added, removed or re-pointed. */
       changed(): void;
+      /** Where a new page of this size can go without covering anything (cell-relative). */
+      spot(width: number, height: number): { x: number; y: number };
       select(layer: Layer): void;
       selected(): Layer | null;
     },
@@ -281,7 +283,15 @@ export class OverlayEditor {
     this.hooks.select(layer);
   }
   private blank(entry: InstalledOverlay | null) {
-    return { ...this.page(entry), x: 0, y: 0, scale: 1, opacity: 1, settings: {}, hidden: new Set<string>() };
+    const page = this.page(entry);
+    return {
+      ...page,
+      ...this.hooks.spot(page.width, page.height),
+      scale: 1,
+      opacity: 1,
+      settings: {},
+      hidden: new Set<string>(),
+    };
   }
   private addInstalled(entry: InstalledOverlay) {
     this.push({

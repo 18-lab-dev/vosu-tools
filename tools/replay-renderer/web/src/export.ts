@@ -8,6 +8,7 @@ import {
 import { parseReplay } from "@vosu-tools/replay";
 import type { Layout } from "./layout";
 import { telemetry } from "./telemetry";
+import type { InspectedLayer } from "./inspector";
 const request = async (path: string, init?: RequestInit) =>
   checked(await fetch(new URL(path, location.href), init));
 let composition: Composition | undefined;
@@ -24,6 +25,8 @@ try {
     overlays: { tracks: number[] | null }[];
     outro_ms: number;
     fade_ms: number;
+    /** Debug export: draw the composition inspector into every frame. */
+    inspect?: boolean;
   };
   const tracks: Track[] = [];
   for (const entry of spec.replays) {
@@ -77,6 +80,8 @@ try {
   for (let i = 0; i < frames; i++) {
     const time = start + ((i * 1000) / spec.fps) * rate;
     await composition.renderOffline(time, { fade: false });
+    const pages: InspectedLayer[] = [];
+    const pagesStarted = performance.now();
     if (overlaid.some(Boolean)) {
       const answers = (await (
         await request("frame-state", {
@@ -116,10 +121,19 @@ try {
           );
           composition.context.restore();
           bitmap.close();
+          if (spec.inspect)
+            pages.push({
+              name: `V${track + 1} overlay`,
+              kind: "overlay",
+              box: { x: cell.x + image.x, y: cell.y + image.y, width: image.width * image.scale, height: image.height * image.scale },
+              ms: null,
+            });
         }
       }
+      if (pages[0]) pages[0].ms = performance.now() - pagesStarted;
     }
     composition.fade(time);
+    if (spec.inspect) composition.drawInspector(time, pages);
     const pixels = composition.context.getImageData(0, 0, width, height);
     await request("frame", { method: "POST", body: pixels.data });
     document.querySelector("#status")!.textContent = `Frame ${i + 1}/${frames}`;
