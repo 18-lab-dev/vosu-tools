@@ -5,6 +5,7 @@ import { Timeline, type TimelineData } from './timeline';
 import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
 import { Follow, SUBSCRIPTION } from './follow';
 import { ClientSkin } from '@vosu-tools/client-skin';
+import { maniaKeysFor } from '@vosu-tools/render-core';
 
 // The look comes from vosu's shared theme.css; the bridge sets data-theme.
 
@@ -276,10 +277,13 @@ const preview = new Preview(
     timeline.setPlayhead(duration ? sourceTime(t, preview.rate, preview.windows) : null);
   },
   (message) => stageMessage(message),
+  // Mania skin images are decoded for the previewed key count only.
+  (map) => skins.useManiaKeys(maniaKeysFor(map)),
 );
 // The preview draws with the osu! client's current skin and follows changes
 // to it (from the game subscription below); misses fall back to the classic look.
 const skins = new ClientSkin({
+  maniaKeys: [],
   onChange(state) {
     preview.setSkin(state.skin);
     const el = $('skin');

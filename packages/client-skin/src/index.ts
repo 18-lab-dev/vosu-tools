@@ -13,6 +13,7 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import {
   builtinSkin,
+  loadManiaKeys,
   loadSkin,
   withFallback,
   type BuiltinSkinName,
@@ -50,6 +51,13 @@ export interface ClientSkinOptions {
   onChange(state: SkinState): void;
   /** Fetch on the overlay origin; defaults to the global `fetch`. */
   fetch?: Fetcher;
+  /**
+   * Mania key counts to decode skin images for until `useManiaKeys` says
+   * otherwise; every key count when omitted. Tools that follow maps pass
+   * `[]` and call `useManiaKeys` per scene: mania images (hold bodies can be
+   * tens of megabytes) are then only decoded for the stage on screen.
+   */
+  maniaKeys?: readonly number[];
 }
 
 /**
@@ -65,6 +73,15 @@ export const builtinLabels: Record<BuiltinSkinName, string> = {
   legacy: "Classic",
 };
 
+const sameKeys = (
+  a: readonly number[] | undefined,
+  b: readonly number[] | undefined,
+) =>
+  a === b ||
+  (!!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]));
+const keySet = (keys: readonly number[]) =>
+  [...new Set(keys)].sort((a, b) => a - b);
+
 const fileCount = (count: number) =>
   `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
 
@@ -75,12 +92,25 @@ export class ClientSkin {
   #sequence = 0;
   #clientKey = "";
   #game: [string | null, string | null] = [null, null];
+  /** Key counts mania images are decoded for; undefined: all of them. */
+  #keys: readonly number[] | undefined;
+  /** The shown skin loaded from files, before built-in fallbacks fill it. */
+  #files:
+    | {
+        skin: Skin;
+        fallback: BuiltinSkinName;
+        keys: readonly number[] | undefined;
+      }
+    | undefined;
+  #maniaSequence = 0;
+  #maniaPending: { keys: readonly number[]; done: Promise<void> } | undefined;
   readonly #onChange: (state: SkinState) => void;
   readonly #fetch: Fetcher;
 
   constructor(options: ClientSkinOptions) {
     this.#onChange = options.onChange;
     this.#fetch = options.fetch ?? ((url, init) => fetch(url, init));
+    this.#keys = options.maniaKeys && keySet(options.maniaKeys);
     this.#state = {
       skin: this.#builtin("legacy"),
       choice: "client",
@@ -107,7 +137,9 @@ export class ClientSkin {
     this.#state = { ...this.#state, ...next };
     this.#onChange(this.#state);
     if (owned) {
-      for (const bitmap of this.#owned) bitmap.close();
+      // Bitmaps the new skin still uses (other key counts) stay open.
+      const kept = new Set(owned);
+      for (const bitmap of this.#owned) if (!kept.has(bitmap)) bitmap.close();
       this.#owned = owned;
     }
   }
@@ -123,6 +155,7 @@ export class ClientSkin {
   ): void {
     // Only an installed client skin counts as "already shown" for reloads.
     if (choice !== "client") this.#clientKey = "";
+    if (!owned.length) this.#files = undefined;
     this.#emit({ skin, choice, label, source, message, tone }, owned);
   }
 
@@ -216,7 +249,11 @@ export class ClientSkin {
         }
         this.#emit({ message: `Loading “${current.name}” from ${client}…` });
         const host = hostSkinFiles(this.#fetch),
-          loaded = await loadSkin(host.resolve, current.name);
+          asked = this.#keys,
+          first = await loadSkin(host.resolve, current.name, {
+            maniaKeys: asked,
+          }),
+          { skin: loaded, keys } = await this.#currentKeys(first, asked);
         if (!isCurrent()) {
           for (const bitmap of loaded.assets.values()) bitmap.close();
           return;
@@ -236,6 +273,7 @@ export class ClientSkin {
           return;
         }
         this.#clientKey = key;
+        this.#files = { skin: loaded, fallback: current.fallback, keys };
         this.#install(
           withFallback(loaded, this.#builtin(current.fallback)),
           "client",
@@ -271,11 +309,19 @@ export class ClientSkin {
     isCurrent: () => boolean,
   ): Promise<void> {
     let used = 0;
-    const loaded = await loadSkin(async (path) => {
-      const blob = await resolve(path);
-      if (blob) used++;
-      return blob;
-    }, name);
+    const asked = this.#keys;
+    const { skin: loaded, keys } = await this.#currentKeys(
+      await loadSkin(
+        async (path) => {
+          const blob = await resolve(path);
+          if (blob) used++;
+          return blob;
+        },
+        name,
+        { maniaKeys: asked },
+      ),
+      asked,
+    );
     if (!isCurrent()) {
       for (const bitmap of loaded.assets.values()) bitmap.close();
       return;
@@ -284,6 +330,7 @@ export class ClientSkin {
       this.#emit({ message: `“${name}” has nothing to draw.`, tone: "notice" });
       return;
     }
+    this.#files = { skin: loaded, fallback: "legacy", keys };
     this.#install(
       withFallback(loaded, this.#builtin("legacy")),
       "user",
@@ -293,6 +340,71 @@ export class ClientSkin {
       "info",
       [...loaded.assets.values()],
     );
+  }
+
+  /** Whether the shown skin has its mania images for exactly these key counts. */
+  hasManiaKeys(keys: readonly number[]): boolean {
+    const wanted = keySet(keys);
+    return (
+      sameKeys(this.#keys, wanted) &&
+      (!this.#files || sameKeys(this.#files.keys, wanted))
+    );
+  }
+
+  /** A freshly loaded skin with the key counts asked for while it loaded. */
+  async #currentKeys(
+    loaded: Skin,
+    keys: readonly number[] | undefined,
+  ): Promise<{ skin: Skin; keys: readonly number[] | undefined }> {
+    const now = this.#keys;
+    if (!now || sameKeys(keys, now)) return { skin: loaded, keys };
+    const next = await loadManiaKeys(loaded, now);
+    const kept = new Set(next.assets.values());
+    for (const bitmap of loaded.assets.values())
+      if (!kept.has(bitmap)) bitmap.close();
+    return { skin: next, keys: now };
+  }
+
+  /**
+   * Decodes the shown skin's mania images for exactly these key counts (the
+   * scene's stage; none for other rulesets) and releases the others. The
+   * current skin stays drawn until the new set is ready; then `onChange`
+   * reports it. Later skin loads use these key counts too.
+   */
+  useManiaKeys(keys: readonly number[]): Promise<void> {
+    const wanted = keySet(keys);
+    // Asking again while the same set loads (e.g. every frame) waits for it.
+    const pending = this.#maniaPending;
+    if (pending && sameKeys(pending.keys, wanted)) return pending.done;
+    const done = this.#loadManiaKeys(wanted).finally(() => {
+      if (this.#maniaPending?.done === done) this.#maniaPending = undefined;
+    });
+    this.#maniaPending = { keys: wanted, done };
+    return done;
+  }
+
+  async #loadManiaKeys(wanted: readonly number[]): Promise<void> {
+    const maniaSequence = ++this.#maniaSequence;
+    this.#keys = wanted;
+    const files = this.#files;
+    if (!files || sameKeys(files.keys, wanted)) return;
+    const sequence = this.#sequence;
+    const next = await loadManiaKeys(files.skin, wanted);
+    if (
+      sequence !== this.#sequence ||
+      maniaSequence !== this.#maniaSequence ||
+      this.#files !== files
+    ) {
+      // Superseded: release only what this call decoded.
+      const old = new Set(files.skin.assets.values());
+      for (const bitmap of next.assets.values())
+        if (!old.has(bitmap)) bitmap.close();
+      return;
+    }
+    this.#files = { ...files, skin: next, keys: wanted };
+    this.#emit({ skin: withFallback(next, this.#builtin(files.fallback)) }, [
+      ...next.assets.values(),
+    ]);
   }
 
   /** Loads an `.osk` (ZIP) skin archive chosen by the user. */

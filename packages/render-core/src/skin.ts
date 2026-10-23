@@ -1,6 +1,7 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
-import { normaliseManiaImage } from "./mania";
+import { planAtlas, type AtlasStrip } from "./atlas";
+import { maniaConfig, maniaLayout, normaliseManiaImage } from "./mania";
 export interface Skin {
   name: string;
   assets: Map<string, ImageBitmap>;
@@ -55,6 +56,44 @@ export interface AtlasRegion {
   first?: number;
   count?: number;
   fps?: number;
+  /** Array texture page (atlas.ts). */
+  layer?: number;
+  /** Tall images: their strips from top to bottom (atlas.ts). */
+  strips?: AtlasStrip[];
+  /** Frame-table entries of the plain image (`first` is the animation's, when animated). */
+  still?: number;
+  /** Frame-table entries per animation frame: the most strips of any frame. */
+  stride?: number;
+}
+
+/** A region's strips; one covering the whole image when it is not split. */
+export function regionStrips(region: AtlasRegion): AtlasStrip[] {
+  const { u, v, w, h, layer = 0 } = region;
+  return region.strips ?? [{ u, v, w, h, layer, a: 0, b: 1 }];
+}
+
+/**
+ * The instances that draw a region: one per strip, each with its frame-table
+ * entry and (for stills) its UV rectangle. `still` draws the plain image;
+ * otherwise the animation, if any. `maxRow` (a fraction of the image height)
+ * skips strips that can never show.
+ */
+export function regionInstances(
+  region: AtlasRegion,
+  still: boolean,
+  maxRow = 1,
+): { entry: number; uv: AtlasStrip }[] {
+  const strips = regionStrips(region),
+    animated = !still && (region.count ?? 0) > 1,
+    count = animated ? (region.stride ?? strips.length) : strips.length,
+    base = (animated ? region.first : (region.still ?? region.first)) ?? 0,
+    out: { entry: number; uv: AtlasStrip }[] = [];
+  for (let k = 0; k < count; k++) {
+    const uv = strips[k] ?? strips[0];
+    if (k > 0 && strips[k] && strips[k].a >= maxRow) break;
+    out.push({ entry: base + k, uv });
+  }
+  return out;
 }
 export const assetNames = [
   "hitcircle",
@@ -147,6 +186,39 @@ export interface LoadSkinOptions {
    * and no measured value is reported to tools yet.
    */
   maxTextureSize?: number;
+  /**
+   * The mania key counts to decode images for (each key count has its own
+   * [Mania] images, and hold bodies can be tens of megabytes each). Every key
+   * count when omitted; `loadManiaKeys` switches the set later.
+   */
+  maniaKeys?: readonly number[];
+}
+
+/** How a loaded skin decodes more images later (`loadManiaKeys`). */
+interface SkinSource {
+  resolve: (file: string) => Promise<Blob | null>;
+  maxTextureSize: number;
+  /** Every image name a scene in some ruleset may look up, mania aside. */
+  general: ReadonlySet<string>;
+  /** Asset keys (frames included) that belong to mania only. */
+  mania: ReadonlySet<string>;
+}
+const sources = new WeakMap<Skin, SkinSource>();
+
+/** Default mania element names (shared by every key count without overrides). */
+const maniaDefaults = new Set(
+  assetNames.filter((n) => n.startsWith("mania-") || /^lighting[NL]$/.test(n)),
+);
+
+/** The mania images a stage of `keys` columns looks up (custom paths and the defaults they fall back to). */
+export function maniaImageNames(skin: Skin, keys: number): Set<string> {
+  const names = new Set<string>();
+  // Report every lookup as missing, so every fallback candidate is recorded too.
+  maniaLayout(maniaConfig(skin, keys), (name) => {
+    names.add(name);
+    return undefined;
+  });
+  return names;
 }
 
 export async function loadSkin(
@@ -154,7 +226,6 @@ export async function loadSkin(
   name = "Client skin",
   options: LoadSkinOptions = {},
 ): Promise<Skin> {
-  const maxTextureSize = options.maxTextureSize ?? Infinity;
   const skin: Skin = {
     name,
     assets: new Map(),
@@ -182,8 +253,7 @@ export async function loadSkin(
         const rule = resolveCommand(section, key);
         if (rule?.since && skin.version < rule.since) delete block[key];
       }
-  const names = new Set(assetNames),
-    animationNames = new Set(animated);
+  const maniaNames = new Set(maniaDefaults);
   for (const section of skin.sections.get("Mania") ?? [])
     for (const [key, value] of Object.entries(section))
       if (
@@ -193,11 +263,93 @@ export async function loadSkin(
       ) {
         const asset = normaliseManiaImage(value);
         section[key] = asset;
-        names.add(asset);
-        animationNames.add(asset);
+        maniaNames.add(asset);
       }
+  const generalNames = new Set(assetNames.filter((n) => !maniaDefaults.has(n)));
   const prefix = skin.sections.get("Fonts")?.[0]?.HitCirclePrefix ?? "default";
-  for (let i = 0; i < 10; i++) names.add(`${prefix}-${i}`);
+  for (let i = 0; i < 10; i++) generalNames.add(`${prefix}-${i}`);
+  // A custom mania path can name a general element; it is general then.
+  for (const name of generalNames) maniaNames.delete(name);
+  const source: SkinSource = {
+    resolve,
+    maxTextureSize: options.maxTextureSize ?? Infinity,
+    general: generalNames,
+    mania: new Set(),
+  };
+  sources.set(skin, source);
+  const wanted = options.maniaKeys
+    ? new Set(options.maniaKeys.flatMap((k) => [...maniaImageNames(skin, k)]))
+    : maniaNames;
+  const loadedMania = await decode(skin, source, [
+    ...generalNames,
+    ...[...wanted].filter((n) => !generalNames.has(n)),
+  ]);
+  source.mania = new Set(
+    [...loadedMania].filter((key) => !isGeneral(key, generalNames)),
+  );
+  return skin;
+}
+
+/** Whether an asset key (or animation frame key) belongs to a general element. */
+const isGeneral = (key: string, general: ReadonlySet<string>) =>
+  general.has(key) ||
+  general.has(key.replace(/-\d+$/, "")) ||
+  (key.startsWith("sliderb") && general.has("sliderb"));
+
+/**
+ * The skin with mania images for exactly these key counts: images already
+ * decoded are shared, new ones are decoded, and mania images of other key
+ * counts are left out (the caller closes them once nothing draws the old
+ * skin). Skins not made by `loadSkin` are returned unchanged.
+ */
+export async function loadManiaKeys(
+  skin: Skin,
+  keys: readonly number[],
+): Promise<Skin> {
+  const source = sources.get(skin);
+  if (!source) return skin;
+  const wanted = new Set(keys.flatMap((k) => [...maniaImageNames(skin, k)]));
+  for (const name of source.general) wanted.delete(name);
+  const next: Skin = {
+    ...skin,
+    assets: new Map(),
+    pixelScale: new Map(),
+    animations: new Map(),
+    blank: new Set(),
+  };
+  // Keep every general asset and the wanted mania ones (with their frames).
+  const keep = (key: string) =>
+    !source.mania.has(key) ||
+    wanted.has(key) ||
+    wanted.has(key.replace(/-\d+$/, ""));
+  for (const [key, bitmap] of skin.assets)
+    if (keep(key)) {
+      next.assets.set(key, bitmap);
+      next.pixelScale!.set(key, skin.pixelScale?.get(key) ?? 1);
+      if (skin.blank?.has(key)) next.blank!.add(key);
+    }
+  for (const [key, frames] of skin.animations ?? [])
+    if (keep(key)) next.animations!.set(key, frames);
+  const nextSource: SkinSource = { ...source, mania: new Set() };
+  sources.set(next, nextSource);
+  const missing = [...wanted].filter(
+    (name) => !next.assets.has(name) && !next.animations!.has(name),
+  );
+  await decode(next, nextSource, missing);
+  nextSource.mania = new Set(
+    [...next.assets.keys()].filter((key) => !isGeneral(key, source.general)),
+  );
+  return next;
+}
+
+/** Decodes the named images (and their animation frames) into the skin; returns the keys it added. */
+async function decode(
+  skin: Skin,
+  source: SkinSource,
+  names: readonly string[],
+): Promise<Set<string>> {
+  const added = new Set<string>();
+  const { resolve, maxTextureSize } = source;
   async function image(key: string, path = key): Promise<boolean> {
     if (skin.assets.has(key)) return true;
     const normalized = path.replace(/\\/g, "/").replace(/\.png$/i, "");
@@ -218,6 +370,7 @@ export async function loadSkin(
           if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize)
             skin.blank!.add(key);
           skin.assets.set(key, bitmap);
+          added.add(key);
           skin.pixelScale!.set(
             key,
             /@2x(?:\.png)?$/i.test(candidate + suffix) ? 2 : 1,
@@ -238,10 +391,11 @@ export async function loadSkin(
         const name = pending[cursor++];
         await image(name);
         if (
-          !animationNames.has(name) &&
+          !animated.has(name) &&
           !name.startsWith("mania-") &&
           !name.startsWith("mania/") &&
-          !/lighting/i.test(name)
+          !/lighting/i.test(name) &&
+          source.general.has(name)
         )
           continue;
         const frames: string[] = [];
@@ -261,14 +415,24 @@ export async function loadSkin(
           if (!skin.assets.has(name)) {
             skin.assets.set(name, skin.assets.get(frames[0])!);
             skin.pixelScale!.set(name, skin.pixelScale!.get(frames[0])!);
+            added.add(name);
           }
         }
       }
     }),
   );
-  return skin;
+  return added;
 }
-/** One atlas and one immutable region table; animations select UVs entirely in WGSL. */
+/**
+ * Skin images on array-texture pages (see atlas.ts) and one immutable frame
+ * table; animations and strips select UVs entirely in WGSL.
+ *
+ * The frame table holds two vec4 per entry: the UV rectangle, then
+ * (a, b, layer, stride) where [a, b] are the image rows the entry holds
+ * (fractions of the image height) and `stride` the entries per animation
+ * frame. A region's entries start at `first`: frame f, strip k is entry
+ * `first + f * stride + k`.
+ */
 export function buildAtlas(
   device: GPUDevice,
   skin?: Skin,
@@ -277,73 +441,36 @@ export function buildAtlas(
   regions: Map<string, AtlasRegion>;
   frames: Float32Array<ArrayBuffer>;
 } {
-  const size = Math.min(4096, device.limits.maxTextureDimension2D),
-    canvas = new OffscreenCanvas(size, size),
-    ctx = canvas.getContext("2d")!;
-  const regions = new Map<string, AtlasRegion>();
-  let x = 2,
-    y = 2,
-    row = 0;
-  const add = (
-    name: string,
-    image: CanvasImageSource,
-    width: number,
-    height: number,
-    pixelScale = 1,
-    blank = false,
-  ) => {
-    const logicalWidth = width / pixelScale,
-      logicalHeight = height / pixelScale,
-      // Per axis, so very long images (mania hold bodies tens of thousands of
-      // pixels tall) keep their full width; regions map the whole image anyway.
-      w = Math.max(1, Math.min(1024, Math.ceil(width))),
-      h = Math.max(1, Math.min(1024, Math.ceil(height)));
-    if (x + w + 2 > size) {
-      x = 2;
-      y += row + 4;
-      row = 0;
+  const sources = new Map<
+    string,
+    {
+      image: CanvasImageSource;
+      width: number;
+      height: number;
+      scale: number;
+      blank: boolean;
     }
-    if (y + h + 2 > size)
-      throw Error("Skin gameplay atlas exceeds GPU texture capacity");
-    if (blank) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x, y, w, h);
-    } else ctx.drawImage(image, x, y, w, h);
-    regions.set(name, {
-      u: x / size,
-      v: y / size,
-      w: w / size,
-      h: h / size,
-      width: logicalWidth,
-      height: logicalHeight,
-    });
-    x += w + 4;
-    row = Math.max(row, h);
-  };
-  if (skin) {
-    const packed = new Map<ImageBitmap, AtlasRegion>();
-    const images = [...skin.assets].sort(
-      (a, b) => Math.min(1024, b[1].height) - Math.min(1024, a[1].height),
-    );
-    for (const [name, image] of images) {
-      const existing = packed.get(image);
-      if (existing) {
-        regions.set(name, { ...existing });
+  >();
+  const owners = new Map<ImageBitmap, string>(),
+    aliases = new Map<string, string>();
+  if (skin)
+    for (const [name, image] of skin.assets) {
+      const owner = owners.get(image);
+      if (owner) {
+        aliases.set(name, owner);
         continue;
       }
-      add(
-        name,
+      owners.set(image, name);
+      sources.set(name, {
         image,
-        image.width,
-        image.height,
-        skin.pixelScale?.get(name) ?? 1,
-        skin.blank?.has(name) ?? false,
-      );
-      packed.set(image, regions.get(name)!);
+        width: image.width,
+        height: image.height,
+        scale: skin.pixelScale?.get(name) ?? 1,
+        blank: skin.blank?.has(name) ?? false,
+      });
     }
-  }
   for (let i = 0; i < 10; i++)
-    if (!regions.has(`default-${i}`)) {
+    if (!sources.has(`default-${i}`) && !aliases.has(`default-${i}`)) {
       const digit = new OffscreenCanvas(64, 80),
         c = digit.getContext("2d")!;
       c.fillStyle = "#fff";
@@ -351,38 +478,130 @@ export function buildAtlas(
       c.textAlign = "center";
       c.textBaseline = "middle";
       c.fillText(String(i), 32, 42);
-      add(`default-${i}`, digit, 64, 80);
+      sources.set(`default-${i}`, {
+        image: digit,
+        width: 64,
+        height: 80,
+        scale: 1,
+        blank: false,
+      });
     }
-  const frames: number[] = [];
-  const frameRate = skin?.frameRate ?? -1;
-  for (const [name, region] of regions) {
-    region.first = frames.length / 4;
-    region.count = 1;
-    region.fps =
-      frameRate > 0 ? frameRate : (skin?.animations?.get(name)?.length ?? 1);
-    frames.push(region.u, region.v, region.w, region.h);
-    const animation = skin?.animations?.get(name);
-    if (animation?.length) {
-      region.first = frames.length / 4;
-      region.count = animation.length;
-      for (const frame of animation) {
-        const uv = regions.get(frame)!;
-        frames.push(uv.u, uv.v, uv.w, uv.h);
-      }
-    }
+  const plan = planAtlas(
+    [...sources].map(([key, { width, height }]) => ({ key, width, height })),
+    device.limits,
+  );
+  if (plan.downscaled.length)
+    console.warn(
+      `Skin images wider than this GPU allows (${device.limits.maxTextureDimension2D} px) are scaled down: ${plan.downscaled.join(", ")}`,
+    );
+  const { pageWidth, pageHeight, pages } = plan;
+  const regions = new Map<string, AtlasRegion>();
+  for (const [name, source] of sources) {
+    const placement = plan.placements.get(name)!;
+    const strips: AtlasStrip[] = placement.pieces.map((piece) => ({
+      u: piece.x / pageWidth,
+      v: piece.y / pageHeight,
+      w: piece.width / pageWidth,
+      h: piece.height / pageHeight,
+      layer: piece.page,
+      a: piece.top / placement.height,
+      b: piece.bottom / placement.height,
+    }));
+    const [first] = strips;
+    regions.set(name, {
+      u: first.u,
+      v: first.v,
+      w: first.w,
+      h: first.h,
+      layer: first.layer,
+      width: source.width / source.scale,
+      height: source.height / source.scale,
+      ...(strips.length > 1 ? { strips } : {}),
+    });
   }
+  for (const [name, owner] of aliases)
+    regions.set(name, { ...regions.get(owner)! });
+  // Pixels: one canvas reused for every page.
   const texture = device.createTexture({
-    size: [size, size],
+    size: [pageWidth, pageHeight, pages],
     format: "rgba8unorm",
     usage:
       GPUTextureUsage.TEXTURE_BINDING |
       GPUTextureUsage.COPY_DST |
       GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  device.queue.copyExternalImageToTexture(
-    { source: canvas },
-    { texture, premultipliedAlpha: false },
-    [size, size],
-  );
-  return { texture, regions, frames: new Float32Array(frames) };
+  const canvas = new OffscreenCanvas(pageWidth, pageHeight),
+    ctx = canvas.getContext("2d")!;
+  ctx.imageSmoothingQuality = "high";
+  for (let page = 0; page < pages; page++) {
+    ctx.clearRect(0, 0, pageWidth, pageHeight);
+    for (const [name, source] of sources) {
+      const placement = plan.placements.get(name)!,
+        rows = source.height / placement.height;
+      for (const piece of placement.pieces) {
+        if (piece.page !== page) continue;
+        const top = piece.top - piece.gutterTop,
+          height = piece.bottom + piece.gutterBottom - top,
+          y = piece.y - piece.gutterTop;
+        if (source.blank) {
+          ctx.fillStyle = "#000";
+          ctx.fillRect(piece.x, y, piece.width, height);
+        } else
+          ctx.drawImage(
+            source.image,
+            0,
+            top * rows,
+            source.width,
+            height * rows,
+            piece.x,
+            y,
+            piece.width,
+            height,
+          );
+      }
+    }
+    device.queue.copyExternalImageToTexture(
+      { source: canvas },
+      { texture, origin: [0, 0, page], premultipliedAlpha: false },
+      [pageWidth, pageHeight],
+    );
+  }
+  const values: number[] = [];
+  const frameRate = skin?.frameRate ?? -1;
+  const push = (strip: AtlasStrip | undefined, stride: number) =>
+    strip
+      ? values.push(
+          strip.u,
+          strip.v,
+          strip.w,
+          strip.h,
+          strip.a,
+          strip.b,
+          strip.layer,
+          stride,
+        )
+      : // A frame with fewer strips than the animation's widest frame.
+        values.push(0, 0, 0, 0, 2, 2, 0, stride);
+  for (const [name, region] of regions) {
+    const own = regionStrips(region);
+    region.still = region.first = values.length / 8;
+    region.count = 1;
+    region.stride = own.length;
+    region.fps =
+      frameRate > 0 ? frameRate : (skin?.animations?.get(name)?.length ?? 1);
+    for (const strip of own) push(strip, own.length);
+    const animation = skin?.animations?.get(name);
+    if (animation?.length) {
+      const frames = animation.map((frame) =>
+          regionStrips(regions.get(frame)!),
+        ),
+        stride = Math.max(...frames.map((f) => f.length));
+      region.first = values.length / 8;
+      region.count = animation.length;
+      region.stride = stride;
+      for (const frame of frames)
+        for (let k = 0; k < stride; k++) push(frame[k], stride);
+    }
+  }
+  return { texture, regions, frames: new Float32Array(values) };
 }

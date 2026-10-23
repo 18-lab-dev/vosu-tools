@@ -24,12 +24,12 @@ skins.useClient({ force: false });
 `useClient()` reads vosu's report, `GET /files/skin/` on the overlay origin
 (`{client, name, files, builtin, base}`), and then:
 
-| Report | Shown |
-| --- | --- |
-| `files: true`, stable or a classic-based lazer skin | The skin's files, loaded by filename from `/files/skin/<path>`; elements it lacks come from the classic look |
-| `builtin` (lazer's Argon, Argon Pro, Triangles, classic, retro) | render-core's `builtinSkin` look; "retro" is drawn with the classic look and says so |
-| `base` Argon / Triangles (a lazer skin derived from one) | That built-in look with the skin's `[Colours]` from its `skin.ini` |
-| No client, files unavailable, nothing served, no report (older vosu), vosu unreachable | The classic look and a one-line reason in `state.message` |
+| Report                                                                                 | Shown                                                                                                        |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `files: true`, stable or a classic-based lazer skin                                    | The skin's files, loaded by filename from `/files/skin/<path>`; elements it lacks come from the classic look |
+| `builtin` (lazer's Argon, Argon Pro, Triangles, classic, retro)                        | render-core's `builtinSkin` look; "retro" is drawn with the classic look and says so                         |
+| `base` Argon / Triangles (a lazer skin derived from one)                               | That built-in look with the skin's `[Colours]` from its `skin.ini`                                           |
+| No client, files unavailable, nothing served, no report (older vosu), vosu unreachable | The classic look and a one-line reason in `state.message`                                                    |
 
 Built-in looks are drawn once and reused. `useClient({ force: false })` and
 `gameChanged` reload only when the report differs from the last one, and
@@ -38,10 +38,19 @@ always wins over one still in progress.
 
 ## API
 
-- `new ClientSkin({ onChange, fetch? })`: `onChange(state)` runs synchronously
-  after every change; bitmaps of a replaced skin are released right after it
-  returns, so hand `state.skin` to the renderer there. `fetch` defaults to the
-  global one (the tool page is on the overlay origin).
+- `new ClientSkin({ onChange, fetch?, maniaKeys? })`: `onChange(state)` runs
+  synchronously after every change; bitmaps the new skin no longer uses are
+  released right after it returns, so hand `state.skin` to the renderer there.
+  `fetch` defaults to the global one (the tool page is on the overlay origin).
+  `maniaKeys` (default: every key count) limits which mania key counts skin
+  images are decoded for; tools that follow maps pass `[]`.
+- `useManiaKeys(keys)`, `hasManiaKeys(keys)`: decode the shown skin's mania
+  images for exactly these key counts (render-core's `maniaKeysFor(map,
+options)`; `[]` outside mania) and release the others. Images shared by
+  both sets are kept, repeated calls for the set being loaded wait for that
+  load, and the skin stays as it is until the new set is ready, so set the
+  new beatmap once `hasManiaKeys` is true (Map preview keeps drawing the
+  previous scene meanwhile). Later skin loads use the same key counts.
 - `state: SkinState`: `{ skin, choice, label, source, message, tone, busy }`;
   `choice` is `"client"`, `"user"` (a file or folder) or a built-in name.
 - `useClient({ force = true })`, `gameChanged(client, skinFolder)`: see above.

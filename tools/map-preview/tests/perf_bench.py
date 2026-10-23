@@ -3,7 +3,12 @@
 
 Build the page, then run:
   (cd tools/map-preview/web && bunx vite build --config ../tests/perf/vite.config.ts --outDir /tmp/mp-perf-dist)
-  uv run --with playwright python tools/map-preview/tests/perf_bench.py /tmp/mp-perf-dist SONGS SKINS [EVIDENCE_DIR]
+  uv run --with playwright python tools/map-preview/tests/perf_bench.py /tmp/mp-perf-dist SONGS SKINS [EVIDENCE_DIR] \
+    [--mania-only] [--mania-map=MAP.osu@START_MS] [NAME=SKIN_DIR ...]
+
+NAME=SKIN_DIR adds a mania case with that skin folder; --mania-only skips the
+other rulesets; --mania-map replaces the mania map. Draw calls per frame and the renderer's texture memory are
+reported too.
 
 Each case renders 600 measured frames at 1920x1080 (after 60 warm-up frames),
 advancing 1/60 s per frame from a busy part of the map, and reports CPU time
@@ -67,7 +72,7 @@ def serve(dist: Path, maps: dict, skins: dict):
     return server
 
 
-async def bench():
+async def bench(cases):
     from playwright.async_api import async_playwright
 
     results = []
@@ -76,7 +81,7 @@ async def bench():
             executable_path=str(CHROME), headless=True,
             args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan', '--enable-features=Vulkan',
                   '--disable-vulkan-surface', '--disable-gpu-vsync', '--disable-frame-rate-limit'])
-        for ruleset, skin in CASES:
+        for ruleset, skin in cases:
             page = await browser.new_page(viewport={'width': 1920, 'height': 1080})
             source = skin if skin.startswith('builtin:') else f'files:/skins/{skin[6:]}/'
             await page.goto(f'http://127.0.0.1:{PORT}/perf/?map=/maps/{ruleset}.osu&start={MAPS[ruleset][2]}&skin={source}')
@@ -89,15 +94,25 @@ async def bench():
             print(f"{ruleset:6} {skin:18} objects {result['objects']:5}  skin {result['skinMs']:7.1f} ms  compile {result['compileMs']:6.1f} ms  "
                   f"cpu mean {result['cpu']['mean']:.3f} p95 {result['cpu']['p95']:.3f} ms  "
                   f"gpu pass mean {gpu['mean'] if gpu else float('nan'):.3f} p95 {gpu['p95'] if gpu else float('nan'):.3f} ms  "
-                  f"submit→done p95 {result['submitToGpuDone']['p95']:.2f} ms")
+                  f"submit→done p95 {result['submitToGpuDone']['p95']:.2f} ms  "
+                  f"draws mean {result['drawCalls']['mean']:.1f} max {result['drawCalls']['max']}  "
+                  f"textures {result['textureMB']:.0f} MB")
             await page.close()
         await browser.close()
     return results
 
 
 def main():
-    dist, songs, skins = map(Path, sys.argv[1:4])
-    evidence = Path(sys.argv[4]) if len(sys.argv) > 4 else Path('/tmp/vosu-r3-evidence/ToolMapPreview')
+    args = [a for a in sys.argv[1:] if not a.startswith('--') and '=' not in a]
+    extra = dict(a.split('=', 1) for a in sys.argv[1:] if '=' in a and not a.startswith('--'))
+    dist, songs, skins = map(Path, args[:3])
+    evidence = Path(args[3]) if len(args) > 3 else Path('/tmp/vosu-r3-evidence/ToolMapPreview')
+    override = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--mania-map=')), None)
+    if override:
+        path, _, start = override.rpartition('@')
+        MAPS['mania'] = (str(Path(path).parent), Path(path).name, int(start))
+    cases = [c for c in CASES if c[0] == 'mania' or '--mania-only' not in sys.argv]
+    cases += [('mania', f'files:{name}') for name in extra]
     evidence.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='map-preview-perf-') as directory:
         temp = Path(directory)
@@ -109,9 +124,12 @@ def main():
         for key, folder in SKINS.items():
             copies[key] = temp / key
             shutil.copytree(skins / folder, copies[key])
+        for key, folder in extra.items():
+            copies[key] = temp / key
+            shutil.copytree(folder, copies[key])
         server = serve(dist, maps, copies)
         try:
-            results = asyncio.run(bench())
+            results = asyncio.run(bench(cases))
         finally:
             server.shutdown()
     (evidence / 'perf.json').write_text(json.dumps(results, indent=2) + '\n')

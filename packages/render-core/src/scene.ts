@@ -7,7 +7,12 @@ import {
 import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
 import { normaliseComboColour } from "./colour";
 import { catchPreempt, compileCatch } from "./fruits";
-import { legacySliderStyle, type Skin, type AtlasRegion } from "./skin";
+import {
+  legacySliderStyle,
+  regionInstances,
+  type Skin,
+  type AtlasRegion,
+} from "./skin";
 import { compileTaiko } from "./taiko";
 import {
   atlasImageSize,
@@ -36,6 +41,24 @@ export interface RenderOptions {
    */
   comboColourNormalisation?: number;
 }
+/**
+ * The mania key counts a scene of this map draws (empty for other rulesets),
+ * for `loadManiaKeys`: the stage follows the map's CS after Difficulty
+ * Adjust and the `cs` override, like `setBeatmap`.
+ */
+export function maniaKeysFor(
+  map: Beatmap,
+  options: RenderOptions = {},
+): number[] {
+  if (map.mode !== 3) return [];
+  let cs = map.difficulty.cs;
+  for (const mod of options.mods ?? [])
+    if (mod.acronym.toUpperCase() === "DA")
+      cs = Number(mod.settings?.circle_size ?? cs);
+  if (options.cs !== undefined) cs = options.cs;
+  return [Math.max(1, Math.round(cs))];
+}
+
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
   chunks: { first: number; count: number; from: number; until: number }[];
@@ -169,17 +192,59 @@ export function compileScene(
      */
     crop?: readonly [number, number],
   ): void {
-    const region = custom ? undefined : regions.get(asset),
-      uv =
-        region && crop
-          ? {
-              ...region,
-              u: region.u + (region.w * (1 - crop[0])) / 2,
-              v: region.v + (region.h * (1 - crop[1])) / 2,
-              w: region.w * crop[0],
-              h: region.h * crop[1],
-            }
-          : region;
+    const region = custom ? undefined : regions.get(asset);
+    if (region) {
+      // One instance per strip of a tall image (atlas.ts). A crop keeps the
+      // centre of each strip horizontally; tall images are never cropped
+      // vertically (only small taiko and catch pieces are).
+      const animated = !(still || crop);
+      for (const { entry, uv: strip } of regionInstances(region, !animated)) {
+        const uv =
+          crop && !region.strips
+            ? {
+                u: strip.u + (strip.w * (1 - crop[0])) / 2,
+                v: strip.v + (strip.h * (1 - crop[1])) / 2,
+                w: strip.w * crop[0],
+                h: strip.h * crop[1],
+              }
+            : crop
+              ? {
+                  ...strip,
+                  u: strip.u + (strip.w * (1 - crop[0])) / 2,
+                  w: strip.w * crop[0],
+                }
+              : strip;
+        values.push(
+          x,
+          y,
+          w,
+          h,
+          start,
+          end,
+          from,
+          until,
+          colour[0],
+          colour[1],
+          colour[2],
+          colour[3] ?? 1,
+          motion,
+          a,
+          b,
+          c,
+          uv.u,
+          uv.v,
+          uv.w,
+          uv.h,
+          shape === 13 ? 13 : 10,
+          entry,
+          animated ? (region.count ?? q) : 0,
+          (asset === "sliderb" || asset === "hitcircleoverlay"
+            ? 60
+            : (region.fps ?? 60)) * (r < 0 ? -1 : 1),
+        );
+      }
+      return;
+    }
     values.push(
       x,
       y,
@@ -197,18 +262,14 @@ export function compileScene(
       a,
       b,
       c,
-      uv?.u ?? custom?.[0] ?? 0,
-      uv?.v ?? custom?.[1] ?? 0,
-      uv?.w ?? custom?.[2] ?? 0,
-      uv?.h ?? custom?.[3] ?? 0,
-      uv ? (shape === 13 ? 13 : 10) : shape,
-      uv?.first ?? p,
-      uv ? (still || crop ? 0 : (uv.count ?? q)) : q,
-      uv
-        ? (asset === "sliderb" || asset === "hitcircleoverlay"
-            ? 60
-            : (uv.fps ?? 60)) * (r < 0 ? -1 : 1)
-        : r,
+      custom?.[0] ?? 0,
+      custom?.[1] ?? 0,
+      custom?.[2] ?? 0,
+      custom?.[3] ?? 0,
+      shape,
+      p,
+      q,
+      r,
     );
   }
   function circle(
@@ -746,35 +807,39 @@ export function compileScene(
     ) => {
       if (hitLighting(motion) || colour[3] <= 0) return;
       if (rect.width <= 0 || rect.height <= 0) return;
-      const uv = asset === undefined ? undefined : regions.get(asset);
-      if (asset !== undefined && !uv) return;
-      values.push(
-        toX(rect.x + rect.width / 2),
-        toY(rect.y + rect.height / 2),
-        rect.width / MANIA_SCALE,
-        rect.height / MANIA_SCALE,
-        0,
-        0,
-        -1e9,
-        1e9,
-        colour[0],
-        colour[1],
-        colour[2],
-        colour[3],
-        motion,
-        lane,
-        0,
-        0,
-        uv?.u ?? 0,
-        uv?.v ?? 0,
-        uv?.w ?? 0,
-        uv?.h ?? 0,
-        uv ? shapeCode[flip] : 4,
-        uv?.first ?? 0,
-        // Texture lookups (fps 0) draw the plain image even when frames exist.
-        fps > 0 ? (uv?.count ?? 0) : 0,
-        fps,
-      );
+      const region = asset === undefined ? undefined : regions.get(asset);
+      if (asset !== undefined && !region) return;
+      // Texture lookups (fps 0) draw the plain image even when frames exist.
+      const instances = region
+        ? regionInstances(region, !(fps > 0))
+        : [{ entry: 0, uv: undefined }];
+      for (const { entry, uv } of instances)
+        values.push(
+          toX(rect.x + rect.width / 2),
+          toY(rect.y + rect.height / 2),
+          rect.width / MANIA_SCALE,
+          rect.height / MANIA_SCALE,
+          0,
+          0,
+          -1e9,
+          1e9,
+          colour[0],
+          colour[1],
+          colour[2],
+          colour[3],
+          motion,
+          lane,
+          0,
+          0,
+          uv?.u ?? 0,
+          uv?.v ?? 0,
+          uv?.w ?? 0,
+          uv?.h ?? 0,
+          uv ? shapeCode[flip] : 4,
+          entry,
+          fps > 0 ? (region?.count ?? 0) : 0,
+          fps,
+        );
     };
     /**
      * A scrolling piece in a column: notes, hold heads and tails (kind 1:
@@ -793,32 +858,38 @@ export function compileScene(
       flip: keyof typeof shapeCode,
       fps: number,
     ) => {
-      const uv = regions.get(asset);
-      if (!uv) return;
+      const region = regions.get(asset);
+      if (!region) return;
       const column = columns[lane];
-      values.push(
-        toX(column.x + column.width / 2),
-        y,
-        column.width / MANIA_SCALE,
-        h,
-        ...life,
-        1,
-        1,
-        1,
-        1,
-        motion,
-        a,
-        b,
-        hit,
-        uv.u,
-        uv.v,
-        uv.w,
-        uv.h,
-        shapeCode[flip],
-        uv.first ?? 0,
-        uv.count ?? 0,
-        fps,
-      );
+      // Hold bodies show their image from the tail end: a repeating body
+      // (kind 14) is a 20500-unit sprite (32800 lazer units), so strips past
+      // the hold's length never show.
+      const length = (b - a) * speed - y + h,
+        maxRow = motion === 14 ? length / Math.max(length, 20500) : 1;
+      for (const { entry, uv } of regionInstances(region, false, maxRow))
+        values.push(
+          toX(column.x + column.width / 2),
+          y,
+          column.width / MANIA_SCALE,
+          h,
+          ...life,
+          1,
+          1,
+          1,
+          1,
+          motion,
+          a,
+          b,
+          hit,
+          uv.u,
+          uv.v,
+          uv.w,
+          uv.h,
+          shapeCode[flip],
+          entry,
+          region.count ?? 0,
+          fps,
+        );
     };
     const WHITE: Rgba = [1, 1, 1, 1];
     // LegacyStageBackground: sides, column backgrounds and lines, hit target.

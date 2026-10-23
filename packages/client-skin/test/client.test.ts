@@ -45,7 +45,17 @@ const skins: Record<string, Record<string, string>> = {
     "skin.ini": "[General]\nName: Staircase\n",
     "hitcircle.png": "staircase",
   },
+  Keys: {
+    "skin.ini":
+      "[General]\nName: Keys\nVersion: 2.7\n[Mania]\nKeys: 4\nNoteImage0L: four/body\n[Mania]\nKeys: 7\nNoteImage0L: seven/body\n",
+    "hitcircle.png": "keys-circle",
+    "four/body.png": "four-body",
+    "seven/body.png": "seven-body",
+    "mania-note1.png": "shared-note",
+  },
 };
+/** Skin file paths requested, in order. */
+const fileRequests: string[] = [];
 let report: Record<string, unknown> = {},
   reports = 0,
   /** While set, skin files are held until it resolves; `fileRequested` fires on the first. */
@@ -62,6 +72,7 @@ const server = Bun.serve({
       held.requested();
       await held.release;
     }
+    fileRequests.push(path.slice(12));
     const body = skins[String(report.name)]?.[path.slice(12).toLowerCase()];
     return body === undefined
       ? new Response("not found", { status: 404 })
@@ -71,9 +82,13 @@ const server = Bun.serve({
 afterAll(() => server.stop(true));
 const host: Fetcher = (url, init) => fetch(new URL(url, server.url), init);
 
-function controller() {
+function controller(maniaKeys?: number[]) {
   const seen: SkinState[] = [];
-  const skin = new ClientSkin({ fetch: host, onChange: (s) => seen.push(s) });
+  const skin = new ClientSkin({
+    fetch: host,
+    onChange: (s) => seen.push(s),
+    maniaKeys,
+  });
   return { skin, seen, last: () => seen.at(-1)! };
 }
 
@@ -225,4 +240,55 @@ test("a reload that overlaps the first load still installs the skin", async () =
     busy: false,
   });
   expect(last().skin.assets.has("hitcircle")).toBe(true);
+});
+
+test("mania images load per key count, sharing and releasing bitmaps", async () => {
+  report = {
+    client: "lazer",
+    name: "Keys",
+    files: true,
+    builtin: null,
+    base: "legacy",
+  };
+  const { skin, last } = controller([]);
+  closed.clear();
+  fileRequests.length = 0;
+  await skin.useClient();
+  const names = (s: SkinState) =>
+    ["four/body", "seven/body", "mania-note1", "hitcircle"].filter((n) =>
+      s.skin.assets.has(n),
+    );
+  // No stage yet: only general elements (and the built-in fallback's mania look).
+  expect(fileRequests.some((p) => p.startsWith("four/"))).toBe(false);
+  expect(last().skin.assets.has("four/body")).toBe(false);
+  expect(skin.hasManiaKeys([4])).toBe(false);
+  const circle = last().skin.assets.get("hitcircle");
+  // Asking every frame while the set loads starts one load.
+  await Promise.all([skin.useManiaKeys([4]), skin.useManiaKeys([4])]);
+  expect(fileRequests.filter((p) => p === "four/body.png")).toHaveLength(1);
+  expect(names(last())).toEqual(["four/body", "mania-note1", "hitcircle"]);
+  expect(skin.hasManiaKeys([4])).toBe(true);
+  const note = last().skin.assets.get("mania-note1");
+  // 4K -> 7K: the 4K body is released, shared images are kept as they are.
+  await skin.useManiaKeys([7]);
+  expect(names(last())).toEqual(["seven/body", "mania-note1", "hitcircle"]);
+  expect(last().skin.assets.get("hitcircle")).toBe(circle);
+  expect(last().skin.assets.get("mania-note1")).toBe(note);
+  expect([...closed]).toEqual(["four-body"]);
+  expect(fileRequests.filter((p) => p === "hitcircle.png")).toHaveLength(1);
+  // Change detection still works, and a reload keeps the current key count.
+  await skin.gameChanged("lazer", "Keys");
+  fileRequests.length = 0;
+  await skin.gameChanged("lazer", "Keys");
+  expect(fileRequests).toEqual([]);
+  await skin.useClient();
+  expect(names(last())).toEqual(["seven/body", "mania-note1", "hitcircle"]);
+  expect(fileRequests).not.toContain("four/body.png");
+  // Leaving mania releases every mania image of the skin (the built-in
+  // fallback still lends its classic mania look).
+  closed.clear();
+  await skin.useManiaKeys([]);
+  expect(last().skin.assets.has("seven/body")).toBe(false);
+  expect([...closed].sort()).toEqual(["seven-body", "shared-note"]);
+  skin.destroy();
 });
