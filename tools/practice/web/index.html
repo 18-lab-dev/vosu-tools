@@ -54,11 +54,11 @@
 
       <section class="v-stack section">
         <div class="section-head">
-          <span class="v-label"><b>04</b> / Trim</span>
+          <span class="trim-label"><span class="v-label"><b>04</b> / Trim</span><span class="v-help" tabindex="0" role="img" data-tip-pos="right" aria-label="Shift+drag: add or move a section." data-tip="Shift+drag: add or move a section."></span></span>
           <button type="button" id="clear-trims" class="v-btn v-btn--ghost v-btn--sm" hidden>Clear</button>
         </div>
         <ol id="trim-list" class="trim-list"></ol>
-        <p id="trim-empty" class="v-empty">Drag on the timeline to keep sections.</p>
+        <p id="trim-empty" class="v-empty">Shift+drag on the timeline to keep sections.</p>
         <div class="pair">
           <label class="v-field"><span>Lead-in (ms)</span><input name="lead_in_ms" class="v-input" type="number" min="0" max="30000" step="100"></label>
           <label class="v-field"><span>Lead-out (ms)</span><input name="lead_out_ms" class="v-input" type="number" min="0" max="30000" step="100"></label>
@@ -112,7 +112,7 @@
       <span id="timeline-note" class="timeline-note"></span>
     </div>
     <div class="timeline-body">
-      <div id="strip" class="strip">
+      <div id="strip" class="strip" tabindex="0" role="slider" aria-label="Playhead" aria-valuemin="0" aria-valuemax="0">
         <svg class="graph" preserveAspectRatio="none" aria-hidden="true"></svg>
         <div class="ranges"></div>
         <div class="playhead" hidden></div>

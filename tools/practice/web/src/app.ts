@@ -2,7 +2,7 @@ import { vosu } from '/tools/_host/v1/bridge.js';
 import './style.css';
 import { Preview } from './preview';
 import { Timeline, type TimelineData } from './timeline';
-import { clock, outputTime, parseClock, sourceTime, type Range, type Window } from './time';
+import { clock, nearestOutputTime, parseClock, sourceTime, type Range, type Window } from './time';
 import { Follow, SUBSCRIPTION } from './follow';
 import { ClientSkin } from '@vosu-tools/client-skin';
 import { maniaKeysFor } from '@vosu-tools/render-core';
@@ -260,15 +260,9 @@ function renderStats() {
 
 // ---- Map, timeline, preview ---------------------------------------------------
 
-const timeline = new Timeline(
-  $('strip'),
-  $('axis'),
-  (ranges) => setTrims(ranges),
-  (sourceMs) => {
-    const t = outputTime(sourceMs, preview.rate, preview.windows);
-    if (t !== null) preview.seek(t);
-  },
-);
+// Seeking or scrubbing into a trimmed-away part goes to the nearest kept time.
+const seekSource = (sourceMs: number) => preview.seek(nearestOutputTime(sourceMs, preview.rate, preview.windows));
+const timeline = new Timeline($('strip'), $('axis'), (ranges) => setTrims(ranges), seekSource, seekSource);
 const preview = new Preview(
   $<HTMLCanvasElement>('canvas'),
   (t, duration, playing) => {
