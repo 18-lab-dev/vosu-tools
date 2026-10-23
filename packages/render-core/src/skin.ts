@@ -11,6 +11,12 @@ export interface Skin {
   version?: number;
   /** Rendering traits that skin.ini cannot express; built-in skins set it. */
   style?: SkinStyle;
+  /**
+   * Images osu!lazer's GPU cannot hold (larger than its maximum texture size
+   * on either axis). lazer still uses them, but the GL upload fails silently
+   * and the texture samples opaque black, so they are drawn black.
+   */
+  blank?: Set<string>;
 }
 /**
  * Client rendering traits of a skin family. Skins loaded from files are legacy
@@ -133,10 +139,24 @@ const animated = new Set([
   "spinner-glow",
 ]);
 /** Resolves logical asset names once. SD dimensions survive @2x selection and atlas packing. */
+/**
+ * The largest image osu!lazer can draw: GL_MAX_TEXTURE_SIZE on current
+ * desktop GPUs. Larger images (mania hold bodies of some skins) are kept as
+ * lazer keeps them, but marked `blank` (see `Skin.blank`).
+ */
+export const LAZER_MAX_TEXTURE_SIZE = 32768;
+
+export interface LoadSkinOptions {
+  /** Images larger than this on either axis are drawn black (default LAZER_MAX_TEXTURE_SIZE). */
+  maxTextureSize?: number;
+}
+
 export async function loadSkin(
   resolve: (file: string) => Promise<Blob | null>,
   name = "Client skin",
+  options: LoadSkinOptions = {},
 ): Promise<Skin> {
+  const maxTextureSize = options.maxTextureSize ?? LAZER_MAX_TEXTURE_SIZE;
   const skin: Skin = {
     name,
     assets: new Map(),
@@ -145,6 +165,7 @@ export async function loadSkin(
     animations: new Map(),
     frameRate: 60,
     version: 1,
+    blank: new Set(),
   };
   const ini = await resolve("skin.ini");
   if (ini) skin.sections = parseSkinIni(await ini.text());
@@ -194,6 +215,10 @@ export async function loadSkin(
         if (!blob) continue;
         try {
           const bitmap = await createImageBitmap(blob);
+          // osu!framework only size-checks partial uploads, so lazer keeps
+          // the texture (no fallback, even from @2x) and its GL upload fails.
+          if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize)
+            skin.blank!.add(key);
           skin.assets.set(key, bitmap);
           skin.pixelScale!.set(
             key,
@@ -267,6 +292,7 @@ export function buildAtlas(
     width: number,
     height: number,
     pixelScale = 1,
+    blank = false,
   ) => {
     const logicalWidth = width / pixelScale,
       logicalHeight = height / pixelScale,
@@ -281,7 +307,10 @@ export function buildAtlas(
     }
     if (y + h + 2 > size)
       throw Error("Skin gameplay atlas exceeds GPU texture capacity");
-    ctx.drawImage(image, x, y, w, h);
+    if (blank) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x, y, w, h);
+    } else ctx.drawImage(image, x, y, w, h);
     regions.set(name, {
       u: x / size,
       v: y / size,
@@ -310,6 +339,7 @@ export function buildAtlas(
         image.width,
         image.height,
         skin.pixelScale?.get(name) ?? 1,
+        skin.blank?.has(name) ?? false,
       );
       packed.set(image, regions.get(name)!);
     }

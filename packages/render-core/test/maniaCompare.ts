@@ -284,10 +284,14 @@ export function compareCase(
 ): Mismatch[] {
   const placed = placeScene(c, skin, regions),
     mismatches: Mismatch[] = [],
-    lazerStatic: Rect[] = [];
+    lazerStatic: Rect[] = [],
+    lazerBodies = new Set<string>();
   for (const item of golden.items) {
     if (!item.kind || item.alpha < 0.01) continue;
     if (item.type === "Sprite" && !own(goldenAsset(item.asset ?? ""))) continue;
+    // Animated bodies are looked up by their first frame (`name-0`).
+    if (item.kind === "LegacyBodyPiece")
+      lazerBodies.add(goldenAsset(item.asset ?? "").replace(/-0$/, ""));
     let expected = bounds(item.quad);
     const flipped = item.quad[1] > item.quad[5];
     let span: { top: number; height: number } | undefined;
@@ -337,6 +341,13 @@ export function compareCase(
       mismatches.push({ item, expected, nearest, reason: "rectangle" });
       continue;
     }
+    // NoteBodyStyle: Stretch clamps the texture (ClampToEdge = 1), every
+    // other style repeats it (Repeat = 3) over a 32800-unit sprite.
+    if (
+      item.kind === "LegacyBodyPiece" &&
+      /:wrap-3-3$/.test(item.asset ?? "") !== (nearest.motion === 14)
+    )
+      mismatches.push({ item, expected, nearest, reason: "body style" });
     if (item.type === "Sprite" && nearest.flipped !== flipped)
       mismatches.push({ item, expected, nearest, reason: "flip" });
     if (
@@ -361,7 +372,20 @@ export function compareCase(
   }
   for (const p of placed) {
     const rect = clampToStage(p.rect);
-    if (p.motion !== 0 || rect.width <= 0.001 || rect.height <= 0.001) continue;
+    if (rect.width <= 0.001 || rect.height <= 0.001) continue;
+    // A hold body lazer could not draw (its texture failed to load) must not
+    // appear either.
+    if ((p.motion === 2 || p.motion === 14) && p.asset) {
+      const asset = p.asset.toLowerCase().replace(/-0$/, "");
+      if (own(p.asset.toLowerCase()) && !lazerBodies.has(asset))
+        mismatches.push({
+          expected: rect,
+          nearest: p,
+          reason: "extra hold body",
+        });
+      continue;
+    }
+    if (p.motion !== 0) continue;
     if (p.asset && !own(p.asset.toLowerCase())) continue;
     const found = lazerStatic.some(
       (e) =>

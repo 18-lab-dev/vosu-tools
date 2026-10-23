@@ -8,8 +8,13 @@ import {
 import { buildAtlas, type Skin } from "./skin";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
-export { loadSkin, assetNames, legacySliderStyle } from "./skin";
-export type { Skin, SkinStyle } from "./skin";
+export {
+  loadSkin,
+  LAZER_MAX_TEXTURE_SIZE,
+  assetNames,
+  legacySliderStyle,
+} from "./skin";
+export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene } from "./scene";
