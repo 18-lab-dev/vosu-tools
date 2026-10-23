@@ -63,6 +63,7 @@ test("fields map from the v2 document", () => {
     hitLighting: false,
     beatmapColours: null,
     snakingInSliders: false,
+    comboColourNormalisation: 0.35,
   });
   expect(state.client).toBe("lazer");
   expect([state.time, state.rate, state.running]).toEqual([1234.5, 1.5, true]);
@@ -76,7 +77,11 @@ test("fields map from the v2 document", () => {
     hitLighting: false,
     beatmapColours: false,
     snakingIn: false,
+    comboColourNormalisation: 0.35,
   });
+  // Stable (and older vosu) report none: unknown.
+  applyField(state, "/settings/visual", { comboColourNormalisation: null });
+  expect(state.visual.comboColourNormalisation).toBeNull();
 });
 
 test("stable per-beatmap scroll speed applies when enabled", () => {

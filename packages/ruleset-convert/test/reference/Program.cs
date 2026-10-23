@@ -67,6 +67,8 @@ object output = playable switch
                 x = o.EffectiveX,
                 k = o switch { Fruit => "fruit", TinyDroplet => "tiny", Droplet => "droplet", Banana => "banana", _ => o.GetType().Name },
                 hyper = o is PalpableCatchHitObject p && p.HyperDash,
+                i = o.IndexInBeatmap,
+                l = o.LastInCombo,
             }),
     },
 };

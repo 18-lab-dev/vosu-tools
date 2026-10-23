@@ -180,6 +180,8 @@ export interface LegacyObject {
   controlPoints: Point[];
   /** Difficulty-point slider velocity at the object's start. */
   sliderVelocity: number;
+  /** The file's new-combo flag (type bit 2), forced on the first object after a break. */
+  newCombo: boolean;
 }
 
 export interface LegacyBeatmap {
@@ -222,7 +224,15 @@ function sliderDistance(path: readonly Point[], expected: number | null) {
 export function legacyBeatmap(map: Beatmap): LegacyBeatmap {
   const points = controlPoints(map),
     lazerPositions = map.format >= 128;
+  // LegacyBeatmapDecoder forces a new combo on the first object after a break.
+  const breaks = [...map.breaks].sort((a, b) => a[0] - b[0]);
+  let nextBreak = 0;
   const objects = map.objects.map((o): LegacyObject => {
+    let afterBreak = false;
+    while (nextBreak < breaks.length && breaks[nextBreak][1] < o.time) {
+      afterBreak = true;
+      nextBreak++;
+    }
     const kind: LegacyKind =
       o.type & 2
         ? "slider"
@@ -267,6 +277,7 @@ export function legacyBeatmap(map: Beatmap): LegacyBeatmap {
       distance,
       controlPoints: o.controlPoints ?? (o.path.length ? [o.path[0]] : []),
       sliderVelocity: sliderVelocityAt(points, o.time),
+      newCombo: (o.type & 4) !== 0 || afterBreak,
     };
   });
   return {

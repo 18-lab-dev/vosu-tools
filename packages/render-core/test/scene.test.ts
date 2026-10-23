@@ -28,9 +28,11 @@ test("taiko rim notes, rolls and finishers are distinct primitives", () => {
   const s = compileScene(m, {}, new Map());
   const motions = [];
   for (let i = 0; i < s.count; i++) motions.push(s.data[i * 24 + 12]);
+  // Notes scroll (3), rolls scroll without hiding at their start (4), the
+  // swell fades in and out beside the hit position (33).
   expect(motions).toContain(3);
   expect(motions).toContain(4);
-  expect(motions).toContain(7);
+  expect(motions).toContain(33);
 });
 test("catch generates fruit/droplet/banana trajectories and catcher path", () => {
   const m = parseOsu(source);

@@ -25,6 +25,13 @@ export interface CatchObject {
   x: number;
   /** This fruit/droplet needs a hyper-dash to reach the next one. */
   hyper: boolean;
+  /**
+   * `IndexInBeatmap`: the index of the top-level object it belongs to. Sets
+   * the combo colour (`index + 1`) and the fruit kind (`index % 4`).
+   */
+  index: number;
+  /** Catching it ends a combo, so the catcher's plate is cleared. */
+  lastInCombo: boolean;
 }
 
 export interface CatchOptions {
@@ -46,6 +53,8 @@ interface Palpable {
   originalX: number;
   xOffset: number;
   hyper: boolean;
+  index?: number;
+  lastInCombo?: boolean;
 }
 interface TopLevel {
   object: LegacyObject;
@@ -243,6 +252,20 @@ export function convertToCatch(
     };
   });
 
+  // CatchHitObject.UpdateComboInformation and CatchBeatmapProcessor.PostProcess:
+  // banana showers never start a combo and always end one; the last nested
+  // object carries its parent's end of combo.
+  top.forEach((entry, index) => {
+    const startsCombo =
+      entry.kind !== "shower" &&
+      (entry.object.newCombo ||
+        index === 0 ||
+        top[index - 1].kind === "shower");
+    if (startsCombo && index > 0) markLastInCombo(top[index - 1]);
+    if (entry.kind === "shower") markLastInCombo(entry);
+    for (const p of entry.self ? [entry.self] : entry.nested) p.index = index;
+  });
+
   // CatchBeatmapProcessor.ApplyPositionOffsets
   const rng = new LegacyRandom(rngSeed);
   let lastPosition: number | null = null,
@@ -345,5 +368,12 @@ export function convertToCatch(
     time: p.time,
     x: effectiveX(p),
     hyper: p.hyper,
+    index: p.index ?? 0,
+    lastInCombo: p.lastInCombo ?? false,
   }));
+}
+
+function markLastInCombo(entry: TopLevel): void {
+  const last = entry.self ?? entry.nested[entry.nested.length - 1];
+  if (last) last.lastInCombo = true;
 }

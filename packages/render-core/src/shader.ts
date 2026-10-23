@@ -18,14 +18,23 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(kind==5u){centre=mix(geometry.xy,motion.yz,clamp((now-life.x)/max(0.01,life.y-life.x),0.0,1.0));}
  if(kind==6u){size*=1.0+3.0*clamp((life.x-now)/g.timing.z,0.0,1.0);}
  if(kind==7u){angle=(now-life.x)*0.006;}
- if(kind==8u){centre.y=340.0-(life.x-now)*g.timing.x;}
- if(kind==9u || (kind>=15u && kind<=17u)){centre.x=g.cursor.x;}if(kind>=15u && kind<=17u && u32(g.flags.w)!=kind-15u){alpha=0.0;}
+ if(kind==23u){let travel=now*motion.y;centre.x=geometry.x-(travel-floor(travel/motion.z)*motion.z);}
+ if(kind==24u){centre.y=geometry.y-(life.x-now)*g.timing.x;angle=motion.y+(now-life.x)*motion.z;size*=max(0.0,1.0+(now-life.x)*motion.w);}
+ if(kind==25u){let dt=max(0.0,now-life.x);centre.x=geometry.x+(life.x-now)*motion.y;let rise=1.0-min(dt/300.0,1.0);let fall=clamp((dt-300.0)/600.0,0.0,1.0);centre.y+=select(-200.0*(1.0-rise*rise),-200.0+600.0*fall*fall,dt>=300.0)*motion.z;let shrink=1.0-min(dt/600.0,1.0);size*=1.0-0.2*(1.0-shrink*shrink);alpha*=clamp(1.0-dt/800.0,0.0,1.0);}
+ if(kind==27u){let dt=now-life.x;alpha*=select(clamp(1.0-(dt-120.0)/180.0,0.0,1.0),clamp(dt/120.0,0.0,1.0),dt<120.0);if(motion.y>0.5){size*=select(select(select(1.0,0.9+0.1*(dt-144.0)/24.0,dt<168.0),1.1-0.2*(dt-96.0)/48.0,dt<144.0),0.6+0.5*dt/96.0,dt<96.0);}}
+ if(kind==28u){alpha*=clamp((now-motion.y)/200.0,0.0,1.0)*clamp(1.0-(now-motion.z)/motion.w,0.0,1.0);}
+ if(kind==32u){centre.x=geometry.x+(life.x-now)*motion.y;if(now>life.x){let u=1.0-clamp((now-life.x)/200.0,0.0,1.0);let e=1.0-u*u*u*u*u;size*=1.0+0.4*e;alpha*=1.0-e;}}
+ if(kind==33u){angle=motion.w;}
+ if(kind==33u || kind==34u){if(now<motion.z){alpha*=clamp((now-motion.y)/200.0,0.0,1.0);}else{let u=1.0-clamp((now-motion.z)/300.0,0.0,1.0);alpha*=clamp((motion.z-motion.y)/200.0,0.0,1.0)*u*u;}if(kind==34u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}}
+ if(kind==30u){centre.x=g.cursor.x+motion.y;angle=motion.z;}
+ if(kind==31u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/150.0,0.0,1.0);}}
+ if(kind==9u || (kind>=15u && kind<=17u)){centre.x=g.cursor.x;}if(kind>=15u && kind<=17u){if(u32(g.flags.w)!=kind-15u){alpha=0.0;}if(g.cursor.w<0.0){size.x=-size.x;}}
  if(kind==10u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}
  if(kind>=11u && kind<=13u){let pressed=(u32(g.keys.x)&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
  if(kind==18u || kind==19u){let bit=1u<<u32(motion.y);let pressed=(u32(g.keys.x)&bit)!=0u;let held=(u32(g.keys.y)&bit)!=0u;if(!pressed || (kind==18u && held) || (kind==19u && !held)){alpha=0.0;}}
  if(mode==0u && life.z > -1e8 && kind!=5u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
  if(mode!=0u && life.z > -1e8 && now>life.y){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
- if(g.flags.x>0.0 && life.z > -1e8){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else{alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
+ if(g.flags.x>0.0 && life.z > -1e8){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
  if(g.flags.y>0.0 && mode==3u && life.z > -1e8){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
  if(g.flags.z>0.0 && mode==3u){centre.y=384.0-centre.y;}
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
@@ -34,11 +43,12 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  var selected=uv;if((code==10.0 || code==13.0) && shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);selected=frameUV[u32(shape.y)+frame];}
  var corner=corners[index]+0.5;if(flipV){corner.y=1.0-corner.y;}corner.y*=bodyV;
- var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;result.colour=vec4f(tint.rgb,alpha);result.uv=selected.xy+corner*selected.zw;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,0.0);result.world=point;result.region=selected;return result;
+ var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}result.colour=vec4f(rgb,alpha);result.uv=selected.xy+corner*selected.zw;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
 }
 @fragment fn fs(v:Vertex)->@location(0) vec4f{
  let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);
  if(u32(g.viewport.w)==3u && (v.world.y< -48.0 || v.world.y>432.0)){discard;}
+ if(u32(g.viewport.w)==1u && (u32(v.shape.w)==3u || u32(v.shape.w)==4u || u32(v.shape.w)==32u) && v.world.x<g.timing.w){discard;}
  if(shape==0u){coverage=1.0-smoothstep(1.0-aa,1.0,d);colour=vec4f(colour.rgb*(0.75+0.25*clamp(1.0-v.local.y,0.0,1.0)),colour.a);}
  if(shape==1u){coverage=(1.0-smoothstep(1.0-aa,1.0,d))*smoothstep(0.85-aa,0.85,d);}
  if(shape==2u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);coverage=1.0-smoothstep(1.0-aa,1.0,length(q));}

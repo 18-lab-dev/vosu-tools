@@ -94,7 +94,8 @@ export async function createRenderer(
     scene: Scene | undefined,
     map: Beatmap | undefined,
     original: Beatmap | undefined,
-    settings: RenderOptions = {};
+    settings: RenderOptions = {},
+    aspect = width / height;
   let keyIntervals: { start: number; end: number }[][] = [];
   let holdIntervals: { start: number; end: number }[][] = [];
   function activeMask(
@@ -114,6 +115,28 @@ export async function createRenderer(
       if (lo && intervals[lo - 1].end >= time) result |= 1 << lane;
     }
     return result;
+  }
+  /** The catcher's hyper-dash tint: 180 ms fades in and out (lazer's OutQuint, approximated linearly). */
+  function hyperAmount(
+    intervals: readonly { start: number; end: number }[],
+    time: number,
+  ): number {
+    let lo = 0,
+      hi = intervals.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (intervals[mid].start <= time) lo = mid + 1;
+      else hi = mid;
+    }
+    const last = intervals[lo - 1];
+    if (!last) return 0;
+    // Catcher.runHyperDashStateTransition: FadeColour over 180 ms, out quint.
+    const ease = (t: number) =>
+      1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 5);
+    return time <= last.end
+      ? ease((time - last.start) / 180)
+      : ease((last.end - last.start) / 180) *
+          (1 - ease((time - last.end) / 180));
   }
   const uniforms = new Float32Array(20),
     uniformBuffer = device.createBuffer({
@@ -259,7 +282,8 @@ export async function createRenderer(
       original = source;
       settings = opts;
       map = applyMods(source, opts.mods ?? [], { ar: opts.ar, cs: opts.cs });
-      scene = compileScene(map, opts, atlas.regions, skin);
+      aspect = width / height;
+      scene = compileScene(map, opts, atlas.regions, skin, aspect);
       keyIntervals =
         map.mode === 3
           ? Array.from({ length: Math.round(map.difficulty.cs) }, () => [])
@@ -305,6 +329,13 @@ export async function createRenderer(
     resize(w, h) {
       width = Math.max(1, Math.round(w));
       height = Math.max(1, Math.round(h));
+      // osu!taiko's playfield follows the window's aspect ratio, as in lazer.
+      if (
+        original &&
+        map?.mode === 1 &&
+        Math.abs(width / height - aspect) > 1e-6
+      )
+        renderer.setBeatmap(original, settings);
       if (options.canvas) {
         options.canvas.width = width;
         options.canvas.height = height;
@@ -319,7 +350,8 @@ export async function createRenderer(
       if (!scene || !map || !instances)
         throw new Error("Set a beatmap before rendering");
       if (!Number.isFinite(time)) throw new Error("Frame time must be finite");
-      let cursorX = frame?.cursor?.x ?? 256,
+      let direction = 1,
+        cursorX = frame?.cursor?.x ?? 256,
         cursorY = frame?.cursor?.y ?? 192;
       if (!frame?.cursor && scene.catcher.length) {
         const a = scene.catcher;
@@ -337,6 +369,12 @@ export async function createRenderer(
               ? 1
               : Math.max(0, Math.min(1, (time - p.time) / (q.time - p.time)));
         cursorX = p.x + (q.x - p.x) * f;
+        // The catcher faces the way it last moved (lazer's VisualDirection).
+        for (let i = Math.min(a.length - 1, lo); i > 0; i--)
+          if (a[i].x !== a[i - 1].x && a[i - 1].time < time) {
+            direction = a[i].x > a[i - 1].x ? 1 : -1;
+            break;
+          }
         cursorY = (p.y ?? 350) + ((q.y ?? 350) - (p.y ?? 350)) * f;
       }
       let mask = frame?.keys ? 0 : activeMask(keyIntervals, time);
@@ -344,6 +382,7 @@ export async function createRenderer(
         for (let lane = 0; lane < Math.min(31, frame.keys.length); lane++)
           if (frame.keys[lane]) mask |= 1 << lane;
       uniforms[13] = activeMask(holdIntervals, time) & mask;
+      uniforms[14] = hyperAmount(scene.hyper, time);
       uniforms[0] = time;
       uniforms[1] = width;
       uniforms[2] = height;
@@ -351,11 +390,11 @@ export async function createRenderer(
       uniforms[4] = scene.speed;
       uniforms[5] = scrollPosition(map.timing, time, "mania", scene.scrollBase);
       uniforms[6] = scene.preempt;
-      uniforms[7] = 0;
+      uniforms[7] = scene.clipX;
       uniforms[8] = cursorX;
       uniforms[9] = cursorY;
       uniforms[10] = map.visualMods.includes("FL") ? 1 : 0;
-      uniforms[11] = 0;
+      uniforms[11] = direction;
       uniforms[12] = mask;
       uniforms[16] = map.visualMods.includes("HD") ? 1 : 0;
       uniforms[17] = map.visualMods.includes("FI") ? 1 : 0;

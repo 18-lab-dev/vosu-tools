@@ -51,6 +51,27 @@ foreground, column background, key area, hit target, note, hold head, tail
 and body pieces, hit explosion, `ManiaLegacySkinTransformer`). Element sizes
 come from osu!framework's `Sprite` / `TextureAnimation` sizing (2026.921.1).
 
+# Provenance of the legacy taiko and catch layouts
+
+`src/taiko.ts`, `src/fruits.ts`, `src/colour.ts` and the matching parts of
+`src/shader.ts` are a port (translated code) of osu! (lazer) at the same tag,
+under its MIT license: `osu.Game.Rulesets.Taiko/UI/{TaikoPlayfieldAdjustmentContainer,TaikoPlayfield,DrawableTaikoRuleset}.cs`,
+the overlapping scroll algorithm, `osu.Game.Rulesets.Taiko/Skinning/Legacy/*`
+(scroller, playfield background, input drum, hit target, circle piece, drum
+roll, bar line, swell, hit explosion), `DrawableHit` / `DrawableDrumRoll`;
+`osu.Game.Rulesets.Catch/UI/{CatchPlayfieldAdjustmentContainer,CatchPlayfield,Catcher}.cs`,
+`Objects/Drawables/*`, `osu.Game.Rulesets.Catch/Skinning/Legacy/*`,
+`Replays/CatchAutoGenerator.cs` (the autoplay catcher), `osu.Game/Utils/StatelessRNG.cs`;
+and lazer's combo colour normalisation (`DrawableHitObject.UpdateComboColour`,
+`HSPAColour`, osu!framework 2026.921.1 `Interpolation.ValueAt`).
+
+Not modelled (lazer draws them from gameplay state the preview does not
+simulate): judgement sprites, kiai glow and drum hits in taiko; caught-fruit
+stacks on the plate, catch hit lighting, explosions and dash trails.
+
+`test/reference/VosuLayout.cs` does the same for taiko and catch
+(`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`).
+
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never
 packaged.

@@ -101,7 +101,9 @@ test("all catcher states select separate skinned sprites", () => {
     });
   const scene = compileScene(map, {}, regions);
   const states = [];
-  for (let i = 0; i < scene.count; i++)
-    if (scene.data[i * 24 + 12] >= 15) states.push(scene.data[i * 24 + 12]);
+  for (let i = 0; i < scene.count; i++) {
+    const motion = scene.data[i * 24 + 12];
+    if (motion >= 15 && motion <= 17) states.push(motion);
+  }
   expect(states).toEqual([15, 16, 17]);
 });
