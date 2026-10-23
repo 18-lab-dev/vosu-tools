@@ -1,13 +1,6 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import "./style.css";
 
-function applyScheme() {
-  document.documentElement.dataset.scheme =
-    vosu.colorScheme ??
-    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
-}
-applyScheme();
-
 type Difficulty = {
   difficulty_rating: number;
   version: string;
@@ -29,13 +22,10 @@ type Search = Record<string, unknown>;
 type Source = { name: string; enabled: boolean; priority: number };
 type Config = {
   sources: Source[];
-  concurrency: number;
-  max_file_mb: number;
   no_video: boolean;
   hide_owned: boolean;
   follow_current_map: boolean;
   songs_dir: string;
-  credentials_configured: boolean;
 };
 type Workspace = {
   saved_searches: Record<string, Search>;
@@ -46,6 +36,7 @@ type Library = {
   source: "stable" | "lazer-library" | "none";
   loaded: boolean;
   owned_sets: number;
+  refreshed_at: number | null;
   songs_dir: string | null;
   warnings: string[];
 };
@@ -75,14 +66,6 @@ type BasedOn = {
   creator: string;
   stars: number;
 };
-
-const RULESETS = ["osu!", "taiko", "catch", "mania"];
-/** Discovery modes that derive their query from the map selected in osu!. */
-const FOLLOWING: Record<string, true> = {
-  mapper: true,
-  similar: true,
-  "similar-msd": true,
-};
 type Pack = { tag: string; name: string; date?: string; author?: string };
 type TaskStatus = { state: string; message: string; result: unknown };
 type SearchResult = {
@@ -92,7 +75,15 @@ type SearchResult = {
   based_on?: BasedOn | null;
   cursor_string?: string | null;
   notices?: string[];
-  filter_scope?: string;
+  library?: Library;
+};
+
+const RULESETS = ["osu!", "taiko", "catch", "mania"];
+/** Discovery modes that derive their query from the map selected in osu!. */
+const FOLLOWING: Record<string, true> = {
+  mapper: true,
+  similar: true,
+  "similar-msd": true,
 };
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -107,9 +98,6 @@ let basedOn: BasedOn | null = null;
 let refreshing = false;
 let filled = false;
 
-const notice = (s: string) => {
-  el("notice").textContent = s;
-};
 function node<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   text?: string,
@@ -120,6 +108,22 @@ function node<K extends keyof HTMLElementTagNameMap>(
   if (className) n.className = className;
   return n;
 }
+let toastTimer: number | undefined;
+/** Short status line at the bottom right; errors stay longer. */
+function toast(message: string, tone?: "ok" | "error") {
+  const t = el("toast");
+  t.textContent = message;
+  if (tone) t.dataset.tone = tone;
+  else delete t.dataset.tone;
+  t.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(
+    () => (t.hidden = true),
+    tone === "error" ? 8000 : 4000,
+  );
+}
+const fail = (e: unknown) =>
+  toast(e instanceof Error ? e.message : String(e), "error");
 /** Calls this tool's own service; `T` is the documented route response. */
 async function api<T = unknown>(
   path: string,
@@ -145,8 +149,11 @@ function input(name: string) {
     | HTMLSelectElement
     | HTMLTextAreaElement;
 }
+function empty(root: HTMLElement, text: string) {
+  root.replaceChildren(node("p", text, "v-empty"));
+}
 
-// ── Collapsible filter groups, remembered per browser ─────────────────
+// ── Collapsible search groups, remembered per browser ─────────────────
 // Only open/closed flags are stored; nothing about the session or the user.
 const PANELS_KEY = "vosu-downloader:panels";
 function loadPanels(): Record<string, boolean> {
@@ -157,8 +164,9 @@ function loadPanels(): Record<string, boolean> {
   }
 }
 const panels = loadPanels();
-document.querySelectorAll<HTMLDetailsElement>("details[data-panel]").forEach(
-  (d) => {
+document
+  .querySelectorAll<HTMLDetailsElement>("details[data-panel]")
+  .forEach((d) => {
     const id = d.dataset.panel!;
     if (id in panels) d.open = panels[id];
     d.addEventListener("toggle", () => {
@@ -174,8 +182,7 @@ document.querySelectorAll<HTMLDetailsElement>("details[data-panel]").forEach(
         // Storage may be disabled; the groups still work for this page.
       }
     });
-  },
-);
+  });
 function openPanel(id: string) {
   const d = document.querySelector<HTMLDetailsElement>(
     `details[data-panel="${id}"]`,
@@ -185,9 +192,9 @@ function openPanel(id: string) {
     d.open = true;
   }
 }
-/** Shows how many filters are set inside each closed-or-open group. */
+/** Counts the filters set inside each group. */
 function updateBadges() {
-  document.querySelectorAll<HTMLDetailsElement>(".group").forEach((g) => {
+  document.querySelectorAll<HTMLDetailsElement>(".dl-group").forEach((g) => {
     const badge = g.querySelector<HTMLElement>("[data-badge]");
     if (!badge) return;
     let n = 0;
@@ -200,7 +207,7 @@ function updateBadges() {
       if (input("mode").value) n++;
       if (input("status").value !== "any") n++;
     }
-    badge.textContent = n ? `${n} set` : "";
+    badge.textContent = n ? String(n) : "";
   });
 }
 searchForm.addEventListener("input", updateBadges);
@@ -261,83 +268,143 @@ async function pollJob<T>(id: string): Promise<T> {
     await promise;
   }
 }
+const length = (s: number) =>
+  `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 /** `match`: MD5 of a difficulty to mark (the linked or the current map). */
 function mapRow(s: Mapset, match?: string) {
-  const row = node("article", undefined, "map");
+  const row = node("tr");
+  const pick = node("td", undefined, "dl-pick");
   const check = node("input");
   check.type = "checkbox";
   check.value = String(s.id);
   check.setAttribute("aria-label", `Select ${s.artist} — ${s.title}`);
-  const content = node("div");
-  const title = node("a", `${s.artist} — ${s.title}`);
-  title.href = `https://osu.ppy.sh/beatmapsets/${s.id}`;
-  title.target = "_blank";
-  title.rel = "noopener noreferrer";
-  const meta = node(
-    "p",
-    `${s.creator} / ${s.status.toUpperCase()} / #${s.id}`,
-    "meta",
-  );
-  if (s.owned) meta.append(node("span", "IN LIBRARY", "stamp owned"));
-  if (s.downloaded) meta.append(node("span", "DOWNLOADED", "stamp downloaded"));
-  const diffs = node("div", undefined, "diffs");
+  pick.append(check);
+  const title = node("td", undefined, "dl-title");
+  const link = node("a", `${s.artist} — ${s.title}`);
+  link.href = `https://osu.ppy.sh/beatmapsets/${s.id}`;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  const diffs = node("div", undefined, "dl-diffs");
   const sorted = [...s.beatmaps].sort(
     (a, b) => a.difficulty_rating - b.difficulty_rating,
   );
-  // Large packs list the first 12 by stars, always keeping the matched one.
-  const shown = sorted.filter((d, i) => i < 12 || d.checksum === match);
-  for (const d of shown)
+  // Long sets list the first 8 by stars, always keeping the matched one.
+  const shown = sorted.filter((d, i) => i < 8 || d.checksum === match);
+  shown.forEach((d, i) => {
+    if (i) diffs.append(" · ");
     diffs.append(
       node(
         "span",
-        `${d.difficulty_rating.toFixed(2)}★ ${RULESETS[d.mode_int] ?? "?"} · ${d.version} · ${d.total_length}s`,
+        `${d.difficulty_rating.toFixed(2)}★ ${d.version}`,
         match && d.checksum === match ? "match" : undefined,
       ),
     );
+  });
   if (sorted.length > shown.length)
-    diffs.append(
-      node("span", `+${sorted.length - shown.length} more`, "more"),
-    );
-  content.append(title, meta, diffs);
-  row.append(check, content);
+    diffs.append(` · +${sorted.length - shown.length}`);
+  // The line is clamped to two rows; the full list stays one hover away.
+  diffs.title = sorted
+    .map((d) => `${d.difficulty_rating.toFixed(2)}★ ${d.version}`)
+    .join("\n");
+  title.append(link, diffs);
+  const modes = [...new Set(s.beatmaps.map((d) => RULESETS[d.mode_int]))];
+  const stars = s.beatmaps.map((d) => d.difficulty_rating);
+  const longest = Math.max(0, ...s.beatmaps.map((d) => d.total_length));
+  const flags = node("td", undefined, "");
+  const wrap = node("div", undefined, "dl-flags");
+  if (s.owned) wrap.append(node("span", "In library", "v-badge v-badge--ok"));
+  if (s.downloaded)
+    wrap.append(node("span", "Downloaded", "v-badge v-badge--ok"));
+  flags.append(wrap);
+  row.append(
+    pick,
+    title,
+    node("td", s.creator),
+    node("td", s.status, "v-muted"),
+    node("td", modes.join(", "), "v-muted"),
+    node(
+      "td",
+      stars.length
+        ? `${Math.min(...stars).toFixed(2)}–${Math.max(...stars).toFixed(2)}`
+        : "",
+      "v-num",
+    ),
+    node("td", length(longest), "v-num"),
+    flags,
+  );
   return row;
 }
 function showResults(sets: Mapset[], hidden = 0, match?: string) {
   results = sets;
   const root = el("results");
-  root.replaceChildren(...sets.map((s) => mapRow(s, match)));
+  el("result-count").textContent = `${sets.length}`;
+  const hiddenBadge = el("hidden-count");
+  hiddenBadge.hidden = !hidden;
+  hiddenBadge.textContent = `${hidden} hidden`;
+  if (!sets.length) {
+    empty(root, hidden ? "All results are already in your library." : "No results.");
+    return;
+  }
+  const table = node("table", undefined, "v-table");
+  const head = node("tr");
+  for (const [label, cls] of [
+    ["", "dl-pick"],
+    ["Set", ""],
+    ["Mapper", ""],
+    ["Status", ""],
+    ["Mode", ""],
+    ["Stars", "v-num"],
+    ["Length", "v-num"],
+    ["", ""],
+  ])
+    head.append(node("th", label, cls || undefined));
+  const thead = node("thead");
+  thead.append(head);
+  const body = node("tbody");
+  body.append(...sets.map((s) => mapRow(s, match)));
+  body.addEventListener("change", (e) => {
+    const box = e.target as HTMLInputElement;
+    box.closest("tr")?.setAttribute("aria-selected", String(box.checked));
+  });
+  table.append(thead, body);
+  root.replaceChildren(table);
   root.scrollTop = 0;
-  el("result-count").textContent =
-    `${sets.length} set${sets.length === 1 ? "" : "s"}` +
-    (hidden ? ` · ${hidden} hidden (already have)` : "");
-  if (!sets.length)
-    root.append(
-      node(
-        "p",
-        hidden
-          ? "Every set on this page is one you already have. Try the next page, or untick “Hide sets I already have”."
-          : "No matching sets on this page. Try the next page or relax filters.",
-        "empty",
-      ),
-    );
 }
 function showPacks(v: SearchResult) {
   const root = el("results");
-  root.replaceChildren();
-  for (const p of v.beatmap_packs ?? []) {
-    const row = node("article", undefined, "map");
-    const b = node("button", `${p.tag} / ${p.name}`);
-    b.type = "button";
-    b.disabled = !vosu.canWrite;
-    b.onclick = () => {
+  const packs = v.beatmap_packs ?? [];
+  el("result-count").textContent = `${packs.length}`;
+  el("hidden-count").hidden = true;
+  if (!packs.length) return empty(root, "No packs.");
+  const table = node("table", undefined, "v-table");
+  const head = node("tr");
+  for (const label of ["Pack", "Date", "Author", ""])
+    head.append(node("th", label));
+  const thead = node("thead");
+  thead.append(head);
+  const body = node("tbody");
+  for (const p of packs) {
+    const row = node("tr");
+    const open = node("button", "Open", "v-btn v-btn--sm");
+    open.type = "button";
+    open.disabled = !vosu.canWrite;
+    open.onclick = () => {
       input("pack").value = p.tag;
       input("provider").value = "official";
       searchForm.requestSubmit();
     };
-    row.append(b, node("p", `${p.date ?? ""} · ${p.author ?? ""}`, "meta"));
-    root.append(row);
+    const action = node("td", undefined, "v-num");
+    action.append(open);
+    row.append(
+      node("td", `${p.tag} · ${p.name}`),
+      node("td", p.date ?? "", "v-muted"),
+      node("td", p.author ?? "", "v-muted"),
+      action,
+    );
+    body.append(row);
   }
-  el("result-count").textContent = "Official packs";
+  table.append(thead, body);
+  root.replaceChildren(table);
 }
 function showBasedOn() {
   const p = el("based-on");
@@ -347,30 +414,26 @@ function showBasedOn() {
   }
   const following = config?.follow_current_map && vosu.canWrite;
   p.replaceChildren(
-    node("span", "Based on", "k"),
-    node(
-      "strong",
-      `${basedOn.artist} — ${basedOn.title} [${basedOn.version}]`,
-    ),
-    node("span", `by ${basedOn.creator} · ${basedOn.stars.toFixed(2)}★`),
     node(
       "span",
-      following
-        ? "Follows the map you select in osu!"
-        : !vosu.canWrite
-          ? "Read-only: open from the dashboard to follow"
-          : "Following is off in Settings",
-      "state",
+      following ? "Following" : "Based on",
+      following ? "v-badge v-badge--accent" : "v-badge",
+    ),
+    node(
+      "span",
+      `${basedOn.artist} — ${basedOn.title} [${basedOn.version}] · ${basedOn.stars.toFixed(2)}★`,
     ),
   );
+  p.title = `${basedOn.artist} — ${basedOn.title} [${basedOn.version}] by ${basedOn.creator}`;
   p.hidden = false;
 }
 let pendingFollow = false;
 async function runSearch(q: Search) {
   el<HTMLButtonElement>("cancel-search").disabled = false;
+  el("result-count").textContent = "…";
   try {
-    notice("Searching… requests are paced and cached.");
     lastQuery = q;
+    el("link-note").hidden = true;
     const r = await api<{ job: string }>("v1/search", q);
     activeSearch = r.job;
     const v = await pollJob<SearchResult>(r.job);
@@ -378,20 +441,18 @@ async function runSearch(q: Search) {
       results = [];
       basedOn = null;
       showPacks(v);
-      notice("Choose a pack to inspect its sets. Official credentials required.");
     } else {
       basedOn = v.based_on ?? null;
+      if (v.library) showLibrary(v.library);
       showResults(v.beatmapsets ?? [], v.hidden ?? 0, basedOn?.checksum);
       cursor = v.cursor_string ?? null;
       el<HTMLButtonElement>("next-page").disabled = !vosu.canWrite;
-      notice(
-        [...(v.notices ?? []), v.filter_scope ?? ""].join(" ") ||
-          "Search complete.",
-      );
     }
+    if (v.notices?.length) toast(v.notices.join(" · "));
     showBasedOn();
   } catch (e) {
-    notice(String(e));
+    el("result-count").textContent = "";
+    fail(e);
   } finally {
     activeSearch = null;
     el<HTMLButtonElement>("cancel-search").disabled = true;
@@ -419,9 +480,7 @@ el("next-page").onclick = () => {
 };
 el("cancel-search").onclick = () => {
   if (activeSearch)
-    void api(`v1/jobs/${activeSearch}`, undefined, "DELETE").catch((e) =>
-      notice(String(e)),
-    );
+    void api(`v1/jobs/${activeSearch}`, undefined, "DELETE").catch(fail);
 };
 el("hide-owned").addEventListener("change", () => {
   if (lastQuery && vosu.canWrite && !activeSearch)
@@ -432,30 +491,28 @@ el("select-all").onclick = () => {
     ...el("results").querySelectorAll<HTMLInputElement>("input[type=checkbox]"),
   ];
   const value = checks.some((c) => !c.checked);
-  for (const c of checks) c.checked = value;
+  for (const c of checks) {
+    c.checked = value;
+    c.closest("tr")?.setAttribute("aria-selected", String(value));
+  }
 };
 el("enqueue").onclick = async () => {
+  const chosen = new Set(
+    [...el("results").querySelectorAll<HTMLInputElement>("input:checked")].map(
+      (c) => Number(c.value),
+    ),
+  );
+  if (!chosen.size) return toast("Select sets first.");
   try {
-    const chosen = new Set(
-      [
-        ...el("results").querySelectorAll<HTMLInputElement>("input:checked"),
-      ].map((c) => Number(c.value)),
-    );
-    if (!chosen.size) {
-      notice("Tick the sets you want first.");
-      return;
-    }
     await api("v1/queue", {
       sets: results.filter((s) => chosen.has(s.id)),
       source: el<HTMLSelectElement>("download-source").value,
       no_video: el<HTMLInputElement>("no-video").checked,
     });
-    notice(
-      "Selected sets queued. Resume the queue when ready; it starts paused and every restart pauses it.",
-    );
+    toast(`Queued ${chosen.size} set${chosen.size === 1 ? "" : "s"}.`, "ok");
     await refresh();
   } catch (e) {
-    notice(String(e));
+    fail(e);
   }
 };
 
@@ -463,14 +520,14 @@ el("enqueue").onclick = async () => {
 // /websocket/v2/subscribe: request JSON Pointers, then frames
 // [0, rev, [[index, value]…]] (full), [1, rev, [[index, value]…], [removed…]]
 // (changes) or [2, code, message] (error).
-const POINTERS: `/${string}`[] = [
+const POINTERS = [
   "/beatmap/checksum",
   "/beatmap/artist",
   "/beatmap/title",
   "/beatmap/version",
   "/beatmap/mapper",
   "/client",
-];
+] as const;
 const live: unknown[] = POINTERS.map(() => undefined);
 let followTimer: number | undefined;
 function onFrame(frame: unknown) {
@@ -527,13 +584,12 @@ function followCurrentMap() {
 // ── Library, workspace, queue ────────────────────────────────────────
 el("library").onclick = async () => {
   try {
-    notice("Reading your library (stable databases are copied first)…");
     const j = await api<{ job: string }>("v1/library", {});
     await pollJob(j.job);
-    notice("Library refreshed.");
+    toast("Library refreshed.", "ok");
     await refresh();
   } catch (e) {
-    notice(String(e));
+    fail(e);
   }
 };
 document
@@ -544,28 +600,60 @@ document
         await api("v1/queue/control", { action: b.dataset.control });
         await refresh();
       } catch (e) {
-        notice(String(e));
+        fail(e);
       }
     };
   });
-async function saveNamed(kind: "saved_searches" | "presets") {
-  const name = prompt(
-    kind === "presets" ? "Name this filter preset" : "Name this search",
-  );
-  if (!name?.trim()) return;
+document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((b) => {
+  b.onclick = () => b.closest("dialog")?.close("cancel");
+});
+/** Wires a `.v-seg` so exactly one button is pressed; returns the reader. */
+function segment(root: HTMLElement, key: string, onChange?: () => void) {
+  const buttons = [...root.querySelectorAll<HTMLButtonElement>("button")];
+  for (const b of buttons)
+    b.onclick = () => {
+      for (const o of buttons) o.setAttribute("aria-pressed", String(o === b));
+      onChange?.();
+    };
+  return {
+    get: () =>
+      buttons.find((b) => b.getAttribute("aria-pressed") === "true")!.dataset[
+        key
+      ]!,
+    set: (value: string) => {
+      for (const o of buttons)
+        o.setAttribute("aria-pressed", String(o.dataset[key] === value));
+      onChange?.();
+    },
+  };
+}
+
+// Save drawer: replaces the browser prompt for names.
+const saveDrawer = el<HTMLDialogElement>("save-drawer");
+const saveKind = segment(
+  saveDrawer.querySelector<HTMLElement>(".v-seg")!,
+  "kind",
+);
+el("save-open").onclick = () => {
+  el<HTMLInputElement>("save-name").value = "";
+  saveDrawer.showModal();
+};
+saveDrawer.addEventListener("close", async () => {
+  if (saveDrawer.returnValue !== "save") return;
+  const name = el<HTMLInputElement>("save-name").value.trim();
+  const kind = saveKind.get() as keyof Workspace;
+  if (!name) return;
   try {
     workspace = await api<Workspace>("v1/workspace", {
       ...workspace,
-      [kind]: { ...workspace[kind], [name.trim()]: readSearch() },
+      [kind]: { ...workspace[kind], [name]: readSearch() },
     });
     showWorkspace();
-    notice(`Saved “${name.trim()}”.`);
+    toast(`Saved “${name}”.`, "ok");
   } catch (e) {
-    notice(String(e));
+    fail(e);
   }
-}
-el("save-search").onclick = () => void saveNamed("saved_searches");
-el("save-preset").onclick = () => void saveNamed("presets");
+});
 el<HTMLSelectElement>("saved").onchange = (e) => {
   const name = (e.target as HTMLSelectElement).value;
   if (workspace.saved_searches[name]) applySearch(workspace.saved_searches[name]);
@@ -574,10 +662,10 @@ el<HTMLSelectElement>("presets").onchange = (e) => {
   const name = (e.target as HTMLSelectElement).value;
   if (workspace.presets[name]) applySearch(workspace.presets[name], true);
 };
-function options(id: string, placeholder: string, values: string[]) {
+function options(id: string, values: string[]) {
   const s = el<HTMLSelectElement>(id);
   const old = s.value;
-  const first = node("option", placeholder);
+  const first = node("option", "None");
   first.value = "";
   s.replaceChildren(first);
   for (const value of values) {
@@ -588,125 +676,155 @@ function options(id: string, placeholder: string, values: string[]) {
   s.value = values.includes(old) ? old : "";
 }
 function showWorkspace() {
-  options("saved", "Choose a saved search", Object.keys(workspace.saved_searches));
-  options("presets", "Choose a preset", Object.keys(workspace.presets));
+  options("saved", Object.keys(workspace.saved_searches));
+  options("presets", Object.keys(workspace.presets));
 }
+
+// Import drawer: replaces the browser confirm, holds the destination.
+const importDrawer = el<HTMLDialogElement>("import-drawer");
+const importClient = segment(
+  importDrawer.querySelector<HTMLElement>(".v-seg")!,
+  "client",
+  () => (el("songs-field").hidden = importClient.get() !== "stable"),
+);
+let importing: Job | null = null;
+function openImport(j: Job) {
+  importing = j;
+  const facts = el("import-facts");
+  facts.replaceChildren();
+  const add = (k: string, v: string) =>
+    facts.append(node("dt", k), node("dd", v));
+  add("Set", `${j.set.artist} — ${j.set.title}`);
+  add("ID", `#${j.set.id}`);
+  if (j.sha256) add("SHA-256", j.sha256);
+  if (j.imported_to) add("Placed", j.imported_to);
+  const songs = el<HTMLInputElement>("songs");
+  if (!songs.value) songs.value = config?.songs_dir || libraryDir || "";
+  importClient.set(lastLibraryClient === "lazer" ? "lazer" : "stable");
+  importDrawer.showModal();
+}
+importDrawer.addEventListener("close", async () => {
+  const j = importing;
+  importing = null;
+  if (importDrawer.returnValue !== "import" || !j) return;
+  const client = importClient.get();
+  const songs = el<HTMLInputElement>("songs").value.trim();
+  if (client === "stable" && !songs) return toast("Songs folder required.", "error");
+  try {
+    const v = await api<{ message: string; path?: string }>(
+      `v1/import/${j.id}`,
+      { client, songs_dir: songs || null },
+    );
+    toast(v.path ? `Placed ${v.path}` : "Opened with the system handler.", "ok");
+    await refresh();
+  } catch (e) {
+    fail(e);
+  }
+});
+
+let libraryDir: string | null = null;
+let lastLibraryClient: string | null = null;
 function showLibrary(lib: Library) {
-  const chip = el("ownership");
+  libraryDir = lib.songs_dir;
+  lastLibraryClient = lib.client;
   const where =
     lib.source === "stable"
       ? "stable"
       : lib.source === "lazer-library"
         ? "lazer"
         : null;
+  const chip = el("ownership");
   chip.textContent = where
-    ? `Library · ${where} · ${lib.owned_sets.toLocaleString()} sets`
+    ? `${where} · ${lib.owned_sets.toLocaleString()} sets`
     : lib.loaded
-      ? "Library · ownership unknown"
-      : "Library · not loaded";
-  chip.title = where
-    ? `Sets you already have, from ${lib.source === "stable" ? "a read-only osu!.db copy" : "the Lazer library tool"}`
-    : "Sets you already have cannot be detected yet; see Local library";
-  el("library-state").textContent = !lib.loaded
-    ? "Loads automatically with the first search."
-    : where
-      ? `${lib.owned_sets.toLocaleString()} sets in your ${where} library`
-      : "Ownership unknown";
+      ? "Library unknown"
+      : "Library not loaded";
+  chip.className = `v-badge${where ? "" : lib.loaded ? " v-badge--warn" : ""}`;
+  chip.title = lib.warnings.join("\n");
+  const facts = el("library-facts");
+  facts.replaceChildren();
+  const add = (k: string, v: string) =>
+    facts.append(node("dt", k), node("dd", v));
+  add("Client", lib.client ?? "—");
+  add("Source", where ?? "—");
+  add("Sets", where ? lib.owned_sets.toLocaleString() : "—");
+  add(
+    "Updated",
+    lib.refreshed_at
+      ? new Date(lib.refreshed_at * 1000).toLocaleTimeString()
+      : "—",
+  );
   el("library-warnings").replaceChildren(
     ...lib.warnings.map((w) => node("li", w)),
   );
-  const songs = el<HTMLInputElement>("songs");
-  if (!songs.value) songs.value = config?.songs_dir || lib.songs_dir || "";
 }
 function jobRow(j: Job) {
-  const row = node("article", undefined, "queue-job");
+  const row = node("div", undefined, "dl-job");
   row.dataset.state = j.state;
-  const head = node("div", undefined, "head");
-  head.append(
-    node("strong", `${j.set.artist} — ${j.set.title}`),
-    node("span", j.state.toUpperCase()),
+  const title = node("span", `${j.set.artist} — ${j.set.title}`, "dl-job__title");
+  title.title = title.textContent ?? "";
+  const tone =
+    j.state === "done"
+      ? " v-badge--ok"
+      : j.state === "running"
+        ? " v-badge--accent"
+        : j.state === "failed" || j.state === "cancelled"
+          ? " v-badge--error"
+          : "";
+  const meter = node("div", undefined, "v-meter");
+  meter.style.setProperty("--v-value", String(j.progress));
+  if (j.state === "done") meter.style.setProperty("--v-color", "var(--ok)");
+  const info = node("div", undefined, "dl-job__info");
+  const mib = (n: number) => (n / 1048576).toFixed(1);
+  const size = node(
+    "span",
+    j.state === "failed"
+      ? j.message
+      : `${mib(j.bytes)}${j.total ? ` / ${mib(j.total)}` : ""} MiB`,
+    j.state === "failed" ? "" : "v-mono",
   );
-  const p = node("progress");
-  p.max = 1;
-  p.value = j.progress;
-  const info = node(
-    "p",
-    `${j.message} · ${(j.bytes / 1048576).toFixed(2)}${j.total ? ` / ${(j.total / 1048576).toFixed(2)}` : ""} MiB`,
-  );
-  const actions = node("div", undefined, "toolbar");
+  if (j.state === "failed") size.style.color = "var(--danger)";
+  const actions = node("span", undefined, "v-toolbar");
   if (j.state === "queued" || j.state === "running") {
-    const b = node("button", "Cancel");
+    const b = node("button", "Cancel", "v-btn v-btn--sm");
     b.type = "button";
     b.disabled = !vosu.canWrite;
     b.onclick = async () => {
-      await api(`v1/jobs/${j.id}`, undefined, "DELETE").catch((e) =>
-        notice(String(e)),
-      );
+      await api(`v1/jobs/${j.id}`, undefined, "DELETE").catch(fail);
       await refresh();
     };
     actions.append(b);
   }
   if (j.state === "done") {
-    const b = node("button", j.imported_to ? "Import again" : "Import");
+    const b = node(
+      "button",
+      j.imported_to ? "Import again" : "Import",
+      "v-btn v-btn--sm",
+    );
     b.type = "button";
     b.disabled = !vosu.canWrite;
-    b.onclick = () => void importJob(j);
+    b.onclick = () => openImport(j);
     actions.append(b);
-    if (j.sha256) actions.append(node("small", `SHA-256 ${j.sha256}`, "hash"));
   }
-  row.append(head, p, info, actions);
-  if (j.imported_to) row.append(node("p", `Placed: ${j.imported_to}`));
+  info.append(size, actions);
+  row.append(title, node("span", j.state, `v-badge${tone}`), meter, info);
   return row;
 }
-async function importJob(j: Job) {
-  const client = el<HTMLSelectElement>("client").value;
-  const songs = el<HTMLInputElement>("songs").value.trim();
-  if (client === "stable" && !songs) {
-    openPanel("import");
-    notice("Enter the stable Songs folder under Import destination first.");
-    return;
-  }
-  if (
-    !confirm(
-      client === "stable"
-        ? `Place set #${j.set.id} as an .osz into exactly:\n${songs}\n\nNothing is overwritten; stable imports it on F5 or next start.`
-        : `Open set #${j.set.id} with the system .osz handler? Choose lazer if prompted. This launches an external application.`,
-    )
-  )
-    return;
-  try {
-    const v = await api<{ message: string; path?: string }>(
-      `v1/import/${j.id}`,
-      { client, songs_dir: songs || null },
-    );
-    notice(`${v.message} ${v.path ?? ""}`);
-    await refresh();
-  } catch (e) {
-    notice(String(e));
-  }
-}
 function showQueue(q: State["queue"]) {
-  el("queue-status").textContent = q.paused ? "Paused" : "Running";
+  const status = el("queue-status");
+  status.textContent = q.paused ? "Paused" : "Running";
+  status.className = `v-badge${q.paused ? "" : " v-badge--accent"}`;
   const root = el("queue");
   const scroll = root.scrollTop;
-  root.replaceChildren(...q.jobs.map(jobRow));
-  if (!q.jobs.length)
-    root.append(
-      node(
-        "p",
-        "Nothing queued. Tick sets in the manifest and press “Queue selected”; nothing downloads until you resume.",
-        "queue-empty",
-      ),
-    );
+  if (!q.jobs.length) empty(root, "Queue is empty.");
+  else root.replaceChildren(...q.jobs.map(jobRow));
   root.scrollTop = scroll;
 }
 function showConfig(state: State) {
   config = state.config;
   const err = el("config-error");
   err.hidden = !state.config_error;
-  err.textContent = state.config_error
-    ? `Tool settings need attention: ${state.config_error}. Fix them in Settings; downloads wait until then.`
-    : "";
+  err.title = state.config_error ?? "";
   if (!config) return;
   const sources = el<HTMLSelectElement>("download-source");
   const names = config.sources
@@ -742,7 +860,7 @@ async function refresh() {
     }
     showBasedOn();
   } catch (e) {
-    notice(String(e));
+    fail(e);
   } finally {
     refreshing = false;
   }
@@ -752,66 +870,44 @@ async function refresh() {
 async function openLink() {
   const md5 = new URLSearchParams(location.hash.slice(1)).get("md5");
   if (!md5 || !/^[0-9a-f]{32}$/i.test(md5)) return;
+  const hash = md5.toLowerCase();
   input("discovery").value = "ids";
-  input("ids").value = md5.toLowerCase();
+  input("ids").value = hash;
   openPanel("ids");
   updateBadges();
-  notice(`Looking up the set for MD5 ${md5}…`);
   try {
-    const v = await vosu
-      .fetch(`v1/lookup/${md5}`)
-      .then(async (r) => {
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(body.error ?? `Lookup failed (${r.status})`);
-        return body;
-      });
-    showResults([v.beatmapset], 0, md5.toLowerCase());
+    const r = await vosu.fetch(`v1/lookup/${hash}`);
+    const v = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(v.error ?? `Lookup failed (${r.status})`);
+    showResults([v.beatmapset], 0, hash);
     lastQuery = { ...readSearch(), discovery: "ids" };
-    if (vosu.canWrite) {
-      const check = el("results").querySelector<HTMLInputElement>(
-        "input[type=checkbox]",
-      );
-      if (check) check.checked = true;
-      notice(
-        "Requested by link: this set contains that difficulty. Queue it when ready.",
-      );
-    } else {
-      const p = el("link-note");
-      const copy = node("button", "Copy MD5", "copy");
-      copy.type = "button";
-      copy.onclick = () =>
-        void navigator.clipboard
-          .writeText(md5)
-          .then(() => (copy.textContent = "Copied"));
-      p.replaceChildren(
-        node("span", "Requested by link", "k"),
-        node("span", md5, "data"),
-        copy,
-      );
-      p.hidden = false;
-      notice(
-        "This tab is read-only. Open the Beatmap downloader from the vosu dashboard, then paste this MD5 into “IDs, links & packs” to download the set.",
-      );
+    el("link-md5").textContent = hash;
+    el("link-note").hidden = false;
+    const check = el("results").querySelector<HTMLInputElement>(
+      "input[type=checkbox]",
+    );
+    if (check && vosu.canWrite) {
+      check.checked = true;
+      check.closest("tr")?.setAttribute("aria-selected", "true");
     }
   } catch (e) {
-    notice(String(e));
+    fail(e);
   }
 }
+el("copy-md5").onclick = () =>
+  void navigator.clipboard
+    .writeText(el("link-md5").textContent ?? "")
+    .then(() => toast("MD5 copied.", "ok"), fail);
 
 // ── Start ─────────────────────────────────────────────────────────────
-await vosu.ready.catch((e) => notice(String(e)));
-applyScheme();
+await vosu.ready.catch(fail);
 const access = el("access");
-access.dataset.state = vosu.canWrite ? "write" : "read";
-access.textContent = vosu.canWrite ? "AUTHORIZED" : "READ-ONLY";
-access.title = vosu.canWrite
-  ? "Opened from the vosu dashboard: search, queue and import are enabled."
-  : "Open this tool from the vosu dashboard to search, queue or import.";
+access.hidden = vosu.canWrite;
+access.title = "Open from the vosu dashboard to search and download.";
 document
   .querySelectorAll<HTMLButtonElement>(".write")
   .forEach((b) => (b.disabled ||= !vosu.canWrite));
-const settingsLink = el<HTMLAnchorElement>("settings-link");
-settingsLink.href = new URL(
+el<HTMLAnchorElement>("settings-link").href = new URL(
   "/settings?tool=downloader",
   vosu.dashboardUrl,
 ).href;
@@ -819,15 +915,11 @@ updateBadges();
 // Bridges from vosu 1.2.0 reconnect by themselves and report the connection;
 // older ones never call onStatus, so the indicator stays hidden there.
 vosu.subscribe(POINTERS, onFrame, (state) => {
-  const live = el("live");
-  live.hidden = false;
-  live.dataset.state = state;
-  live.textContent =
-    state === "open" ? "Live" : state === "connecting" ? "Reconnecting…" : "Offline";
-  live.title =
-    state === "open"
-      ? "Following the map selected in osu!"
-      : "Not receiving map changes from vosu right now";
+  el("live").hidden = false;
+  el("live-dot").dataset.state =
+    state === "open" ? "ok" : state === "connecting" ? "busy" : "error";
+  el("live-text").textContent =
+    state === "open" ? "Live" : state === "connecting" ? "Connecting" : "Offline";
 });
 await refresh();
 await openLink();

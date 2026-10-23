@@ -106,7 +106,7 @@ impl Discovery {
         match lib.client.as_deref() {
             Some("stable") => self.load_stable(&context, &mut lib),
             Some("lazer") => self.load_lazer(&mut lib).await,
-            _ => lib.warnings.push("No osu! client is attached to vosu, so sets you already have cannot be hidden. Start osu! and refresh.".into()),
+            _ => lib.warnings.push("No osu! client attached".into()),
         }
         lib.refreshed = Some(Instant::now());
         lib.refreshed_at = SystemTime::now()
@@ -123,15 +123,13 @@ impl Discovery {
                 .as_str()
                 .and_then(|p| std::path::Path::new(p).parent().map(PathBuf::from))
         }) else {
-            lib.warnings
-                .push("Stable install directory unavailable; ownership is unknown.".into());
+            lib.warnings.push("Stable install folder unknown".into());
             return;
         };
         let temp = match tempfile::tempdir() {
             Ok(t) => t,
             Err(_) => {
-                lib.warnings
-                    .push("Cannot create a database snapshot directory.".into());
+                lib.warnings.push("Cannot copy the stable databases".into());
                 return;
             }
         };
@@ -153,8 +151,7 @@ impl Discovery {
                 Ok::<_, String>(())
             })();
             if let Err(e) = parsed {
-                lib.warnings
-                    .push(format!("{name}: {e}; ownership/history may be incomplete."));
+                lib.warnings.push(format!("{name}: {e}"));
             }
         }
         lib.owned = osu_db::Owned::from_maps(&lib.maps);
@@ -168,19 +165,18 @@ impl Discovery {
         {
             Ok(s) => s,
             Err(vosu_tool_sdk::Error::Status { status: 404, .. }) => {
-                lib.warnings.push("Lazer ownership needs the Lazer library tool. Install it from vosu Tools → Available; until then, sets you have in lazer are not hidden.".into());
+                lib.warnings.push("Lazer library tool not installed".into());
                 return;
             }
             Err(e) => {
-                lib.warnings.push(format!(
-                    "Lazer library tool unavailable ({e}); sets you have in lazer are not hidden."
-                ));
+                lib.warnings
+                    .push(format!("Lazer library tool unavailable: {e}"));
                 return;
             }
         };
         if status["available"].as_bool() != Some(true) {
             lib.warnings.push(format!(
-                "Lazer library tool cannot read lazer's library: {}. Sets you have in lazer are not hidden.",
+                "Lazer library unreadable: {}",
                 status["error"].as_str().unwrap_or("not available")
             ));
             return;
@@ -202,11 +198,11 @@ impl Discovery {
                 }
                 None => lib
                     .warnings
-                    .push("Lazer library tool returned no set list.".into()),
+                    .push("Lazer library returned no set list".into()),
             },
-            Err(e) => lib.warnings.push(format!(
-                "Lazer library tool could not list sets ({e}); sets you have in lazer are not hidden."
-            )),
+            Err(e) => lib
+                .warnings
+                .push(format!("Lazer library could not list sets: {e}")),
         }
     }
     async fn mirror(&self, path: &str, params: &[(String, String)]) -> Result<Value, String> {
@@ -348,7 +344,6 @@ impl Discovery {
                 for entry in entries.into_iter().skip(query.offset).take(query.limit) {
                     sets.push(self.set(entry.id, official).await?);
                 }
-                notices.push("Pack discovery uses official API metadata. Individual selected sets use the chosen permitted mirror; pack archive URLs are never scraped.".into());
             }
             "history" => {
                 let creators = {
@@ -381,7 +376,6 @@ impl Discovery {
                     let (s, _) = self.remote_search(&q, official).await?;
                     sets.extend(s);
                 }
-                notices.push("History discovery searches the mappers of your three most recently played stable maps.".into());
             }
             "search" | "mapper" | "similar" | "similar-msd" => {
                 if query.discovery != "search" {
@@ -413,7 +407,6 @@ impl Discovery {
                         query.mode = Some(d.mode_int);
                         query.min_stars = Some((d.difficulty_rating - 1.0).max(0.0));
                         query.max_stars = Some(d.difficulty_rating + 1.0);
-                        notices.push("Similarity uses the selected difficulty ±1 star.".into());
                     }
                 }
                 (sets, cursor) = self.remote_search(&query, official).await?;
@@ -438,9 +431,8 @@ impl Discovery {
         });
         sets.truncate(query.limit);
         let library = self.library.lock().await.summary();
-        if let Some(w) = library["warnings"].as_array() {
-            notices.extend(w.iter().filter_map(|w| w.as_str().map(str::to_owned)));
-        }
+        // `notices` are short status labels the page shows as they come; library
+        // warnings travel separately in `library`.
         Ok(json!({
             "beatmapsets": sets,
             "cursor_string": cursor,
@@ -449,7 +441,6 @@ impl Discovery {
             "hidden": hidden,
             "library": library,
             "notices": notices,
-            "filter_scope": "Numeric, creator and date filters are also applied locally to this result page. An empty page does not mean there are no further matches; use the next page.",
         }))
     }
     async fn msd_filter(&self, sets: &mut Vec<Mapset>, notices: &mut Vec<String>) {
@@ -459,7 +450,7 @@ impl Discovery {
             .await
             .ok();
         let Some(overall) = rating.as_ref().and_then(|r| r["msd"]["overall"].as_f64()) else {
-            notices.push("Mania ratings is not installed, the current map is not cached, or MSD is unavailable; using ±1 star instead. No hard Mania ratings dependency is required.".into());
+            notices.push("MSD unavailable; using ±1★".into());
             return;
         };
         let mut matching = Vec::new();
@@ -496,7 +487,9 @@ impl Discovery {
             }
         }
         *sets = matching;
-        notices.push(format!("Cached mania MSD similarity: current {overall:.2} ±2 overall, within the ±1-star candidate window. {unknown} uncached/unsupported difficulties excluded; no missing rating is fabricated."));
+        notices.push(format!(
+            "MSD {overall:.2} ±2 · {unknown} unrated difficulties skipped"
+        ));
     }
     async fn remote_search(
         &self,
