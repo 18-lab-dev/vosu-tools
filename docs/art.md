@@ -19,7 +19,7 @@ The art uses the dashboard's tokens (vosu `assets/server/tokens.css`) and follow
 | Banner structure | `#a7b2bd` | `#3b3f45` | `--rule-strong` |
 | Banner motif | `#5b6775` | `#7e8288` | `--muted` |
 
-Each picture has one accent element: the part that is the tool's job (the arrow that downloads, the selected set, the hit line, the approach circle, the held section, the cursor, the needle, the chosen element, the overlay panel). Everything else is ink, structure or motif.
+Each picture has one accent element: the part that is the tool's job (the arrow that downloads, the selected set, the top skillset rating, the approach circle, the practice copy, the cursor, the needle, the chosen element, the overlay panel). Everything else is ink, structure or motif.
 
 ## Icons
 
@@ -32,9 +32,9 @@ Each picture has one accent element: the part that is the tool's job (the arrow 
 | --- | --- |
 | Beatmap downloader | Arrow into a tray |
 | Lazer library | Carousel of sets, the selected one pulled forward |
-| Mania ratings | Rising staircase of notes over the hit line |
+| Mania ratings | Falling 4K notes beside skillset rating bars, the top skill in accent |
 | Map preview | Hit circle with its approach circle, follow point, next circle |
-| Practice | Section held between two handles, looped back to its start |
+| Practice | A section held between handles on the map, and its shorter, faster copy (fast-forward chevrons) |
 | Replay renderer | Cursor trail inside a video frame |
 | Server pp calculator | Gauge and needle |
 | Skin studio | Three overlapping circles: mixed combo colours |
@@ -44,7 +44,8 @@ Each picture has one accent element: the part that is the tool's job (the arrow 
 
 - `viewBox="0 0 1200 400"`, `width`/`height` 1200×400, filled with the banner ground and the grid.
 - The dashboard shows the middle as a 72 px strip (`object-fit: cover`), so everything that matters sits between y 120 and 280. Anything outside that band is ground or structure that may be cut.
-- The banner expands the icon's pictogram into a quiet scene: structure lines (4 units) may run full width, the motif (5 units) carries the subject, the accent (6 units) sits right of centre. No tool name, tagline or text.
+- The banner expands the icon's pictogram into a quiet scene: structure lines (4 units) may run full width, the motif (5 units; rating bars 12) carries the subject, the accent (6 units) sits at or right of centre. No tool name, tagline or text.
+- A glance must say what the tool does: show the tool's input and its result (a chart and its ratings; a map and the practice copy cut from it), not an abstract pattern.
 - Low contrast: structure and grid stay near the ground so the banner never competes with the card's name and buttons.
 
 ## Checking
