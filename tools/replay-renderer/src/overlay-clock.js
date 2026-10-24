@@ -9,9 +9,51 @@ window.__vosuEpoch = 0;
 const errors = [];
 Date.now = () => window.__vosuEpoch + window.__vosuTime;
 Object.defineProperty(performance, "now", { value: () => window.__vosuTime });
+// Animation frames follow the export's frames: once the page has loaded, every
+// callback requested before a frame runs exactly once at that frame, with the
+// frame's time, after its data arrived and before it is captured (as a browser
+// runs rAF between tasks and paint). Chrome's own frames (paced by virtual
+// time and the compositor, several or none per export frame) never call page
+// callbacks. While the page loads, before its first frame, Chrome's frames run
+// them so pages that wait for a frame during startup still start.
 const nativeAnimationFrame = window.requestAnimationFrame.bind(window);
-window.requestAnimationFrame = (callback) =>
-  nativeAnimationFrame(() => callback(window.__vosuTime));
+let framesDriven = false;
+const frameCallbacks = new Map();
+let nextFrameCallback = 1;
+window.requestAnimationFrame = (callback) => {
+  const id = nextFrameCallback++;
+  frameCallbacks.set(id, callback);
+  if (!framesDriven)
+    nativeAnimationFrame(() => {
+      if (framesDriven || !frameCallbacks.delete(id)) return;
+      callback(window.__vosuTime);
+    });
+  return id;
+};
+window.cancelAnimationFrame = (id) => {
+  frameCallbacks.delete(id);
+};
+/**
+ * Runs the animation frame callbacks requested so far, at the frame's time.
+ * It also asks Chrome for a frame of its own: full headless Chrome produces
+ * the next frame (which the capture waits for) only when something requested
+ * one, and a page whose picture did not change requested none.
+ */
+window.__vosuAnimate = () => {
+  framesDriven = true;
+  const due = [...frameCallbacks.values()];
+  frameCallbacks.clear();
+  for (const callback of due) {
+    try {
+      callback(window.__vosuTime);
+    } catch (error) {
+      errors.push(String(error));
+      queueMicrotask(() => {
+        throw error;
+      });
+    }
+  }
+};
 // Page timers run on the render clock too. Chrome's virtual time runs freely
 // while a page loads (until its first frame), which would fire every retry
 // and timeout at once; here a timer fires only once the clock reaches it,

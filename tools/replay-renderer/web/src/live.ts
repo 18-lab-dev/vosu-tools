@@ -38,7 +38,7 @@ export class LivePages {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private sending = false;
-  private sent = { at: 0, time: Number.NaN };
+  private sent = { at: 0, time: Number.NaN, playing: false };
   private placements: Placement[] = [];
   private zoom = 1;
   private layers: OverlayLayer[] = [];
@@ -102,7 +102,7 @@ export class LivePages {
       return;
     }
     this.session = session;
-    this.sent = { at: 0, time: Number.NaN };
+    this.sent = { at: 0, time: Number.NaN, playing: false };
     const frames: HTMLIFrameElement[] = [];
     for (const page of pages) {
       const frame = document.createElement("iframe");
@@ -152,17 +152,24 @@ export class LivePages {
     }
     for (const [key, frame] of this.frames) frame.hidden = !shown.has(key);
   }
-  /** Sends the replay state at map `time` to the pages, throttled. */
-  tick(tracks: readonly Track[], time: number, start: number) {
+  /**
+   * Sends the replay state at map `time` to the pages, throttled. A preview
+   * that is not playing reports the game paused, as vosu does for a paused
+   * play: pages stop their clocks, and the still time before playback is not
+   * a frame of their animation.
+   */
+  tick(tracks: readonly Track[], time: number, start: number, playing: boolean) {
     if (!this.session || this.sending) return;
     const now = performance.now();
-    const moved = time !== this.sent.time;
+    const moved = time !== this.sent.time || playing !== this.sent.playing;
     if (now - this.sent.at < (moved ? STATE_INTERVAL : IDLE_INTERVAL)) return;
     const session = this.session;
     const shown = new Set(this.placements.map((p) => p.track));
     this.sending = true;
-    this.sent = { at: now, time };
-    const states = tracks.map((track, index) => (shown.has(index) ? telemetry(track, time, start) : null));
+    this.sent = { at: now, time, playing };
+    const states = tracks.map((track, index) =>
+      shown.has(index) ? { ...telemetry(track, time, start), game: { paused: !playing } } : null,
+    );
     this.fetcher(`v1/preview/${session}/state`, {
       method: "POST",
       headers: { "content-type": "application/json" },

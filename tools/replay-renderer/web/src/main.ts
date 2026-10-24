@@ -846,7 +846,7 @@ async function animate(now: number) {
       previewFrame = undefined;
     }
   }
-  if (composition) live.tick(tracks, time, composition.start);
+  if (composition) live.tick(tracks, time, composition.start, playing);
   last = now;
   el("time").textContent = timecode(
     composition ? (time - composition.start) / (tracks[0]?.replay.rate ?? 1) : 0,
