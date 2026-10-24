@@ -3,15 +3,17 @@
  * direct WebGPU presentation, 600 frames advancing 1/60 s through the map.
  *
  * Query: ?map=<url>&start=<ms>&skin=builtin:<name>|files:<base url>
+ *   [&css=WxH] a stage of that CSS size at pixel ratio 1, sized by the shared
+ *   playfield rule (playfieldSize), or [&size=WxH] that exact canvas size.
+ * The page uses the pipeline every tool draws with (createPlayfield).
  * Result: window.__perf = { skinMs, compileMs, cpu, gpuPass | null, drawCalls,
  *   textureMB } (draw calls per frame; GPU textures the renderer created).
  */
 import { parseOsu } from "@vosu-tools/osu-parse";
 import {
-  builtinSkin,
-  createRenderer,
-  loadSkin,
-  withFallback,
+  builtinLook,
+  createPlayfield,
+  loadPlayfieldSkin,
   type BuiltinSkinName,
   type Skin,
 } from "@vosu-tools/render-core";
@@ -50,16 +52,15 @@ async function run() {
   let skinStart = performance.now(),
     skin: Skin;
   if (skinParam.startsWith("builtin:"))
-    skin = builtinSkin(skinParam.slice(8) as BuiltinSkinName);
+    skin = builtinLook(skinParam.slice(8) as BuiltinSkinName);
   else {
     const base = skinParam.slice(6);
-    const loaded = await loadSkin(async (name) => {
+    ({ skin } = await loadPlayfieldSkin(async (name) => {
       const response = await fetch(
         base + name.split("/").map(encodeURIComponent).join("/"),
       );
       return response.ok ? response.blob() : null;
-    });
-    skin = withFallback(loaded, builtinSkin("legacy"));
+    }));
   }
   const skinMs = performance.now() - skinStart;
   const canvas = document.querySelector("canvas")!;
@@ -71,7 +72,12 @@ async function run() {
     textureBytes += w * h * layers * 4;
     return createTexture(descriptor);
   };
-  const renderer = await createRenderer({ canvas, device, skin });
+  const renderer = await createPlayfield({ canvas, device, skin });
+  const dims = (key: string) => params.get(key)?.split("x").map(Number);
+  const css = dims("css"),
+    size = dims("size");
+  if (css) renderer.fit(css[0], css[1], 1);
+  else if (size) renderer.resize(size[0], size[1]);
   // Draw calls per frame.
   let draws = 0;
   const draw = GPURenderPassEncoder.prototype.draw;
@@ -146,6 +152,7 @@ async function run() {
     gpuPass: gpu.length ? stats(gpu) : null,
     drawCalls: stats(drawCalls),
     textureMB: textureBytes / 2 ** 20,
+    canvas: [canvas.width, canvas.height],
   };
 }
 run().then(

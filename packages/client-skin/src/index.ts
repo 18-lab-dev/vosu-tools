@@ -12,10 +12,10 @@
  */
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import {
-  builtinSkin,
+  builtinLook,
   loadManiaKeys,
   loadSkin,
-  withFallback,
+  overLook,
   type BuiltinSkinName,
   type Skin,
 } from "@vosu-tools/render-core";
@@ -88,7 +88,6 @@ const fileCount = (count: number) =>
 export class ClientSkin {
   #state: SkinState;
   #owned: ImageBitmap[] = [];
-  #builtins = new Map<BuiltinSkinName, Skin>();
   #sequence = 0;
   #clientKey = "";
   #game: [string | null, string | null] = [null, null];
@@ -126,11 +125,9 @@ export class ClientSkin {
     return this.#state;
   }
 
-  /** A built-in look; each is drawn once and reused. */
+  /** A built-in look; each is drawn once per page and shared (render-core). */
   #builtin(name: BuiltinSkinName): Skin {
-    let skin = this.#builtins.get(name);
-    if (!skin) this.#builtins.set(name, (skin = builtinSkin(name)));
-    return skin;
+    return builtinLook(name);
   }
 
   #emit(next: Partial<SkinState>, owned?: ImageBitmap[]): void {
@@ -275,7 +272,7 @@ export class ClientSkin {
         this.#clientKey = key;
         this.#files = { skin: loaded, fallback: current.fallback, keys };
         this.#install(
-          withFallback(loaded, this.#builtin(current.fallback)),
+          overLook(loaded, current.fallback),
           "client",
           current.name,
           `${client} · current skin · ${fileCount(host.served)}`,
@@ -332,7 +329,7 @@ export class ClientSkin {
     }
     this.#files = { skin: loaded, fallback: "legacy", keys };
     this.#install(
-      withFallback(loaded, this.#builtin("legacy")),
+      overLook(loaded),
       "user",
       name,
       `${source} · ${fileCount(used)} used`,
@@ -402,7 +399,7 @@ export class ClientSkin {
       return;
     }
     this.#files = { ...files, skin: next, keys: wanted };
-    this.#emit({ skin: withFallback(next, this.#builtin(files.fallback)) }, [
+    this.#emit({ skin: overLook(next, files.fallback) }, [
       ...next.assets.values(),
     ]);
   }

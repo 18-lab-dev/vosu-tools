@@ -2,14 +2,14 @@
 // output map's own clock; the source audio is played at the chosen rate and
 // re-seeked into each trimmed section (silent in the gaps between them).
 import { parseOsu, type Beatmap } from '@vosu-tools/osu-parse';
-import { createRenderer, type Renderer, type Skin } from '@vosu-tools/render-core';
+import { createPlayfield, playfieldSize, type Playfield, type Skin } from '@vosu-tools/render-core';
 import { sourceTime, type Window } from './time';
 
 export type PreviewMap = { osu: string; rate: number; windows: Window[]; pitch: boolean };
 
 export class Preview {
-  private renderer: Renderer | null = null;
-  private creating: Promise<Renderer> | null = null;
+  private renderer: Playfield | null = null;
+  private creating: Promise<Playfield> | null = null;
   private map: Beatmap | null = null;
   private current: PreviewMap | null = null;
   private time = 0;
@@ -151,23 +151,21 @@ export class Preview {
   }
 
   private resize(): void {
-    const ratio = Math.min(devicePixelRatio || 1, 2);
-    const width = Math.max(1, Math.round(this.canvas.clientWidth * ratio));
-    const height = Math.max(1, Math.round(this.canvas.clientHeight * ratio));
+    // The shared playfield resolution (render-core playfieldSize).
+    const { width, height } = playfieldSize(this.canvas.clientWidth, this.canvas.clientHeight);
     if (this.canvas.width === width && this.canvas.height === height) return;
-    this.canvas.width = width;
-    this.canvas.height = height;
-    this.renderer?.resize(width, height);
+    if (this.renderer) this.renderer.resize(width, height);
+    else {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
     this.draw();
   }
 
-  private ensureRenderer(): Promise<Renderer> {
+  private ensureRenderer(): Promise<Playfield> {
     if (this.renderer) return Promise.resolve(this.renderer);
     this.resize();
-    // `?presentation=bitmap` (as in Map preview) copies frames into a bitmap
-    // canvas so headless captures can see them; normal use presents directly.
-    const presentation = new URLSearchParams(location.search).get('presentation') === 'bitmap' ? 'bitmap' : 'direct';
-    this.creating ??= createRenderer({ canvas: this.canvas, skin: this.skin, clearColour: stageColour(this.canvas), presentation }).then((renderer) => {
+    this.creating ??= createPlayfield({ canvas: this.canvas, skin: this.skin }).then((renderer) => {
       this.renderer = renderer;
       // A skin that arrived while the renderer was being created must still reach it.
       if (this.skin) renderer.setSkin(this.skin);
@@ -176,11 +174,4 @@ export class Preview {
     });
     return this.creating;
   }
-}
-
-/** The stage's CSS background as the renderer's (opaque) clear colour. */
-function stageColour(canvas: HTMLCanvasElement): GPUColor {
-  const parent = canvas.parentElement ?? canvas;
-  const [r, g, b] = (getComputedStyle(parent).backgroundColor.match(/[\d.]+/g) ?? ['0', '0', '0']).map(Number);
-  return { r: r / 255, g: g / 255, b: b / 255, a: 1 };
 }

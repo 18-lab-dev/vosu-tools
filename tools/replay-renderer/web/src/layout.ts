@@ -284,10 +284,15 @@ export function contentBounds(
  * view height, so only its measured width is used: transparent rows at the top
  * or bottom of a skin's stage (or notes present at the probe time) must not
  * change the scale, or two tracks with the same skin would draw their stages at
- * different sizes and hit positions. Other rulesets use the measured box.
+ * different sizes and hit positions. The width is made symmetric about the
+ * stage centre (x = 256): lazer always centres the stage, so decorations wider
+ * on one side (StageLeft/StageRight images) must not move it. Other rulesets
+ * use the measured box.
  */
 export function fitBounds(mode: number, measured: Rect): Rect {
-  return mode === 3 ? { x: measured.x, width: measured.width, y: VIEW.y, height: VIEW.height } : measured;
+  if (mode !== 3) return measured;
+  const half = Math.max(256 - measured.x, measured.x + measured.width - 256);
+  return { x: 256 - half, width: 2 * half, y: VIEW.y, height: VIEW.height };
 }
 
 /** Lines a dragged box can snap to: edges and centres of the canvas and cells. */

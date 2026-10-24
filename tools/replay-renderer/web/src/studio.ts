@@ -16,11 +16,11 @@ import {
   type Beatmap,
 } from "@vosu-tools/osu-parse";
 import {
-  builtinSkin,
+  builtinLook,
   builtinSkinNames,
-  createRenderer,
-  loadSkin,
-  withFallback,
+  createPlayfield,
+  loadPlayfieldSkin,
+  maniaKeysFor,
   type BuiltinSkinName,
   type JudgementEvent,
   type Renderer,
@@ -198,13 +198,6 @@ export function judgementEvents(simulation: Simulation): JudgementEvent[] {
       : [],
   );
 }
-/** Built-in skins are drawn once per page and shared by every track. */
-const builtins = new Map<BuiltinSkinName, Skin>();
-function builtin(name: BuiltinSkinName) {
-  let skin = builtins.get(name);
-  if (!skin) builtins.set(name, (skin = builtinSkin(name)));
-  return skin;
-}
 export interface LoadOptions {
   /** Service route prefix for map and skin files. */
   assetPrefix?: string;
@@ -252,27 +245,32 @@ export async function loadTrack(
       ? null
       : options.currentBuiltin;
   if (drawn && builtinSkinNames.includes(drawn as BuiltinSkinName))
-    skin = builtin(drawn as BuiltinSkinName);
+    skin = builtinLook(drawn as BuiltinSkinName);
   else if (preset.skin?.startsWith(BUILTIN))
     throw new Error(`Unknown built-in skin ${preset.skin}`);
   else {
-    let loaded: Skin;
+    let loaded: { files: Skin; skin: Skin };
     try {
-      loaded = await loadSkin(async (filename) => {
-        const query = new URLSearchParams({ kind: "skin", path: filename });
-        if (preset.skin) query.set("skin", preset.skin);
-        try {
-          const response = await fetcher(`${assetPrefix}?${query}`);
-          return response.ok ? response.blob() : null;
-        } catch {
-          return null;
-        }
-      }, preset.skin ?? "Current skin");
+      loaded = await loadPlayfieldSkin(
+        async (filename) => {
+          const query = new URLSearchParams({ kind: "skin", path: filename });
+          if (preset.skin) query.set("skin", preset.skin);
+          try {
+            const response = await fetcher(`${assetPrefix}?${query}`);
+            return response.ok ? response.blob() : null;
+          } catch {
+            return null;
+          }
+        },
+        preset.skin ?? "Current skin",
+        // Only the played stage's mania images (hold bodies can be large).
+        { maniaKeys: maniaKeysFor(source, { mods }) },
+      );
     } catch (e) {
       throw new Error(`Skin load failed: ${e}`);
     }
-    owned = [...loaded.assets.values()];
-    skin = withFallback(loaded, builtin("legacy"));
+    owned = [...loaded.files.assets.values()];
+    skin = loaded.skin;
   }
   let background: ImageBitmap | null = null;
   const backgroundFile = raw.events
@@ -294,14 +292,16 @@ export async function loadTrack(
       requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
     });
   })();
-  const renderer = await createRenderer({
+  // Product: an offscreen target per track (sized by Composition for its
+  // layout cell), cleared transparent for the background and dim beneath.
+  const renderer = await createPlayfield({
     canvas,
     device: await sharedDevice,
     width: 960,
     height: 540,
     skin,
     format: "rgba8unorm",
-    transparentBackground: true,
+    transparent: true,
   });
   let simulation: Simulation | null = null,
     warning = "";

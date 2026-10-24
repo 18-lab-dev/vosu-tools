@@ -7,11 +7,12 @@ import {
 } from "@vosu-tools/osu-parse";
 import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
-  createRenderer,
+  createPlayfield,
   maniaKeysFor,
+  playfieldSize,
   type BuiltinSkinName,
+  type Playfield,
   type RenderOptions,
-  type Renderer,
 } from "@vosu-tools/render-core";
 import { ClientSkin } from "@vosu-tools/client-skin";
 import {
@@ -61,8 +62,8 @@ const canvas = $<HTMLCanvasElement>("playfield"),
   dualInput = $<HTMLInputElement>("dual"),
   audio = new Audio();
 
-let renderer: Renderer | undefined,
-  rendererReady: Promise<Renderer> | undefined,
+let renderer: Playfield | undefined,
+  rendererReady: Promise<Playfield> | undefined,
   /** The beatmap as parsed. */
   source: Beatmap | undefined,
   /** What is shown: `source`, or its conversion to the played ruleset. */
@@ -123,30 +124,10 @@ const stateNames: Record<number, string> = {
 
 /* ------------------------------------------------------------ renderer */
 
-/**
- * The playfield stays a dark screen in both modes, as skins are drawn for one:
- * the sunken surface in dark mode, the ink colour in light mode.
- */
-function playfieldColour(): GPUColor {
-  const root = getComputedStyle(document.documentElement),
-    light = root.colorScheme.includes("light"),
-    token = root.getPropertyValue(light ? "--fg" : "--bg-sunken").trim(),
-    probe = new OffscreenCanvas(1, 1).getContext("2d")!;
-  probe.fillStyle = token || "#0b0c0d";
-  probe.fillRect(0, 0, 1, 1);
-  const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
-  return { r: r / 255, g: g / 255, b: b / 255, a: 1 };
-}
-
-function ensureRenderer(): Promise<Renderer> {
-  rendererReady ??= createRenderer({
+function ensureRenderer(): Promise<Playfield> {
+  rendererReady ??= createPlayfield({
     canvas,
     skin: skins.state.skin,
-    clearColour: playfieldColour(),
-    presentation:
-      new URLSearchParams(location.search).get("presentation") === "bitmap"
-        ? "bitmap"
-        : "direct",
   }).then(
     (created) => {
       renderer = created;
@@ -166,14 +147,13 @@ function ensureRenderer(): Promise<Renderer> {
   return rendererReady;
 }
 function resize(): void {
-  const scale = Math.min(window.devicePixelRatio || 1, 2),
-    width = Math.max(1, Math.round(stage.clientWidth * scale)),
-    height = Math.max(1, Math.round(stage.clientHeight * scale));
-  if (renderer) renderer.resize(width, height);
-  else {
-    canvas.width = width;
-    canvas.height = height;
-  }
+  // The shared playfield resolution (render-core playfieldSize).
+  if (renderer) renderer.fit(stage.clientWidth, stage.clientHeight);
+  else
+    ({ width: canvas.width, height: canvas.height } = playfieldSize(
+      stage.clientWidth,
+      stage.clientHeight,
+    ));
   sceneKey = "";
 }
 new ResizeObserver(resize).observe(stage);
@@ -243,10 +223,10 @@ function renderOptions(): RenderOptions {
     hitLighting: game.visual.hitLighting ?? undefined,
     beatmapColours: game.visual.beatmapColours ?? undefined,
     snakingIn: game.visual.snakingIn ?? undefined,
-    // lazer normalises combo colours (default 0.2); stable does not.
+    // lazer normalises combo colours (the shared default, 0.2); stable does not.
     comboColourNormalisation:
       game.visual.comboColourNormalisation ??
-      (game.client === "lazer" ? 0.2 : undefined),
+      (game.client === "stable" ? 0 : undefined),
   };
 }
 /** Re-converts when the played ruleset or key mods change. */

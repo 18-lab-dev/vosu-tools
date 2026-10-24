@@ -245,6 +245,15 @@ test("mania stages fit by their width only, so equal skins scale equally", () =>
   expect(fitBounds(1, strip)).toEqual(strip);
 });
 
+test("a mania stage stays centred like lazer's when its decorations are lopsided", () => {
+  // A StageLeft image reaching the view's left edge, a narrow StageRight.
+  const fitted = fitBounds(3, { x: -64, y: -48, width: 420, height: 480 });
+  expect(fitted).toEqual({ x: -64, y: -48, width: 640, height: 480 });
+  expect(fitted.x + fitted.width / 2).toBe(256);
+  // The wider side decides, whichever it is.
+  expect(fitBounds(3, { x: 200, y: -48, width: 200, height: 480 })).toEqual({ x: 112, y: -48, width: 288, height: 480 });
+});
+
 test("auto layout makes the smallest playfield as large as it can", () => {
   const taiko = { x: -64, y: 69, width: 640, height: 132 };
   const maniaStage = { x: 166, y: -48, width: 180, height: 480 };
