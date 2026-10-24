@@ -432,6 +432,7 @@
   background: repeating-conic-gradient(var(--bg-sunken) 0 25%, var(--bg) 0 50%)
     0 0 / 8px 8px;
 }
+.x-thumb canvas,
 .x-thumb img {
   max-width: 100%;
   max-height: 100%;

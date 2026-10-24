@@ -1,14 +1,8 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parse, resolve } from "@vosu-tools/skin-spec";
+import { parse, resolve, validate } from "@vosu-tools/skin-spec";
 import "./style.css";
-import {
-  applyTheme,
-  check,
-  createEditor,
-  monaco,
-  rgb,
-  setFiles,
-} from "./editor";
+import type { IniEditor } from "./editor";
+import { TextDoc, rgb } from "./text-doc";
 import {
   type Category,
   type Group,
@@ -42,7 +36,7 @@ import {
   parseAssetId,
   unitFiles,
 } from "./assets";
-import { Preview, type Resolver } from "./preview";
+import type { Preview, Resolver } from "./preview";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
@@ -206,30 +200,63 @@ async function load(key: string, fresh = false): Promise<Loaded> {
 }
 
 // ---- editor --------------------------------------------------------------
-const focusModel = monaco.editor.createModel("", "skin-ini");
-const mixModel = monaco.editor.createModel("", "skin-ini");
-const editor = await createEditor($("#editor"));
-editor.setModel(focusModel);
-editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-  if (!save.disabled) void storeIni();
-});
+// skin.ini text lives in TextDocs; Monaco (and its CSS, font and worker) is
+// only fetched for the skin.ini tab, prefetched once the first view is idle.
+const focusDoc = new TextDoc();
+const mixDoc = new TextDoc();
+let iniEditor: IniEditor | undefined;
+let editorLoading: Promise<IniEditor> | undefined;
+function ensureEditor(): Promise<IniEditor> {
+  editorLoading ??= import("./editor")
+    .then(({ createIniEditor }) =>
+      createIniEditor($("#editor"), () => {
+        if (!save.disabled) void storeIni();
+      }),
+    )
+    .then((created) => {
+      iniEditor = created;
+      renderIni();
+      return created;
+    })
+    .catch((error) => {
+      editorLoading = undefined;
+      status.textContent = `Editor unavailable: ${message(error)}`;
+      throw error;
+    });
+  return editorLoading;
+}
+/** Warms the HTTP cache with the editor's files without running them. */
+async function prefetchEditor() {
+  try {
+    const files: string[] = await (
+      await fetch("./editor-prefetch.json")
+    ).json();
+    for (const file of files) {
+      const link = document.createElement("link");
+      link.rel = file.endsWith(".js") ? "modulepreload" : "prefetch";
+      link.href = `./${file}`;
+      document.head.append(link);
+    }
+  } catch {
+    // Dev server or no manifest: the tab still loads it on first use.
+  }
+}
 window.addEventListener("keydown", (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
     event.preventDefault();
     if (!save.disabled) void storeIni();
   }
 });
-const focusDirty = () =>
-  focused !== null && focusModel.getValue() !== savedText;
-const mixEdited = () => mixModel.getValue() !== composedIni;
+const focusDirty = () => focused !== null && focusDoc.getValue() !== savedText;
+const mixEdited = () => mixDoc.getValue() !== composedIni;
 
 function renderIni() {
-  const model = iniMode === "focus" ? focusModel : mixModel;
-  if (editor.getModel() !== model) editor.setModel(model);
+  const model = iniMode === "focus" ? focusDoc : mixDoc;
+  iniEditor?.show(model);
   const loadedFocus = focused ? loaded.get(focused) : undefined;
   const writable =
     iniMode === "focus" && !!loadedFocus?.snapshot.writable && vosu.canWrite;
-  editor.updateOptions({ readOnly: iniMode === "focus" && !writable });
+  iniEditor?.setReadOnly(iniMode === "focus" && !writable);
   $("#ini-focus").setAttribute("aria-pressed", String(iniMode === "focus"));
   $("#ini-mix").setAttribute("aria-pressed", String(iniMode === "mix"));
   save.hidden = reload.hidden = iniMode !== "focus";
@@ -257,7 +284,10 @@ function renderIni() {
           skin?.origin !== "osk"
         ? "Not UTF-8"
         : "";
-  const issues = check(model);
+  // Diagnostics are only shown on the skin.ini tab; skip them elsewhere.
+  if (view !== "ini") return;
+  const issues = (model.issues = validate(model.getValue(), model.files));
+  iniEditor?.mark(model);
   $("#issue-count").textContent = String(issues.length);
   $("#diagnostics").replaceChildren(
     ...(issues.length
@@ -269,11 +299,7 @@ function renderIni() {
               "button",
               {
                 type: "button",
-                onclick: () => {
-                  editor.revealLineInCenter(d.line);
-                  editor.setPosition({ lineNumber: d.line, column: d.column });
-                  editor.focus();
-                },
+                onclick: () => iniEditor?.reveal(d.line, d.column),
               },
               h("span", { class: "line" }, `L${d.line}`),
               h("span", { class: "message" }, d.message),
@@ -283,17 +309,17 @@ function renderIni() {
       : [h("li", { class: "clean" }, "No problems.")]),
   );
 }
-focusModel.onDidChangeContent(() => {
+focusDoc.onDidChangeContent(() => {
   renderIni();
   if (iniMode === "focus") renderColours();
 });
-mixModel.onDidChangeContent(() => renderIni());
+mixDoc.onDidChangeContent(() => renderIni());
 
 async function storeIni() {
   if (!focused) return;
   saving = true;
   renderIni();
-  const text = focusModel.getValue();
+  const text = focusDoc.getValue();
   try {
     const data = await post<{ revision: string; backup: string | null }>(
       "v1/save",
@@ -484,7 +510,7 @@ async function focus(key: string | null) {
   renderLibrary();
   void explorer?.open(key);
   if (!key) {
-    focusModel.setValue("");
+    focusDoc.setValue("");
     savedText = "";
     renderFocus();
     return;
@@ -494,15 +520,13 @@ async function focus(key: string | null) {
     const { snapshot } = await load(key, true);
     if (focused !== key) return;
     diskRevision = snapshot.revision;
-    setFiles(
-      focusModel,
+    focusDoc.files =
       skinByKey(key)?.origin === "lazer"
         ? undefined
-        : snapshot.files.map((f) => f.name),
-    );
-    focusModel.setValue(snapshot.text);
-    // Monaco normalises mixed line endings; compare against what it holds.
-    savedText = focusModel.getValue();
+        : snapshot.files.map((f) => f.name);
+    focusDoc.setValue(snapshot.text);
+    // Text is normalised as the editor stores it; compare against that.
+    savedText = focusDoc.getValue();
     status.textContent = "";
   } catch (error) {
     status.textContent = message(error);
@@ -511,7 +535,7 @@ async function focus(key: string | null) {
 }
 
 function renderColours() {
-  const doc = parse(focusModel.getValue());
+  const doc = parse(focusDoc.getValue());
   const colours = doc.lines.filter((l) => {
     const s =
       l.section === "Colours" && l.key ? resolve(l.section, l.key) : null;
@@ -531,16 +555,10 @@ function renderColours() {
             type: "button",
             title: `${l.key}: ${l.value}`,
             ariaLabel: `${l.key} ${l.value}`,
-            onclick: () => {
-              showView("ini");
+            onclick: async () => {
               iniMode = "focus";
-              renderIni();
-              editor.revealLineInCenter(l.line);
-              editor.setPosition({
-                lineNumber: l.line,
-                column: l.valueColumn ?? 1,
-              });
-              editor.focus();
+              showView("ini");
+              (await ensureEditor()).reveal(l.line, l.valueColumn ?? 1);
             },
           },
           chip,
@@ -1002,13 +1020,19 @@ function showView(next: typeof view) {
   if (view === "ini") {
     if (!focused) iniMode = "mix";
     renderIni();
-    editor.layout();
+    if (iniEditor) iniEditor.layout();
+    else void ensureEditor();
   }
   void showPreview(view === "preview");
 }
 $("#tab-elements").onclick = () => showView("elements");
 $("#tab-explorer").onclick = () => showView("explorer");
 $("#tab-ini").onclick = () => showView("ini");
+// Pointing at (or tabbing to) the tab starts the editor while the click lands.
+for (const type of ["pointerenter", "focus"])
+  $("#tab-ini").addEventListener(type, () => void ensureEditor(), {
+    once: true,
+  });
 $("#tab-preview").onclick = () => showView("preview");
 $("#ini-focus").onclick = () => {
   iniMode = "focus";
@@ -1019,14 +1043,14 @@ $("#ini-mix").onclick = () => {
   renderIni();
 };
 $("#ini-reset").onclick = () => {
-  mixModel.setValue(composedIni);
+  mixDoc.setValue(composedIni);
 };
 reload.onclick = () => {
   if (
     focused &&
     (!focusDirty() || confirm("Discard unsaved skin.ini changes?"))
   ) {
-    savedText = focusModel.getValue();
+    savedText = focusDoc.getValue();
     void focus(focused);
   }
 };
@@ -1059,7 +1083,7 @@ async function composeNow(fresh = false) {
 /** The plan to build: the composed files with the draft skin.ini if edited. */
 async function planNow(fresh = false): Promise<Plan> {
   const { plan } = await composeNow(fresh);
-  if (mixEdited() && mixModel.getValue()) plan.ini = mixModel.getValue();
+  if (mixEdited() && mixDoc.getValue()) plan.ini = mixDoc.getValue();
   return plan;
 }
 async function recompose() {
@@ -1073,7 +1097,7 @@ async function recompose() {
     fallbacks = composed.fallbacks;
     lastPlan = composed.plan;
     composeError = "";
-    if (!wasEdited || !mixModel.getValue()) mixModel.setValue(composedIni);
+    if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(composedIni);
   } catch (error) {
     composeError = message(error);
   }
@@ -1309,7 +1333,7 @@ $("#mix-reset").onclick = () => {
   if (!confirm("Clear the mix?")) return;
   recipe = { name: recipe.name, base: null, picks: {}, overrides: {} };
   persist();
-  mixModel.setValue("");
+  mixDoc.setValue("");
   composedIni = "";
   renderFocus();
   renderLibrary();
@@ -1471,11 +1495,23 @@ const previewPrefs: {
 const savePreview = () =>
   localStorage.setItem(PREVIEW_KEY, JSON.stringify(previewPrefs));
 const pvState = $("#pv-state");
-const preview = new Preview(
-  $<HTMLCanvasElement>("#pv-canvas"),
-  $("#pv-stage"),
-  (text) => (pvState.textContent = text),
-);
+// The renderer (WebGPU, demo maps) loads with the Preview tab.
+let preview: Preview | undefined;
+let previewLoading: Promise<Preview> | undefined;
+const ensurePreview = () =>
+  (previewLoading ??= import("./preview").then(
+    ({ Preview }) =>
+      (preview = new Preview(
+        $<HTMLCanvasElement>("#pv-canvas"),
+        $("#pv-stage"),
+        (text) => (pvState.textContent = text),
+      )),
+    (error) => {
+      previewLoading = undefined;
+      pvState.textContent = message(error);
+      throw error;
+    },
+  ));
 
 /** Fetched skin files, shared by every preview load (cleared when large). */
 const blobs = new Map<string, Promise<Blob | null>>();
@@ -1506,7 +1542,7 @@ function focusResolver(key: string): Resolver | null {
   const entry = loaded.get(key);
   if (!entry) return null;
   const names = new Map(entry.data.files.map((f) => [f.toLowerCase(), f]));
-  const text = focusModel.getValue();
+  const text = focusDoc.getValue();
   return (file) => {
     const lower = file.toLowerCase();
     if (lower === "skin.ini")
@@ -1524,7 +1560,7 @@ function mixResolver(plan: Plan): Resolver {
     }
   for (const item of plan.blanks)
     files.set(item.to.toLowerCase(), () => blank(item.kind));
-  const ini = mixModel.getValue() || plan.ini;
+  const ini = mixDoc.getValue() || plan.ini;
   return (file) => {
     const lower = file.toLowerCase();
     if (lower === "skin.ini") return iniBlob(ini);
@@ -1558,8 +1594,8 @@ function renderPreviewControls() {
 /** skin.ini of what the preview shows: the selected skin's or the mix draft. */
 function previewIni(): string {
   if (previewPrefs.source === "mix")
-    return mixModel.getValue() || lastPlan?.ini || "";
-  return focused && loaded.has(focused) ? focusModel.getValue() : "";
+    return mixDoc.getValue() || lastPlan?.ini || "";
+  return focused && loaded.has(focused) ? focusDoc.getValue() : "";
 }
 /**
  * Key counts the preview offers: every `[Mania]` block with `Keys: N` in the
@@ -1597,7 +1633,7 @@ function renderKeys() {
             previewPrefs.keys = k;
             savePreview();
             renderKeys();
-            preview.setDemo(demoId());
+            preview?.setDemo(demoId());
           },
         },
         `${k}K`,
@@ -1629,17 +1665,17 @@ const afterEdit = (bump: () => void) => {
     }, 400);
   };
 };
-mixModel.onDidChangeContent(afterEdit(() => mixVersion++));
-focusModel.onDidChangeContent(afterEdit(() => focusVersion++));
+mixDoc.onDidChangeContent(afterEdit(() => mixVersion++));
+focusDoc.onDidChangeContent(afterEdit(() => focusVersion++));
 
 /** Hands the preview the skin it should draw now (cheap when unchanged). */
 function updatePreview() {
   if (view !== "preview") return;
   // The key counts follow the previewed skin.ini (edits included).
   renderKeys();
-  preview.setDemo(demoId());
+  preview?.setDemo(demoId());
   if (previewPrefs.source === "mix") {
-    void preview.setSource({
+    void preview?.setSource({
       key: "mix",
       version: mixVersion,
       name: recipe.name,
@@ -1647,7 +1683,7 @@ function updatePreview() {
     });
   } else {
     const entry = focused ? loaded.get(focused) : undefined;
-    void preview.setSource({
+    void preview?.setSource({
       key: `skin:${focused ?? ""}`,
       version: entry ? focusVersion + 1 : 0,
       name: focused ? skinName(focused) : "",
@@ -1657,19 +1693,23 @@ function updatePreview() {
 }
 
 async function showPreview(visible: boolean) {
-  if (visible) {
-    if (!previewPrefs.ruleset)
-      previewPrefs.ruleset = ["osu", "taiko", "fruits", "mania"].includes(
-        category,
-      )
-        ? category
-        : "osu";
-    renderPreviewControls();
-    preview.setDemo(demoId());
-    preview.setPlaying(previewPrefs.playing);
-    updatePreview();
+  if (!visible) {
+    await preview?.show(false);
+    return;
   }
-  await preview.show(visible);
+  if (!previewPrefs.ruleset)
+    previewPrefs.ruleset = ["osu", "taiko", "fruits", "mania"].includes(
+      category,
+    )
+      ? category
+      : "osu";
+  renderPreviewControls();
+  const shown = await ensurePreview();
+  if (view !== "preview") return;
+  shown.setDemo(demoId());
+  shown.setPlaying(previewPrefs.playing);
+  updatePreview();
+  await shown.show(true);
 }
 $("#pv-focus").onclick = () => {
   previewPrefs.source = "focus";
@@ -1690,13 +1730,13 @@ for (const b of document.querySelectorAll<HTMLButtonElement>(
     previewPrefs.ruleset = b.dataset.demo!;
     savePreview();
     renderPreviewControls();
-    preview.setDemo(demoId());
+    preview?.setDemo(demoId());
   };
 
 $("#pv-play").onclick = () => {
   previewPrefs.playing = !previewPrefs.playing;
   savePreview();
-  preview.setPlaying(previewPrefs.playing);
+  preview?.setPlaying(previewPrefs.playing);
   renderPreviewControls();
 };
 
@@ -1842,11 +1882,13 @@ try {
   status.textContent = message(error);
 }
 // The bridge applies data-theme; Monaco follows the tokens of that mode.
-applyTheme();
-new MutationObserver(applyTheme).observe(document.documentElement, {
-  attributes: true,
-  attributeFilter: ["data-theme"],
-});
+new MutationObserver(() => iniEditor?.applyTheme()).observe(
+  document.documentElement,
+  {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  },
+);
 const modeBadge = $("#mode");
 modeBadge.hidden = vosu.canWrite;
 modeBadge.textContent = "Read-only";
@@ -1871,6 +1913,8 @@ if (initial) {
 renderMix();
 scheduleCompose();
 subscribe();
+// The first view is up: fetch the skin.ini editor while the page is idle.
+requestIdleCallback(() => void prefetchEditor(), { timeout: 5000 });
 
 setInterval(async () => {
   if (document.hidden) return;

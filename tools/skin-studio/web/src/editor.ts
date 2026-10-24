@@ -1,6 +1,8 @@
-// Monaco skin.ini language: tokens, completion, hovers, colour swatches and
-// quick fixes from @vosu-tools/skin-spec. Models carry their own file list
-// (for image-name completion and checks) and diagnostics.
+// The skin.ini editor, loaded on demand (the first view never fetches
+// Monaco): the skin.ini language (tokens, completion, hovers, colour swatches
+// and quick fixes from @vosu-tools/skin-spec) and one editor that mirrors the
+// studio's TextDocs in Monaco models. Only the editor core and the five
+// contributions skin.ini uses are bundled; no other languages or workers.
 
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js";
@@ -14,25 +16,16 @@ import {
   resolve,
   keys,
   sections,
-  validate,
   documentation,
   pathCandidates,
   type Diagnostic,
 } from "@vosu-tools/skin-spec";
+import { type TextDoc, rgb } from "./text-doc";
 
-export { monaco };
-
-interface ModelState {
-  /** Skin files for image checks; undefined skips them (hashed lazer stores). */
-  files?: string[];
-  issues: Diagnostic[];
-}
-const state = new WeakMap<monaco.editor.ITextModel, ModelState>();
-const stateOf = (model: monaco.editor.ITextModel) => {
-  let s = state.get(model);
-  if (!s) state.set(model, (s = { issues: [] }));
-  return s;
-};
+/** The document each model mirrors (its files and last diagnostics). */
+const docs = new WeakMap<monaco.editor.ITextModel, TextDoc>();
+const stateOf = (model: monaco.editor.ITextModel) =>
+  docs.get(model) ?? { files: undefined, issues: [] as Diagnostic[] };
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 monaco.languages.register({ id: "skin-ini" });
@@ -58,13 +51,6 @@ function context(model: monaco.editor.ITextModel, line: number) {
     doc.lines.find((l) => l.block === block && l.key === "Keys")?.value ?? 4,
   );
   return { current, section, count };
-}
-export function rgb(value: string | undefined) {
-  const c = (value ?? "").split(",").map(Number);
-  return c.length >= 3 &&
-    c.every((v) => Number.isFinite(v) && v >= 0 && v <= 255)
-    ? c
-    : null;
 }
 
 monaco.languages.registerCompletionItemProvider("skin-ini", {
@@ -205,34 +191,6 @@ monaco.languages.registerCodeActionProvider(
   { providedCodeActionKinds: ["quickfix"] },
 );
 
-/** Validates a model against the spec, updating its markers. */
-export function check(model: monaco.editor.ITextModel): Diagnostic[] {
-  const s = stateOf(model);
-  s.issues = validate(model.getValue(), s.files);
-  monaco.editor.setModelMarkers(
-    model,
-    "skin-spec",
-    s.issues.map((d) => ({
-      startLineNumber: d.line,
-      endLineNumber: d.line,
-      startColumn: d.column,
-      endColumn: model.getLineMaxColumn(d.line),
-      message: d.message,
-      severity:
-        d.severity === "error"
-          ? monaco.MarkerSeverity.Error
-          : monaco.MarkerSeverity.Warning,
-    })),
-  );
-  return s.issues;
-}
-export function setFiles(
-  model: monaco.editor.ITextModel,
-  files: string[] | undefined,
-) {
-  stateOf(model).files = files;
-}
-
 /** A CSS colour (hex, rgb() with alpha, …) as Monaco's `#rrggbbaa`. */
 function hex(value: string): string {
   const probe = document.createElement("canvas").getContext("2d")!;
@@ -246,7 +204,7 @@ function hex(value: string): string {
 
 const THEME = "skin-studio";
 /** Defines the editor theme from the 18-LAB tokens of the current mode. */
-export function applyTheme() {
+function applyTheme() {
   const css = getComputedStyle(document.documentElement);
   const token = (name: string) => hex(css.getPropertyValue(name).trim());
   const bare = (name: string) => token(name).slice(1, 7);
@@ -306,11 +264,27 @@ export function applyTheme() {
   monaco.editor.setTheme(THEME);
 }
 
-export async function createEditor(container: HTMLElement) {
+export interface IniEditor {
+  /** Shows a document (its model is created on first use). */
+  show(doc: TextDoc): void;
+  setReadOnly(readOnly: boolean): void;
+  /** Markers for the document's current `issues`. */
+  mark(doc: TextDoc): void;
+  reveal(line: number, column: number): void;
+  layout(): void;
+  /** Re-reads the 18-LAB colour tokens after a mode change. */
+  applyTheme(): void;
+}
+
+/** Creates the editor in `container`; `save` runs on Ctrl/Cmd+S. */
+export async function createIniEditor(
+  container: HTMLElement,
+  save: () => void,
+): Promise<IniEditor> {
   // Monaco measures glyphs once; a font that arrives later misaligns the gutter.
   await document.fonts.load('13px "IBM Plex Mono"');
   applyTheme();
-  return monaco.editor.create(container, {
+  const editor = monaco.editor.create(container, {
     model: null,
     theme: THEME,
     automaticLayout: true,
@@ -325,5 +299,64 @@ export async function createEditor(container: HTMLElement) {
     renderLineHighlight: "line",
     padding: { top: 8, bottom: 8 },
     fixedOverflowWidgets: true,
+    // skin.ini completion comes from the spec; word lists and link
+    // detection would only wake the editor worker.
+    wordBasedSuggestions: "off",
+    links: false,
   });
+  editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, save);
+  const models = new Map<TextDoc, monaco.editor.ITextModel>();
+  const modelOf = (doc: TextDoc) => {
+    let model = models.get(doc);
+    if (model) return model;
+    model = monaco.editor.createModel(doc.getValue(), "skin-ini");
+    docs.set(model, doc);
+    models.set(doc, model);
+    let syncing = false;
+    // Typing updates the document; outside changes update the model.
+    model.onDidChangeContent(() => {
+      if (!syncing) doc.setValue(model!.getValue());
+    });
+    doc.onDidChangeContent(() => {
+      if (model!.getValue() === doc.getValue()) return;
+      syncing = true;
+      model!.setValue(doc.getValue());
+      syncing = false;
+    });
+    return model;
+  };
+  return {
+    show(doc) {
+      const model = modelOf(doc);
+      if (editor.getModel() !== model) editor.setModel(model);
+    },
+    setReadOnly: (readOnly) => editor.updateOptions({ readOnly }),
+    mark(doc) {
+      const model = modelOf(doc);
+      monaco.editor.setModelMarkers(
+        model,
+        "skin-spec",
+        doc.issues.map((d) => ({
+          startLineNumber: d.line,
+          endLineNumber: d.line,
+          startColumn: d.column,
+          endColumn: model.getLineMaxColumn(
+            Math.min(d.line, model.getLineCount()),
+          ),
+          message: d.message,
+          severity:
+            d.severity === "error"
+              ? monaco.MarkerSeverity.Error
+              : monaco.MarkerSeverity.Warning,
+        })),
+      );
+    },
+    reveal(line, column) {
+      editor.revealLineInCenter(line);
+      editor.setPosition({ lineNumber: line, column });
+      editor.focus();
+    },
+    layout: () => editor.layout(),
+    applyTheme,
+  };
 }

@@ -13,6 +13,7 @@ import {
   rows,
 } from "./explorer-model";
 import { parseIni } from "./ini";
+import { type Thumb, Thumbnails, paint, thumbCanvas } from "./thumbs";
 
 export interface ExplorerSkin {
   key: string;
@@ -60,6 +61,8 @@ export class Explorer {
   #anchor = -1;
   /** Measured image sizes by `skin\nfile`. */
   #dims = new Map<string, [number, number]>();
+  /** Worker-made list thumbnails (their decode also gives the pixel size). */
+  #thumbs = new Thumbnails(48);
   #frame = 0;
   #detailsFor = "";
 
@@ -396,12 +399,15 @@ export class Explorer {
   #dimsOf(file: string) {
     return this.#skin ? this.#dims.get(`${this.#skin}\n${file}`) : undefined;
   }
-  #measured(file: string, image: HTMLImageElement) {
-    if (!this.#skin || !image.naturalWidth) return;
-    this.#dims.set(`${this.#skin}\n${file}`, [
-      image.naturalWidth,
-      image.naturalHeight,
-    ]);
+  /** Asks for a file's thumbnail; `done` runs if it arrives while `skin` is open. */
+  #thumb(skin: string, file: string, done: (thumb: Thumb) => void) {
+    const url = new URL(this.#host.assetUrl(skin, file), location.href).href;
+    this.#thumbs.request(url, (thumb) => {
+      if (!thumb) return;
+      this.#dims.set(`${skin}\n${file}`, [thumb.width, thumb.height]);
+      if (this.#skin === skin) done(thumb);
+    });
+    return url;
   }
 
   #renderWindow() {
@@ -423,21 +429,31 @@ export class Explorer {
       list.removeAttribute("aria-activedescendant");
       return;
     }
+    // Hidden (another tab is open): nothing to draw or decode until shown;
+    // the resize observer renders the rows once the list has a size.
+    if (!list.clientHeight) {
+      list.replaceChildren(this.#spacer);
+      this.#thumbs.want([]);
+      return;
+    }
     const first = Math.max(0, Math.floor(list.scrollTop / ROW) - OVERSCAN);
     const last = Math.min(
       this.#rows.length,
       Math.ceil((list.scrollTop + list.clientHeight) / ROW) + OVERSCAN,
     );
     const nodes: Node[] = [this.#spacer];
-    for (let i = first; i < last; i++) nodes.push(this.#row(i));
+    const urls: string[] = [];
+    for (let i = first; i < last; i++) nodes.push(this.#row(i, urls));
     list.replaceChildren(...nodes);
+    // Thumbnails for rows scrolled away are not made.
+    this.#thumbs.want(urls);
     const active = this.#active;
     if (active >= first && active < last)
       list.setAttribute("aria-activedescendant", `x-opt-${active}`);
     else list.removeAttribute("aria-activedescendant");
   }
 
-  #row(index: number) {
+  #row(index: number, urls: string[]) {
     const row = this.#rows[index];
     const skin = this.#skin!;
     const file = row.files[0];
@@ -449,18 +465,14 @@ export class Explorer {
     );
     let thumb: Node;
     if (row.kind === "image") {
-      const image = h("img", {
-        src: this.#host.assetUrl(skin, file),
-        alt: "",
-        loading: "lazy",
-        decoding: "async",
-      });
-      image.onload = () => {
-        this.#measured(file, image);
-        const d = this.#dimsOf(file);
-        if (d) dimsCell.textContent = `${d[0]}×${d[1]}`;
-      };
-      thumb = image;
+      const canvas = thumbCanvas(undefined);
+      urls.push(
+        this.#thumb(skin, file, (t) => {
+          paint(canvas, t);
+          dimsCell.textContent = `${t.width}×${t.height}`;
+        }),
+      );
+      thumb = canvas;
     } else if (row.kind === "sound") {
       const url = this.#host.assetUrl(skin, file);
       const play = h(
@@ -619,14 +631,10 @@ export class Explorer {
     // Measure member images not seen yet (frames, @2x variants).
     if (row.kind === "image")
       for (const file of row.files.slice(0, 24))
-        if (!this.#dimsOf(file)) {
-          const image = new Image();
-          image.onload = () => {
-            this.#measured(file, image);
+        if (!this.#dimsOf(file))
+          this.#thumb(skin, file, () => {
             if (this.#detailsFor === key) this.#renderDetails(true);
-          };
-          image.src = this.#host.assetUrl(skin, file);
-        }
+          });
   }
 
   #preview(row: Row, skin: string): Element {
