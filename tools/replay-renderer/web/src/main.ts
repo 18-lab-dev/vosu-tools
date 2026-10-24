@@ -905,7 +905,7 @@ el("queue").onclick = async () => {
       export_for: el<HTMLSelectElement>("export-for").value,
       discord_mb: Number(el<HTMLSelectElement>("discord-mb").value),
     };
-    const { job } = await (
+    const { job, workers: chosen } = await (
       await fetcher("v1/render", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -917,6 +917,7 @@ el("queue").onclick = async () => {
     const dot = document.createElement("span"),
       message = document.createElement("span"),
       warning = document.createElement("p"),
+      workers = document.createElement("p"),
       meter = document.createElement("div"),
       cancel = button("Cancel", "v-btn v-btn--sm v-btn--ghost");
     dot.className = "v-dot";
@@ -926,12 +927,16 @@ el("queue").onclick = async () => {
     warning.className = "job-warning";
     warning.setAttribute("role", "status");
     warning.hidden = true;
+    // How many parallel workers the service chose, and what limited it.
+    workers.className = "job-workers v-mono";
+    workers.textContent = chosen ?? "";
+    workers.hidden = !chosen;
     meter.className = "v-meter";
     meter.style.setProperty("--v-value", "0");
     cancel.onclick = () => {
       void fetcher(`v1/jobs/${job}`, { method: "DELETE" }).catch(report);
     };
-    row.append(dot, message, cancel, warning, meter);
+    row.append(dot, message, cancel, workers, warning, meter);
     el("jobs").prepend(row);
     activeJobs.add(job);
     setTally();

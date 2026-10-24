@@ -497,7 +497,7 @@ pub(super) async fn fit(
         };
         for pass in ["1", "2"] {
             let mut command = tokio::process::Command::new(executable);
-            command
+            crate::budget::background(&mut command)
                 .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i"])
                 .arg(file)
                 .args(video(pass));
