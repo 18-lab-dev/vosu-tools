@@ -6,6 +6,8 @@ Build the page, then run:
   uv run --with playwright python tools/map-preview/tests/perf_bench.py /tmp/mp-perf-dist SONGS SKINS [EVIDENCE_DIR] \
     [--mania-only] [--mania-map=MAP.osu@START_MS] [NAME=SKIN_DIR ...]
 
+--query=css=1280x720 (or size=WxH) sizes the canvas like a stage of that CSS
+size (shared playfieldSize rule) or exactly; the default is 1920x1080.
 NAME=SKIN_DIR adds a mania case with that skin folder; --mania-only skips the
 other rulesets; --mania-map replaces the mania map. Draw calls per frame and the renderer's texture memory are
 reported too.
@@ -72,7 +74,7 @@ def serve(dist: Path, maps: dict, skins: dict):
     return server
 
 
-async def bench(cases):
+async def bench(cases, query=''):
     from playwright.async_api import async_playwright
 
     results = []
@@ -84,7 +86,7 @@ async def bench(cases):
         for ruleset, skin in cases:
             page = await browser.new_page(viewport={'width': 1920, 'height': 1080})
             source = skin if skin.startswith('builtin:') else f'files:/skins/{skin[6:]}/'
-            await page.goto(f'http://127.0.0.1:{PORT}/perf/?map=/maps/{ruleset}.osu&start={MAPS[ruleset][2]}&skin={source}')
+            await page.goto(f'http://127.0.0.1:{PORT}/perf/?map=/maps/{ruleset}.osu&start={MAPS[ruleset][2]}&skin={source}{"&" + query if query else ""}')
             await page.wait_for_function('window.__perf', timeout=120000)
             result = await page.evaluate('window.__perf')
             assert 'error' not in result, result
@@ -96,7 +98,7 @@ async def bench(cases):
                   f"gpu pass mean {gpu['mean'] if gpu else float('nan'):.3f} p95 {gpu['p95'] if gpu else float('nan'):.3f} ms  "
                   f"submit→done p95 {result['submitToGpuDone']['p95']:.2f} ms  "
                   f"draws mean {result['drawCalls']['mean']:.1f} max {result['drawCalls']['max']}  "
-                  f"textures {result['textureMB']:.0f} MB")
+                  f"textures {result['textureMB']:.0f} MB  canvas {result.get('canvas')}")
             await page.close()
         await browser.close()
     return results
@@ -129,7 +131,8 @@ def main():
             shutil.copytree(folder, copies[key])
         server = serve(dist, maps, copies)
         try:
-            results = asyncio.run(bench(cases))
+            query = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--query=')), '')
+            results = asyncio.run(bench(cases, query))
         finally:
             server.shutdown()
     (evidence / 'perf.json').write_text(json.dumps(results, indent=2) + '\n')

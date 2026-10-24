@@ -172,8 +172,11 @@ export function spinner(
     until = o.endTime + 240,
     completed = timing.completed;
   const size = (name: string, scale = SPRITE_SCALE) => {
-    const region = regions.get(name)!;
-    return [(region.width ?? 0) * scale, (region.height ?? 0) * scale] as const;
+    const region = regions.get(name);
+    return [
+      (region?.width ?? 0) * scale,
+      (region?.height ?? 0) * scale,
+    ] as const;
   };
   const part = (
     name: string,
@@ -568,9 +571,9 @@ export function sliderBall(
   const fit = (name: string) => {
     const region =
         regions.get(name === "sliderb" ? "sliderb0" : `${name}-0`) ??
-        regions.get(name)!,
-      width = region.width ?? 0,
-      height = region.height ?? 0,
+        regions.get(name),
+      width = region?.width ?? 0,
+      height = region?.height ?? 0,
       crop = [
         Math.min(1, MAX_BALL_AREA / Math.max(width, 1e-9)),
         Math.min(1, MAX_BALL_AREA / Math.max(height, 1e-9)),

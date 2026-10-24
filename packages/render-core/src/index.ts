@@ -23,6 +23,18 @@ export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene, InputFrame } from "./scene";
 export type { JudgementEvent } from "./judgements";
+export {
+  PLAYFIELD_BACKGROUND,
+  PLAYFIELD_DEFAULTS,
+  PLAYFIELD_QUALITY,
+  builtinLook,
+  createPlayfield,
+  loadPlayfieldSkin,
+  overLook,
+  playfieldOptions,
+  playfieldSize,
+} from "./playfield";
+export type { Playfield, PlayfieldOptions } from "./playfield";
 export interface FrameState {
   target?: GPUTextureView;
   timestampWrites?: GPURenderPassTimestampWrites;

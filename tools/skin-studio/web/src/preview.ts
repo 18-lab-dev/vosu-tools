@@ -3,12 +3,13 @@
 // only the loop's own time.
 
 import {
-  builtinSkin,
-  createRenderer,
+  builtinLook,
+  createPlayfield,
   loadManiaKeys,
-  loadSkin,
-  withFallback,
-  type Renderer,
+  loadPlayfieldSkin,
+  overLook,
+  playfieldSize,
+  type Playfield,
   type Skin,
 } from "@vosu-tools/render-core";
 import {
@@ -38,9 +39,9 @@ export class Preview {
   #canvas: HTMLCanvasElement;
   #stage: HTMLElement;
   #onState: (message: string) => void;
-  #renderer?: Renderer;
-  #starting?: Promise<Renderer | undefined>;
-  #classic = builtinSkin("legacy");
+  #renderer?: Playfield;
+  #starting?: Promise<Playfield | undefined>;
+  #classic = builtinLook("legacy");
   #fileSkin?: Skin;
   #skin: Skin = this.#classic;
   #source?: PreviewSource;
@@ -145,9 +146,11 @@ export class Preview {
     this.#onState("Loading skin…");
     try {
       const keys = stageKeys(this.#demo);
-      const loaded = await loadSkin(source.resolve, source.name, {
-        maniaKeys: keys,
-      });
+      const { files: loaded } = await loadPlayfieldSkin(
+        source.resolve,
+        source.name,
+        { maniaKeys: keys },
+      );
       if (ticket !== this.#loading) {
         releaseExcept(loaded, this.#fileSkin);
         return;
@@ -165,9 +168,7 @@ export class Preview {
     const previous = this.#fileSkin;
     this.#fileSkin = fileSkin;
     this.#decoded = decoded;
-    this.#skin = fileSkin
-      ? withFallback(fileSkin, this.#classic)
-      : this.#classic;
+    this.#skin = fileSkin ? overLook(fileSkin) : this.#classic;
     this.#renderer?.setSkin(this.#skin);
     if (this.#loop)
       this.#renderer?.setBeatmap(this.#loop.beatmap, this.#options());
@@ -177,19 +178,16 @@ export class Preview {
   }
 
   #options() {
-    // Skin combo colours, not the demo map's; a slower mania scroll shows more of the stage.
+    // Product: the skin's combo colours, not the demo map's (the skin is what
+    // is being browsed), and a slower mania scroll that shows more of the
+    // stage. Everything else is the shared playfield default.
     return { beatmapColours: false, scrollSpeed: 16 };
   }
 
-  #start(): Promise<Renderer | undefined> {
-    this.#starting ??= createRenderer({
+  #start(): Promise<Playfield | undefined> {
+    this.#starting ??= createPlayfield({
       canvas: this.#canvas,
       skin: this.#skin,
-      clearColour: playfieldColour(),
-      presentation:
-        new URLSearchParams(location.search).get("presentation") === "bitmap"
-          ? "bitmap"
-          : "direct",
     }).then(
       (renderer) => {
         this.#renderer = renderer;
@@ -208,14 +206,11 @@ export class Preview {
   }
 
   #resize() {
-    const scale = Math.min(window.devicePixelRatio || 1, 2),
-      width = Math.max(1, Math.round(this.#stage.clientWidth * scale)),
-      height = Math.max(1, Math.round(this.#stage.clientHeight * scale));
-    if (this.#renderer) this.#renderer.resize(width, height);
-    else {
-      this.#canvas.width = width;
-      this.#canvas.height = height;
-    }
+    const { clientWidth, clientHeight } = this.#stage;
+    if (this.#renderer) this.#renderer.fit(clientWidth, clientHeight);
+    else
+      ({ width: this.#canvas.width, height: this.#canvas.height } =
+        playfieldSize(clientWidth, clientHeight));
   }
 
   /** Beatmap time of the loop now. */
@@ -246,16 +241,4 @@ function releaseExcept(skin: Skin, keep: Skin | undefined) {
   const kept = new Set(keep?.assets.values());
   for (const bitmap of new Set(skin.assets.values()))
     if (!kept.has(bitmap)) bitmap.close();
-}
-
-/** The playfield colour: the darkest system surface in either scheme. */
-function playfieldColour(): GPUColor {
-  const root = getComputedStyle(document.documentElement),
-    light = document.documentElement.dataset.theme === "light",
-    token = root.getPropertyValue(light ? "--fg" : "--bg-sunken").trim(),
-    probe = new OffscreenCanvas(1, 1).getContext("2d")!;
-  probe.fillStyle = token || "#0b0c0d";
-  probe.fillRect(0, 0, 1, 1);
-  const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
-  return { r: r / 255, g: g / 255, b: b / 255, a: 1 };
 }
