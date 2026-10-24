@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import tomllib
 import unittest
@@ -55,6 +56,15 @@ command=["bin/vosu-example", "cli"]
     def assemble(self, target='x86_64-unknown-linux-gnu'):
         with patch.object(package, 'rust_licenses', return_value=({'licenses/rust/example/LICENSE': b'MIT'}, [])), contextlib.redirect_stdout(io.StringIO()):
             return package.assemble(self.root, self.root / 'dist', target, 'https://example.com/releases/v1', self.metadata, package.discover(self.root))
+
+    def test_utf8_manifests_and_source_maps(self):
+        (self.tool / 'tool.toml').write_text(self.manifest.replace('name="Example"', 'name="ā"'), encoding='utf-8')
+        (self.tool / 'web/dist/assets/app.js.map').write_text(
+            json.dumps({'sources': [], 'sourcesContent': ['ā']}, ensure_ascii=False), encoding='utf-8')
+        self.assertEqual(self.assemble()['tools'][0]['name'], 'ā')
+
+    def test_utf8_cargo_output(self):
+        self.assertEqual(package.run([sys.executable, '-c', "import sys; sys.stdout.buffer.write(bytes([196, 129]))"], self.root), 'ā')
 
     def test_art_is_packaged_and_published(self):
         entry = self.assemble()['tools'][0]

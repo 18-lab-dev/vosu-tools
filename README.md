@@ -51,6 +51,8 @@ python -m unittest discover -s scripts -p test_package.py
 ```
 
 Packages and `catalog.json` are written to `dist/`. The script builds release binaries with the locked Cargo graph, builds offline UIs with hidden source maps for bundled-package license discovery, and emits verified, deterministic ZIPs. `--dry-run` validates manifests and prints the build plan; `--skip-build` packages existing binaries and hidden-sourcemap UI output. Windows releases use `x86_64-pc-windows-msvc`; the native Windows runner also checks Clippy and tests. Universal UI-only packages are published once from Linux (`--native-only` omits them on the Windows packaging job). Catalog merging and license provenance are described in the [package contract](docs/catalog.md#building-and-merging-catalogs).
+Manifest, catalog, lockfile and source-map text, along with Cargo's captured
+metadata, is decoded as UTF-8 regardless of the build machine's locale.
 
 The reusable real-package smoke requires a separately built vosu `test-harness` binary and both generated catalogs:
 
