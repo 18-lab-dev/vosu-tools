@@ -220,6 +220,23 @@
   width: 100%;
   height: 100%;
 }
+/* Overlay pages, live: each at its box, scaled as the export composites it.
+   `color-scheme: normal` matches pages that declare none, so the browser keeps
+   their canvas transparent over the picture. */
+.live-pages {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.live-page {
+  position: absolute;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
 /* Layout editor: boxes over the preview, in output pixels times the zoom. */
 .editor {
   position: absolute;

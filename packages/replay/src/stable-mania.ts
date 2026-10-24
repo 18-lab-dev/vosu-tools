@@ -34,7 +34,7 @@ import { replayMods, replayRate } from "./mods";
 import { difficultyRange } from "./osu";
 import { judgeWithHealth } from "./health";
 import type { HealthInfo, HitResult, Outcome, Rules } from "./scoring";
-import type { Result, Simulation } from "./simulation";
+import { realWindows, type Result, type Simulation } from "./simulation";
 
 /** Results best first, as header counters and as lazer results. */
 const COUNTS: Result[] = ["geki", "n300", "katu", "n100", "n50", "miss"];
@@ -323,5 +323,8 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
   }
   const rules: Rules = { mode: 3, client: "stable", v1Multiplier: null, lazerMultiplier: 1 };
   const order = outcomes.map((o, i) => ({ o, i })).sort((a, b) => a.o.time - b.o.time || a.i - b.i);
-  return judgeWithHealth(replay, { mode: 3, map, mods, classic: true }, perfect, order.map(({ o }) => o), rules, warnings);
+  const simulation = judgeWithHealth(replay, { mode: 3, map, mods, classic: true }, perfect, order.map(({ o }) => o), rules, warnings);
+  const [perfectWindow, great, good, ok, meh, miss] = real;
+  simulation.hitWindow = realWindows({ perfect: perfectWindow, great, good, ok, meh, miss }, 1);
+  return simulation;
 }

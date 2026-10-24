@@ -71,6 +71,8 @@ export class LayoutEditor {
       /** `commit` false while dragging: redraw only; true when an edit ends. */
       changed(item: Item, commit: boolean): void;
       selected(item: Item | null): void;
+      /** After every render: each overlay page's box (output px) and the zoom. */
+      rendered(placements: { overlay: number; track: number; box: Rect }[], zoom: number): void;
     },
   ) {
     this.layer.className = "editor";
@@ -307,6 +309,18 @@ export class LayoutEditor {
       }),
     );
     this.renderInspector();
+    const layers = this.host.layers(),
+      tracks = this.host.tracks();
+    this.host.rendered(
+      items
+        .filter((item) => item.kind === "overlay")
+        .map((item) => ({
+          overlay: layers.indexOf(item.layer),
+          track: tracks.indexOf(item.track),
+          box: this.boxOf(item),
+        })),
+      zoom,
+    );
   }
   private renderInspector() {
     const item = this.selection;

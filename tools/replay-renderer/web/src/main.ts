@@ -15,7 +15,8 @@ import {
 } from "./studio";
 import "./style.css";
 import settingSchema from "../../render-settings.json";
-import { OverlayEditor, type InstalledOverlay, type Layer } from "./overlay-layout";
+import { OverlayEditor, type InstalledOverlay, type Layer, type OverlayLayer } from "./overlay-layout";
+import { LivePages } from "./live";
 import { LayoutEditor } from "./editor";
 import { SkinLibrary, type SkinContext } from "./skins";
 import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
@@ -628,6 +629,17 @@ const overlayEditor: OverlayEditor = new OverlayEditor(el("overlay-layout"), {
   selected: () => (editor.selected?.kind === "overlay" ? editor.selected.layer : null),
 });
 const field = (id: string) => el<HTMLInputElement>(id);
+// Live overlay pages sit under the layout editor's boxes.
+const live = new LivePages(fetcher, report);
+el("gate").append(live.root);
+/** The render request's overlay layers, or null while one is incomplete. */
+function liveLayers(): OverlayLayer[] | null {
+  try {
+    return overlayEditor.read(tracks.map((t) => t.id));
+  } catch {
+    return null;
+  }
+}
 const editor: LayoutEditor = new LayoutEditor(
   el("gate"),
   {
@@ -672,6 +684,11 @@ const editor: LayoutEditor = new LayoutEditor(
     selected(item) {
       el<HTMLButtonElement>("layout-reset").disabled = !item;
       overlayEditor.render();
+    },
+    rendered(placements, zoom) {
+      // Read-only tabs have no service session to preview with.
+      if (vosu.canWrite) live.update(tracks, liveLayers(), composition?.start ?? 0);
+      live.place(placements, zoom);
     },
   },
 );
@@ -829,6 +846,7 @@ async function animate(now: number) {
       previewFrame = undefined;
     }
   }
+  if (composition) live.tick(tracks, time, composition.start);
   last = now;
   el("time").textContent = timecode(
     composition ? (time - composition.start) / (tracks[0]?.replay.rate ?? 1) : 0,

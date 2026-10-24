@@ -1,0 +1,25 @@
+{
+ "keys": {
+  "k1": {
+   "isPressed": false,
+   "count": 0
+  },
+  "k2": {
+   "isPressed": false,
+   "count": 0
+  },
+  "m1": {
+   "isPressed": false,
+   "count": 0
+  },
+  "m2": {
+   "isPressed": false,
+   "count": 0
+  },
+  "all": []
+ },
+ "hitErrors": [],
+ "pressHitErrors": [],
+ "releaseHitErrors": [],
+ "tourney": []
+}

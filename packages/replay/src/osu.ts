@@ -27,7 +27,7 @@ import {
 } from "./scoring";
 import { replayMods, replayRate } from "./mods";
 import { judgeWithHealth } from "./health";
-import type { Result, Simulation } from "./simulation";
+import { realWindows, type Result, type Simulation } from "./simulation";
 
 /** `IBeatmapDifficultyInfo.DifficultyRange`: values at difficulty 0, 5 and 10. */
 export const difficultyRange = (d: number, min: number, mid: number, max: number) =>
@@ -699,5 +699,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   const warnings: string[] = [];
   const unjudged = tops.filter((t) => !t.judged).length;
   if (unjudged) warnings.push(`${unjudged} objects were never judged (replay ends early)`);
-  return judgeWithHealth(replay, { mode: 0, map, mods, classic }, perfect, outcomes, rules, warnings);
+  const simulation = judgeWithHealth(replay, { mode: 0, map, mods, classic }, perfect, outcomes, rules, warnings);
+  simulation.hitWindow = realWindows({ great, ok, meh, miss: MISS_WINDOW }, rate);
+  return simulation;
 }

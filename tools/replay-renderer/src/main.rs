@@ -24,6 +24,7 @@ mod gpu;
 mod library;
 mod output;
 mod overlays;
+mod preview;
 mod render;
 mod share;
 mod skins;
@@ -43,6 +44,8 @@ struct App {
     render_gate: Arc<tokio::sync::Semaphore>,
     uploads: Arc<Mutex<BTreeMap<String, skins::Upload>>>,
     lazer_maps: Arc<Mutex<BTreeMap<String, library::MapFiles>>>,
+    /// The studio's live overlay preview, if one runs.
+    preview: Arc<Mutex<Option<preview::Preview>>>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 struct Preset {
@@ -230,6 +233,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
         uploads: Arc::default(),
         lazer_maps: Arc::default(),
+        preview: Arc::default(),
     };
     let router = Router::new()
         .route("/v1/context", get(context))
@@ -252,6 +256,9 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
             post(save_preset).delete(delete_preset),
         )
         .route("/v1/render", post(render::start))
+        .route("/v1/preview", post(preview::start))
+        .route("/v1/preview/{id}/state", post(preview::state))
+        .route("/v1/preview/{id}", axum::routing::delete(preview::stop))
         .route("/v1/render/plan", get(share::plan))
         .route("/v1/skins/uploads", post(skins::start))
         .route("/v1/skins/uploads/{id}", post(skins::part))
@@ -717,51 +724,57 @@ async fn asset(
     Query(query): Query<BTreeMap<String, String>>,
 ) -> Result<Bytes, Error> {
     let kind = query.get("kind").map(String::as_str).unwrap_or("map");
-    let path = if kind == "skin" {
+    if kind == "skin" {
         let file = query
             .get("path")
             .ok_or_else(|| error("Missing skin asset path"))?;
-        let root = match query.get("skin").filter(|s| !s.is_empty()) {
-            Some(name) if name.starts_with(skins::IMPORTED) => confined(
-                &skins::imported_root(&app),
-                skins::valid_name(&name[skins::IMPORTED.len()..])?,
-            )?,
-            Some(name) if name.starts_with(skins::LAZER) => {
-                return library::lazer_skin_file(&app, &name[skins::LAZER.len()..], file).await;
-            }
-            Some(name) if name.starts_with(skins::BUILTIN) => {
-                return Err(error("Built-in skins are drawn, not read from files"));
-            }
-            Some(name) => {
-                let ctx = host_context(&app).await?;
-                let osu = ctx["osu_dir"]
-                    .as_str()
-                    .ok_or_else(|| error("No stable installation selected"))?;
-                confined(&FsPath::new(osu).join("Skins"), name)?
-            }
-            None => {
-                let ctx = host_context(&app).await?;
-                return skins::current_file(&app, &ctx, file).await;
-            }
-        };
-        skin_file(&root, file)?
+        return skin_asset(&app, query.get("skin").map(String::as_str), file).await;
+    }
+    let map = library::find_map(
+        &app,
+        query.get("hash").ok_or_else(|| error("Missing map hash"))?,
+    )
+    .await?;
+    let path = if kind == "map" {
+        map.osu().to_path_buf()
     } else {
-        let map = library::find_map(
-            &app,
-            query.get("hash").ok_or_else(|| error("Missing map hash"))?,
-        )
-        .await?;
-        if kind == "map" {
-            map.osu().to_path_buf()
-        } else {
-            map.asset(
-                query
-                    .get("path")
-                    .ok_or_else(|| error("Missing asset path"))?,
-            )?
-        }
+        map.asset(
+            query
+                .get("path")
+                .ok_or_else(|| error("Missing asset path"))?,
+        )?
     };
     Ok(tokio::fs::read(path).await.map_err(error)?.into())
+}
+/// One file of a preset's skin (`""` or `None` the client's current skin).
+async fn skin_asset(app: &App, skin: Option<&str>, file: &str) -> Result<Bytes, Error> {
+    let root = match skin.filter(|s| !s.is_empty()) {
+        Some(name) if name.starts_with(skins::IMPORTED) => confined(
+            &skins::imported_root(app),
+            skins::valid_name(&name[skins::IMPORTED.len()..])?,
+        )?,
+        Some(name) if name.starts_with(skins::LAZER) => {
+            return library::lazer_skin_file(app, &name[skins::LAZER.len()..], file).await;
+        }
+        Some(name) if name.starts_with(skins::BUILTIN) => {
+            return Err(error("Built-in skins are drawn, not read from files"));
+        }
+        Some(name) => {
+            let ctx = host_context(app).await?;
+            let osu = ctx["osu_dir"]
+                .as_str()
+                .ok_or_else(|| error("No stable installation selected"))?;
+            confined(&FsPath::new(osu).join("Skins"), name)?
+        }
+        None => {
+            let ctx = host_context(app).await?;
+            return skins::current_file(app, &ctx, file).await;
+        }
+    };
+    Ok(tokio::fs::read(skin_file(&root, file)?)
+        .await
+        .map_err(error)?
+        .into())
 }
 async fn job(State(app): State<App>, Path(id): Path<String>) -> Result<Json<Value>, Error> {
     app.jobs
@@ -800,6 +813,7 @@ mod tests {
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             uploads: Arc::default(),
             lazer_maps: Arc::default(),
+            preview: Arc::default(),
         }
     }
     #[tokio::test]

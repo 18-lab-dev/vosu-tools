@@ -20,7 +20,7 @@ summary = "Render replays to video and manage player presets"
 
 [api]
 read = []
-write = ["/v1/context", "/v1/replays", "/v1/assets", "/v1/presets", "/v1/render", "/v1/jobs", "/v1/skins", "/v1/sizes", "/v1/overlays"]
+write = ["/v1/context", "/v1/replays", "/v1/assets", "/v1/presets", "/v1/render", "/v1/jobs", "/v1/skins", "/v1/sizes", "/v1/overlays", "/v1/preview"]
 
 [permissions]
 host = ["context"]

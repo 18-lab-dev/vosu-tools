@@ -46,6 +46,7 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
                         .filter(|layer| layer.shows(instance.track))
                         .cloned()
                         .collect(),
+                    true,
                 ),
             })
             .collect();

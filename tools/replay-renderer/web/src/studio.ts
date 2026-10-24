@@ -61,6 +61,10 @@ export interface Track extends Preset {
   id: string;
   replay: Replay;
   map: Beatmap;
+  /** The `.osu`'s own difficulty, before conversion and mods. */
+  original: Beatmap["difficulty"];
+  /** Played converted from another ruleset. */
+  convert: boolean;
   simulation: Simulation | null;
   renderer: Renderer;
   canvas: HTMLCanvasElement;
@@ -345,6 +349,8 @@ export async function loadTrack(
     id,
     replay,
     map,
+    original: raw.difficulty,
+    convert: isConvert(raw, replay.mode),
     simulation,
     timings: { simulation: simulationMs, sceneBuild: performance.now() - sceneStarted },
     renderer,

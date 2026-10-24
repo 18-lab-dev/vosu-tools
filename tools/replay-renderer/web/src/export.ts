@@ -7,7 +7,7 @@ import {
 } from "./studio";
 import { parseReplay, replayMods, replayPitched } from "@vosu-tools/replay";
 import type { Layout } from "./layout";
-import { telemetry } from "./telemetry";
+import { ratingMods, telemetry } from "./telemetry";
 import type { InspectedLayer } from "./inspector";
 import { frameRange } from "./partition";
 const request = async (path: string, init?: RequestInit) =>
@@ -218,20 +218,4 @@ try {
 } finally {
   for (const { bitmap } of bitmaps.values()) bitmap.close();
   composition?.destroy();
-}
-/** lazer's mods for the overlay's pp rating: acronyms (Classic, custom rates) and Difficulty Adjust values. */
-function ratingMods(track: Track) {
-  if (!track.replay.lazer) return {};
-  const mods = replayMods(track.replay),
-    da = mods.find((m) => m.acronym === "DA")?.settings ?? {};
-  const value = (key: string) => (typeof da[key] === "number" ? da[key] : undefined);
-  return {
-    acronyms: mods.map((m) => m.acronym).join("") || "NM",
-    overrides: {
-      ar: value("approach_rate"),
-      cs: value("circle_size"),
-      od: value("overall_difficulty"),
-      hp: value("drain_rate"),
-    },
-  };
 }

@@ -1,19 +1,16 @@
 use super::*;
-use axum::{
-    body::Body,
-    extract::{
-        WebSocketUpgrade,
-        ws::{Message, WebSocket},
-    },
-    response::{IntoResponse, Response},
-};
+use serde_json::Map;
 use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 use tokio::sync::watch;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+mod documents;
+mod server;
+pub use server::{SYNC_PREFIX, routes};
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Overlay {
     /// An overlay folder containing `index.html`, or one `.html`/`.htm` file
     /// whose folder is served alongside it.
@@ -35,6 +32,16 @@ pub struct Overlay {
     /// `x`/`y` from the cell's corner; absent: every track.
     #[serde(default)]
     pub tracks: Option<Vec<usize>>,
+    /// vosu's id for an installed overlay (its folder relative to the
+    /// overlays folder), set by `resolve`; `None` for other folders.
+    #[serde(skip)]
+    pub id: Option<String>,
+    /// How errors name it: the dashboard nickname, metadata `Name` or folder.
+    #[serde(skip)]
+    pub name: String,
+    /// Effective settings `getSettings` answers (set by `resolve`).
+    #[serde(skip)]
+    pub values: Map<String, Value>,
 }
 impl Overlay {
     pub fn shows(&self, track: usize) -> bool {
@@ -42,6 +49,169 @@ impl Overlay {
             .as_ref()
             .is_none_or(|tracks| tracks.contains(&track))
     }
+    /// vosu's `COUNTER_PATH`: the overlay id, else the folder name. Pages are
+    /// served under it, as vosu serves them.
+    pub fn counter_path(&self) -> String {
+        self.id.clone().unwrap_or_else(|| {
+            self.folder
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        })
+    }
+    /// The page's URL path from the server root.
+    fn page_path(&self) -> String {
+        let id = self.counter_path();
+        let segments: Vec<String> = id.split('/').map(crate::encode).collect();
+        format!("/{}/{}", segments.join("/"), crate::encode(&self.entry))
+    }
+}
+
+/// Overlay servers answer many small WebSocket frames: no Nagle delay.
+pub fn nodelay(
+    listener: tokio::net::TcpListener,
+) -> impl axum::serve::Listener<Addr = std::net::SocketAddr> {
+    use axum::serve::ListenerExt;
+    listener.tap_io(|stream| {
+        let _ = stream.set_nodelay(true);
+    })
+}
+
+/// Where a track's overlays read `/files/skin/`: the skin it renders with.
+#[derive(Clone)]
+pub struct SkinSource {
+    pub app: App,
+    /// The preset's skin value (`""` current, `builtin/…`, `imported/…`, …).
+    pub name: String,
+}
+
+/// Fills in each layer's vosu identity and the settings its pages read:
+/// installed overlays (matched by folder in vosu's listing) get vosu's own
+/// effective values for the active profile, read once through vosu's
+/// `/websocket/commands` exactly as the overlay would; other folders get
+/// their `settings.json` defaults. The render's own per-layer `settings`
+/// apply on top. Nothing is written.
+pub async fn resolve(app: &App, layers: &mut [Overlay]) {
+    let listing = installed(app).await;
+    for layer in layers {
+        let installed = listing
+            .iter()
+            .find(|(folder, ..)| *folder == layer.folder && layer.entry == "index.html");
+        layer.id = installed.map(|(_, id, _)| id.clone());
+        layer.name = installed
+            .map(|(.., name)| name.clone())
+            .or_else(|| metadata_name(&layer.folder))
+            .unwrap_or_else(|| layer.counter_path());
+        let mut values = match &layer.id {
+            Some(id) => vosu_settings(&app.env.vosu_url, id).await.ok(),
+            None => None,
+        }
+        .unwrap_or_else(|| default_settings(&layer.folder));
+        values.extend(layer.settings.clone());
+        layer.values = values;
+    }
+}
+
+/// vosu's installed overlays: canonical folder, id and display name.
+async fn installed(app: &App) -> Vec<(PathBuf, String, String)> {
+    let request = app
+        .env
+        .client()
+        .request(Method::GET, "/tools/_host/v1/overlays");
+    let Ok(response) = request.send().await else {
+        return Vec::new();
+    };
+    let Ok(listing) = response.json::<Value>().await else {
+        return Vec::new();
+    };
+    listing["overlays"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let folder = PathBuf::from(entry["folder"].as_str()?)
+                .canonicalize()
+                .ok()?;
+            let id = entry["id"].as_str()?.to_owned();
+            let name = entry["nickname"]
+                .as_str()
+                .filter(|n| !n.is_empty())
+                .or(entry["name"].as_str())
+                .unwrap_or(&id)
+                .to_owned();
+            Some((folder, id, name))
+        })
+        .collect()
+}
+
+fn metadata_name(folder: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(folder.join("metadata.txt")).ok()?;
+    text.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim().eq_ignore_ascii_case("name") && !value.trim().is_empty())
+            .then(|| value.trim().to_owned())
+    })
+}
+
+/// One `getSettings` on vosu's public command socket, as the overlay sends it.
+async fn vosu_settings(vosu_url: &str, id: &str) -> Result<Map<String, Value>, String> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let base = vosu_url
+        .strip_prefix("http://")
+        .map(|rest| format!("ws://{rest}"))
+        .or_else(|| {
+            vosu_url
+                .strip_prefix("https://")
+                .map(|rest| format!("wss://{rest}"))
+        })
+        .ok_or("vosu URL is not HTTP")?;
+    let encoded = encode(id);
+    let exchange = async {
+        let (mut socket, _) =
+            tokio_tungstenite::connect_async(format!("{base}/websocket/commands?l={encoded}"))
+                .await
+                .map_err(|e| e.to_string())?;
+        socket
+            .send(Message::Text(format!("getSettings:{encoded}").into()))
+            .await
+            .map_err(|e| e.to_string())?;
+        while let Some(message) = socket.next().await {
+            let Message::Text(text) = message.map_err(|e| e.to_string())? else {
+                continue;
+            };
+            let reply: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if reply["command"] != "getSettings" {
+                continue;
+            }
+            let _ = socket.close(None).await;
+            return match reply["message"].clone() {
+                Value::Object(values) if !values.contains_key("error") => Ok(values),
+                other => Err(format!("vosu has no settings for {id}: {other}")),
+            };
+        }
+        Err("vosu closed the command socket".to_owned())
+    };
+    tokio::time::timeout(Duration::from_secs(5), exchange)
+        .await
+        .map_err(|_| "vosu did not answer getSettings".to_owned())?
+}
+
+/// `settings.json` defaults as vosu coerces them; headers carry no value.
+fn default_settings(folder: &std::path::Path) -> Map<String, Value> {
+    let mut values = Map::new();
+    if let Ok(bytes) = std::fs::read(folder.join("settings.json"))
+        && let Ok(Value::Array(settings)) = serde_json::from_slice::<Value>(&bytes)
+    {
+        for setting in settings {
+            if let Some(key) = setting["uniqueID"].as_str()
+                && setting["type"] != "header"
+            {
+                values.insert(key.to_owned(), default_setting_value(&setting));
+            }
+        }
+    }
+    values
 }
 /// Overlay pages one render may run (overlays × tracks showing them).
 const MAX_PAGES: usize = 32;
@@ -64,10 +234,17 @@ pub struct Image {
 struct Native {
     bytes: Arc<[u8]>,
     files: crate::library::MapFiles,
+    /// The rated map and difficulty, to restart the gradual rating when a
+    /// preview seeks backwards.
+    map: rosu_pp::Beatmap,
+    difficulty: rosu_pp::Difficulty,
     pp: rosu_pp::GradualPerformance,
     passed: u32,
     current_pp: f64,
     max_combo: u32,
+    /// Map facts the studio does not send: rated stars and max combo, object
+    /// counts, the map's folder and file names.
+    facts: Value,
     rating: Option<Value>,
     timelines: BTreeMap<String, Value>,
 }
@@ -123,27 +300,34 @@ pub struct DifficultyOverrides {
 }
 pub struct Overlays {
     pub layers: Vec<Overlay>,
-    source: watch::Sender<Value>,
+    /// Offline render (virtual clock, sync markers) rather than a live preview.
+    offline: bool,
+    source: watch::Sender<Arc<documents::Documents>>,
     native: Mutex<Option<Native>>,
+    skin: Mutex<Option<SkinSource>>,
     driver: Mutex<Option<crate::cdp::Driver>>,
     debug: Mutex<Option<String>>,
     origin: Mutex<String>,
     sequence: AtomicU64,
 }
 impl Overlays {
-    pub fn new(layers: Vec<Overlay>) -> Arc<Self> {
-        let (source, _) = watch::channel(
-            json!({"state":{"number":2,"name":"Playing"},"__render":{"sequence":0}}),
-        );
+    /// A track's overlay runtime; `offline` for an export, else a live preview.
+    pub fn new(layers: Vec<Overlay>, offline: bool) -> Arc<Self> {
+        let (source, _) = watch::channel(Arc::new(documents::Documents::new(&json!({}), 0)));
         Arc::new(Self {
             layers,
+            offline,
             source,
             native: Mutex::new(None),
+            skin: Mutex::new(None),
             driver: Mutex::new(None),
             debug: Mutex::new(None),
             origin: Mutex::new(String::new()),
             sequence: AtomicU64::new(0),
         })
+    }
+    fn documents(&self) -> Arc<documents::Documents> {
+        self.source.borrow().clone()
     }
     pub fn validate(layers: &mut [Overlay], tracks: usize) -> Result<(), Error> {
         if layers.len() > 8 {
@@ -195,11 +379,22 @@ impl Overlays {
                 layer.entry = index();
             }
             confined(&layer.folder, &layer.entry)?;
+            if layer.name.is_empty() {
+                layer.name = layer.counter_path();
+            }
         }
         Ok(())
     }
     pub async fn origin(&self, origin: String) {
         *self.origin.lock().await = origin;
+    }
+    /// The page URLs of this runtime's layers, in layer order.
+    pub async fn pages(&self) -> Vec<String> {
+        let origin = self.origin.lock().await.clone();
+        self.layers
+            .iter()
+            .map(|layer| format!("{origin}{}", layer.page_path()))
+            .collect()
     }
     pub async fn debug(&self, url: String) {
         *self.debug.lock().await = Some(url);
@@ -210,6 +405,7 @@ impl Overlays {
         bytes: Vec<u8>,
         mods: RatingMods,
         initial: Value,
+        skin: Option<SkinSource>,
     ) -> Result<(), Error> {
         let mut map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(error)?;
         // osu! maps are rated converted to the replay's ruleset (key mods choose mania's layout).
@@ -220,38 +416,44 @@ impl Overlays {
             _ => rosu_pp::model::mode::GameMode::Osu,
         };
         map.convert_mut(mode, &mods.game_mods()).map_err(error)?;
-        // osu!stable scores are rated as stable rates them; lazer's need its tick counts (see `frame`).
-        let difficulty = mods.difficulty(initial["__render"]["client"] != "stable");
+        // osu!stable scores are rated as stable rates them; lazer's need its tick counts (see `publish`).
+        let difficulty = mods.difficulty(initial["client"] != "stable");
+        let attributes = difficulty.calculate(&map);
+        let facts = map_facts(&map, &files, attributes.stars(), attributes.max_combo());
         *self.native.lock().await = Some(Native {
             bytes: bytes.into(),
             files,
-            pp: rosu_pp::GradualPerformance::checked_new(difficulty, &map).map_err(error)?,
+            pp: rosu_pp::GradualPerformance::checked_new(difficulty.clone(), &map)
+                .map_err(error)?,
+            map,
+            difficulty,
             passed: 0,
             current_pp: 0.0,
             max_combo: 0,
+            facts,
             rating: None,
             timelines: BTreeMap::new(),
         });
-        self.source.send_replace(initial);
+        *self.skin.lock().await = skin;
+        self.publish(initial).await?;
         Ok(())
     }
-    pub async fn frame(&self, mut state: Value) -> Result<Vec<Image>, Error> {
-        if self.layers.is_empty() {
-            return Ok(Vec::new());
-        }
+    /// Makes `state` (a partial v2 document plus `__render`) the current state
+    /// point of every route and socket; returns its sequence.
+    pub async fn publish(&self, mut state: Value) -> Result<u64, Error> {
         let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
-        state["__render"]["sequence"] = json!(sequence);
-        let wall = state["__render"]["wallMs"]
-            .as_f64()
-            .ok_or_else(|| error("Frame has no render clock"))?;
-        let capture = state["__render"]["capture"] != false;
-        let epoch = state["__render"]["epochMs"].as_f64().unwrap_or(0.0);
-        if state["__render"]["verified"] == true
-            && (state["play"]["mode"]["number"] == 3 || state["play"]["combo"]["current"].is_u64())
-        {
-            let counts = &state["__render"]["counts"];
-            let count =
-                |key: &str| counts[key].as_u64().unwrap_or(0).min(u64::from(u32::MAX)) as u32;
+        let mut native = self.native.lock().await;
+        let native = native
+            .as_mut()
+            .ok_or_else(|| error("Overlay score map is not configured"))?;
+        if let Some(counts) = state["__render"]["counts"].as_object() {
+            let count = |key: &str| {
+                counts
+                    .get(key)
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0)
+                    .min(u64::from(u32::MAX)) as u32
+            };
             let mut score = rosu_pp::any::ScoreState::new();
             score.n_geki = count("geki");
             score.n_katu = count("katu");
@@ -272,30 +474,84 @@ impl Overlays {
                 score.osu_small_tick_hits = stat("small_tick_hit");
                 score.slider_end_hits = stat("slider_tail_hit");
             }
-            score.max_combo = state["play"]["combo"]["current"]
+            let combo = state["play"]["combo"]["current"]
                 .as_u64()
                 .unwrap_or(0)
                 .min(u64::from(u32::MAX)) as u32;
             let passed =
                 score.n_geki + score.n_katu + score.n300 + score.n100 + score.n50 + score.misses;
-            let mut native = self.native.lock().await;
-            let native = native
-                .as_mut()
-                .ok_or_else(|| error("Overlay score map is not configured"))?;
-            native.max_combo = native.max_combo.max(score.max_combo);
-            score.max_combo = native.max_combo;
             if passed < native.passed {
-                return Err(error("Overlay judgement clock moved backwards"));
+                // A preview seeked backwards: rate again from the start.
+                native.pp = rosu_pp::GradualPerformance::checked_new(
+                    native.difficulty.clone(),
+                    &native.map,
+                )
+                .map_err(error)?;
+                native.passed = 0;
+                native.current_pp = 0.0;
+                native.max_combo = 0;
             }
+            native.max_combo = native.max_combo.max(combo);
+            score.max_combo = native.max_combo;
             if passed > native.passed {
                 if let Some(pp) = native.pp.nth(score, (passed - native.passed - 1) as usize) {
                     native.current_pp = pp.pp();
                 }
                 native.passed = passed;
             }
-            state["play"]["pp"]["current"] = json!(native.current_pp);
+            state["play"]["pp"]["current"] = json!((native.current_pp * 100.0).round() / 100.0);
         }
-        self.source.send_replace(state);
+        let mut facts = native.facts.clone();
+        let folder = facts["folders"]["beatmap"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        let join = |name: &Value| match name.as_str() {
+            Some(name) if !name.is_empty() && !folder.is_empty() => {
+                json!(format!("{folder}/{name}"))
+            }
+            Some(name) if !name.is_empty() => json!(name),
+            _ => json!("."),
+        };
+        facts["directPath"]["beatmapBackground"] = join(&state["files"]["background"]);
+        facts["directPath"]["beatmapAudio"] = join(&state["files"]["audio"]);
+        if let (Value::Object(target), Value::Object(facts)) = (&mut state, facts) {
+            for (key, value) in facts {
+                match (target.get_mut(&key), value) {
+                    (Some(Value::Object(existing)), Value::Object(fields)) => {
+                        for (key, value) in fields {
+                            match (existing.get_mut(&key), value) {
+                                (Some(Value::Object(inner)), Value::Object(more)) => {
+                                    inner.extend(more)
+                                }
+                                (_, value) => {
+                                    existing.insert(key, value);
+                                }
+                            }
+                        }
+                    }
+                    (_, value) => {
+                        target.insert(key, value);
+                    }
+                }
+            }
+        }
+        self.source
+            .send_replace(Arc::new(documents::Documents::new(&state, sequence)));
+        Ok(sequence)
+    }
+    /// One export frame: publishes `state`, lets every page catch up on the
+    /// virtual clock, and captures them.
+    pub async fn frame(&self, state: Value) -> Result<Vec<Image>, Error> {
+        if self.layers.is_empty() {
+            return Ok(Vec::new());
+        }
+        let wall = state["__render"]["wallMs"]
+            .as_f64()
+            .ok_or_else(|| error("Frame has no render clock"))?;
+        let capture = state["__render"]["capture"] != false;
+        let epoch = state["__render"]["epochMs"].as_f64().unwrap_or(0.0);
+        let sequence = self.publish(state).await?;
         let mut driver = self.driver.lock().await;
         if driver.is_none() {
             let url = tokio::time::timeout(Duration::from_secs(30), async {
@@ -309,20 +565,15 @@ impl Overlays {
             .await
             .map_err(|_| error("Overlay browser debugging endpoint unavailable"))?;
             let mut connected = crate::cdp::Driver::connect(&url).await.map_err(error)?;
-            let origin = self.origin.lock().await.clone();
-            for (index, layer) in self.layers.iter().enumerate() {
-                let name = layer
-                    .folder
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .ok_or_else(|| error("Overlay folder needs a UTF-8 name"))?;
+            for (layer, page) in self.layers.iter().zip(self.pages().await) {
                 connected
                     .add_page(
-                        &format!("{origin}/overlays/{index}/{}", crate::encode(&layer.entry)),
+                        &page,
                         layer.width,
                         layer.height,
-                        name,
+                        &layer.name,
                         epoch,
+                        sequence,
                     )
                     .await
                     .map_err(error)?;
@@ -350,186 +601,40 @@ impl Overlays {
             .collect())
     }
 }
-pub fn routes(state: Arc<Overlays>) -> Router {
-    Router::new()
-        .route("/json/v2", get(snapshot))
-        .route("/websocket/v2", get(full))
-        .route("/websocket/v2/precise", get(precise))
-        .route("/websocket/v2/subscribe", get(subscribe))
-        .route("/websocket/commands", get(commands))
-        .route("/overlays/{id}/{*path}", get(file))
-        .route("/files/beatmap/{kind}", get(beatmap_file))
-        .route("/tools/mania-ratings/api/{*path}", get(ratings))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            same_origin,
-        ))
-        .with_state(state)
-}
-async fn same_origin(
-    State(state): State<Arc<Overlays>>,
-    request: axum::http::Request<Body>,
-    next: axum::middleware::Next,
-) -> Response {
-    let origin = state.origin.lock().await;
-    let foreign = request.headers().get("host").is_none_or(|value| {
-        origin
-            .split_once("://")
-            .is_none_or(|(_, authority)| value.as_bytes() != authority.as_bytes())
-    }) || request
-        .headers()
-        .get("origin")
-        .is_some_and(|value| value.as_bytes() != origin.as_bytes())
-        || request
-            .headers()
-            .get("sec-fetch-site")
-            .is_some_and(|value| value != "same-origin" && value != "none");
-    drop(origin);
-    if foreign {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    next.run(request).await
-}
-async fn snapshot(State(state): State<Arc<Overlays>>) -> Json<Value> {
-    Json(state.source.borrow().clone())
-}
-async fn full(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade
-        .on_upgrade(move |socket| stream(socket, state, false))
-        .into_response()
-}
-async fn precise(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade
-        .on_upgrade(move |socket| stream(socket, state, false))
-        .into_response()
-}
-async fn subscribe(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade
-        .on_upgrade(move |socket| stream(socket, state, true))
-        .into_response()
-}
-async fn stream(mut socket: WebSocket, state: Arc<Overlays>, selected: bool) {
-    let mut receiver = state.source.subscribe();
-    let mut fields: Vec<String> = Vec::new();
-    loop {
-        let snapshot = receiver.borrow_and_update().clone();
-        let sequence = snapshot["__render"]["sequence"].as_u64().unwrap_or(0);
-        let frame = if selected {
-            json!([
-                0,
-                sequence,
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(index, path)| (
-                        index,
-                        snapshot.pointer(path).cloned().unwrap_or(Value::Null)
-                    ))
-                    .collect::<Vec<_>>(),
-                []
-            ])
-        } else {
-            snapshot
-        };
-        if (!selected || !fields.is_empty())
-            && socket
-                .send(Message::Text(frame.to_string().into()))
-                .await
-                .is_err()
-        {
-            return;
+
+/// What vosu reports about the map itself, from the rated (converted) map.
+fn map_facts(
+    map: &rosu_pp::Beatmap,
+    files: &crate::library::MapFiles,
+    stars: f64,
+    max_combo: u32,
+) -> Value {
+    use rosu_pp::model::hit_object::HitObjectKind;
+    let (mut circles, mut sliders, mut spinners, mut holds) = (0, 0, 0, 0);
+    for object in &map.hit_objects {
+        match object.kind {
+            HitObjectKind::Circle => circles += 1,
+            HitObjectKind::Slider(_) => sliders += 1,
+            HitObjectKind::Spinner(_) => spinners += 1,
+            HitObjectKind::Hold(_) => holds += 1,
         }
-        tokio::select! {change=receiver.changed()=>{if change.is_err(){return;}},message=socket.recv()=>match message{Some(Ok(Message::Text(text)))=>{if selected{match serde_json::from_str::<Vec<String>>(&text){Ok(next)if next.len()<=256&&next.iter().all(|s|s.starts_with('/'))=>fields=next,_=>{let _=socket.send(Message::Text(json!([2,sequence,"Expected at most 256 JSON pointers"]).to_string().into())).await;}}}},Some(Ok(Message::Close(_)))|None|Some(Err(_))=>return,_=>{}}}
     }
-}
-async fn commands(State(state): State<Arc<Overlays>>, upgrade: WebSocketUpgrade) -> Response {
-    upgrade
-        .on_upgrade(move |mut socket| async move {
-            while let Some(Ok(Message::Text(text))) = socket.recv().await {
-                let Some(name) = text.strip_prefix("getSettings:") else {
-                    continue;
-                };
-                let layer = state.layers.iter().find(|layer| {
-                    layer.folder.file_name().is_some_and(|n| {
-                        encode(&n.to_string_lossy()) == name || n.to_string_lossy() == name
-                    })
-                });
-                let mut values = BTreeMap::new();
-                if let Some(layer) = layer {
-                    if let Ok(bytes) = tokio::fs::read(layer.folder.join("settings.json")).await
-                        && let Ok(Value::Array(settings)) = serde_json::from_slice::<Value>(&bytes)
-                    {
-                        for setting in settings {
-                            if let Some(key) = setting["uniqueID"].as_str() {
-                                values.insert(key.to_owned(), default_setting_value(&setting));
-                            }
-                        }
-                    }
-                    values.extend(layer.settings.clone());
-                }
-                if socket
-                    .send(Message::Text(
-                        json!({"command":"getSettings","message":values})
-                            .to_string()
-                            .into(),
-                    ))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        })
-        .into_response()
-}
-async fn file(
-    State(state): State<Arc<Overlays>>,
-    Path((id, path)): Path<(usize, String)>,
-) -> Result<Response, Error> {
-    let layer = state
-        .layers
-        .get(id)
-        .ok_or_else(|| error("Unknown overlay"))?;
-    let file = confined(&layer.folder, &path)?;
-    let mime = match file.extension().and_then(|s| s.to_str()) {
-        Some("html") => "text/html",
-        Some("js" | "mjs") => "text/javascript",
-        Some("css") => "text/css",
-        Some("json") => "application/json",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("svg") => "image/svg+xml",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        Some("ttf") => "font/ttf",
-        _ => "application/octet-stream",
-    };
-    Response::builder()
-        .header("content-type", mime)
-        .header("cache-control", "no-store")
-        .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
-        .map_err(error)
-}
-async fn beatmap_file(
-    State(state): State<Arc<Overlays>>,
-    Path(kind): Path<String>,
-) -> Result<Response, Error> {
-    let native = state.native.lock().await;
-    let native = native.as_ref().ok_or_else(|| error("No replay map"))?;
-    if kind == "file" {
-        return Response::builder()
-            .header("content-type", "text/plain")
-            .body(Body::from(native.bytes.to_vec()))
-            .map_err(error);
-    }
-    let filename = state.source.borrow()["__render"]["files"][&kind]
-        .as_str()
-        .ok_or_else(|| error("Replay map asset is unavailable"))?
-        .to_owned();
-    let file = native.files.asset(&filename)?;
-    Response::builder()
-        .body(Body::from(tokio::fs::read(file).await.map_err(error)?))
-        .map_err(error)
+    let (folder, file) = files.names();
+    let stars = (stars * 100.0).round() / 100.0;
+    json!({
+        "beatmap": {"stats": {
+            "stars": {"live": stars, "total": stars},
+            "maxCombo": max_combo,
+            "objects": {"circles": circles, "sliders": sliders, "spinners": spinners, "holds": holds,
+                "total": circles + sliders + spinners + holds},
+        }},
+        "folders": {"beatmap": folder},
+        "files": {"beatmap": file},
+        "directPath": {
+            "beatmapFile": if folder.is_empty() { file.clone() } else { format!("{folder}/{file}") },
+            "beatmapFolder": folder,
+        },
+    })
 }
 fn default_setting_value(setting: &Value) -> Value {
     let value = &setting["value"];
@@ -547,12 +652,12 @@ fn default_setting_value(setting: &Value) -> Value {
         _ => value.clone(),
     }
 }
-async fn ratings(
+pub(super) async fn ratings(
     State(state): State<Arc<Overlays>>,
     Path(path): Path<String>,
     Query(query): Query<BTreeMap<String, String>>,
 ) -> Result<Json<Value>, Error> {
-    let configured_rate = state.source.borrow()["play"]["mods"]["rate"]
+    let configured_rate = state.documents().v2["play"]["mods"]["rate"]
         .as_f64()
         .unwrap_or(1.0) as f32;
     let rate = query
@@ -576,7 +681,7 @@ async fn ratings(
         }
         return Ok(Json(native.rating.clone().unwrap()));
     }
-    let hash = state.source.borrow()["beatmap"]["checksum"]
+    let hash = state.documents().v2["beatmap"]["checksum"]
         .as_str()
         .unwrap_or("")
         .to_owned();
@@ -618,7 +723,7 @@ mod tests {
     }
     #[tokio::test]
     async fn private_origin_rejects_cross_site_requests() {
-        let state = Overlays::new(Vec::new());
+        let state = Overlays::new(Vec::new(), true);
         let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
             .unwrap();
@@ -670,6 +775,539 @@ mod tests {
         );
         task.abort();
     }
+
+    const STAND_IN_MAP: &str = "osu file format v14\n\n[General]\nAudioFilename: audio.mp3\nMode: 3\n\n[Metadata]\nTitle:Stand-in\nArtist:Test\nCreator:t\nVersion:4K\nBeatmapID:0\nBeatmapSetID:-1\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:8\nApproachRate:5\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n\n[HitObjects]\n64,192,1000,1,0,0:0:0:0:\n192,192,1500,1,0,0:0:0:0:\n320,192,2000,128,0,2500:0:0:0:0:\n";
+
+    /// A stand-in overlay folder (with settings defaults) and a configured
+    /// runtime serving it on a loopback port.
+    async fn stand_in(
+        page: &str,
+        offline: bool,
+    ) -> (Arc<Overlays>, String, PathBuf, tokio::task::JoinHandle<()>) {
+        let root = std::env::temp_dir().join(format!("rr-protocol-{}", uuid::Uuid::new_v4()));
+        let folder = root.join("stand-in");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("index.html"), page).unwrap();
+        std::fs::write(
+            folder.join("settings.json"),
+            r##"[{"uniqueID":"title","type":"header","value":""},{"uniqueID":"color","type":"color","value":"#ff0000"},{"uniqueID":"size","type":"number","value":"40"},{"uniqueID":"show","type":"checkbox","value":"true"}]"##,
+        )
+        .unwrap();
+        let songs = root.join("Songs/1 Test - Stand-in");
+        std::fs::create_dir_all(&songs).unwrap();
+        std::fs::write(songs.join("map.osu"), STAND_IN_MAP).unwrap();
+        std::fs::write(songs.join("bg.png"), b"png").unwrap();
+        let mut layers = vec![Overlay {
+            folder: folder.clone(),
+            width: 200,
+            height: 100,
+            scale: 1.0,
+            opacity: 1.0,
+            settings: BTreeMap::from([("size".to_owned(), json!(48))]),
+            ..Default::default()
+        }];
+        Overlays::validate(&mut layers, 1).unwrap();
+        // What `resolve` gives a folder vosu does not list.
+        layers[0].values = default_settings(&layers[0].folder);
+        let own = layers[0].settings.clone();
+        layers[0].values.extend(own);
+        let state = Overlays::new(layers, offline);
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        state.origin(origin.clone()).await;
+        let served = state.clone();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, routes(served)).await.unwrap();
+        });
+        state
+            .configure(
+                crate::library::MapFiles::Stable(songs.join("map.osu")),
+                STAND_IN_MAP.as_bytes().to_vec(),
+                RatingMods {
+                    rate: 1.0,
+                    legacy: 0,
+                    acronyms: None,
+                    overrides: DifficultyOverrides::default(),
+                },
+                json!({"client": "stable", "play": {"mode": {"number": 3, "name": "mania"}},
+                    "files": {"background": "bg.png", "audio": "audio.mp3"}, "__render": {}}),
+                None,
+            )
+            .await
+            .unwrap();
+        (state, origin, root, task)
+    }
+
+    async fn socket(
+        origin: &str,
+        path: &str,
+    ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
+    {
+        let url = format!("{}{path}", origin.replace("http://", "ws://"));
+        tokio_tungstenite::connect_async(url).await.unwrap().0
+    }
+    async fn next_text(
+        socket: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    ) -> Option<String> {
+        use futures_util::StreamExt;
+        use tokio_tungstenite::tungstenite::Message;
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), socket.next())
+                .await
+                .ok()??
+            {
+                Ok(Message::Text(text)) => return Some(text.to_string()),
+                Ok(Message::Close(frame)) => {
+                    return frame.map(|f| format!("close {}", u16::from(f.code)));
+                }
+                Ok(_) => continue,
+                Err(_) => return None,
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_private_server_speaks_vosus_overlay_protocol() {
+        use futures_util::SinkExt;
+        use tokio_tungstenite::tungstenite::Message;
+        let (state, origin, root, task) = stand_in("<p>stand-in</p>", true).await;
+        let client = reqwest::Client::new();
+        let get = |path: &str| client.get(format!("{origin}{path}")).send();
+
+        // Documents in vosu's shapes.
+        let v2: Value = get("/json/v2").await.unwrap().json().await.unwrap();
+        assert_eq!(v2["state"], json!({"number": 2, "name": "play"}));
+        assert_eq!(
+            v2["beatmap"]["stats"]["objects"],
+            json!({"circles": 2, "sliders": 0, "spinners": 0, "holds": 1, "total": 3})
+        );
+        assert_eq!(v2["directPath"]["beatmapFile"], "1 Test - Stand-in/map.osu");
+        assert_eq!(
+            v2["directPath"]["beatmapBackground"],
+            "1 Test - Stand-in/bg.png"
+        );
+        assert!(v2["keys"]["all"].is_array() && v2.get("__render").is_none());
+        let precise: Value = get("/json/v2/precise").await.unwrap().json().await.unwrap();
+        assert!(precise["keys"]["k1"].is_object() && precise["hitErrors"].is_array());
+        let v1: Value = get("/json").await.unwrap().json().await.unwrap();
+        assert_eq!(v1["menu"]["state"], 2);
+        let sc: Value = get("/json/sc").await.unwrap().json().await.unwrap();
+        assert_eq!(sc["gameMode"], "mania");
+
+        // Map files, by name and by vosu's direct paths.
+        for path in [
+            "/files/beatmap/file",
+            "/files/beatmap/1%20Test%20-%20Stand-in/map.osu",
+            "/Songs/1%20Test%20-%20Stand-in/map.osu",
+        ] {
+            let response = get(path).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert!(
+                response
+                    .text()
+                    .await
+                    .unwrap()
+                    .starts_with("osu file format")
+            );
+        }
+        assert_eq!(
+            get("/files/beatmap/background")
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap(),
+            "png"
+        );
+        assert_eq!(
+            get("/backgroundImage").await.unwrap().status(),
+            StatusCode::OK
+        );
+
+        // Pages at vosu's path, with its COUNTER_PATH; unknown routes answer 404.
+        let redirect = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let moved = redirect
+            .get(format!("{origin}/stand-in"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(moved.status(), StatusCode::FOUND);
+        assert_eq!(moved.headers()["location"], "/stand-in/");
+        let page = get("/stand-in/").await.unwrap().text().await.unwrap();
+        assert!(
+            page.ends_with("<script>window.COUNTER_PATH=\"stand-in\";</script>"),
+            "{page}"
+        );
+        for path in [
+            "/nothing",
+            "/stand-in/missing.js",
+            "/api/calculate/nothing",
+            "/websocket/other",
+            "/files/beatmap/../x",
+        ] {
+            assert_eq!(
+                get(path).await.unwrap().status(),
+                StatusCode::NOT_FOUND,
+                "{path}"
+            );
+        }
+        let url = format!("{}/websocket/v3", origin.replace("http://", "ws://"));
+        assert!(tokio_tungstenite::connect_async(url).await.is_err());
+
+        // Settings: settings.json defaults (headers dropped, types coerced) under the render's own values.
+        let mut commands = socket(&origin, "/websocket/commands?l=stand-in").await;
+        commands
+            .send(Message::Text("getSettings:stand-in".into()))
+            .await
+            .unwrap();
+        let reply: Value = serde_json::from_str(&next_text(&mut commands).await.unwrap()).unwrap();
+        assert_eq!(
+            reply,
+            json!({"command": "getSettings", "message": {"color": "#ff0000", "size": 48, "show": true}})
+        );
+        commands
+            .send(Message::Text("getSettings:other".into()))
+            .await
+            .unwrap();
+        let reply: Value = serde_json::from_str(&next_text(&mut commands).await.unwrap()).unwrap();
+        assert_eq!(reply["message"]["error"], "Wrong overlay");
+        commands
+            .send(Message::Text("updateSettings:stand-in:{\"size\":3}".into()))
+            .await
+            .unwrap();
+        let reply: Value = serde_json::from_str(&next_text(&mut commands).await.unwrap()).unwrap();
+        assert_eq!(
+            reply,
+            json!({"command": "updateSettings", "message": {"size": 3}})
+        );
+
+        // Selected fields: initial frame, change-only updates, the offline sync marker.
+        let mut subscription = socket(&origin, "/websocket/v2/subscribe").await;
+        subscription
+            .send(Message::Text(
+                r#"["/play/hits/300","/play/hitErrorArray/0","/beatmap/stats/maxCombo"]"#.into(),
+            ))
+            .await
+            .unwrap();
+        let initial: Value =
+            serde_json::from_str(&next_text(&mut subscription).await.unwrap()).unwrap();
+        assert_eq!(initial[0], 0);
+        assert_eq!(initial[2], json!([[0, 0], [2, 8]]));
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            format!("{SYNC_PREFIX}1")
+        );
+        let mut full = socket(&origin, "/websocket/v2").await;
+        assert!(next_text(&mut full).await.unwrap().starts_with('{'));
+        assert_eq!(
+            next_text(&mut full).await.unwrap(),
+            format!("{SYNC_PREFIX}1")
+        );
+        let sequence = state
+            .publish(json!({"play": {"mode": {"number": 3}, "hits": {"300": 1}, "hitErrorArray": [-4.5]}, "__render": {}}))
+            .await
+            .unwrap();
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            format!("[1,{sequence},[[0,1],[1,-4.5]],[]]")
+        );
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            format!("{SYNC_PREFIX}{sequence}")
+        );
+        state
+            .publish(json!({"play": {"mode": {"number": 3}, "hits": {"300": 1}}, "__render": {}}))
+            .await
+            .unwrap();
+        // Nothing changed but the removed error; the marker still follows.
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            format!("[1,{},[],[1]]", sequence + 1)
+        );
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            format!("{SYNC_PREFIX}{}", sequence + 1)
+        );
+        subscription
+            .send(Message::Text(r#"["/state"]"#.into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            next_text(&mut subscription).await.unwrap(),
+            "[2,5,\"subscription already established\"]"
+        );
+        assert_eq!(next_text(&mut subscription).await.unwrap(), "close 1008");
+        // The whole-document stream follows vosu's 150 ms publishing interval of render time.
+        assert_eq!(
+            next_text(&mut full).await.unwrap(),
+            format!("{SYNC_PREFIX}{sequence}")
+        );
+        assert_eq!(
+            next_text(&mut full).await.unwrap(),
+            format!("{SYNC_PREFIX}{}", sequence + 1)
+        );
+        let later = state
+            .publish(json!({"play": {"mode": {"number": 3}, "hits": {"300": 2}}, "__render": {"wallMs": 200.0}}))
+            .await
+            .unwrap();
+        let document: Value = serde_json::from_str(&next_text(&mut full).await.unwrap()).unwrap();
+        assert_eq!(document["play"]["hits"]["300"], 2);
+        assert_eq!(
+            next_text(&mut full).await.unwrap(),
+            format!("{SYNC_PREFIX}{later}")
+        );
+        let mut invalid = socket(&origin, "/websocket/v2/subscribe").await;
+        invalid
+            .send(Message::Text(r#"["/a","/a/b"]"#.into()))
+            .await
+            .unwrap();
+        assert_eq!(
+            next_text(&mut invalid).await.unwrap(),
+            "[2,2,\"invalid JSON Pointer\"]"
+        );
+        task.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn live_previews_get_no_sync_markers_and_may_be_embedded() {
+        use futures_util::SinkExt;
+        use tokio_tungstenite::tungstenite::Message;
+        let (_state, origin, root, task) = stand_in("<p>stand-in</p>", false).await;
+        let mut subscription = socket(&origin, "/websocket/v2/subscribe").await;
+        subscription
+            .send(Message::Text(r#"["/state/number"]"#.into()))
+            .await
+            .unwrap();
+        assert_eq!(next_text(&mut subscription).await.unwrap(), "[0,1,[[0,2]]]");
+        use futures_util::StreamExt;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(300), subscription.next())
+                .await
+                .is_err()
+        );
+        let client = reqwest::Client::new();
+        // The studio frames the page (a cross-site navigation)...
+        let framed = client
+            .get(format!("{origin}/stand-in/"))
+            .header("sec-fetch-site", "cross-site")
+            .header("sec-fetch-mode", "navigate")
+            .header("sec-fetch-dest", "iframe")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(framed.status(), StatusCode::OK);
+        // ...but other sites still cannot read its state.
+        let read = client
+            .get(format!("{origin}/json/v2"))
+            .header("sec-fetch-site", "cross-site")
+            .header("sec-fetch-mode", "cors")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(read.status(), StatusCode::FORBIDDEN);
+        task.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Regression: a page that draws only after `getSettings` (and its first
+    /// subscription frame) answered is captured drawn on the first frame,
+    /// instead of the render waiting until a protocol timeout. Needs Chromium
+    /// (`VOSU_RENDER_CHROMIUM`); skipped without it.
+    #[tokio::test]
+    async fn pages_that_wait_for_settings_render_in_headless_chromium() {
+        let Some(chromium) = std::env::var_os("VOSU_RENDER_CHROMIUM").filter(|p| !p.is_empty())
+        else {
+            eprintln!("skipped: VOSU_RENDER_CHROMIUM is not set");
+            return;
+        };
+        // Draws its settings colour once getSettings and the first subscription frame arrived.
+        let gated = r#"<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head><body><script type="module">
+            const host = location.host, path = encodeURIComponent(window.COUNTER_PATH);
+            let settings = null, hits = null;
+            const draw = () => { if (settings && hits !== null) document.body.innerHTML = `<div style="width:200px;height:100px;background:${settings.color}"></div>`; };
+            const commands = new WebSocket(`ws://${host}/websocket/commands?l=${path}`);
+            commands.onopen = () => commands.send(`getSettings:${path}`);
+            commands.onmessage = (e) => { const m = JSON.parse(e.data); if (m.command === "getSettings") { settings = m.message; draw(); } };
+            const fields = new WebSocket(`ws://${host}/websocket/v2/subscribe`);
+            fields.onopen = () => fields.send(JSON.stringify(["/play/hits/300"]));
+            fields.onmessage = (e) => { const f = JSON.parse(e.data); if (f[0] === 0) { hits = f[2][0]?.[1] ?? 0; draw(); } };
+        </script></body></html>"#;
+        let (state, _origin, root, task) = stand_in(gated, true).await;
+        // A plain page drawing the same pixels unconditionally, and an empty one.
+        let reference = root.join("reference");
+        std::fs::create_dir_all(&reference).unwrap();
+        std::fs::write(reference.join("index.html"), r#"<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head><body><div style="width:200px;height:100px;background:#ff0000"></div></body></html>"#).unwrap();
+        let empty = root.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        std::fs::write(empty.join("index.html"), "<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head><body></body></html>").unwrap();
+        let mut layers = state.layers.clone();
+        for folder in [reference, empty] {
+            let mut layer = layers[0].clone();
+            layer.folder = folder;
+            layer.id = None;
+            layers.push(layer);
+        }
+        Overlays::validate(&mut layers, 1).unwrap();
+        task.abort();
+        let runtime = Overlays::new(layers, true);
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        runtime
+            .origin(format!("http://{}", listener.local_addr().unwrap()))
+            .await;
+        let served = runtime.clone();
+        let task =
+            tokio::spawn(async move { axum::serve(listener, routes(served)).await.unwrap() });
+        let songs = root.join("Songs/1 Test - Stand-in/map.osu");
+        runtime
+            .configure(
+                crate::library::MapFiles::Stable(songs),
+                STAND_IN_MAP.as_bytes().to_vec(),
+                RatingMods {
+                    rate: 1.0,
+                    legacy: 0,
+                    acronyms: None,
+                    overrides: DifficultyOverrides::default(),
+                },
+                json!({"client": "stable", "play": {"mode": {"number": 3}}, "__render": {}}),
+                None,
+            )
+            .await
+            .unwrap();
+        let profile = root.join("chromium");
+        let mut chromium = tokio::process::Command::new(chromium)
+            .args([
+                "--headless=new",
+                "--no-first-run",
+                "--remote-debugging-address=127.0.0.1",
+                "--remote-debugging-port=0",
+            ])
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .arg("about:blank")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let endpoint = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if let Ok(text) =
+                    tokio::fs::read_to_string(profile.join("DevToolsActivePort")).await
+                    && let [port, path, ..] = text.lines().collect::<Vec<_>>()[..]
+                {
+                    break format!("ws://127.0.0.1:{port}{path}");
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        runtime.debug(endpoint).await;
+        let state = |wall: f64| json!({"client": "stable", "play": {"mode": {"number": 3}}, "__render": {"wallMs": wall, "epochMs": 0.0}});
+        let started = std::time::Instant::now();
+        let first = runtime.frame(state(0.0)).await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the frame waited {:?}",
+            started.elapsed()
+        );
+        assert_eq!(first.len(), 3);
+        assert_ne!(first[1].png, first[2].png, "the reference page draws");
+        assert_eq!(
+            first[0].png, first[1].png,
+            "the settings-gated page is drawn on the first frame"
+        );
+        let second = runtime.frame(state(16.0)).await.unwrap();
+        assert_eq!(second[0].png, second[1].png);
+        let _ = chromium.kill().await;
+        task.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Starts headless Chromium on a throwaway profile; its DevTools endpoint.
+    async fn chromium(root: &std::path::Path) -> Option<(tokio::process::Child, String)> {
+        let chromium = std::env::var_os("VOSU_RENDER_CHROMIUM").filter(|p| !p.is_empty())?;
+        let profile = root.join("chromium");
+        let child = tokio::process::Command::new(chromium)
+            .args([
+                "--headless=new",
+                "--no-first-run",
+                "--remote-debugging-address=127.0.0.1",
+                "--remote-debugging-port=0",
+            ])
+            .arg(format!("--user-data-dir={}", profile.display()))
+            .arg("about:blank")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
+        let endpoint = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if let Ok(text) =
+                    tokio::fs::read_to_string(profile.join("DevToolsActivePort")).await
+                    && let [port, path, ..] = text.lines().collect::<Vec<_>>()[..]
+                {
+                    break format!("ws://127.0.0.1:{port}{path}");
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        Some((child, endpoint))
+    }
+
+    /// Regression: sockets a page opens while a frame settles (the timing
+    /// bar's rolling subscription windows) connect and answer within the
+    /// frame instead of stalling it.
+    #[tokio::test]
+    async fn sockets_opened_mid_frame_connect_in_headless_chromium() {
+        let page = r#"<!doctype html><html><body><script type="module">
+            let opened = 0;
+            const open = () => {
+              const socket = new WebSocket(`ws://${location.host}/websocket/v2/subscribe`);
+              socket.onopen = () => socket.send(JSON.stringify(["/play/hits/300"]));
+              socket.onmessage = (e) => {
+                const frame = JSON.parse(e.data);
+                document.body.textContent = String(frame[2][0]?.[1]);
+                if (frame[0] === 1) { opened++; open(); }
+              };
+            };
+            open();
+        </script></body></html>"#;
+        let (runtime, _origin, root, task) = stand_in(page, true).await;
+        let Some((mut child, endpoint)) = chromium(&root).await else {
+            eprintln!("skipped: VOSU_RENDER_CHROMIUM is not set");
+            task.abort();
+            return;
+        };
+        runtime.debug(endpoint).await;
+        for frame in 0..4 {
+            let started = std::time::Instant::now();
+            let state = json!({"client": "stable", "play": {"mode": {"number": 3}, "hits": {"300": frame}},
+                "__render": {"wallMs": f64::from(frame) * 16.0, "epochMs": 0.0}});
+            runtime.frame(state).await.unwrap();
+            assert!(
+                started.elapsed() < Duration::from_secs(10),
+                "frame {frame} took {:?}",
+                started.elapsed()
+            );
+        }
+        let _ = child.kill().await;
+        task.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn invalid_overlay_transforms_are_rejected() {
         let mut layers = [Overlay {
@@ -681,8 +1319,7 @@ mod tests {
             y: 0.0,
             scale: 0.0,
             opacity: 1.0,
-            settings: BTreeMap::new(),
-            tracks: None,
+            ..Default::default()
         }];
         assert!(Overlays::validate(&mut layers, 1).is_err());
     }
@@ -702,8 +1339,7 @@ mod tests {
             y: 0.0,
             scale: 1.0,
             opacity: 1.0,
-            settings: BTreeMap::new(),
-            tracks: None,
+            ..Default::default()
         };
         let mut layers = [
             layer(root.join("folder")),

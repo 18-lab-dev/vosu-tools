@@ -176,6 +176,7 @@ pub(super) async fn start(
         }
     }
     crate::overlays::Overlays::validate(&mut request.overlays, request.replays.len())?;
+    crate::overlays::resolve(&app, &mut request.overlays).await;
     let instances = (0..request.replays.len())
         .filter_map(|track| {
             let layers: Vec<_> = request
@@ -186,7 +187,7 @@ pub(super) async fn start(
                 .collect();
             (!layers.is_empty()).then(|| Instance {
                 track,
-                overlays: crate::overlays::Overlays::new(layers),
+                overlays: crate::overlays::Overlays::new(layers, true),
             })
         })
         .collect::<Vec<_>>();
@@ -278,7 +279,7 @@ async fn run_single(worker: Worker) -> Result<(), String> {
             .await;
         let routes = crate::overlays::routes(instance.overlays.clone());
         servers.push(tokio::spawn(async move {
-            let _ = axum::serve(listener, routes).await;
+            let _ = axum::serve(crate::overlays::nodelay(listener), routes).await;
         }));
     }
     // The capability never enters the host overlay origin; this private browser has no vosu credentials.
@@ -501,6 +502,15 @@ async fn begin(
                     overrides: track.overrides,
                 },
                 track.initial.clone(),
+                Some(crate::overlays::SkinSource {
+                    app: worker.app.clone(),
+                    name: worker
+                        .request
+                        .replays
+                        .get(instance.track)
+                        .and_then(|entry| entry.preset.skin.clone())
+                        .unwrap_or_default(),
+                }),
             )
             .await?;
     }
