@@ -11,7 +11,7 @@
  *     runs lazer, and stores its drawables as test/fixtures/layout-golden.json
  *     for `bun test`.
  *   bun test/layoutGolden.ts --osu ~/ppy-osu --skin <dir> --map <map.osu>
- *       --ruleset taiko|catch --time 30000[,31000] [--width 1365.33]
+ *       --ruleset taiko|catch|osu --time 30000[,31000] [--width 1365.33]
  *       [--map-colours] [--report out.json]
  *     compares a real skin and map (both read only), printing every element
  *     lazer draws that render-core places differently.
@@ -49,7 +49,7 @@ function argument(name: string): string | undefined {
 }
 
 /** Runs lazer on `cases` (skin and map as paths); returns its dumped layouts. */
-function runLazer(
+export function runLazer(
   osu: string,
   dotnet: string,
   cases: LayoutCase[],
@@ -106,13 +106,15 @@ if (import.meta.main) {
     report = argument("--report");
   if (!osu || (!folder && !process.argv.includes("--write-fixtures"))) {
     console.error(
-      "usage: bun test/layoutGolden.ts --osu <ppy/osu checkout> [--dotnet path] (--write-fixtures | --skin <dir> --map <map.osu> --ruleset taiko|catch --time ms[,ms] [--width w] [--height h] [--map-colours] [--report out.json])",
+      "usage: bun test/layoutGolden.ts --osu <ppy/osu checkout> [--dotnet path] (--write-fixtures | --skin <dir> --map <map.osu> --ruleset taiko|catch|osu --time ms[,ms] [--width w] [--height h] [--map-colours] [--report out.json])",
     );
     process.exit(2);
   }
   if (folder) {
     const mapPath = resolve(argument("--map") ?? ""),
-      ruleset = argument("--ruleset") === "catch" ? "catch" : "taiko",
+      ruleset =
+        (["catch", "osu"] as const).find((r) => r === argument("--ruleset")) ??
+        "taiko",
       width = Number(argument("--width") ?? 1365.3334),
       height = Number(argument("--height") ?? 768),
       mapColours = process.argv.includes("--map-colours"),

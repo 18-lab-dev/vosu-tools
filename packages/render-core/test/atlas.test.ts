@@ -6,7 +6,8 @@ import {
   stripWindow,
   type AtlasPlan,
 } from "../src/atlas";
-import { regionInstances, type AtlasRegion } from "../src/skin";
+import { parseSkinIni } from "@vosu-tools/osu-parse";
+import { regionInstances, wrappedImages, type AtlasRegion } from "../src/skin";
 
 const limits = { maxTextureDimension2D: 8192, maxTextureArrayLayers: 256 };
 
@@ -210,4 +211,28 @@ test("regions draw one instance per strip, skipping strips that never show", () 
       uv: { u: 0, v: 0, w: 1, h: 1, layer: 0, a: 0, b: 1 },
     },
   ]);
+});
+
+test("images lazer clamps or repeats get opaque edge padding, per axis", () => {
+  const skin = {
+    name: "wrap",
+    assets: new Map(),
+    sections: parseSkinIni(
+      "[Mania]\nKeys: 4\nNoteImage0: Notes\\note.png\nKeyImage0: keys/k1\nStageLeft: stage/left\n",
+    ),
+  };
+  const wrapped = wrappedImages(skin);
+  expect(wrapped.get("taiko-roll-middle")).toEqual([true, true]);
+  expect(wrapped.get("taiko-roll-end")).toEqual([true, true]);
+  // LegacyKeyArea clamps horizontally only; notes, heads, tails and bodies both ways.
+  expect(wrapped.get("keys/k1")).toEqual([true, false]);
+  expect(wrapped.get("mania-key1D")).toEqual([true, false]);
+  expect(wrapped.get("Notes/note")).toEqual([true, true]);
+  expect(wrapped.get("mania-note1L")).toEqual([true, true]);
+  expect(wrapped.get("mania-noteSH")).toEqual([true, true]);
+  // Everything else is WrapMode.None (transparent padding).
+  expect(wrapped.has("stage/left")).toBe(false);
+  expect(wrapped.has("mania-stage-left")).toBe(false);
+  expect(wrapped.has("taiko-slider")).toBe(false);
+  expect(wrapped.has("hitcircle")).toBe(false);
 });

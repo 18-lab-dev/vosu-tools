@@ -5,6 +5,7 @@ import {
   type Beatmap,
   type Mod,
 } from "@vosu-tools/osu-parse";
+import { legacyBool } from "./osu";
 import { buildAtlas, regionInstances, type Skin } from "./skin";
 import { CursorModel, PLAYFIELD_SHIFT, pressIntervals } from "./gameplay";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
@@ -377,7 +378,7 @@ export async function createRenderer(
           else holds.push({ start: object.time, end: object.endTime });
         }
       const general = skin?.sections.get("General")?.[0] ?? {},
-        flag = (key: string) => (general[key] ?? "1").trim() !== "0";
+        flag = (key: string) => legacyBool(general[key]) ?? true;
       cursorModel =
         map.mode === 0 && opts.input && atlas.regions.has("cursor")
           ? new CursorModel(opts.input, {

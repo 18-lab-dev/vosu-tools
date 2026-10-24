@@ -22,3 +22,14 @@ test("even repeat slider endpoint stacks at start rather than curve tail", () =>
   expect(m.objects[0].endTime).toBe(2000);
   expect(m.objects[1].stack).toBe(-1);
 });
+
+test("values lose trailing // comments like lazer's decoder", () => {
+  const sections = parseSkinIni(
+    "[Colours]\nCombo1: 255,255,255 // #FFFFFF\nSliderBall: 2,170,255//blue\n// a comment line\n[General]\nName: plain\n",
+  );
+  expect(sections.get("Colours")?.[0]).toMatchObject({
+    Combo1: "255,255,255",
+    SliderBall: "2,170,255",
+  });
+  expect(sections.get("General")?.[0]?.Name).toBe("plain");
+});

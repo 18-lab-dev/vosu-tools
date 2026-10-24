@@ -4,7 +4,8 @@ import {
   autoplayEvents,
   compareJudgements,
   JUDGEMENT_MAPS,
-  JUDGEMENT_SKIN,
+  JUDGEMENT_SKINS,
+  textureAsset,
   type JudgementCase,
 } from "./judgementCompare";
 import { placeLayout, withClassic, type LayoutResult } from "./layoutCompare";
@@ -15,13 +16,18 @@ import { CATCH_EXPLOSION_SIZES } from "../src/judgements";
 const cases = golden as unknown as (JudgementCase & { result: LayoutResult })[];
 // render-core draws catch's classic explosions itself (a built-in fallback
 // for every skin); here they are plain regions of the same size.
-const { skin, regions } = goldenSkin({
-  ...JUDGEMENT_SKIN,
-  files: {
-    ...JUDGEMENT_SKIN.files,
-    ...Object.fromEntries(Object.entries(CATCH_EXPLOSION_SIZES).map(([name, size]) => [`${name}.png`, [...size]])),
-  },
-});
+const skins = new Map(
+  JUDGEMENT_SKINS.map(({ skin }) => [
+    skin.name,
+    goldenSkin({
+      ...skin,
+      files: {
+        ...skin.files,
+        ...Object.fromEntries(Object.entries(CATCH_EXPLOSION_SIZES).map(([name, size]) => [`${name}.png`, [...size]])),
+      },
+    }),
+  ]),
+);
 /**
  * lazer's gameplay shifts the osu! playfield 8 osu! pixels down
  * (`OsuPlayfieldAdjustmentContainer.PlayfieldShift`, 12.8 game-space units);
@@ -40,10 +46,16 @@ test("the golden covers every ruleset", () => {
 
 for (const c of cases)
   test(`${c.name}: judgements match osu!lazer`, () => {
+    const { skin, regions } = skins.get(c.skin)!;
     const placed = placeLayout(c, JUDGEMENT_MAPS[c.ruleset], skin, withClassic(regions), {
       judgements: autoplayEvents(c.ruleset),
     });
-    const mismatches = compareJudgements(unshift(c), placed).map(
+    // lazer fills what a skin lacks from its classic skin (lighting, taiko
+    // explosions); render-core's goldens only cover the skin's own images.
+    const own = new Set(Object.keys(JUDGEMENT_SKINS.find((s) => s.skin.name === c.skin)!.skin.files).map((f) => f.replace(/\.png$/, "")));
+    const result = unshift(c);
+    const owned = c.skin === JUDGEMENT_SKINS[0].skin.name ? result : { ...result, items: result.items.filter((i) => !i.texture || own.has(textureAsset(i.texture.name ?? ""))) };
+    const mismatches = compareJudgements(owned, placed).map(
       (m) => `${m.reason} ${m.asset} lazer ${JSON.stringify(m.lazer)} ours ${JSON.stringify(m.ours)}`,
     );
     expect(mismatches).toEqual([]);

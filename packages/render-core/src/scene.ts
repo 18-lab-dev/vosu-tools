@@ -14,6 +14,7 @@ import {
   type AtlasRegion,
 } from "./skin";
 import { compileTaiko } from "./taiko";
+import { sliderBall, spinner } from "./osu";
 import { pressIntervals } from "./gameplay";
 import {
   catcherStates,
@@ -236,19 +237,26 @@ export function compileScene(
     still = false,
     /**
      * Keep only the centre of the image (fractions of its width and height),
-     * like osu!'s `WithMaximumSize`; implies the first frame.
+     * like osu!'s `WithMaximumSize` (every frame of an animation).
      */
     crop?: readonly [number, number],
+    /** Only these image rows (fractions of its height, top first); implies the first frame. */
+    rows?: readonly [number, number],
+    /** Animation frames per second, instead of the region's. */
+    fps?: number,
   ): void {
     const region = custom ? undefined : regions.get(asset);
     if (region) {
       // One instance per strip of a tall image (atlas.ts). A crop keeps the
       // centre of each strip horizontally; tall images are never cropped
       // vertically (only small taiko and catch pieces are).
-      const animated = !(still || crop);
+      const animated = !(still || rows);
       for (const { entry, uv: strip } of regionInstances(region, !animated)) {
         const uv =
-          crop && !region.strips
+          // The shader crops each frame it selects (shader.ts).
+          crop && animated
+            ? { u: 0, v: 0, w: -crop[0], h: -crop[1] }
+            : crop && !region.strips
             ? {
                 u: strip.u + (strip.w * (1 - crop[0])) / 2,
                 v: strip.v + (strip.h * (1 - crop[1])) / 2,
@@ -261,7 +269,13 @@ export function compileScene(
                   u: strip.u + (strip.w * (1 - crop[0])) / 2,
                   w: strip.w * crop[0],
                 }
-              : strip;
+              : rows && !region.strips
+                ? {
+                    ...strip,
+                    v: strip.v + strip.h * rows[0],
+                    h: strip.h * (rows[1] - rows[0]),
+                  }
+                : strip;
         values.push(
           x,
           y,
@@ -286,9 +300,10 @@ export function compileScene(
           shape === 13 ? 13 : 10,
           entry,
           animated ? (region.count ?? q) : 0,
-          (asset === "sliderb" || asset === "hitcircleoverlay"
-            ? 60
-            : (region.fps ?? 60)) * (r < 0 ? -1 : 1),
+          (fps ??
+            (asset === "sliderb" || asset === "hitcircleoverlay"
+              ? 60
+              : (region.fps ?? 60))) * (r < 0 ? -1 : 1),
         );
       }
       return;
@@ -434,6 +449,9 @@ export function compileScene(
         catcher.push({ time: object.endTime, x: 256, y: 192 });
     }
     catcher.sort((a, b) => a.time - b.time);
+    // BeatmapProcessor: the first combo's ComboIndexWithOffsets is 1, so
+    // osu! objects take colour (index + 1), like the clients.
+    const comboIndex = (o: HitObject | undefined) => (o?.combo ?? 0) + 1;
     const judged = options.judgements
       ? osuJudgements({
           map,
@@ -441,7 +459,7 @@ export function compileScene(
           marks: new Marks(values, regions),
           skin,
           colour: (note) => {
-            const combo = map.objects[note]?.combo ?? 0;
+            const combo = comboIndex(map.objects[note]);
             return (
               shownColours[combo % shownColours.length] ??
               palette[combo % palette.length]
@@ -465,8 +483,8 @@ export function compileScene(
       if (o.type & 2) {
         const offset = (o.stack * radius) / 10,
           colour =
-            shownColours[o.combo % shownColours.length] ??
-            palette[o.combo % palette.length];
+            shownColours[comboIndex(o) % shownColours.length] ??
+            palette[comboIndex(o) % palette.length];
         if (sliderStyle) {
           const outer = radius * sliderStyle.radius,
             accent =
@@ -585,188 +603,22 @@ export function compileScene(
         x = o.x - offset,
         y = o.y - offset,
         colour =
-          shownColours[o.combo % shownColours.length] ??
-          palette[o.combo % palette.length];
+          shownColours[comboIndex(o) % shownColours.length] ??
+          palette[comboIndex(o) % palette.length];
       if (o.type & 8) {
-        const modernSpinner =
-          (skin?.version ?? 1) >= 2 &&
-          [
-            "spinner-bottom",
-            "spinner-top",
-            "spinner-middle",
-            "spinner-middle2",
-          ].some((name) => regions.has(name));
-        if (regions.has("spinner-background"))
-          add(
-            256,
-            192,
-            480,
-            480,
-            o.time,
-            o.endTime,
-            o.time - preempt,
-            o.endTime + 180,
-            [1, 1, 1],
-            4,
-            0,
-            0,
-            0,
-            0,
-            "spinner-background",
-          );
-        if (!modernSpinner)
-          add(
-            256,
-            192,
-            300,
-            300,
-            o.time,
-            o.endTime,
-            o.time - preempt,
-            o.endTime + 180,
-            [0.65, 0.7, 0.8, 0.5],
-            11,
-            7,
-            0,
-            0,
-            0,
-            "spinner-circle",
-          );
-        for (const name of [
-          "spinner-bottom",
-          "spinner-middle2",
-          "spinner-middle",
-          "spinner-top",
-          "spinner-glow",
-        ])
-          if (modernSpinner && regions.has(name))
-            add(
-              256,
-              192,
-              300,
-              300,
-              o.time,
-              o.endTime,
-              o.time - preempt,
-              o.endTime + 180,
-              [1, 1, 1],
-              4,
-              7,
-              0,
-              0,
-              0,
-              name,
-            );
-        for (const [name, x, y, w, h] of [
-          ["spinner-metre", 510, 192, 24, 300],
-          ["spinner-rpm", 256, 360, 100, 30],
-          ["spinner-spin", 256, 300, 120, 36],
-        ] as const)
-          if (regions.has(name))
-            add(
-              x,
-              y,
-              w,
-              h,
-              o.time,
-              o.endTime,
-              o.time,
-              o.endTime,
-              [1, 1, 1],
-              4,
-              0,
-              0,
-              0,
-              0,
-              name,
-            );
-        if (regions.has("spinner-clear"))
-          add(
-            256,
-            80,
-            160,
-            40,
-            o.endTime,
-            o.endTime,
-            o.endTime - 150,
-            o.endTime + 500,
-            [1, 1, 1],
-            4,
-            0,
-            0,
-            0,
-            0,
-            "spinner-clear",
-          );
-        if (!modernSpinner)
-          add(
-            256,
-            192,
-            300,
-            300,
-            o.time,
-            o.endTime,
-            o.time - preempt,
-            o.endTime,
-            [1, 1, 1],
-            1,
-            10,
-            0,
-            0,
-            0,
-            "spinner-approachcircle",
-          );
+        const before = map.objects[index - 1],
+          previous = !before
+            ? { x: 256, y: 500 }
+            : before.type & 2
+              ? pathPosition(before.path, before.repeats % 2 ? 1 : 0)
+              : { x: before.x, y: before.y };
+        spinner(add, o, map, preempt, previous, regions, skin);
         continue;
       }
       if (o.type & 2) {
         for (let repeat = 0; repeat < o.repeats; repeat++) {
           const reverse = repeat % 2 === 1,
             spanStart = o.time + o.span * repeat;
-          let cumulative = 0;
-          for (let i = 1; i < o.path.length; i++) {
-            const a = o.path[i - 1],
-              b = o.path[i],
-              length = Math.hypot(b.x - a.x, b.y - a.y),
-              first = cumulative / Math.max(o.length, 1),
-              last = (cumulative + length) / Math.max(o.length, 1);
-            cumulative += length;
-            const start = spanStart + (reverse ? 1 - last : first) * o.span,
-              end = spanStart + (reverse ? 1 - first : last) * o.span;
-            add(
-              (reverse ? b.x : a.x) - offset,
-              (reverse ? b.y : a.y) - offset,
-              radius * 2,
-              radius * 2,
-              start,
-              end,
-              start,
-              end,
-              [1, 1, 1],
-              0,
-              5,
-              (reverse ? a.x : b.x) - offset,
-              (reverse ? a.y : b.y) - offset,
-              o.time,
-              "sliderb",
-            );
-            add(
-              (reverse ? b.x : a.x) - offset,
-              (reverse ? b.y : a.y) - offset,
-              radius * 4.6,
-              radius * 4.6,
-              start,
-              end,
-              start,
-              end,
-              [1, 1, 1, 0.6],
-              1,
-              5,
-              (reverse ? a.x : b.x) - offset,
-              (reverse ? a.y : b.y) - offset,
-              o.time,
-              "sliderfollowcircle",
-            );
-          }
           for (const t of o.ticks) {
             const p = pathPosition(o.path, t),
               hit = spanStart + (reverse ? 1 - t : t) * o.span;
@@ -827,6 +679,8 @@ export function compileScene(
       }
       circle(o, x, y, radius, colour);
       digits(o, x, y);
+      // DrawableSlider: the ball and follow circle sit above the head circle.
+      if (o.type & 2) sliderBall(add, o, offset, colour, regions, skin, radius, preempt);
       add(
         x,
         y,

@@ -18,7 +18,7 @@ import {
   type Beatmap,
   type HitObject,
 } from "@vosu-tools/osu-parse";
-import type { AtlasRegion, Skin } from "./skin";
+import { hasFrames, type AtlasRegion, type Skin } from "./skin";
 import {
   taikoJudgements,
   taikoNoteResults,
@@ -51,6 +51,8 @@ export type Emit = (
   custom?: readonly [number, number, number, number],
   still?: boolean,
   crop?: readonly [number, number],
+  rows?: readonly [number, number],
+  fps?: number,
 ) => void;
 
 /** Lazer's game space for a window of `aspect` (a 1024×768 draw-size-preserving container). */
@@ -318,6 +320,33 @@ export function compileTaiko(
           scale: s,
         })
       : undefined;
+  // Without a replay, lazer's autoplay hits every note (Great): skins without
+  // explosions of their own show its judgements.
+  const autoJudged =
+    !options.judgements && marks
+      ? taikoJudgements({
+          events: map.objects.flatMap((o, i): JudgementEvent[] =>
+            o.type & (2 | 8)
+              ? []
+              : [
+                  {
+                    time: o.time,
+                    result: "great",
+                    note: i,
+                    object: "hit",
+                    x: 0,
+                    y: 0,
+                    combo: i + 1,
+                  },
+                ],
+          ),
+          marks,
+          skin,
+          x: hitX,
+          y: midY,
+          scale: s,
+        })
+      : undefined;
   const results = options.judgements
     ? taikoNoteResults(options.judgements)
     : undefined;
@@ -331,7 +360,12 @@ export function compileTaiko(
           big && regions.has("taiko-hit300k")
             ? "taiko-hit300k"
             : "taiko-hit300",
-        [w, h] = fit(regions.get(asset));
+        region = regions.get(asset)!,
+        // GetAnimation(hitName, animatable, not looping): the frames (even a
+        // single name-0) replace the plain image, at 60 fps.
+        [w, h] = fit(
+          hasFrames(region) ? (regions.get(`${asset}-0`) ?? region) : region,
+        );
       add(
         hitX,
         midY,
@@ -344,10 +378,18 @@ export function compileTaiko(
         white,
         0,
         27,
-        (regions.get(asset)?.count ?? 1) > 1 ? 0 : 1,
+        (region.count ?? 1) > 1 ? 0 : 1,
         0,
         0,
         asset,
+        0,
+        0,
+        0,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        60,
       );
     }
 
@@ -574,7 +616,7 @@ export function compileTaiko(
     }
   }
   // Judgements sit over the hit target, under the flying hits.
-  judged?.judgements();
+  (judged ?? autoJudged)?.judgements();
   for (const emit of flying) emit();
 
   function drumRoll(o: HitObject, big: boolean, v: number, lead: number): void {

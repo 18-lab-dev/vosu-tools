@@ -15,7 +15,12 @@ import {
   MANIA_SCALE,
 } from "../src/mania";
 import { compileScene } from "../src/scene";
-import type { AtlasRegion, Skin } from "../src/skin";
+import {
+  animatedAssets,
+  hasFrames,
+  type AtlasRegion,
+  type Skin,
+} from "../src/skin";
 
 export interface GoldenSkin {
   name: string;
@@ -86,25 +91,68 @@ export function goldenSkin(skin: GoldenSkin): {
   const files = Object.entries(skin.files).sort(
     ([a], [b]) => Number(/@2x\.png$/i.test(b)) - Number(/@2x\.png$/i.test(a)),
   );
+  const sizes = new Map<string, [number, number]>();
   for (const [file, [width, height]] of files) {
     const double = /@2x\.png$/i.test(file),
       name = file.replace(/\.png$/i, "").replace(/@2x$/i, "");
-    if (regions.has(name)) continue;
+    if (!sizes.has(name.toLowerCase()))
+      sizes.set(name.toLowerCase(), [
+        double ? width / 2 : width,
+        double ? height / 2 : height,
+      ]);
+  }
+  // A distinct atlas spot and frame index per image, so instances can be
+  // traced back to it; an animation's frames get consecutive indices, like
+  // buildAtlas's frame table.
+  const frameKey = (name: string): [string, number] => {
+    const m = /^(.*?)-?(\d+)$/.exec(name);
+    return m ? [m[1], Number(m[2])] : [name, -1];
+  };
+  const ordered = [...sizes.keys()].sort((a, b) => {
+    const [x, i] = frameKey(a),
+      [y, j] = frameKey(b);
+    return x < y ? -1 : x > y ? 1 : i - j;
+  });
+  for (const name of ordered) {
+    const [width, height] = sizes.get(name)!;
     regions.set(name, {
-      // A distinct atlas spot and frame index per image, so instances can be
-      // traced back to it and frame aliases recognised.
       u: regions.size,
       v: 0,
       w: 1,
       h: 1,
-      width: double ? width / 2 : width,
-      height: double ? height / 2 : height,
+      width,
+      height,
       first: regions.size,
+      still: regions.size,
       count: 1,
+      stride: 1,
       fps: 60,
     });
   }
-  // Like the skin loader: an animation without a plain image is known by its first frame.
+  // Like loadSkin and buildAtlas: an element looked up as an animation gets
+  // its frames (name-0, name-1, ...; sliderb0, ... and pippidon* undashed);
+  // without a plain image it is known by its first frame.
+  const frameRate = Number(
+    (sections.get("General")?.[0] ?? {}).AnimationFramerate ?? -1,
+  );
+  for (const name of animatedAssets) {
+    const undashed = name === "sliderb" || name.startsWith("pippidon"),
+      frame = (k: number) => regions.get(`${name}${undashed ? "" : "-"}${k}`);
+    let count = 0;
+    while (frame(count)) count++;
+    if (!count) continue;
+    const first = frame(0)!,
+      plain = regions.get(name);
+    regions.set(name, {
+      ...(plain ?? first),
+      first: first.first,
+      still: (plain ?? first).first,
+      count,
+      stride: 1,
+      fps: frameRate > 0 ? frameRate : count,
+    });
+  }
+  // Other images known only by a first frame (mania's custom paths).
   for (const [name, region] of [...regions])
     if (name.endsWith("-0") && !regions.has(name.slice(0, -2)))
       regions.set(name.slice(0, -2), region);
@@ -113,6 +161,64 @@ export function goldenSkin(skin: GoldenSkin): {
     regions,
   };
 }
+
+/**
+ * Atlas entry → image name. Images are listed before the animation regions
+ * that share their first frame's entry, and keep it.
+ */
+export function regionNames(
+  regions: Map<string, AtlasRegion>,
+): Map<number, string> {
+  const out = new Map<number, string>();
+  for (const [name, region] of regions) {
+    // An animation is known by its plain image's entry; its frames by theirs.
+    const entry = hasFrames(region) ? region.still : region.first;
+    if (entry !== undefined && !out.has(entry)) out.set(entry, name);
+  }
+  return out;
+}
+
+/**
+ * The atlas entry an instance shows at `now`: the shader's frame selection
+ * (frame table stride 1, as in `goldenSkin`).
+ */
+export function frameEntry(d: ArrayLike<number>, now: number): number {
+  return frameAt(d, now).entry;
+}
+
+/**
+ * The shader's frame selection, and whether `now` is within 2 ms of a frame
+ * change (where lazer's frame-stepped clock may still show either frame).
+ */
+export function frameAt(
+  d: ArrayLike<number>,
+  now: number,
+): { entry: number; nearChange: boolean } {
+  const count = d[22],
+    entry = d[21];
+  if (count < 1) return { entry, nearChange: false };
+  const kind = Math.round(d[12]),
+    profile = Math.round(d[13]),
+    origin = kind === 5 || kind === 40 || kind === 41 ? d[15] : d[4],
+    fps = Math.abs(d[23]),
+    position = (Math.max(0, now - origin) * fps) / 1000,
+    raw = Math.floor(position),
+    once = kind === 35 && profile !== 7 && profile !== 8 && profile !== 26,
+    frame = once ? Math.min(raw, count - 1) : raw % count,
+    slack = (2 * fps) / 1000,
+    fraction = position - raw;
+  return {
+    entry: entry + frame,
+    nearChange:
+      count > 1 &&
+      (fraction < slack || fraction > 1 - slack) &&
+      !(once && raw >= count),
+  };
+}
+
+/** An animation frame's element: `name-3` → `name`, `sliderb3` → `sliderb`. */
+export const frameElement = (name: string) =>
+  name.replace(/-\d+$/, "").replace(/^(sliderb|pippidon[a-z]+)\d+$/, "$1");
 
 /** A beatmap with the case's objects on a single 120 BPM timing point. */
 export function goldenBeatmap(c: GoldenCase): string {
@@ -155,7 +261,7 @@ export function placeScene(
     layout = maniaLayout(maniaConfig(skin, c.keys), atlasImageSize(regions)),
     now = scrollPosition(map.timing, c.time, "mania", scene.scrollBase),
     up = c.direction === "up",
-    names = new Map([...regions].map(([name, uv]) => [uv.first, name])),
+    names = regionNames(regions),
     out: Placed[] = [];
   for (let i = 0; i < scene.count; i++) {
     const d = scene.data.subarray(i * 24, i * 24 + 24);
@@ -199,7 +305,7 @@ export function placeScene(
     out.push({
       index: i,
       motion,
-      asset: code >= 10 ? names.get(d[21]) : undefined,
+      asset: code >= 10 ? names.get(frameEntry(d, c.time)) : undefined,
       rect: {
         x: (x - w / 2 - 256) * MANIA_SCALE + layout.width / 2,
         y: (cy - h / 2 + 48) * MANIA_SCALE,
