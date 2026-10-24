@@ -8,6 +8,7 @@ import {
 import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
   createPlayfield,
+  describeBackend,
   maniaKeysFor,
   playfieldSize,
   type BuiltinSkinName,
@@ -124,13 +125,29 @@ const stateNames: Record<number, string> = {
 
 /* ------------------------------------------------------------ renderer */
 
+/** The controls panel's badge: the backend drawing the playfield. */
+function showBackend(playfield: Playfield): void {
+  const backend = describeBackend(playfield),
+    badge = $("backend");
+  badge.textContent = backend.label;
+  badge.title = backend.detail;
+  badge.hidden = false;
+  if (playfield.fallbackReason) console.info(backend.detail);
+}
 function ensureRenderer(): Promise<Playfield> {
   rendererReady ??= createPlayfield({
     canvas,
     skin: skins.state.skin,
+    // A lost GPU device or context: a new renderer on a fresh #playfield.
+    onRecover: (playfield, reason) => {
+      console.info(`Playfield restarted: ${reason}`);
+      showBackend(playfield);
+      resize();
+    },
   }).then(
     (created) => {
       renderer = created;
+      showBackend(created);
       // A skin installed while the renderer was being created must still reach it.
       created.setSkin(skins.state.skin);
       resize();
@@ -140,7 +157,7 @@ function ensureRenderer(): Promise<Playfield> {
       // A later attempt (next map) may succeed, e.g. after a GPU reset.
       rendererReady = undefined;
       throw new Error(
-        `WebGPU could not start: ${error instanceof Error ? error.message : String(error)}`,
+        `The playfield could not start: ${error instanceof Error ? error.message : String(error)}`,
       );
     },
   );

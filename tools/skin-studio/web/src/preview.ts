@@ -5,6 +5,7 @@
 import {
   builtinLook,
   createPlayfield,
+  describeBackend,
   loadManiaKeys,
   loadPlayfieldSkin,
   overLook,
@@ -39,6 +40,11 @@ export class Preview {
   #canvas: HTMLCanvasElement;
   #stage: HTMLElement;
   #onState: (message: string) => void;
+  /** The status line between messages: the backend drawing the preview. */
+  #idle = "";
+  #state(message: string): void {
+    this.#onState(message || this.#idle);
+  }
   #renderer?: Playfield;
   #starting?: Promise<Playfield | undefined>;
   #classic = builtinLook("legacy");
@@ -110,14 +116,14 @@ export class Preview {
         const from = this.#fileSkin,
           keys = stageKeys(this.#demo);
         if (!from || !keys.length || keys.join() === this.#decoded) break;
-        this.#onState("Loading stage…");
+        this.#state("Loading stage…");
         const next = await loadManiaKeys(from, keys);
         if (this.#fileSkin !== from) releaseExcept(next, this.#fileSkin);
         else this.#install(next, keys.join());
       }
-      this.#onState("");
+      this.#state("");
     } catch (error) {
-      this.#onState(error instanceof Error ? error.message : String(error));
+      this.#state(error instanceof Error ? error.message : String(error));
     } finally {
       this.#switching = false;
     }
@@ -143,7 +149,7 @@ export class Preview {
       this.#install(undefined);
       return;
     }
-    this.#onState("Loading skin…");
+    this.#state("Loading skin…");
     try {
       const keys = stageKeys(this.#demo);
       const { files: loaded } = await loadPlayfieldSkin(
@@ -156,11 +162,11 @@ export class Preview {
         return;
       }
       this.#install(loaded, keys.join());
-      this.#onState("");
+      this.#state("");
       void this.#reconcile();
     } catch (error) {
       if (ticket === this.#loading)
-        this.#onState(error instanceof Error ? error.message : String(error));
+        this.#state(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -184,21 +190,41 @@ export class Preview {
     return { beatmapColours: false, scrollSpeed: 16 };
   }
 
+  /** The status line between messages names the backend drawing. */
+  #showBackend(playfield: Playfield): void {
+    const backend = describeBackend(playfield);
+    this.#idle = playfield.fallbackReason
+      ? `${backend.label} (WebGPU unavailable)`
+      : backend.label;
+    if (playfield.fallbackReason) console.info(backend.detail);
+    this.#state("");
+  }
+
   #start(): Promise<Playfield | undefined> {
     this.#starting ??= createPlayfield({
       canvas: this.#canvas,
       skin: this.#skin,
+      // A lost GPU device or context: a new renderer on a fresh canvas.
+      onRecover: (playfield, reason) => {
+        console.info(`Preview restarted: ${reason}`);
+        this.#canvas = playfield.canvas as HTMLCanvasElement;
+        this.#showBackend(playfield);
+        this.#resize();
+      },
     }).then(
       (renderer) => {
         this.#renderer = renderer;
+        this.#showBackend(renderer);
         renderer.setSkin(this.#skin);
         this.#loop ??= demoLoop(this.#demo);
         renderer.setBeatmap(this.#loop.beatmap, this.#options());
         return renderer;
       },
-      () => {
+      (error: unknown) => {
         this.#starting = undefined;
-        this.#onState("WebGPU unavailable");
+        this.#state(
+          `The preview could not start: ${error instanceof Error ? error.message : String(error)}`,
+        );
         return undefined;
       },
     );
@@ -230,7 +256,7 @@ export class Preview {
     try {
       this.#renderer.renderAt(this.time());
     } catch (error) {
-      this.#onState(error instanceof Error ? error.message : String(error));
+      this.#state(error instanceof Error ? error.message : String(error));
       cancelAnimationFrame(this.#frame);
     }
   };

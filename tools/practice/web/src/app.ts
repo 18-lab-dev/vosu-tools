@@ -273,6 +273,12 @@ const preview = new Preview(
   (message) => stageMessage(message),
   // Mania skin images are decoded for the previewed key count only.
   (map) => skins.useManiaKeys(maniaKeysFor(map)),
+  (backend) => {
+    const el = $('backend');
+    el.textContent = backend.label;
+    el.title = backend.detail;
+    el.hidden = false;
+  },
 );
 // The preview draws with the osu! client's current skin and follows changes
 // to it (from the game subscription below); misses fall back to the classic look.

@@ -1,6 +1,7 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import { parseReplay, replayPitched } from "@vosu-tools/replay";
 import { exportWebM } from "@vosu-tools/render-export";
+import { describeBackend } from "@vosu-tools/render-core";
 import {
   Composition,
   DEFAULT_FADE_MS,
@@ -144,7 +145,11 @@ async function describeExport() {
     const plan = await (await fetcher(`v1/render/plan?${query}`)).json();
     if (request !== describing) return;
     const kbps = plan.video_kbps ? ` · ${Math.round(plan.video_kbps).toLocaleString()} kbps` : "";
-    note.textContent = plan.warning ?? `MP4 ${plan.width} × ${plan.height} · ${plan.fps} fps${kbps}`;
+    // The players' render-core backend (WebGPU, or WebGL2 without it).
+    const backend = tracks[0] ? describeBackend(tracks[0].renderer) : null;
+    note.textContent =
+      plan.warning ?? `MP4 ${plan.width} × ${plan.height} · ${plan.fps} fps${kbps}${backend ? ` · ${backend.label}` : ""}`;
+    note.title = backend?.detail ?? "";
     note.dataset.tone = plan.warning ? "warn" : "";
   } catch (error) {
     if (request !== describing) return;

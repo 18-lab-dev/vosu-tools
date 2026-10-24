@@ -18,7 +18,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from preview_e2e import CHROME, DIST, MAPS, ORIGIN, PORT, Game, Host, handler, playfield_unblocked, set_controls
+from preview_e2e import CHROME, DIST, MAPS, ORIGIN, PORT, QUERY, Game, Host, handler, playfield_unblocked, set_controls
 
 # osu!lazer 2026.1005.0 converting Hikiray - Zero Two [Insane] (oracle output).
 LAZER = {'taiko': 777, 'mania': (893, 7), 'mania4K': (784, 4), 'maniaDS': (881, 14)}
@@ -45,7 +45,7 @@ async def checks(host: Host, evidence: Path):
             page.on('console', lambda m: m.type == 'error' and 'status of 404' not in m.text
                     and 'external Instance reference' not in m.text and errors.append(m.text))
             await page.route_web_socket('**/websocket/v2/subscribe', game.route)
-            await page.goto(f'{ORIGIN}/tools/map-preview/?presentation=bitmap#theme={theme}')
+            await page.goto(f'{ORIGIN}/tools/map-preview/?{QUERY}#theme={theme}')
             return page
 
         async def shows(page, selector, text, timeout=30000):
