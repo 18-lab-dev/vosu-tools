@@ -436,15 +436,14 @@ mod tests {
     }
     #[test]
     fn output_names_resolve_into_the_output_folder() {
-        let settings = json!({"output_dir": "/videos/osu"});
+        let directory = std::env::temp_dir().join("vosu-render-output");
+        let absolute = std::env::temp_dir().join("vosu-absolute-output/x.mp4");
+        let settings = json!({"output_dir": directory});
         assert_eq!(
             resolve_out(FsPath::new("take 1.mp4"), &settings).unwrap(),
-            PathBuf::from("/videos/osu/take 1.mp4")
+            directory.join("take 1.mp4")
         );
-        assert_eq!(
-            resolve_out(FsPath::new("/abs/x.mp4"), &settings).unwrap(),
-            PathBuf::from("/abs/x.mp4")
-        );
+        assert_eq!(resolve_out(&absolute, &settings).unwrap(), absolute);
         assert!(resolve_out(FsPath::new("../x.mp4"), &settings).is_err());
         assert!(resolve_out(FsPath::new("sub/x.mp4"), &settings).is_err());
         assert!(resolve_out(FsPath::new("x.webm"), &settings).is_err());
