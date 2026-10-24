@@ -132,9 +132,27 @@ These are acceptance bounds, not proportional unbounded caches. At most one
 refresh runs at a time and one previous immutable index may still be retained
 by active HTTP requests. Whole-process memory includes native mappings,
 allocator overhead, the immutable index and temporary response serialization.
-Maps are indexed by lowercase MD5 and SHA-256; metadata and set-file lists are
-shared rather than duplicated per difficulty. MD5 map lookup is O(1), with
-response assembly proportional to the selected set's files, not library size.
+The published index contains typed compact records rather than retained serde
+object trees or JSON response caches. MD5 and SHA-256 are packed 16-/32-byte
+arrays, relationship keys become integer vector offsets, repeated metadata,
+filenames and score strings share interned `Arc<str>` allocations, and file
+paths are constructed only for requests. Set file lists are stored once.
+Skins and scores remain eager compact records, so their first lookup does not
+trigger another Realm scan. MD5 lookup is O(1), with response assembly
+proportional to the selected set's files, not the library size.
+
+Decoded Realm rows exist only during refresh. They remain alive together until
+compact construction is complete, avoiding long-lived allocations scattered
+through holes left by individually freed serde rows. After atomic publication
+and dropping the old index, a blocking task calls glibc `malloc_trim(0)` once
+to return free refresh arena pages; it is not a timer, lookup-path operation,
+or a new allocator dependency. Other libc/platform allocators retain their
+normal policy. The private snapshot mapping is already closed before decoded
+rows leave realm-reader, and no Realm mapping is kept idle.
+
+`cargo run --release -p vosu-lazer-library --example memory_profile -- COPY_DIR`
+reports glibc live/free heap and Linux smaps RSS/PSS/anonymous/file-backed
+accounting before/after raw row decoding, compact publication and release.
 Filesystem notifications are debounced for 350 ms; metadata polling supplements
 missed events and retries missing folders. Host context/settings are refreshed
 every two seconds; failures retry after thirty seconds. Index publication is
@@ -168,6 +186,10 @@ input, HTTP response shapes and case-insensitive skin reads. A separate child
 process executes 200 real Realm DB commits, updating map generation and score
 total in one transaction while the reader asserts that every accepted copy
 contains matching generations; atomic pathname replacement is tested as well.
+The `commit_fixture` example creates a new synthetic directory (`create DIR`)
+and performs those 200 native commits (`commit DIR`) for end-to-end service
+watcher tests. It verifies the known synthetic object IDs before any write.
+It must never be run against a user's library.
 `cargo run -p vosu-lazer-library --example audit -- /path/to/copied/lazer-data`
 reports cold load, O(1) MD5 lookup, response assembly and five MD5-vs-file-digest
 spot checks. An optional second argument supplies a read-only source asset dir

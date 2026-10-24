@@ -95,31 +95,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 next_retry = Instant::now() + Duration::from_secs(30);
                 if let Some(dir) = selected.clone() {
                     let result = tokio::task::spawn_blocking(move || Index::load(&dir)).await;
-                    let mut s = service_state.write().unwrap();
-                    match result {
-                        Ok(Ok(index)) => {
-                            s.status.available = true;
-                            s.status.realm_schema = Some(index.schema);
-                            s.status.missing_properties = index.missing_properties.clone();
-                            s.status.refreshed_at = Some(chrono::Utc::now().to_rfc3339());
-                            s.status.error = None;
-                            s.index = Some(Arc::new(index));
-                        }
-                        Ok(Err(error)) => {
-                            s.status.available = false;
-                            s.status.realm_schema = error.schema;
-                            s.status.missing_properties = error.missing_properties;
-                            s.status.error = Some(error.message);
-                            s.index = None;
-                        }
-                        Err(error) => {
-                            s.status.available = false;
-                            s.status.realm_schema = None;
-                            s.status.missing_properties.clear();
-                            s.status.error = Some(error.to_string());
-                            s.index = None;
+                    {
+                        let mut s = service_state.write().unwrap();
+                        match result {
+                            Ok(Ok(index)) => {
+                                s.status.available = true;
+                                s.status.realm_schema = Some(index.schema);
+                                s.status.missing_properties = index.missing_properties.clone();
+                                s.status.refreshed_at = Some(chrono::Utc::now().to_rfc3339());
+                                s.status.error = None;
+                                s.index = Some(Arc::new(index));
+                            }
+                            Ok(Err(error)) => {
+                                s.status.available = false;
+                                s.status.realm_schema = error.schema;
+                                s.status.missing_properties = error.missing_properties;
+                                s.status.error = Some(error.message);
+                                s.index = None;
+                            }
+                            Err(error) => {
+                                s.status.available = false;
+                                s.status.realm_schema = None;
+                                s.status.missing_properties.clear();
+                                s.status.error = Some(error.to_string());
+                                s.index = None;
+                            }
                         }
                     }
+                    // All decoded rows and the replaced index are now dropped.
+                    // Return free glibc arena pages once per refresh, off hot paths.
+                    let _ =
+                        tokio::task::spawn_blocking(vosu_lazer_library::release_allocator_pages)
+                            .await;
                 }
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
