@@ -21,20 +21,20 @@ fn main() {
     let start = Instant::now();
     let index = vosu_lazer_library::Index::load(&base).expect("load");
     let cold = start.elapsed();
-    let md5 = index.beatmaps.keys().next().expect("at least one map");
+    let md5 = index.md5s().next().expect("at least one map");
     let start = Instant::now();
     for _ in 0..100_000 {
-        std::hint::black_box(index.beatmaps.get(std::hint::black_box(md5)));
+        std::hint::black_box(index.contains_md5(std::hint::black_box(&md5)));
     }
     let indexed = start.elapsed() / 100_000;
     let start = Instant::now();
     for _ in 0..10_000 {
-        std::hint::black_box(index.beatmap(std::hint::black_box(md5)));
+        std::hint::black_box(index.beatmap(std::hint::black_box(&md5)));
     }
     let api = start.elapsed() / 10_000;
     let mut checked = 0;
-    for md5 in index.beatmaps.keys() {
-        let Some(map) = index.beatmap(md5) else {
+    for md5 in index.md5s() {
+        let Some(map) = index.beatmap(&md5) else {
             continue;
         };
         let p = Path::new(map["osu_path"].as_str().unwrap());
@@ -45,7 +45,7 @@ fn main() {
             let bytes = std::fs::read(p).unwrap();
             assert_eq!(
                 format!("{:x}", Md5::digest(bytes)),
-                *md5,
+                md5,
                 "MD5 must match the mapped file"
             );
             checked += 1;
@@ -56,11 +56,7 @@ fn main() {
     }
     assert_eq!(checked, 5, "five resolved .osu files must exist");
     if let Some(source) = source.as_ref()
-        && let Some(file) = index
-            .skin_files
-            .values()
-            .flatten()
-            .find(|f| f.name.eq_ignore_ascii_case("skin.ini"))
+        && let Some(file) = index.skin_asset("skin.ini")
     {
         copy_asset(&base, source, &file.path);
     }
