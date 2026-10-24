@@ -14,6 +14,7 @@ import {
   type AtlasRegion,
 } from "./skin";
 import { compileTaiko } from "./taiko";
+import { pressIntervals } from "./gameplay";
 import {
   catcherStates,
   maniaExplosionEvents,
@@ -61,6 +62,26 @@ export interface RenderOptions {
    * lazer's default); off, the scene ends at the playfield's top edge.
    */
   taikoTopArea?: boolean;
+  /**
+   * A replay's input in map milliseconds (its decoded frames: `x`/`y` in
+   * osu! pixels, `keys` the legacy button state). Draws what the player did:
+   * osu!taiko drum hits, osu!catch dash trails and catcher position, osu!mania
+   * key and column light timing, and the osu! cursor's expansion and trail.
+   */
+  input?: readonly InputFrame[];
+  /**
+   * osu!: lazer's gameplay playfield sits 8 osu! pixels lower
+   * (`OsuPlayfieldAdjustmentContainer.PlayfieldShift`); off by default, as in
+   * lazer's editor and the map preview.
+   */
+  playfieldShift?: boolean;
+}
+/** One replay frame (`RenderOptions.input`). */
+export interface InputFrame {
+  time: number;
+  x: number;
+  y: number;
+  keys: number;
 }
 /**
  * The mania key counts a scene of this map draws (empty for other rulesets),
@@ -950,9 +971,31 @@ export function compileScene(
       emit(layout.hint, WHITE, 0, 0, layout.hint.asset, "mirror");
     if (layout.judgementLine)
       emit(layout.judgementLine, layout.judgementLine.colour);
-    // LegacyColumnBackground: the column light while the key is held.
+    // LegacyColumnBackground: the column light while the key is held. With a
+    // replay's input each press lights it until the release, then it fades and
+    // shrinks to its bottom over 250 ms.
+    const lights = new Marks(values, regions);
+    const pressed = options.input ? pressIntervals(options.input, keys) : undefined;
     for (const [lane, column] of columns.entries())
-      if (column.light)
+      if (column.light && pressed) {
+        if (options.hitLighting === false || column.light.colour[3] <= 0) continue;
+        const light = column.light;
+        for (const { start, end } of pressed[lane])
+          lights.put({
+            asset: light.asset,
+            x: toX(light.x + light.width / 2),
+            y: toY(light.y + light.height / 2),
+            w: light.width / MANIA_SCALE,
+            h: light.height / MANIA_SCALE,
+            time: start,
+            until: end + 250,
+            profile: Profile.columnLight,
+            p1: end,
+            tint: light.colour,
+            maniaMirror: true,
+            fps: config.lightFramePerSecond,
+          });
+      } else if (column.light)
         emit(
           column.light,
           column.light.colour,

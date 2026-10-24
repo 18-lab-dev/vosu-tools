@@ -149,6 +149,42 @@ export function evaluateJudgement(
     y += p2 * progress * Math.cos(direction);
     alpha *= in120 * out500 * clamp01(1 - (dt + 100) / 1600) * (1 - progress);
   }
+  // Replay-input profiles (shader.ts 19-27).
+  if (profile === 19) {
+    const down = 80 * (1 - p1);
+    const a = dt < down ? p1 + (1 - p1) * easeOut(dt / down) : 1;
+    alpha *= a * clamp01(1 - (dt - 100) / 50);
+  }
+  if (profile === 20) {
+    alpha *= clamp01((now - p1) / 100) * (now > p2 ? clamp01(1 - (now - p2) / 600) : 1);
+    if (start > p1 + 0.01) scale *= 1 + 0.1875 * (1 - easeOut(clamp01(dt / 80)));
+  }
+  if (profile === 22 || profile === 23) {
+    angle = p2;
+    const f = clamp01(dt / 750);
+    alpha *= 1 - f;
+    if (profile === 22) y += 75 * (1 - Math.cos((f * Math.PI) / 2));
+    else {
+      y += dt < 250 ? -50 * Math.sin((clamp01(dt / 250) * Math.PI) / 2) : -50 + 100 * (1 - Math.cos((clamp01((dt - 250) / 500) * Math.PI) / 2));
+      x += p1 * clamp01(dt / 1000);
+    }
+  }
+  if (profile === 24) alpha *= 0.4 * (1 - easeOutQuint(clamp01(dt / 800)));
+  if (profile === 25) {
+    const e = clamp01(dt / 1200),
+      q = e * e,
+      k = 0.95 + 0.19 * q;
+    y = p1 + (d[1] - p1) * k - 10 * q;
+    scale *= k;
+    alpha *= 1 - e;
+  }
+  if (profile === 26 && now > p1) {
+    const t = clamp01((now - p1) / 250);
+    alpha *= 1 - t;
+    h *= 1 - t;
+    y = d[1] + d[3] / 2 - h / 2;
+  }
+  if (profile === 27) angle = p1;
   return { x, y, w: w * scale, h: h * scale, angle, alpha };
 }
 

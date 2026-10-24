@@ -65,6 +65,16 @@ export const Profile = {
   particle: 16,
   defaultPiece: 17,
   defaultMania: 18,
+  // Gameplay elements driven by a replay's input (gameplay.ts).
+  drumFlash: 19,
+  kiaiGlow: 20,
+  still: 21,
+  plateDrop: 22,
+  plateExplode: 23,
+  catcherTrail: 24,
+  afterImage: 25,
+  columnLight: 26,
+  sprite: 27,
 } as const;
 
 /** How long each profile stays visible after its result, ms (the pieces' last transform). */
@@ -88,6 +98,15 @@ const LIFETIME: Record<number, number> = {
   [Profile.particle]: 1100,
   [Profile.defaultPiece]: 800,
   [Profile.defaultMania]: 300,
+  [Profile.drumFlash]: 150,
+  [Profile.kiaiGlow]: 600,
+  [Profile.still]: 1,
+  [Profile.plateDrop]: 750,
+  [Profile.plateExplode]: 1000,
+  [Profile.catcherTrail]: 800,
+  [Profile.afterImage]: 1200,
+  [Profile.columnLight]: 250,
+  [Profile.sprite]: 1,
 };
 
 /** Default frame rate of `GetAnimation` without the skin's AnimationFramerate. */
@@ -110,6 +129,10 @@ export interface Mark {
   fps?: number;
   /** Visible until (defaults to the profile's lifetime). */
   until?: number;
+  /** Mirror the image vertically when mania scrolls up (stage elements; normal blending). */
+  maniaMirror?: boolean;
+  /** Keep only the centre of the image (fractions), like `WithMaximumSize`. */
+  crop?: readonly [number, number];
 }
 
 /** Writes judgement instances into a scene (the 24-float instance ABI). */
@@ -128,13 +151,23 @@ export class Marks {
   }
   put(mark: Mark): void {
     const region = this.regions.get(mark.asset);
-    if (!region || mark.w <= 0 || mark.h <= 0) return;
+    // A negative width mirrors the image horizontally.
+    if (!region || !mark.w || mark.h <= 0) return;
     const until = mark.until ?? mark.time + LIFETIME[mark.profile];
     if (!(until > mark.time)) return;
     const fps = mark.fps ?? DEFAULT_FPS,
       animated = fps > 0 && (region.count ?? 0) > 1,
       tint = mark.tint ?? [1, 1, 1, 1];
-    for (const { entry, uv } of regionInstances(region, !animated))
+    const crop = mark.crop;
+    for (const { entry, uv: strip } of regionInstances(region, !animated)) {
+      const uv = crop
+        ? {
+            u: strip.u + (strip.w * (1 - crop[0])) / 2,
+            v: region.strips ? strip.v : strip.v + (strip.h * (1 - crop[1])) / 2,
+            w: strip.w * crop[0],
+            h: region.strips ? strip.h : strip.h * crop[1],
+          }
+        : strip;
       this.values.push(
         mark.x,
         mark.y,
@@ -156,11 +189,13 @@ export class Marks {
         uv.v,
         uv.w,
         uv.h,
-        mark.additive ? 13 : 10,
+        // 40: mirrored when mania scrolls up (normal blending only).
+        mark.maniaMirror ? 40 : mark.additive ? 13 : 10,
         entry,
         animated ? (region.count ?? 0) : 0,
         animated ? fps : 0,
       );
+    }
   }
 }
 

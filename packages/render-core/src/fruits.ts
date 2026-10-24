@@ -22,7 +22,16 @@ import {
   catchJudgements,
   type JudgementEvent,
   type Marks,
+  Profile,
 } from "./judgements";
+import {
+  heldIntervals,
+  isDashing,
+  mulberry32,
+  within,
+  type Interval,
+} from "./gameplay";
+import type { InputFrame } from "./scene";
 
 /** Playfield y of the catcher's top (where objects are caught), in world units. */
 export const CATCHER_Y = 440 - 76;
@@ -155,6 +164,7 @@ export function compileCatch(
     comboColourNormalisation?: number;
     hitLighting?: boolean;
     judgements?: readonly JudgementEvent[];
+    input?: readonly InputFrame[];
   },
   regions: Map<string, AtlasRegion>,
   skin: Skin | undefined,
@@ -192,10 +202,17 @@ export function compileCatch(
   };
 
   // CatchAutoGenerator: replay frames in the beatmap's object order; the
-  // catcher's x interpolates linearly between them.
-  const catcher = autoplayFrames(generated, map.difficulty.cs).sort(
-    (a, b) => a.time - b.time,
-  );
+  // catcher's x interpolates linearly between them. A replay's input puts
+  // the catcher where the player had it (CatcherArea.SetCatcherPosition clamps
+  // to the playfield).
+  const catcher = options.input
+    ? options.input.map((f) => ({
+        time: f.time,
+        x: Math.max(0, Math.min(512, f.x)),
+      }))
+    : autoplayFrames(generated, map.difficulty.cs).sort(
+        (a, b) => a.time - b.time,
+      );
   const catcherAt = (time: number) => {
     let lo = 0,
       hi = catcher.length;
@@ -287,10 +304,12 @@ export function compileCatch(
   const deg = Math.PI / 180;
   const looks = objects.map(look);
 
-  // The plate: caught fruits and droplets (bananas explode at once) ride on
-  // the catcher at half size until the combo ends, behind everything else.
-  // With a replay's results only what it caught goes on the plate (objects
-  // are told apart by their top-level object and time).
+  // The plate (Catcher.placeCaughtObject): caught fruits and droplets ride
+  // on the catcher at half size, behind everything else, stacked by
+  // computePositionInStack; bananas explode off it at once. The combo's last
+  // object clears it: Explode when caught, else Drop. With a replay's results
+  // only what it caught goes on the plate (objects are told apart by their
+  // top-level object and time).
   const judgements = options.judgements;
   const caught = judgements
     ? new Set(
@@ -299,29 +318,32 @@ export function compileCatch(
           .map((e) => `${e.note}@${e.time}`),
       )
     : undefined;
-  let clearAt = Infinity;
-  const clears = objects.map((o) => o.lastInCombo);
-  for (let i = objects.length - 1; i >= 0; i--) {
-    if (clears[i]) clearAt = objects[i].time;
-    const o = objects[i];
-    if (o.kind === "banana" || clears[i] || clearAt <= o.time) continue;
-    if (caught && !caught.has(`${o.index}@${o.time}`)) continue;
-    const dx = o.x - catcherAt(o.time);
-    for (const layer of looks[i].layers)
+  const isCaught = (o: CatchObject) =>
+    !caught || caught.has(`${o.index}@${o.time}`);
+  // lazer jitters stacked objects with its unseeded RNG; a fixed seed keeps
+  // renders reproducible (the positions follow the same rule, not the same draws).
+  const random = mulberry32(0x5eed + Math.round(map.duration));
+  const plateY = CATCHER_Y - 5 * catcherScale;
+  let plate: { i: number; x: number; y: number; since: number }[] = [];
+  const onPlate = (
+    entry: { i: number; x: number; y: number; since: number },
+    until: number,
+  ) => {
+    for (const layer of looks[entry.i].layers)
       add(
         0,
-        CATCHER_Y - 5 * catcherScale,
+        plateY + entry.y,
         layer.w * 0.5,
         layer.h * 0.5,
-        o.time,
-        clearAt,
-        o.time,
-        clearAt,
+        entry.since,
+        until,
+        entry.since,
+        until,
         layer.tint,
         shapeOf(layer),
         30,
-        dx,
-        looks[i].angle * deg,
+        entry.x,
+        looks[entry.i].angle * deg,
         0,
         layer.asset,
         0,
@@ -331,7 +353,72 @@ export function compileCatch(
         true,
         layer.crop,
       );
+  };
+  const dropOff = (
+    entry: { i: number; x: number; y: number },
+    time: number,
+    explode: boolean,
+  ) => {
+    if (!marks) return;
+    for (const layer of looks[entry.i].layers)
+      if (layer.asset)
+        marks.put({
+          asset: layer.asset,
+          x: catcherAt(time) + entry.x,
+          y: plateY + entry.y,
+          w: layer.w * 0.5,
+          h: layer.h * 0.5,
+          time,
+          profile: explode ? Profile.plateExplode : Profile.plateDrop,
+          p1: explode ? (entry.x / catcherScale) * 6 : 0,
+          p2: looks[entry.i].angle * deg,
+          tint: layer.tint,
+          additive: shapeOf(layer) === 13,
+          crop: layer.crop,
+          fps: 0,
+        });
+  };
+  for (let i = 0; i < objects.length; i++) {
+    const o = objects[i];
+    if (isCaught(o)) {
+      // Catcher.computePositionInStack: while within 10/64 of the object's
+      // display size of a caught one, move by RNG ±that and up to 5 up.
+      const display =
+          2 *
+          OBJECT_RADIUS *
+          scale *
+          (o.kind === "fruit"
+            ? 1
+            : o.kind === "banana"
+              ? 0.6
+              : o.kind === "tiny"
+                ? 0.4
+                : 0.8),
+        radius = (display * 10) / OBJECT_RADIUS;
+      let x = o.x - catcherAt(o.time),
+        y = 0;
+      for (
+        let guard = 0;
+        guard < 1000 &&
+        plate.some((p) => (p.x - x) ** 2 + (p.y - y) ** 2 < radius * radius);
+        guard++
+      ) {
+        x += (random() * 2 - 1) * radius;
+        y -= random() * 5;
+      }
+      const entry = { i, x, y, since: o.time };
+      if (o.kind === "banana") dropOff(entry, o.time, true);
+      else plate.push(entry);
+    }
+    if (o.lastInCombo) {
+      for (const entry of plate) {
+        onPlate(entry, o.time);
+        dropOff(entry, o.time, isCaught(o));
+      }
+      plate = [];
+    }
   }
+  for (const entry of plate) onPlate(entry, Infinity);
 
   // Falling objects, landing on the catcher's top at their time.
   for (let i = 0; i < objects.length; i++) {
@@ -365,7 +452,7 @@ export function compileCatch(
 
   // The catcher: LegacyCatcherNew (idle/kiai/fail) or the old single
   // sprite at 0.35 × catcher scale, its top 16 image units above the catch line.
-  const states = ["idle", "kiai", "fail"] as const,
+  const stateNames = ["idle", "kiai", "fail"] as const,
     old =
       regions.has("fruit-ryuuta") &&
       !regions.has("fruit-catcher-idle") &&
@@ -373,8 +460,8 @@ export function compileCatch(
   for (let state = 0; state < 3; state++) {
     const asset = old
       ? "fruit-ryuuta"
-      : regions.has(`fruit-catcher-${states[state]}`)
-        ? `fruit-catcher-${states[state]}`
+      : regions.has(`fruit-catcher-${stateNames[state]}`)
+        ? `fruit-catcher-${stateNames[state]}`
         : "fruit-catcher-idle";
     if (!regions.has(asset)) {
       // No skin image: the catcher's plate as a bar as wide as its catch range.
@@ -417,6 +504,18 @@ export function compileCatch(
       asset,
     );
   }
+  const catcherSprite: CatcherSprite = (state) => {
+    const asset = old
+      ? "fruit-ryuuta"
+      : regions.has(`fruit-catcher-${stateNames[state]}`)
+        ? `fruit-catcher-${stateNames[state]}`
+        : "fruit-catcher-idle";
+    const region = regions.get(asset);
+    if (!region) return undefined;
+    const k = 0.35 * catcherScale,
+      [iw, ih] = size(region);
+    return { asset, w: iw * k, h: ih * k, y: CATCHER_Y - 16 * k + (ih * k) / 2 };
+  };
 
   // Catcher.OnNewResult: catching a hyper fruit hyper-dashes when the target
   // needs more than dash speed from where the catcher is; any later catch
@@ -425,7 +524,7 @@ export function compileCatch(
     catches = objects.filter((o) => o.kind !== "tiny");
   for (let i = 0; i < catches.length - 1; i++) {
     const o = catches[i];
-    if (!o.hyper) continue;
+    if (!o.hyper || !isCaught(o)) continue;
     const target = objects.find(
       (t) => t.time > o.time && (t.kind === "fruit" || t.kind === "droplet"),
     );
@@ -439,6 +538,36 @@ export function compileCatch(
     if (previous && previous.end >= o.time) previous.end = catches[i + 1].time;
     else hyper.push({ start: o.time, end: catches[i + 1].time });
   }
+  const kiai = (time: number) => {
+    let effects = 0;
+    for (const point of map.timing) {
+      if (point.time > time) break;
+      effects = point.effects;
+    }
+    return (effects & 1) !== 0;
+  };
+  const states = judgements ? catcherStates(judgements, kiai) : undefined;
+  if (options.input && marks)
+    catcherTrails({
+      input: options.input,
+      marks,
+      hyper,
+      catcher: catcherSprite,
+      stateAt: (time) => {
+        if (!states) return kiai(time) ? 1 : 0;
+        let state = 0;
+        for (const s of states) {
+          if (s.time > time) break;
+          state = s.state;
+        }
+        return state;
+      },
+      catcherAt,
+      dash: [1, 1, 1],
+      hyperDash,
+      afterImage:
+        hex(config.HyperDashAfterImage) ?? hyperDash,
+    });
   if (!judgements || !marks) return { catcher, hyper };
   // Lighting and the combo counter on the catcher, from the replay's results.
   const colourOf = (note: number) =>
@@ -455,13 +584,85 @@ export function compileCatch(
     colour: colourOf,
     hitLighting: options.hitLighting !== false,
   });
-  const kiai = (time: number) => {
-    let effects = 0;
-    for (const point of map.timing) {
-      if (point.time > time) break;
-      effects = point.effects;
+  return { catcher, hyper, states };
+}
+
+/** The catcher's image per state (0 idle, 1 kiai, 2 fail): asset, size and centre y. */
+type CatcherSprite = (state: number) => { asset: string; w: number; h: number; y: number } | undefined;
+
+/**
+ * CatcherArea: while dashing (or hyper-dashing) a catcher trail every 16 ms,
+ * additive, FadeTo(0.4) then out over 800 ms (out quint), white or in the
+ * HyperDash colour; entering a hyper-dash leaves an after-image (the
+ * HyperDashAfterImage colour) rising 10 and growing 0.95 → 1.14 over 1200 ms
+ * (its second ScaleTo multiplies the already shrunk scale).
+ * Trails show the catcher's state and facing when they were left.
+ */
+function catcherTrails(options: {
+  input: readonly InputFrame[];
+  marks: Marks;
+  hyper: readonly Interval[];
+  catcher: CatcherSprite;
+  stateAt: (time: number) => number;
+  catcherAt: (time: number) => number;
+  dash: readonly number[];
+  hyperDash: readonly number[];
+  afterImage: readonly number[];
+}): void {
+  const { input, marks, hyper } = options;
+  const dashes = heldIntervals(input, isDashing);
+  const step = 1000 / 60;
+  /** VisualDirection: the way the catcher last moved (right to begin with). */
+  const facing = (time: number) => {
+    let lo = 0,
+      hi = input.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (input[mid].time <= time) lo = mid + 1;
+      else hi = mid;
     }
-    return (effects & 1) !== 0;
+    for (let i = lo - 1; i > 0; i--)
+      if (input[i].x !== input[i - 1].x) return input[i].x > input[i - 1].x ? 1 : -1;
+    return 1;
   };
-  return { catcher, hyper, states: catcherStates(judgements, kiai) };
+  const trail = (time: number, profile: number, tint: readonly number[]) => {
+    const sprite = options.catcher(options.stateAt(time));
+    if (!sprite) return;
+    marks.put({
+      asset: sprite.asset,
+      x: options.catcherAt(time),
+      y: sprite.y,
+      w: sprite.w * facing(time),
+      h: sprite.h,
+      time,
+      profile,
+      p1: profile === Profile.afterImage ? CATCHER_Y : 0,
+      tint: [tint[0], tint[1], tint[2], 1],
+      additive: true,
+      fps: 0,
+    });
+  };
+  for (const h of hyper) trail(h.start, Profile.afterImage, options.afterImage);
+  // Updates come once per 60 Hz frame; a trail when 16 ms have passed since
+  // the last. A release stops dashing before that frame's update; the catch
+  // ending a hyper-dash is judged after it (CatcherArea updates first).
+  const spans = [
+    ...dashes.map((d) => ({ ...d, inclusive: false })),
+    ...hyper.map((h) => ({ ...h, inclusive: true })),
+  ].sort((a, b) => a.start - b.start);
+  let last = -Infinity;
+  for (const span of spans) {
+    const end = Math.min(span.end, input[input.length - 1]?.time ?? span.end);
+    for (
+      let k = Math.ceil(span.start / step - 1e-9);
+      span.inclusive ? k * step <= end + 1e-9 : k * step < end;
+      k++
+    ) {
+      const t = k * step;
+      if (t - last < 16) continue;
+      last = t;
+      const hyperDashing = within(hyper, t);
+      trail(t, Profile.catcherTrail, hyperDashing ? options.hyperDash : options.dash);
+    }
+  }
 }
