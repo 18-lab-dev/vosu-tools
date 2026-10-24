@@ -637,6 +637,23 @@ const field = (id: string) => el<HTMLInputElement>(id);
 // Live overlay pages sit under the layout editor's boxes.
 const live = new LivePages(fetcher, report);
 el("gate").append(live.root);
+/** Whether the renderer runs a custom browser (`VOSU_RENDER_CHROMIUM`, see `/v1/context`). */
+let customBrowser = false;
+/**
+ * Warns before rendering when overlays draw with WebGPU and the renderer runs
+ * a custom browser: full Chrome leaves WebGPU canvases blank in exports.
+ */
+function describeWebGpu() {
+  const note = el("webgpu-note");
+  const names = [...live.webgpu]
+    .map((index) => overlayEditor.layers[index]?.name)
+    .filter((name): name is string => !!name);
+  note.hidden = !customBrowser || !names.length;
+  note.textContent = note.hidden
+    ? ""
+    : `${names.join(", ")} ${names.length === 1 ? "draws" : "draw"} with WebGPU. The renderer uses a custom browser (VOSU_RENDER_CHROMIUM); if it is full Chrome, the export shows ${names.length === 1 ? "this overlay" : "these overlays"} blank. Unset VOSU_RENDER_CHROMIUM to use the managed headless shell, or pick WebGL in the overlay's settings if it has one.`;
+}
+live.onWebGpu = describeWebGpu;
 /** The render request's overlay layers, or null while one is incomplete. */
 function liveLayers(): OverlayLayer[] | null {
   try {
@@ -710,6 +727,8 @@ if (!vosu.canWrite) {
 } else {
   try {
     const context = await (await fetcher("v1/context")).json();
+    customBrowser = context.custom_browser === true;
+    describeWebGpu();
     skins.update(context);
     void followLazerSkins(context).catch(report);
     defaultSettings = context.default_settings;
@@ -897,18 +916,22 @@ el("queue").onclick = async () => {
     row.className = "job";
     const dot = document.createElement("span"),
       message = document.createElement("span"),
+      warning = document.createElement("p"),
       meter = document.createElement("div"),
       cancel = button("Cancel", "v-btn v-btn--sm v-btn--ghost");
     dot.className = "v-dot";
     dot.dataset.state = "busy";
     message.className = "job-message";
     message.textContent = request.out;
+    warning.className = "job-warning";
+    warning.setAttribute("role", "status");
+    warning.hidden = true;
     meter.className = "v-meter";
     meter.style.setProperty("--v-value", "0");
     cancel.onclick = () => {
       void fetcher(`v1/jobs/${job}`, { method: "DELETE" }).catch(report);
     };
-    row.append(dot, message, cancel, meter);
+    row.append(dot, message, cancel, warning, meter);
     el("jobs").prepend(row);
     activeJobs.add(job);
     setTally();
@@ -917,9 +940,13 @@ el("queue").onclick = async () => {
         const current = await (await fetcher(`v1/jobs/${job}`)).json();
         meter.style.setProperty("--v-value", String(current.progress));
         message.textContent = `${current.message}${current.encoder ? ` · ${current.encoder}` : ""}`;
+        // Warnings (a size limit, overlays the browser leaves blank) stay on the row.
+        const warned: string | null = current.result?.warning ?? current.warning ?? null;
+        warning.hidden = !warned;
+        warning.textContent = warned ?? "";
         if (["done", "failed", "cancelled"].includes(current.state)) {
           dot.dataset.state =
-            current.state === "done" ? "ok" : current.state === "failed" ? "error" : "warn";
+            current.state === "done" && !warned ? "ok" : current.state === "failed" ? "error" : "warn";
           cancel.remove();
           activeJobs.delete(job);
           setTally();

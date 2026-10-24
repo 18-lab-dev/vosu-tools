@@ -7,6 +7,19 @@
 window.__vosuTime = 0;
 window.__vosuEpoch = 0;
 const errors = [];
+// Whether the page draws with WebGPU: full Chrome (a custom
+// VOSU_RENDER_CHROMIUM) leaves WebGPU canvases out of its captures, and the
+// render warns about it.
+window.__vosuWebGpu = false;
+for (const Canvas of [window.HTMLCanvasElement, window.OffscreenCanvas]) {
+  if (!Canvas) continue;
+  const getContext = Canvas.prototype.getContext;
+  Canvas.prototype.getContext = function (type, ...options) {
+    const context = getContext.call(this, type, ...options);
+    if (type === "webgpu" && context) window.__vosuWebGpu = true;
+    return context;
+  };
+}
 Date.now = () => window.__vosuEpoch + window.__vosuTime;
 Object.defineProperty(performance, "now", { value: () => window.__vosuTime });
 // Animation frames follow the export's frames: once the page has loaded, every

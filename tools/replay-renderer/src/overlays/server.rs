@@ -467,6 +467,9 @@ async fn page(State(state): State<Arc<Overlays>>, uri: Uri) -> Response {
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("html") || e.eq_ignore_ascii_case("htm"))
     {
+        if !state.offline {
+            bytes = with_webgpu_report(bytes);
+        }
         bytes.extend_from_slice(
             format!(
                 "<script>window.COUNTER_PATH={};</script>",
@@ -476,6 +479,42 @@ async fn page(State(state): State<Arc<Overlays>>, uri: Uri) -> Response {
         );
     }
     file_response(&file, bytes)
+}
+
+/// Tells the studio (the preview's parent page) once that the page created a
+/// WebGPU canvas: a render in full Chrome leaves those blank, and the studio
+/// warns before rendering.
+const WEBGPU_REPORT: &str = r#"<script>(()=>{for(const C of[window.HTMLCanvasElement,window.OffscreenCanvas]){if(!C)continue;const g=C.prototype.getContext;C.prototype.getContext=function(t,...o){const c=g.call(this,t,...o);if(t==="webgpu"&&c&&!window.__vosuWebGpu){window.__vosuWebGpu=true;parent.postMessage({vosuWebGpu:true},"*")}return c}}})();</script>"#;
+
+/// `html` with `WEBGPU_REPORT` before any of its own scripts: right after
+/// the `<head>` tag, else `<html>`, else the doctype, else at the start.
+pub(super) fn with_webgpu_report(html: Vec<u8>) -> Vec<u8> {
+    let lower = html.to_ascii_lowercase();
+    let after_tag = |name: &[u8]| {
+        lower
+            .windows(name.len())
+            .position(|window| window == name)
+            .filter(|&at| {
+                lower
+                    .get(at + name.len())
+                    .is_some_and(|b| *b == b'>' || b.is_ascii_whitespace())
+            })
+            .and_then(|at| {
+                lower[at..]
+                    .iter()
+                    .position(|b| *b == b'>')
+                    .map(|end| at + end + 1)
+            })
+    };
+    let at = after_tag(b"<head")
+        .or_else(|| after_tag(b"<html"))
+        .or_else(|| after_tag(b"<!doctype"))
+        .unwrap_or(0);
+    let mut out = Vec::with_capacity(html.len() + WEBGPU_REPORT.len());
+    out.extend_from_slice(&html[..at]);
+    out.extend_from_slice(WEBGPU_REPORT.as_bytes());
+    out.extend_from_slice(&html[at..]);
+    out
 }
 
 async fn background(State(state): State<Arc<Overlays>>) -> Response {

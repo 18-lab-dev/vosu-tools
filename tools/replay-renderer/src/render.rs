@@ -767,7 +767,46 @@ async fn frame_state(
             Ok::<_, Error>(json!({"track": instance.track, "images": images}))
         }
     });
-    Ok(Json(futures_util::future::try_join_all(frames).await?))
+    let frames = futures_util::future::try_join_all(frames).await?;
+    let mut blank = Vec::new();
+    for instance in worker.overlays.iter() {
+        for name in instance.overlays.blank_webgpu().await {
+            if !blank.contains(&name) {
+                blank.push(name);
+            }
+        }
+    }
+    if !blank.is_empty() {
+        let warning = blank_webgpu_warning(&blank);
+        let mut jobs = worker.app.jobs.lock().await;
+        if let Some(job) = jobs.get_mut(&worker.id) {
+            job["warning"] = json!(join_warnings([job["warning"].as_str(), Some(&warning)]));
+        }
+    }
+    Ok(Json(frames))
+}
+/// The job warning for overlays whose WebGPU canvases the browser leaves out
+/// of the export.
+pub(crate) fn blank_webgpu_warning(names: &[String]) -> String {
+    format!(
+        "{} {} with WebGPU, which this browser (a full Chrome set as VOSU_RENDER_CHROMIUM) leaves blank in the export; unset VOSU_RENDER_CHROMIUM to render with the managed headless shell, or choose WebGL in the overlay's settings if it offers that",
+        names.join(", "),
+        if names.len() == 1 { "draws" } else { "draw" }
+    )
+}
+/// Distinct non-empty warnings, in order, as one line (`None` without any).
+pub(crate) fn join_warnings<'a>(
+    warnings: impl IntoIterator<Item = Option<&'a str>>,
+) -> Option<String> {
+    let mut parts: Vec<&str> = Vec::new();
+    for warning in warnings.into_iter().flatten() {
+        for part in warning.split("; ") {
+            if !part.is_empty() && !parts.contains(&part) {
+                parts.push(part);
+            }
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("; "))
 }
 #[cfg(test)]
 mod tests {

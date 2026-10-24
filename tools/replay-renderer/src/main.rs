@@ -499,19 +499,26 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width.min(4096),"height":height.min(4096),"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
             let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto","export_for":export_for,"discord_mb":discord_mb.map(|mb| mb.parse::<u32>().unwrap_or(20))}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
-            let mut warned = false;
+            let mut warned = String::new();
             let result = client
                 .wait_job("replay-renderer", id, |state| {
                     if as_json {
                         return;
                     }
-                    if let Some(warning) = state["warning"].as_str().filter(|_| !warned) {
+                    if let Some(warning) = state["warning"].as_str().filter(|w| *w != warned) {
                         eprintln!("warning: {warning}");
-                        warned = true;
+                        warned = warning.to_owned();
                     }
                     eprintln!("{}", state["message"].as_str().unwrap_or("Rendering"));
                 })
                 .await?;
+            // A warning first raised by the last frames reaches only the result.
+            if let Some(warning) = result["result"]["warning"]
+                .as_str()
+                .filter(|w| !as_json && *w != warned)
+            {
+                eprintln!("warning: {warning}");
+            }
             if as_json {
                 println!("{result}");
             } else {
@@ -604,6 +611,10 @@ async fn context(State(app): State<App>) -> Result<Json<Value>, Error> {
     });
     value["lazer_skins"] = json!(library::lazer_skins(&app).await);
     value["current_skin"] = skins::current(&app, &value).await.describe();
+    // A custom browser may be full Chrome, whose captures leave out WebGPU
+    // canvases: the studio warns about overlays that draw with WebGPU.
+    value["custom_browser"] =
+        json!(std::env::var_os("VOSU_RENDER_CHROMIUM").is_some_and(|path| !path.is_empty()));
     Ok(Json(value))
 }
 async fn get_presets(State(app): State<App>) -> Json<Value> {

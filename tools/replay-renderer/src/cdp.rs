@@ -21,6 +21,8 @@ struct Page {
     session: String,
     /// The overlay's display name, for errors.
     name: String,
+    /// Whether the page created a WebGPU canvas.
+    webgpu: bool,
 }
 
 pub struct Driver {
@@ -30,20 +32,44 @@ pub struct Driver {
     pages: Vec<Page>,
     last_wall: f64,
     origin: String,
+    /// Full Chrome rather than the headless shell: its captures leave out
+    /// WebGPU canvases (the shell reports its product as `HeadlessChrome/…`).
+    full_chrome: bool,
 }
 impl Driver {
     pub async fn connect(url: &str) -> Result<Self, String> {
         let (socket, _) = tokio_tungstenite::connect_async(url)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(Self {
+        let mut driver = Self {
             socket,
             id: 0,
             events: VecDeque::new(),
             pages: Vec::new(),
             last_wall: 0.0,
             origin: String::new(),
-        })
+            full_chrome: false,
+        };
+        let version = driver
+            .command(None, "Browser.getVersion", json!({}))
+            .await?;
+        driver.full_chrome = !version["product"]
+            .as_str()
+            .unwrap_or("")
+            .starts_with("HeadlessChrome/");
+        Ok(driver)
+    }
+    /// Pages whose WebGPU canvases this browser leaves out of its captures
+    /// (full Chrome); none in the headless shell.
+    pub fn blank_webgpu(&self) -> Vec<String> {
+        if !self.full_chrome {
+            return Vec::new();
+        }
+        self.pages
+            .iter()
+            .filter(|page| page.webgpu)
+            .map(|page| page.name.clone())
+            .collect()
     }
     async fn receive(&mut self) -> Result<Value, String> {
         self.receive_until(Instant::now() + PROTOCOL_DEADLINE)
@@ -267,11 +293,18 @@ impl Driver {
             .map_err(|e| e.to_string())?
             .origin()
             .ascii_serialization();
+        // Each page gets a window of its own. Full Chrome (a custom
+        // `VOSU_RENDER_CHROMIUM`) opens a background target as a hidden tab of
+        // the first window: hidden tabs produce no compositor frames, so a
+        // screenshot of one whose picture stopped changing waits for a frame
+        // that never comes (every other capture hangs). A page alone in its
+        // window is visible and draws every frame it is asked for, as every
+        // target is in the managed headless shell.
         let target = self
             .command(
                 None,
                 "Target.createTarget",
-                json!({"url":"about:blank","background":true}),
+                json!({"url":"about:blank","background":true,"newWindow":true}),
             )
             .await?;
         let target = target["targetId"].as_str().ok_or("No overlay target")?;
@@ -334,6 +367,7 @@ impl Driver {
         let page = Page {
             session,
             name: name.to_owned(),
+            webgpu: false,
         };
         self.settle(
             std::slice::from_ref(&page),
@@ -439,18 +473,19 @@ impl Driver {
         }
         Ok(results)
     }
-    /// Runs a page-readiness `expression` on `pages`; a page that has not
-    /// answered by the deadline fails the render with its name and what it
-    /// was waiting for (`stall_reason`).
+    /// Runs a page-readiness `expression` on `pages`, answering each page's
+    /// `Runtime.evaluate` result; a page that has not answered by the deadline
+    /// fails the render with its name and what it was waiting for
+    /// (`stall_reason`).
     async fn settle(
         &mut self,
         pages: &[Page],
         expression: String,
         sequence: u64,
-    ) -> Result<(), String> {
+    ) -> Result<Vec<Value>, String> {
         let results = self.wait_nudging(pages, &expression).await?;
         let mut reasons = Vec::new();
-        for (page, result) in pages.iter().zip(results) {
+        for (page, result) in pages.iter().zip(&results) {
             if result.is_some() {
                 continue;
             }
@@ -472,7 +507,7 @@ impl Driver {
             reasons.push(format!("{}: {reason}", page.name));
         }
         if reasons.is_empty() {
-            Ok(())
+            Ok(results.into_iter().flatten().collect())
         } else {
             Err(reasons.join("; "))
         }
@@ -505,9 +540,12 @@ impl Driver {
         }
         let budget = (wall_ms - self.last_wall).max(0.001);
         self.last_wall = wall_ms;
-        let pages = std::mem::take(&mut self.pages);
+        let mut pages = std::mem::take(&mut self.pages);
         let result=async {
-        self.settle(&pages, format!("window.__vosuAdvance({wall_ms});window.__vosuWait({sequence}).then(()=>window.__vosuIdle()).then(()=>window.__vosuAnimate()).then(()=>window.__vosuIdle())"), sequence).await?;
+        let answers = self.settle(&pages, format!("window.__vosuAdvance({wall_ms});window.__vosuWait({sequence}).then(()=>window.__vosuIdle()).then(()=>window.__vosuAnimate()).then(()=>window.__vosuIdle()).then(()=>window.__vosuWebGpu===true)"), sequence).await?;
+        for (page, answer) in pages.iter_mut().zip(answers) {
+            page.webgpu |= answer["result"]["value"] == true;
+        }
         self.batch_named(&pages, "Emulation.setVirtualTimePolicy", json!({"policy":"advance","budget":budget,"maxVirtualTimeTaskStarvationCount":1000})).await?;
         for page in &pages {
             self.event(&page.session, "Emulation.virtualTimeBudgetExpired")
