@@ -1,0 +1,3 @@
+# Beatmap golden fixtures and section-insertion tests require identical bytes.
+**/tests/fixtures/*.osu text eol=lf
+**/test/fixtures/*.osu text eol=lf

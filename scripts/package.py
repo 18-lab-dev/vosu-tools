@@ -18,7 +18,7 @@ ALLOWED = {'MIT', 'MIT-0', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC', 
 
 
 def run(command, cwd):
-    return subprocess.run(command, cwd=cwd, check=True, text=True, stdout=subprocess.PIPE).stdout
+    return subprocess.run(command, cwd=cwd, check=True, encoding='utf-8', stdout=subprocess.PIPE).stdout
 
 
 def selected_license(expression):
@@ -123,7 +123,7 @@ def retained_license(root, dependency):
     else:
         return {}, None
     vcs = Path(dependency['manifest_path']).parent / '.cargo_vcs_info.json'
-    if not dependency.get('source', '').startswith('registry+') or json.loads(vcs.read_text())['git']['sha1'] != revision:
+    if not dependency.get('source', '').startswith('registry+') or json.loads(vcs.read_text(encoding='utf-8'))['git']['sha1'] != revision:
         raise ValueError(f'retained license exception revision mismatch: {name}@{version}')
     data = path.read_bytes().replace(b'\r\n', b'\n')
     # Git blob ids of the pinned upstream texts.
@@ -215,7 +215,7 @@ def jsonc(text):
 
 
 def javascript_licenses(root, dist):
-    lock = jsonc((root / 'bun.lock').read_text())
+    lock = jsonc((root / 'bun.lock').read_text(encoding='utf-8'))
     workspace_names = {workspace['name'] for workspace in lock.get('workspaces', {}).values()}
     locked = {entry[0] for entry in lock.get('packages', {}).values()}
     packages = {}
@@ -223,14 +223,14 @@ def javascript_licenses(root, dist):
     if not maps:
         raise ValueError(f'UI build must emit hidden source maps for license provenance: {dist}')
     for source_map in maps:
-        mapping = json.loads(source_map.read_text())
+        mapping = json.loads(source_map.read_text(encoding='utf-8'))
         for source in mapping.get('sources', []):
             candidate = (source_map.parent / source).resolve()
             for parent in candidate.parents:
                 manifest = parent / 'package.json'
                 if not manifest.is_file():
                     continue
-                data = json.loads(manifest.read_text())
+                data = json.loads(manifest.read_text(encoding='utf-8'))
                 name, version = data.get('name'), data.get('version')
                 if name in workspace_names:
                     break
@@ -264,7 +264,7 @@ def discover(root):
         manifest_path = directory / 'tool.toml'
         if not manifest_path.is_file() or manifest_path.is_symlink():
             raise ValueError(f'tool.toml is missing or unsafe: {directory}')
-        manifest = tomllib.loads(manifest_path.read_text())
+        manifest = tomllib.loads(manifest_path.read_text(encoding='utf-8'))
         identity, version = manifest.get('id', ''), manifest.get('version', '')
         if not valid_id(identity) or directory.name != identity or not re.fullmatch(r'\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?', version):
             raise ValueError(f'invalid tool identity/version in {manifest_path}')
@@ -280,7 +280,7 @@ def discover(root):
                 raise ValueError(f'backend service must start on-demand: {manifest_path}')
         native = 'service' in manifest or 'cli' in manifest
         cargo = directory / 'Cargo.toml'
-        package = tomllib.loads(cargo.read_text())['package']['name'] if native else None
+        package = tomllib.loads(cargo.read_text(encoding='utf-8'))['package']['name'] if native else None
         if 'ui' in manifest and manifest['ui']['root'] != 'web/dist':
             raise ValueError(f'UI manifest root must be web/dist: {manifest_path}')
         for section in ('cli', 'service'):
@@ -358,7 +358,7 @@ def merge_catalogs(paths):
     result = {'catalog_version': 1, 'tools': []}
     tools = {}
     for path in paths:
-        catalog = json.loads(Path(path).read_text())
+        catalog = json.loads(Path(path).read_text(encoding='utf-8'))
         if catalog.get('catalog_version') != 1:
             raise ValueError(f'unsupported catalog: {path}')
         for entry in catalog.get('tools', []):
