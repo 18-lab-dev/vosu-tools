@@ -10,14 +10,21 @@
  *     by frame from 0, dumps lazer's drawables at GAMEPLAY_TIMES with the
  *     autoplay replay, and stores what the comparison reads as
  *     test/fixtures/gameplay-golden.json (`--raw` keeps the whole dump).
+ *
+ *   bun test/gameplayGolden.ts --osu ~/ppy-osu --skin <dir> [--width w] [--height h]
+ *     plays the taiko cases with a real skin folder (read only) and prints
+ *     every input drum sprite render-core places differently from lazer;
+ *     writes no fixture. The size is lazer's game space (768 high, or 1024
+ *     wide below 4:3), e.g. 1024 x 1327.4 for a 540 x 700 output cell.
  */
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { png } from "./goldenFiles";
-import type { LayoutResult } from "./layoutCompare";
-import { GAMEPLAY_CASES, GAMEPLAY_MAPS, GAMEPLAY_SKINS, lazerGameplayItems } from "./gameplayCompare";
+import { join, resolve } from "node:path";
+import { png, readSkinFolder } from "./goldenFiles";
+import { placeLayout, withClassic, type LayoutResult } from "./layoutCompare";
+import { goldenSkin } from "./maniaCompare";
+import { compareGameplay, GAMEPLAY_CASES, GAMEPLAY_MAPS, GAMEPLAY_SKINS, lazerGameplayItems } from "./gameplayCompare";
 
 const here = import.meta.dir;
 const argument = (name: string) => {
@@ -25,11 +32,22 @@ const argument = (name: string) => {
   return index < 0 ? undefined : process.argv[index + 1];
 };
 const osu = argument("--osu"),
-  dotnet = argument("--dotnet") ?? "dotnet";
+  dotnet = argument("--dotnet") ?? "dotnet",
+  folder = argument("--skin");
 if (!osu) {
-  console.error("usage: bun test/gameplayGolden.ts --osu <ppy/osu checkout> [--dotnet path] [--raw out.json]");
+  console.error(
+    "usage: bun test/gameplayGolden.ts --osu <ppy/osu checkout> [--dotnet path] ([--raw out.json] | --skin <dir> [--width w] [--height h])",
+  );
   process.exit(2);
 }
+const cases = folder
+  ? GAMEPLAY_CASES.filter((c) => c.ruleset === "taiko" && c.skin === "gameplay").map((c) => ({
+      ...c,
+      name: `real-${c.name}`,
+      width: Number(argument("--width") ?? c.width),
+      height: Number(argument("--height") ?? c.height),
+    }))
+  : GAMEPLAY_CASES;
 const project = join(osu, "osu.Game.Tests");
 if (!existsSync(project)) throw new Error(`no osu.Game.Tests project in ${osu}`);
 copyFileSync(join(here, "reference/VosuLayout.cs"), join(project, "Visual/VosuLayout.cs"));
@@ -54,7 +72,12 @@ writeFileSync(
   spec,
   JSON.stringify({
     output,
-    cases: GAMEPLAY_CASES.map((c) => ({ ...c, skin: skinDirs.get(c.skin), map: maps.get(c.map), frames: true })),
+    cases: cases.map((c) => ({
+      ...c,
+      skin: folder ? resolve(folder) : skinDirs.get(c.skin),
+      map: maps.get(c.map),
+      frames: true,
+    })),
   }),
 );
 const run = spawnSync(dotnet, ["test", "-c", "Release", "--filter", "VosuLayout"], {
@@ -73,6 +96,23 @@ const results = JSON.parse(readFileSync(output, "utf8")) as (LayoutResult & {
 const raw = argument("--raw");
 if (raw) writeFileSync(raw, JSON.stringify(results, null, 1));
 rmSync(work, { recursive: true, force: true });
+if (folder) {
+  // The drum flashes from lazer's own autoplay replay of each case.
+  const { skin, regions } = goldenSkin(readSkinFolder(folder, "real"));
+  let failures = 0;
+  for (const [i, c] of cases.entries()) {
+    const ours = placeLayout(c, GAMEPLAY_MAPS.taiko, skin, withClassic(regions), {
+      input: results[i].frames,
+    }).filter((p) => p.motion === 35 && /^taiko-drum-/.test(p.asset));
+    const mismatches = compareGameplay(lazerGameplayItems("taiko", results[i].items), ours);
+    failures += mismatches.length;
+    for (const m of mismatches)
+      console.log(`${c.name} ${m.reason} ${m.asset} lazer ${JSON.stringify(m.lazer)} ours ${JSON.stringify(m.ours)}`);
+    console.log(`${c.name}: lazer ${lazerGameplayItems("taiko", results[i].items).length} drum sprite(s), ours ${ours.length}`);
+  }
+  console.log(failures ? `${failures} drum sprite(s) differ` : "every drum sprite matches lazer");
+  process.exit(failures ? 1 : 0);
+}
 const r = (v: number, digits: number) => Number(v.toFixed(digits));
 const golden = results.map((result, i) => {
   const c = GAMEPLAY_CASES[i];
