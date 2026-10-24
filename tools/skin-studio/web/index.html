@@ -22,6 +22,15 @@
           Elements
         </button>
         <button
+          id="tab-explorer"
+          role="tab"
+          type="button"
+          aria-selected="false"
+          aria-controls="explorer-view"
+        >
+          Explorer
+        </button>
+        <button
           id="tab-ini"
           role="tab"
           type="button"
@@ -64,7 +73,7 @@
             aria-expanded="false"
             aria-controls="add-folder"
           >
-            Add folder
+            Add skin
           </button>
         </div>
         <div class="library-tools">
@@ -75,8 +84,8 @@
               type="text"
               spellcheck="false"
               autocomplete="off"
-              placeholder="Skin folder path"
-              aria-label="Skin folder path"
+              placeholder="Skin folder or .osk path"
+              aria-label="Skin folder or .osk path"
               aria-describedby="folder-error"
             />
             <button type="submit" class="v-btn">Add</button>
@@ -123,6 +132,83 @@
             <div id="cats" class="v-seg" aria-label="Element categories"></div>
           </div>
           <div id="groups" class="v-scroll groups"></div>
+        </section>
+
+        <section
+          id="explorer-view"
+          class="explorer-view"
+          role="tabpanel"
+          aria-labelledby="tab-explorer"
+          hidden
+        >
+          <div class="v-toolbar">
+            <select
+              id="x-skin"
+              class="v-select x-skin"
+              aria-label="Skin to browse"
+            ></select>
+            <input
+              id="x-filter"
+              class="v-input x-filter"
+              type="search"
+              placeholder="Filter files"
+              aria-label="Filter files"
+              autocomplete="off"
+              spellcheck="false"
+            />
+            <div class="v-seg" role="group" aria-label="List">
+              <button id="x-grouped" type="button" aria-pressed="true">
+                Assets
+              </button>
+              <button id="x-flat" type="button" aria-pressed="false">
+                Files
+              </button>
+            </div>
+            <span class="v-bar__spacer"></span>
+            <span
+              id="x-count"
+              class="v-muted x-count"
+              aria-live="polite"
+            ></span>
+            <button
+              id="x-use"
+              type="button"
+              class="v-btn v-btn--sm v-btn--primary"
+              aria-pressed="false"
+              disabled
+            >
+              Use in mix
+            </button>
+          </div>
+          <div class="x-body">
+            <nav id="x-tree" class="v-scroll x-tree" aria-label="Folders"></nav>
+            <div class="x-files">
+              <div class="x-head" aria-hidden="true">
+                <span></span>
+                <span class="v-label">Name</span>
+                <span class="v-label x-detail">Asset</span>
+                <span class="v-label x-kind">Kind</span>
+                <span class="v-label x-size">Size</span>
+                <span class="v-label x-dims">Pixels</span>
+                <span></span>
+              </div>
+              <div
+                id="x-list"
+                class="x-list"
+                role="listbox"
+                aria-multiselectable="true"
+                aria-label="Skin files"
+                tabindex="0"
+              >
+                <div id="x-spacer" class="x-spacer"></div>
+              </div>
+            </div>
+            <aside
+              id="x-details"
+              class="v-scroll x-details"
+              aria-label="File details"
+            ></aside>
+          </div>
         </section>
 
         <section
