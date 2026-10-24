@@ -188,7 +188,8 @@ export function placeLayout(
       [a, b, cc] = [d[13], d[14], d[15]],
       code = d[20];
     if (code !== 10 && code !== 13) continue;
-    if (now < from || now > until) continue;
+    // Lifetimes are float32 in the instance data, as the shader compares them.
+    if (Math.fround(now) < from || Math.fround(now) > until) continue;
     let x = x0,
       y = y0,
       w = w0,
@@ -464,6 +465,9 @@ export function compareLayout(
     if (
       used.has(p.index) ||
       p.motion === 30 ||
+      // Plate drops, the kiai glow and the mascot follow results, beats or
+      // input (gameplay goldens cover them, not these autoplay layouts).
+      p.motion === 35 ||
       !own(p.asset.replace(/-0$/, "")) ||
       !visible(p.centre, p.size)
     )

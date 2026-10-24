@@ -1,0 +1,6364 @@
+[
+ {
+  "name": "taiko-1017",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1016.6666666666667,
+  "from": 0,
+  "frames": [
+   {
+    "time": 0,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1000,
+    "x": 0,
+    "y": 0,
+    "keys": 1
+   },
+   {
+    "time": 1050,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1500,
+    "x": 0,
+    "y": 0,
+    "keys": 8
+   },
+   {
+    "time": 1550,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 2000,
+    "x": 0,
+    "y": 0,
+    "keys": 5
+   },
+   {
+    "time": 2050,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 2500,
+    "x": 0,
+    "y": 0,
+    "keys": 10
+   },
+   {
+    "time": 2550,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 2600,
+    "x": 0,
+    "y": 0,
+    "keys": 1
+   },
+   {
+    "time": 2650,
+    "x": 0,
+    "y": 0,
+    "keys": 0
+   }
+  ],
+  "result": {
+   "name": "taiko-1017",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1050",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1050,
+  "from": 0,
+  "result": {
+   "name": "taiko-1050",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.8594,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1067",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1066.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-1067",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1100",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1100,
+  "from": 0,
+  "result": {
+   "name": "taiko-1100",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1117",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1116.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-1117",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1133",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1133.3333333333335,
+  "from": 0,
+  "result": {
+   "name": "taiko-1133",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1517",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1516.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-1517",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1567",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1566.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-1567",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-1600",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1600,
+  "from": 0,
+  "result": {
+   "name": "taiko-1600",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-2017",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2016.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-2017",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      179.6,
+      216,
+      89.6,
+      216,
+      179.6,
+      356,
+      89.6,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-2067",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2066.666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-2067",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      179.6,
+      216,
+      89.6,
+      216,
+      179.6,
+      356,
+      89.6,
+      356
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-2517",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2516.666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-2517",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      100,
+      216,
+      0,
+      216,
+      100,
+      366,
+      0,
+      366
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-2617",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2616.666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-2617",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      100,
+      216,
+      0,
+      216,
+      100,
+      366,
+      0,
+      366
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-2633",
+  "ruleset": "taiko",
+  "skin": "gameplay",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2633.3333333333335,
+  "from": 0,
+  "result": {
+   "name": "taiko-2633",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      100,
+      216,
+      0,
+      216,
+      100,
+      366,
+      0,
+      366
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.6597,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      0,
+      216,
+      90,
+      216,
+      0,
+      356,
+      90,
+      356
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      89.6,
+      216,
+      189.6,
+      216,
+      89.6,
+      366,
+      189.6,
+      366
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1167",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1166.6666666666667,
+  "from": 0,
+  "frames": [
+   {
+    "time": 1000,
+    "x": 256,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1000,
+    "x": 256,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1250,
+    "x": 50,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1400,
+    "x": 470,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1700,
+    "x": 470,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 1772,
+    "x": 470,
+    "y": 0,
+    "keys": 0
+   },
+   {
+    "time": 2200,
+    "x": 256,
+    "y": 0,
+    "keys": 0
+   }
+  ],
+  "result": {
+   "name": "catch-1167",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": []
+  }
+ },
+ {
+  "name": "catch-1267",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1266.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "catch-1267",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.36,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.4,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.9861,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.042,
+      649.493,
+      262.091,
+      649.493,
+      444.042,
+      843.574,
+      262.091,
+      843.574
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1300",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1300,
+  "from": 0,
+  "result": {
+   "name": "catch-1300",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2897,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.3233,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.36,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      406.64,
+      648.986,
+      598.16,
+      648.986,
+      406.64,
+      853.274,
+      598.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.4,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      481.307,
+      648.986,
+      672.827,
+      648.986,
+      481.307,
+      853.274,
+      672.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.9583,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.07,
+      649.465,
+      262.063,
+      649.465,
+      444.07,
+      843.606,
+      262.063,
+      843.606
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1333",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1333.3333333333335,
+  "from": 0,
+  "result": {
+   "name": "catch-1333",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2308,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2589,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2897,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      406.64,
+      648.986,
+      598.16,
+      648.986,
+      406.64,
+      853.274,
+      598.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.3233,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      481.307,
+      648.986,
+      672.827,
+      648.986,
+      481.307,
+      853.274,
+      672.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.36,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      555.973,
+      648.986,
+      747.493,
+      648.986,
+      555.973,
+      853.274,
+      747.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.4,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      630.64,
+      648.986,
+      822.16,
+      648.986,
+      630.64,
+      853.274,
+      822.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.9306,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.126,
+      649.41,
+      262.007,
+      649.41,
+      444.126,
+      843.671,
+      262.007,
+      843.671
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1417",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1416.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "catch-1417",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1244,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1416,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1608,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      406.64,
+      648.986,
+      598.16,
+      648.986,
+      406.64,
+      853.274,
+      598.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1819,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      481.307,
+      648.986,
+      672.827,
+      648.986,
+      481.307,
+      853.274,
+      672.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2052,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      555.973,
+      648.986,
+      747.493,
+      648.986,
+      555.973,
+      853.274,
+      747.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2308,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      630.64,
+      648.986,
+      822.16,
+      648.986,
+      630.64,
+      853.274,
+      822.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2589,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      705.307,
+      648.986,
+      896.827,
+      648.986,
+      705.307,
+      853.274,
+      896.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2897,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      779.973,
+      648.986,
+      971.493,
+      648.986,
+      779.973,
+      853.274,
+      971.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.3233,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      854.64,
+      648.986,
+      1046.16,
+      648.986,
+      854.64,
+      853.274,
+      1046.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.36,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      929.307,
+      648.986,
+      1120.827,
+      648.986,
+      929.307,
+      853.274,
+      1120.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.8611,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.39,
+      649.15,
+      261.744,
+      649.15,
+      444.39,
+      843.973,
+      261.744,
+      843.973
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1450",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1450,
+  "from": 0,
+  "result": {
+   "name": "catch-1450",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0949,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1089,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1244,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      406.64,
+      648.986,
+      598.16,
+      648.986,
+      406.64,
+      853.274,
+      598.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1416,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      481.307,
+      648.986,
+      672.827,
+      648.986,
+      481.307,
+      853.274,
+      672.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1608,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      555.973,
+      648.986,
+      747.493,
+      648.986,
+      555.973,
+      853.274,
+      747.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1819,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      630.64,
+      648.986,
+      822.16,
+      648.986,
+      630.64,
+      853.274,
+      822.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2052,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      705.307,
+      648.986,
+      896.827,
+      648.986,
+      705.307,
+      853.274,
+      896.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2308,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      779.973,
+      648.986,
+      971.493,
+      648.986,
+      779.973,
+      853.274,
+      971.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2589,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      854.64,
+      648.986,
+      1046.16,
+      648.986,
+      854.64,
+      853.274,
+      1046.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2897,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      929.307,
+      648.986,
+      1120.827,
+      648.986,
+      929.307,
+      853.274,
+      1120.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.8333,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.544,
+      648.998,
+      261.589,
+      648.998,
+      444.544,
+      844.15,
+      261.589,
+      844.15
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1500",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1500,
+  "from": 0,
+  "result": {
+   "name": "catch-1500",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0614,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      448.827,
+      648.986,
+      257.307,
+      648.986,
+      448.827,
+      853.274,
+      257.307,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0713,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      331.973,
+      648.986,
+      523.493,
+      648.986,
+      331.973,
+      853.274,
+      523.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0825,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      406.64,
+      648.986,
+      598.16,
+      648.986,
+      406.64,
+      853.274,
+      598.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0949,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      481.307,
+      648.986,
+      672.827,
+      648.986,
+      481.307,
+      853.274,
+      672.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1089,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      555.973,
+      648.986,
+      747.493,
+      648.986,
+      555.973,
+      853.274,
+      747.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1244,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      630.64,
+      648.986,
+      822.16,
+      648.986,
+      630.64,
+      853.274,
+      822.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1416,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      705.307,
+      648.986,
+      896.827,
+      648.986,
+      705.307,
+      853.274,
+      896.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1608,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      779.973,
+      648.986,
+      971.493,
+      648.986,
+      779.973,
+      853.274,
+      971.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.1819,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      854.64,
+      648.986,
+      1046.16,
+      648.986,
+      854.64,
+      853.274,
+      1046.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.2052,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      929.307,
+      648.986,
+      1120.827,
+      648.986,
+      929.307,
+      853.274,
+      1120.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.7917,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      444.828,
+      648.718,
+      261.305,
+      648.718,
+      444.828,
+      844.476,
+      261.305,
+      844.476
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1667",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1666.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "catch-1667",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0225,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      555.973,
+      648.986,
+      747.493,
+      648.986,
+      555.973,
+      853.274,
+      747.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.027,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      630.64,
+      648.986,
+      822.16,
+      648.986,
+      630.64,
+      853.274,
+      822.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0322,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      705.307,
+      648.986,
+      896.827,
+      648.986,
+      705.307,
+      853.274,
+      896.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0381,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      779.973,
+      648.986,
+      971.493,
+      648.986,
+      779.973,
+      853.274,
+      971.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0449,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      854.64,
+      648.986,
+      1046.16,
+      648.986,
+      854.64,
+      853.274,
+      1046.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0527,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      929.307,
+      648.986,
+      1120.827,
+      648.986,
+      929.307,
+      853.274,
+      1120.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.6528,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      446.232,
+      647.333,
+      259.901,
+      647.333,
+      446.232,
+      846.087,
+      259.901,
+      846.087
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1717",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1716.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "catch-1717",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear:wrap-0-0",
+      "display": [
+       120,
+       120
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1004.345,
+      609.042,
+      1057.743,
+      620.996,
+      992.39,
+      662.44,
+      1045.789,
+      674.394
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear-overlay:wrap-0-0",
+      "display": [
+       110,
+       110
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1006.071,
+      611.765,
+      1055.02,
+      622.723,
+      995.114,
+      660.713,
+      1044.062,
+      671.671
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.6844,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      1022.069,
+      594.063,
+      1088.447,
+      601.176,
+      1014.956,
+      660.441,
+      1081.334,
+      667.555
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      0.0734,
+      0.5065,
+      1.0417
+     ],
+     "additive": false,
+     "quad": [
+      1027.008,
+      600.187,
+      1082.323,
+      606.115,
+      1021.08,
+      655.503,
+      1076.395,
+      661.431
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes-overlay:wrap-0-0",
+      "display": [
+       112,
+       112
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1029.032,
+      602.697,
+      1079.813,
+      608.139,
+      1023.59,
+      653.479,
+      1074.371,
+      658.92
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple:wrap-0-0",
+      "display": [
+       124,
+       124
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      0.9761,
+      0.0967,
+      0.2299
+     ],
+     "additive": false,
+     "quad": [
+      1032.457,
+      583.964,
+      1089,
+      583.622,
+      1032.8,
+      640.507,
+      1089.343,
+      640.165
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple-overlay:wrap-0-0",
+      "display": [
+       114,
+       114
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1034.751,
+      586.23,
+      1086.734,
+      585.916,
+      1035.066,
+      638.213,
+      1087.049,
+      637.899
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange:wrap-0-0",
+      "display": [
+       126,
+       126
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      0.9575,
+      0.7209,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      977.256,
+      601.725,
+      1034.63,
+      604.798,
+      974.182,
+      659.098,
+      1031.556,
+      662.172
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange-overlay:wrap-0-0",
+      "display": [
+       116,
+       116
+      ]
+     },
+     "alpha": 0.9778,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      979.411,
+      604.123,
+      1032.231,
+      606.953,
+      976.581,
+      656.943,
+      1029.401,
+      659.773
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0225,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      779.973,
+      648.986,
+      971.493,
+      648.986,
+      779.973,
+      853.274,
+      971.493,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.027,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      854.64,
+      648.986,
+      1046.16,
+      648.986,
+      854.64,
+      853.274,
+      1046.16,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.0322,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      929.307,
+      648.986,
+      1120.827,
+      648.986,
+      929.307,
+      853.274,
+      1120.827,
+      853.274
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.6111,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      446.79,
+      646.783,
+      259.343,
+      646.783,
+      446.79,
+      846.727,
+      259.343,
+      846.727
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1800",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1800.0000000000002,
+  "from": 0,
+  "result": {
+   "name": "catch-1800",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear:wrap-0-0",
+      "display": [
+       120,
+       120
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1004.345,
+      570.381,
+      1057.743,
+      582.335,
+      992.39,
+      623.779,
+      1045.789,
+      635.733
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear-overlay:wrap-0-0",
+      "display": [
+       110,
+       110
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1006.071,
+      573.104,
+      1055.02,
+      584.062,
+      995.113,
+      622.053,
+      1044.062,
+      633.01
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.6067,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      1023.905,
+      557.658,
+      1090.284,
+      564.772,
+      1016.792,
+      624.037,
+      1083.17,
+      631.15
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      0.0734,
+      0.5065,
+      1.0417
+     ],
+     "additive": false,
+     "quad": [
+      1028.844,
+      563.783,
+      1084.159,
+      569.71,
+      1022.916,
+      619.098,
+      1078.232,
+      625.026
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes-overlay:wrap-0-0",
+      "display": [
+       112,
+       112
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1030.868,
+      566.293,
+      1081.649,
+      571.735,
+      1025.426,
+      617.074,
+      1076.207,
+      622.516
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple:wrap-0-0",
+      "display": [
+       124,
+       124
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      0.9761,
+      0.0967,
+      0.2299
+     ],
+     "additive": false,
+     "quad": [
+      973.023,
+      561.683,
+      1029.566,
+      561.34,
+      973.365,
+      618.225,
+      1029.908,
+      617.883
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple-overlay:wrap-0-0",
+      "display": [
+       114,
+       114
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      975.317,
+      563.949,
+      1027.3,
+      563.634,
+      975.631,
+      615.932,
+      1027.614,
+      615.617
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange:wrap-0-0",
+      "display": [
+       126,
+       126
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      0.9575,
+      0.7209,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      958.292,
+      544.12,
+      1015.665,
+      547.194,
+      955.218,
+      601.494,
+      1012.592,
+      604.568
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange-overlay:wrap-0-0",
+      "display": [
+       116,
+       116
+      ]
+     },
+     "alpha": 0.8667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      960.447,
+      546.519,
+      1013.267,
+      549.349,
+      957.617,
+      599.339,
+      1010.437,
+      602.169
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.5417,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      447.861,
+      645.728,
+      258.273,
+      645.728,
+      447.861,
+      847.955,
+      258.273,
+      847.955
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-1900",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1900.0000000000002,
+  "from": 0,
+  "result": {
+   "name": "catch-1900",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear:wrap-0-0",
+      "display": [
+       120,
+       120
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1004.345,
+      541.319,
+      1057.743,
+      553.273,
+      992.39,
+      594.718,
+      1045.789,
+      606.672
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear-overlay:wrap-0-0",
+      "display": [
+       110,
+       110
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1006.071,
+      544.042,
+      1055.02,
+      555,
+      995.113,
+      592.991,
+      1044.062,
+      603.949
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.5133,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      964.286,
+      512.673,
+      1030.665,
+      519.786,
+      957.173,
+      579.051,
+      1023.551,
+      586.164
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      0.0734,
+      0.5065,
+      1.0417
+     ],
+     "additive": false,
+     "quad": [
+      969.225,
+      518.797,
+      1024.541,
+      524.725,
+      963.298,
+      574.112,
+      1018.613,
+      580.04
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes-overlay:wrap-0-0",
+      "display": [
+       112,
+       112
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      971.249,
+      521.307,
+      1022.03,
+      526.749,
+      965.807,
+      572.088,
+      1016.589,
+      577.53
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple:wrap-0-0",
+      "display": [
+       124,
+       124
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      0.9761,
+      0.0967,
+      0.2299
+     ],
+     "additive": false,
+     "quad": [
+      932.986,
+      539.947,
+      989.529,
+      539.605,
+      933.329,
+      596.49,
+      989.872,
+      596.147
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple-overlay:wrap-0-0",
+      "display": [
+       114,
+       114
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      935.28,
+      542.213,
+      987.263,
+      541.898,
+      935.595,
+      594.196,
+      987.578,
+      593.881
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange:wrap-0-0",
+      "display": [
+       126,
+       126
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      0.9575,
+      0.7209,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1026.521,
+      529.502,
+      1083.894,
+      532.576,
+      1023.447,
+      586.875,
+      1080.82,
+      589.949
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange-overlay:wrap-0-0",
+      "display": [
+       116,
+       116
+      ]
+     },
+     "alpha": 0.7333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1028.675,
+      531.9,
+      1081.495,
+      534.73,
+      1025.845,
+      584.721,
+      1078.666,
+      587.551
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.4583,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      449.377,
+      644.232,
+      256.756,
+      644.232,
+      449.377,
+      849.694,
+      256.756,
+      849.694
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "catch-2000",
+  "ruleset": "catch",
+  "skin": "gameplay",
+  "map": "catch",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2000.0000000000002,
+  "from": 0,
+  "result": {
+   "name": "catch-2000",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear:wrap-0-0",
+      "display": [
+       120,
+       120
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1004.344,
+      539.374,
+      1057.743,
+      551.328,
+      992.39,
+      592.772,
+      1045.789,
+      604.726
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-pear-overlay:wrap-0-0",
+      "display": [
+       110,
+       110
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1006.071,
+      542.097,
+      1055.02,
+      553.055,
+      995.113,
+      591.045,
+      1044.062,
+      602.003
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.42,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      1055.716,
+      523.254,
+      1122.095,
+      530.367,
+      1048.603,
+      589.632,
+      1114.981,
+      596.746
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes:wrap-0-0",
+      "display": [
+       122,
+       122
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      0.0734,
+      0.5065,
+      1.0417
+     ],
+     "additive": false,
+     "quad": [
+      1060.655,
+      529.378,
+      1115.97,
+      535.306,
+      1054.727,
+      584.694,
+      1110.043,
+      590.621
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-grapes-overlay:wrap-0-0",
+      "display": [
+       112,
+       112
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1062.679,
+      531.888,
+      1113.46,
+      537.33,
+      1057.237,
+      582.67,
+      1108.019,
+      588.111
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple:wrap-0-0",
+      "display": [
+       124,
+       124
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      0.9761,
+      0.0967,
+      0.2299
+     ],
+     "additive": false,
+     "quad": [
+      940.951,
+      527.94,
+      997.494,
+      527.598,
+      941.293,
+      584.483,
+      997.836,
+      584.141
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-apple-overlay:wrap-0-0",
+      "display": [
+       114,
+       114
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      943.244,
+      530.206,
+      995.227,
+      529.892,
+      943.559,
+      582.189,
+      995.542,
+      581.875
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange:wrap-0-0",
+      "display": [
+       126,
+       126
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      0.9575,
+      0.7209,
+      0
+     ],
+     "additive": false,
+     "quad": [
+      1032.48,
+      513.757,
+      1089.854,
+      516.831,
+      1029.406,
+      571.131,
+      1086.78,
+      574.205
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyFruitPiece",
+      "CaughtFruit",
+      "DroppedObjectContainer",
+      "CatchPlayfield"
+     ],
+     "texture": {
+      "name": "fruit-orange-overlay:wrap-0-0",
+      "display": [
+       116,
+       116
+      ]
+     },
+     "alpha": 0.6,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      1034.635,
+      516.156,
+      1087.455,
+      518.986,
+      1031.805,
+      568.976,
+      1084.625,
+      571.806
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyCatcherNew",
+      "SkinnableCatcher",
+      "CatcherTrail",
+      "Container`1"
+     ],
+     "texture": {
+      "name": "fruit-catcher-idle:wrap-0-0",
+      "display": [
+       300,
+       320
+      ]
+     },
+     "alpha": 0.375,
+     "colour": [
+      1,
+      0,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      451.146,
+      642.488,
+      254.987,
+      642.488,
+      451.146,
+      851.724,
+      254.987,
+      851.724
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-967",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 966.6666666666667,
+  "from": 0,
+  "frames": [
+   {
+    "time": -500,
+    "x": 256,
+    "y": 500,
+    "keys": 0
+   },
+   {
+    "time": 500,
+    "x": 256,
+    "y": 500,
+    "keys": 0
+   },
+   {
+    "time": 516,
+    "x": 245.773,
+    "y": 473.778,
+    "keys": 0
+   },
+   {
+    "time": 533,
+    "x": 235.893,
+    "y": 448.444,
+    "keys": 0
+   },
+   {
+    "time": 549,
+    "x": 226.36,
+    "y": 424,
+    "keys": 0
+   },
+   {
+    "time": 566,
+    "x": 217.173,
+    "y": 400.444,
+    "keys": 0
+   },
+   {
+    "time": 583,
+    "x": 208.333,
+    "y": 377.778,
+    "keys": 0
+   },
+   {
+    "time": 599,
+    "x": 199.84,
+    "y": 356,
+    "keys": 0
+   },
+   {
+    "time": 616,
+    "x": 191.693,
+    "y": 335.111,
+    "keys": 0
+   },
+   {
+    "time": 633,
+    "x": 183.893,
+    "y": 315.111,
+    "keys": 0
+   },
+   {
+    "time": 649,
+    "x": 176.44,
+    "y": 296,
+    "keys": 0
+   },
+   {
+    "time": 666,
+    "x": 169.333,
+    "y": 277.778,
+    "keys": 0
+   },
+   {
+    "time": 683,
+    "x": 162.573,
+    "y": 260.444,
+    "keys": 0
+   },
+   {
+    "time": 699,
+    "x": 156.16,
+    "y": 244,
+    "keys": 0
+   },
+   {
+    "time": 716,
+    "x": 150.093,
+    "y": 228.444,
+    "keys": 0
+   },
+   {
+    "time": 733,
+    "x": 144.373,
+    "y": 213.778,
+    "keys": 0
+   },
+   {
+    "time": 749,
+    "x": 139,
+    "y": 200,
+    "keys": 0
+   },
+   {
+    "time": 766,
+    "x": 133.973,
+    "y": 187.111,
+    "keys": 0
+   },
+   {
+    "time": 783,
+    "x": 129.293,
+    "y": 175.111,
+    "keys": 0
+   },
+   {
+    "time": 799,
+    "x": 124.96,
+    "y": 164,
+    "keys": 0
+   },
+   {
+    "time": 816,
+    "x": 120.973,
+    "y": 153.778,
+    "keys": 0
+   },
+   {
+    "time": 833,
+    "x": 117.333,
+    "y": 144.444,
+    "keys": 0
+   },
+   {
+    "time": 849,
+    "x": 114.04,
+    "y": 136,
+    "keys": 0
+   },
+   {
+    "time": 866,
+    "x": 111.093,
+    "y": 128.444,
+    "keys": 0
+   },
+   {
+    "time": 883,
+    "x": 108.493,
+    "y": 121.778,
+    "keys": 0
+   },
+   {
+    "time": 899,
+    "x": 106.24,
+    "y": 116,
+    "keys": 0
+   },
+   {
+    "time": 916,
+    "x": 104.333,
+    "y": 111.111,
+    "keys": 0
+   },
+   {
+    "time": 933,
+    "x": 102.773,
+    "y": 107.111,
+    "keys": 0
+   },
+   {
+    "time": 949,
+    "x": 101.56,
+    "y": 104,
+    "keys": 0
+   },
+   {
+    "time": 966,
+    "x": 100.693,
+    "y": 101.778,
+    "keys": 0
+   },
+   {
+    "time": 983,
+    "x": 100.173,
+    "y": 100.444,
+    "keys": 0
+   },
+   {
+    "time": 999,
+    "x": 100,
+    "y": 100,
+    "keys": 0
+   },
+   {
+    "time": 1000,
+    "x": 100,
+    "y": 100,
+    "keys": 1
+   },
+   {
+    "time": 1050,
+    "x": 157,
+    "y": 138,
+    "keys": 0
+   },
+   {
+    "time": 1066,
+    "x": 174.667,
+    "y": 149.778,
+    "keys": 0
+   },
+   {
+    "time": 1083,
+    "x": 191.667,
+    "y": 161.111,
+    "keys": 0
+   },
+   {
+    "time": 1100,
+    "x": 208,
+    "y": 172,
+    "keys": 0
+   },
+   {
+    "time": 1116,
+    "x": 223.667,
+    "y": 182.444,
+    "keys": 0
+   },
+   {
+    "time": 1133,
+    "x": 238.667,
+    "y": 192.444,
+    "keys": 0
+   },
+   {
+    "time": 1150,
+    "x": 253,
+    "y": 202,
+    "keys": 0
+   },
+   {
+    "time": 1166,
+    "x": 266.667,
+    "y": 211.111,
+    "keys": 0
+   },
+   {
+    "time": 1183,
+    "x": 279.667,
+    "y": 219.778,
+    "keys": 0
+   },
+   {
+    "time": 1200,
+    "x": 292,
+    "y": 228,
+    "keys": 0
+   },
+   {
+    "time": 1216,
+    "x": 303.667,
+    "y": 235.778,
+    "keys": 0
+   },
+   {
+    "time": 1233,
+    "x": 314.667,
+    "y": 243.111,
+    "keys": 0
+   },
+   {
+    "time": 1250,
+    "x": 325,
+    "y": 250,
+    "keys": 0
+   },
+   {
+    "time": 1266,
+    "x": 334.667,
+    "y": 256.444,
+    "keys": 0
+   },
+   {
+    "time": 1283,
+    "x": 343.667,
+    "y": 262.444,
+    "keys": 0
+   },
+   {
+    "time": 1300,
+    "x": 352,
+    "y": 268,
+    "keys": 0
+   },
+   {
+    "time": 1316,
+    "x": 359.667,
+    "y": 273.111,
+    "keys": 0
+   },
+   {
+    "time": 1333,
+    "x": 366.667,
+    "y": 277.778,
+    "keys": 0
+   },
+   {
+    "time": 1350,
+    "x": 373,
+    "y": 282,
+    "keys": 0
+   },
+   {
+    "time": 1366,
+    "x": 378.667,
+    "y": 285.778,
+    "keys": 0
+   },
+   {
+    "time": 1383,
+    "x": 383.667,
+    "y": 289.111,
+    "keys": 0
+   },
+   {
+    "time": 1400,
+    "x": 388,
+    "y": 292,
+    "keys": 0
+   },
+   {
+    "time": 1416,
+    "x": 391.667,
+    "y": 294.444,
+    "keys": 0
+   },
+   {
+    "time": 1433,
+    "x": 394.667,
+    "y": 296.444,
+    "keys": 0
+   },
+   {
+    "time": 1450,
+    "x": 397,
+    "y": 298,
+    "keys": 0
+   },
+   {
+    "time": 1466,
+    "x": 398.667,
+    "y": 299.111,
+    "keys": 0
+   },
+   {
+    "time": 1483,
+    "x": 399.667,
+    "y": 299.778,
+    "keys": 0
+   },
+   {
+    "time": 1500,
+    "x": 400,
+    "y": 300,
+    "keys": 1
+   },
+   {
+    "time": 1550,
+    "x": 372.64,
+    "y": 279.48,
+    "keys": 0
+   },
+   {
+    "time": 1566,
+    "x": 364.16,
+    "y": 273.12,
+    "keys": 0
+   },
+   {
+    "time": 1583,
+    "x": 356,
+    "y": 267,
+    "keys": 0
+   },
+   {
+    "time": 1600,
+    "x": 348.16,
+    "y": 261.12,
+    "keys": 0
+   },
+   {
+    "time": 1616,
+    "x": 340.64,
+    "y": 255.48,
+    "keys": 0
+   },
+   {
+    "time": 1633,
+    "x": 333.44,
+    "y": 250.08,
+    "keys": 0
+   },
+   {
+    "time": 1650,
+    "x": 326.56,
+    "y": 244.92,
+    "keys": 0
+   },
+   {
+    "time": 1666,
+    "x": 320,
+    "y": 240,
+    "keys": 0
+   },
+   {
+    "time": 1683,
+    "x": 313.76,
+    "y": 235.32,
+    "keys": 0
+   },
+   {
+    "time": 1700,
+    "x": 307.84,
+    "y": 230.88,
+    "keys": 0
+   },
+   {
+    "time": 1716,
+    "x": 302.24,
+    "y": 226.68,
+    "keys": 0
+   },
+   {
+    "time": 1733,
+    "x": 296.96,
+    "y": 222.72,
+    "keys": 0
+   },
+   {
+    "time": 1750,
+    "x": 292,
+    "y": 219,
+    "keys": 0
+   },
+   {
+    "time": 1766,
+    "x": 287.36,
+    "y": 215.52,
+    "keys": 0
+   },
+   {
+    "time": 1783,
+    "x": 283.04,
+    "y": 212.28,
+    "keys": 0
+   },
+   {
+    "time": 1800,
+    "x": 279.04,
+    "y": 209.28,
+    "keys": 0
+   },
+   {
+    "time": 1816,
+    "x": 275.36,
+    "y": 206.52,
+    "keys": 0
+   },
+   {
+    "time": 1833,
+    "x": 272,
+    "y": 204,
+    "keys": 0
+   },
+   {
+    "time": 1850,
+    "x": 268.96,
+    "y": 201.72,
+    "keys": 0
+   },
+   {
+    "time": 1866,
+    "x": 266.24,
+    "y": 199.68,
+    "keys": 0
+   },
+   {
+    "time": 1883,
+    "x": 263.84,
+    "y": 197.88,
+    "keys": 0
+   },
+   {
+    "time": 1900,
+    "x": 261.76,
+    "y": 196.32,
+    "keys": 0
+   },
+   {
+    "time": 1916,
+    "x": 260,
+    "y": 195,
+    "keys": 0
+   },
+   {
+    "time": 1933,
+    "x": 258.56,
+    "y": 193.92,
+    "keys": 0
+   },
+   {
+    "time": 1950,
+    "x": 257.44,
+    "y": 193.08,
+    "keys": 0
+   },
+   {
+    "time": 1966,
+    "x": 256.64,
+    "y": 192.48,
+    "keys": 0
+   },
+   {
+    "time": 1983,
+    "x": 256.16,
+    "y": 192.12,
+    "keys": 0
+   },
+   {
+    "time": 2000,
+    "x": 256,
+    "y": 192,
+    "keys": 1
+   },
+   {
+    "time": 2050,
+    "x": 256,
+    "y": 192,
+    "keys": 0
+   }
+  ],
+  "result": {
+   "name": "osu-967",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      404.143,
+      222.361,
+      464.143,
+      222.361,
+      404.143,
+      282.361,
+      464.143,
+      282.361
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      424.143,
+      242.361,
+      444.143,
+      242.361,
+      424.143,
+      262.361,
+      444.143,
+      262.361
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1000",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1000.0000000000001,
+  "from": 0,
+  "result": {
+   "name": "osu-1000",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      403.067,
+      219.6,
+      463.067,
+      219.6,
+      403.067,
+      279.6,
+      463.067,
+      279.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      423.067,
+      239.6,
+      443.067,
+      239.6,
+      423.067,
+      259.6,
+      443.067,
+      259.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1033",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1033.3333333333335,
+  "from": 0,
+  "result": {
+   "name": "osu-1033",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      458.867,
+      255.133,
+      528.867,
+      255.133,
+      458.867,
+      325.133,
+      528.867,
+      325.133
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      483.867,
+      280.133,
+      503.867,
+      280.133,
+      483.867,
+      300.133,
+      503.867,
+      300.133
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1067",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1066.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "osu-1067",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      518.913,
+      295.268,
+      588.288,
+      295.268,
+      518.913,
+      364.643,
+      588.288,
+      364.643
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      543.6,
+      319.955,
+      563.6,
+      319.955,
+      543.6,
+      339.955,
+      563.6,
+      339.955
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1100",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1100,
+  "from": 0,
+  "result": {
+   "name": "osu-1100",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      574.179,
+      333.113,
+      637.554,
+      333.113,
+      574.179,
+      396.488,
+      637.554,
+      396.488
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      595.867,
+      354.8,
+      615.867,
+      354.8,
+      595.867,
+      374.8,
+      615.867,
+      374.8
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1250",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1250,
+  "from": 0,
+  "result": {
+   "name": "osu-1250",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      763.067,
+      459.6,
+      823.067,
+      459.6,
+      763.067,
+      519.6,
+      823.067,
+      519.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      783.067,
+      479.6,
+      803.067,
+      479.6,
+      783.067,
+      499.6,
+      803.067,
+      499.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1500",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1500,
+  "from": 0,
+  "result": {
+   "name": "osu-1500",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      883.067,
+      539.6,
+      943.067,
+      539.6,
+      883.067,
+      599.6,
+      943.067,
+      599.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      903.067,
+      559.6,
+      923.067,
+      559.6,
+      903.067,
+      579.6,
+      923.067,
+      579.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1550",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1550,
+  "from": 0,
+  "result": {
+   "name": "osu-1550",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      832.541,
+      500.018,
+      906.041,
+      500.018,
+      832.541,
+      573.518,
+      906.041,
+      573.518
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      859.291,
+      526.768,
+      879.291,
+      526.768,
+      859.291,
+      546.768,
+      879.291,
+      546.768
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1600",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1600,
+  "from": 0,
+  "result": {
+   "name": "osu-1600",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      798.435,
+      475.704,
+      861.81,
+      475.704,
+      798.435,
+      539.08,
+      861.81,
+      539.08
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      820.123,
+      497.392,
+      840.123,
+      497.392,
+      820.123,
+      517.392,
+      840.123,
+      517.392
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "osu-1750",
+  "ruleset": "osu",
+  "skin": "gameplay",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1750.0000000000002,
+  "from": 0,
+  "result": {
+   "name": "osu-1750",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursor:wrap-0-0",
+      "display": [
+       37.5,
+       37.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      710.267,
+      410,
+      770.267,
+      410,
+      710.267,
+      470,
+      770.267,
+      470
+     ],
+     "clip": null
+    },
+    {
+     "type": "NonPlayfieldSprite",
+     "path": [
+      "LegacyCursor",
+      "SkinnableDrawable",
+      "Container",
+      "OsuCursor"
+     ],
+     "texture": {
+      "name": "cursormiddle:wrap-0-0",
+      "display": [
+       12.5,
+       12.5
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      730.267,
+      430,
+      750.267,
+      430,
+      730.267,
+      450,
+      750.267,
+      450
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-old-1017",
+  "ruleset": "taiko",
+  "skin": "gameplay-old",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1016.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-old-1017",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      28.8,
+      265.6,
+      118.8,
+      265.6,
+      28.8,
+      405.6,
+      118.8,
+      405.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-old-1050",
+  "ruleset": "taiko",
+  "skin": "gameplay-old",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1050,
+  "from": 0,
+  "result": {
+   "name": "taiko-old-1050",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.8594,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      28.8,
+      265.6,
+      118.8,
+      265.6,
+      28.8,
+      405.6,
+      118.8,
+      405.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-old-1117",
+  "ruleset": "taiko",
+  "skin": "gameplay-old",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1116.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-old-1117",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      28.8,
+      265.6,
+      118.8,
+      265.6,
+      28.8,
+      405.6,
+      118.8,
+      405.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-old-1517",
+  "ruleset": "taiko",
+  "skin": "gameplay-old",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1516.6666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-old-1517",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-outer:wrap-0-0",
+      "display": [
+       100,
+       150
+      ]
+     },
+     "alpha": 0.3733,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      84.8,
+      252.8,
+      184.8,
+      252.8,
+      84.8,
+      402.8,
+      184.8,
+      402.8
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "taiko-old-2067",
+  "ruleset": "taiko",
+  "skin": "gameplay-old",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 2066.666666666667,
+  "from": 0,
+  "result": {
+   "name": "taiko-old-2067",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      28.8,
+      265.6,
+      118.8,
+      265.6,
+      28.8,
+      405.6,
+      118.8,
+      405.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "LegacyHalfDrum",
+      "Container",
+      "LegacyInputDrum",
+      "SkinnableDrawable"
+     ],
+     "texture": {
+      "name": "taiko-drum-inner:wrap-0-0",
+      "display": [
+       90,
+       140
+      ]
+     },
+     "alpha": 0.9722,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      176.4,
+      265.6,
+      86.4,
+      265.6,
+      176.4,
+      405.6,
+      86.4,
+      405.6
+     ],
+     "clip": null
+    }
+   ]
+  }
+ }
+]

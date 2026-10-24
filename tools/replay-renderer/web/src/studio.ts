@@ -1,7 +1,6 @@
 import {
   parseReplay,
   frameAt,
-  columnKeys,
   stateAt,
   playableMap,
   judgeReplay,
@@ -330,6 +329,10 @@ export async function loadTrack(
     hitLighting: settings.hit_lighting !== 0,
     taikoTopArea: settings["taiko.top_area"] !== 0,
     judgements: simulation ? judgementEvents(simulation) : undefined,
+    // The replay's own input: drum hits, dash trails, key and light timing,
+    // the skin's cursor; and lazer's gameplay playfield position.
+    input: replay.frames,
+    playfieldShift: true,
   });
   const content = await probeContent(renderer, replay.mode);
   return {
@@ -588,12 +591,8 @@ export class Composition {
           pressed: !!frame.keys,
           scale: settings["cursor.size"] ?? 1,
         },
+        // The look-back trail for skins without a cursortrail image.
         cursorTrail: trail,
-        // Pressed mania keys light the stage's own key images (part of the skin).
-        keys:
-          track.replay.mode === 3
-            ? columnKeys(frame, Math.round(track.map.difficulty.cs))
-            : undefined,
       });
       const { width: tw, height: th } = resource;
       const commands = track.renderer.device.createCommandEncoder();
