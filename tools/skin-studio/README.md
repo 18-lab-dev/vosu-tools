@@ -52,6 +52,10 @@ The **Explorer** tab is an in-page browser (no native file dialog) for any libra
 
 The **Preview** tab plays a short looping demo map per ruleset (`packages/demo-maps`: osu!, taiko, catch, and mania 1K–10K) through the shared renderer (`packages/render-core`: WebGPU, or WebGL2 without it; the preview status names the one drawing) with the selected skin, including unsaved skin.ini edits, or the mix draft with its overrides. Mania offers exactly the key counts that have a `[Mania]` block with `Keys: N` in the previewed skin.ini, in order (lazer's default 4K and 7K when it defines none); dual-stage counts above 10K are listed but not previewed. Only the shown key count's stage is decoded. It is muted and draws nothing while hidden.
 
+## Loading
+
+The first view (library, Elements, Explorer, Mix) loads about 100 KB of script and style; skin.ini text is held outside the editor. The Monaco editor (only its core and the suggest, hover, colour picker, code action and snippet contributions; no other languages) is a separate chunk loaded when the skin.ini tab first opens, and prefetched into the HTTP cache, without running, once the first view is idle (`editor-prefetch.json`, written by `web/vite.config.ts`). Word-based suggestions and link detection are off, so the editor worker only starts if Monaco needs it. The Preview tab's renderer loads with that tab. Explorer thumbnails are decoded and scaled once in a worker (`src/thumbs.worker.ts`) and kept as small bitmaps, only for rows on screen.
+
 ## Settings
 
 `settings.json`: Stable Skins folder, show lazer skins, credits file, and which ruleset's elements to show first (`follow` tracks the current beatmap's ruleset live).
