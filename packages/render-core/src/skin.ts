@@ -384,10 +384,17 @@ export async function loadSkin(
 }
 
 /** Whether an asset key (or animation frame key) belongs to a general element. */
+/**
+ * The element an asset key belongs to: itself, or the animation it is a
+ * frame of (`name-3`, or `sliderb3` / `pippidonidle3` for the elements whose
+ * frames have no dash).
+ */
+export function frameOwner(key: string): string {
+  const undashed = /^(sliderb|pippidon(?:idle|kiai|fail|clear))\d+$/.exec(key);
+  return undashed ? undashed[1] : key.replace(/-\d+$/, "");
+}
 const isGeneral = (key: string, general: ReadonlySet<string>) =>
-  general.has(key) ||
-  general.has(key.replace(/-\d+$/, "")) ||
-  (key.startsWith("sliderb") && general.has("sliderb"));
+  general.has(key) || general.has(frameOwner(key));
 
 /**
  * The skin with mania images for exactly these key counts: images already
@@ -414,7 +421,7 @@ export async function loadManiaKeys(
   const keep = (key: string) =>
     !source.mania.has(key) ||
     wanted.has(key) ||
-    wanted.has(key.replace(/-\d+$/, ""));
+    wanted.has(frameOwner(key));
   for (const [key, bitmap] of skin.assets)
     if (keep(key)) {
       next.assets.set(key, bitmap);
@@ -632,8 +639,10 @@ export function buildAtlas(
       ...(strips.length > 1 ? { strips } : {}),
     });
   }
-  for (const [name, owner] of aliases)
-    regions.set(name, { ...regions.get(owner)! });
+  for (const [name, owner] of aliases) {
+    const region = regions.get(owner);
+    if (region) regions.set(name, { ...region });
+  }
   // Pixels: one canvas reused for every page.
   const texture = device.createTexture({
     size: [pageWidth, pageHeight, pages],
@@ -740,11 +749,14 @@ export function buildAtlas(
     region.still = region.first = values.length / 8;
     region.count = 1;
     region.stride = own.length;
-    region.fps =
-      frameRate > 0 ? frameRate : (skin?.animations?.get(name)?.length ?? 1);
+    // GetAnimation stops at the first frame the skin cannot provide; a lone
+    // plain image is drawn when no frame is left.
+    const listed = skin?.animations?.get(name) ?? [],
+      missing = listed.findIndex((frame) => !regions.has(frame)),
+      animation = missing < 0 ? listed : listed.slice(0, missing);
+    region.fps = frameRate > 0 ? frameRate : animation.length || 1;
     for (const strip of own) push(strip, own.length);
-    const animation = skin?.animations?.get(name);
-    if (animation?.length) {
+    if (animation.length) {
       const frames = animation.map((frame) =>
           regionStrips(regions.get(frame)!),
         ),
