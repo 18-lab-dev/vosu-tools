@@ -77,10 +77,13 @@ export class Preview {
 
   clear(): void {
     this.pause();
+    // Blank the canvas only if a map was drawn: the renderer (started early)
+    // has no scene before the first one.
+    const drawn = this.map !== null;
     this.map = null;
     this.current = null;
     this.time = 0;
-    this.renderer?.renderAt(-1e9);
+    if (drawn) this.renderer?.renderAt(-1e9);
     this.onTick(0, 0, false);
   }
 

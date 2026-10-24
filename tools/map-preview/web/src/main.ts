@@ -72,6 +72,8 @@ let renderer: Playfield | undefined,
   conversionKey = "",
   mapKey = "",
   sceneKey = "",
+  /** The renderer has a scene: until the skin has the first map's images, nothing is drawn. */
+  sceneSet = false,
   loadSequence = 0,
   settings: PreviewSettings = { ...defaultSettings },
   following = true,
@@ -291,6 +293,7 @@ function refreshScene(force = false): void {
   sceneKey = key;
   try {
     renderer.setBeatmap(map, options);
+    sceneSet = true;
   } catch (error) {
     showError(error);
   }
@@ -304,7 +307,7 @@ function tick(): void {
   requestAnimationFrame(tick);
   if (hidden || !renderer || !source) return;
   refreshScene();
-  if (!map) return;
+  if (!map || !sceneSet) return;
   const now = currentTime();
   try {
     renderer.renderAt(now);
