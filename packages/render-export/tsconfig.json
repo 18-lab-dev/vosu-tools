@@ -6,7 +6,7 @@
     "strict": true,
     "noEmit": true,
     "types": ["bun", "dom-webcodecs"],
-    "lib": ["ES2023", "DOM"],
+    "lib": ["ES2024", "DOM"],
     "skipLibCheck": true
   },
   "include": ["src", "test"]

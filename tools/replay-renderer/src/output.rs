@@ -367,6 +367,7 @@ pub(super) fn defaults(settings: &Value) -> Value {
     json!({
         "fps": fps,
         "resolution": resolution,
+        "encoder": setting(settings, "encoder").filter(|value| matches!(*value, "auto" | "hardware" | "software")).unwrap_or("auto"),
         "output_dir": output_dir(settings),
         "outro_ms": outro,
         "fade_ms": ms("fade_ms", 250).min(outro),

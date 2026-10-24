@@ -19,6 +19,8 @@ pub(super) struct Request {
     resolution: String,
     layout: String,
     #[serde(default)]
+    encoder: Option<String>,
+    #[serde(default)]
     overlays: Vec<crate::overlays::Overlay>,
     /// Time after the last object and the fade at its end, wall-clock ms;
     /// absent: the tool settings (lazer timing by default).
@@ -64,6 +66,14 @@ pub(super) async fn start(
     let (width, height) = crate::output::parse_size(&request.resolution)?;
     let settings: Value = app.env.client().settings().await.map_err(error)?;
     let defaults = crate::output::defaults(&settings);
+    let preference = request
+        .encoder
+        .as_deref()
+        .unwrap_or_else(|| defaults["encoder"].as_str().unwrap_or("auto"));
+    if !matches!(preference, "auto" | "hardware" | "software") {
+        return Err(error("Encoder must be auto, hardware or software"));
+    }
+    request.encoder = Some(preference.to_owned());
     let outro = request
         .outro_ms
         .unwrap_or(defaults["outro_ms"].as_u64().unwrap_or(1250) as u32);
@@ -201,6 +211,8 @@ async fn run(worker: Worker) -> Result<(), String> {
             "--no-default-browser-check",
             "--enable-unsafe-webgpu",
             "--disable-dev-shm-usage",
+            "--run-all-compositor-stages-before-draw",
+            "--disable-gpu-vsync",
         ])
         .args(if cfg!(target_os = "linux") {
             &[
@@ -403,7 +415,16 @@ async fn begin(
     let audio = map.asset(audio)?;
     let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
     let executable = crate::output::ffmpeg(&settings);
-    let mut child = Process::new(executable)
+    let selected = crate::encoder::select(
+        &executable,
+        worker.request.encoder.as_deref().unwrap_or("auto"),
+        worker.width,
+        worker.height,
+    )
+    .await
+    .map_err(error)?;
+    let mut command = selected.command(&executable);
+    let mut child = command
         .args([
             "-nostdin",
             "-hide_banner",
@@ -423,17 +444,10 @@ async fn begin(
             "-i",
         ])
         .arg(audio)
+        .args(["-pix_fmt", "yuv420p"])
+        .args(["-c:v", selected.name])
+        .args(selected.output)
         .args([
-            "-c:v",
-            "libvpx-vp9",
-            "-deadline",
-            "realtime",
-            "-cpu-used",
-            "6",
-            "-b:v",
-            "6M",
-            "-pix_fmt",
-            "yuv420p",
             "-c:a",
             "aac",
             "-af",
@@ -459,7 +473,7 @@ async fn begin(
         })?;
     *worker.pipe.lock().await = child.stdin.take();
     *encoder = Some(child);
-    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":"Rendering frames","total_frames":input.frames,"result":null}));
+    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"total_frames":input.frames,"result":null}));
     Ok(Json(json!({"ready":true})))
 }
 /// The song on the video clock: tempo for the replay rate (pitch-shifted when
@@ -523,7 +537,10 @@ async fn frame(State(worker): State<Worker>, body: Bytes) -> Result<Json<Value>,
     job["message"] = json!(format!("Frame {count}/{total}"));
     Ok(Json(json!({"frame":*count})))
 }
-async fn finish(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
+async fn finish(
+    State(worker): State<Worker>,
+    Json(profile): Json<Value>,
+) -> Result<Json<Value>, Error> {
     worker.pipe.lock().await.take();
     let child = worker
         .encoder
@@ -531,6 +548,7 @@ async fn finish(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
         .await
         .take()
         .ok_or_else(|| error("Encoder not started"))?;
+    let drain_started = Instant::now();
     let result = child.wait_with_output().await.map_err(error)?;
     if !result.status.success() {
         return Err(error(String::from_utf8_lossy(&result.stderr)));
@@ -552,20 +570,20 @@ async fn finish(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
         .await
         .map_err(error)?;
     let seconds = worker.start.elapsed().as_secs_f64();
-    let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds});
+    let encoder = worker.app.jobs.lock().await[&worker.id]["encoder"].clone();
+    let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
     worker.app.jobs.lock().await.insert(
         worker.id.clone(),
-        json!({"state":"done","progress":1.0,"message":"Render complete","result":result}),
+        json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"result":result}),
     );
     Ok(Json(result))
 }
 async fn fail(State(worker): State<Worker>, Json(value): Json<Value>) -> Json<Value> {
     let mut jobs = worker.app.jobs.lock().await;
     if jobs[&worker.id]["state"] != "cancelled" {
-        jobs.insert(
-            worker.id.clone(),
-            json!({"state":"failed","progress":0.0,"message":value["error"],"result":null}),
-        );
+        let job = jobs.get_mut(&worker.id).unwrap();
+        job["state"] = json!("failed");
+        job["message"] = value["error"].clone();
     }
     Json(json!({"received":true}))
 }

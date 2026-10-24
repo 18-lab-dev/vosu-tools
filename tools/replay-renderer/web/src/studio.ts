@@ -70,6 +70,7 @@ export interface Track extends Preset {
   content: Rect;
   /** Running score, when the judgements verified (see `scoreCurve`). */
   score: ScoreCurve | null;
+  timings?: { simulation: number; sceneBuild: number };
   dispose(): void;
 }
 /**
@@ -289,7 +290,9 @@ export async function loadTrack(
       (await navigator.gpu.requestAdapter()) ??
       (await navigator.gpu.requestAdapter());
     if (!adapter) throw new Error("WebGPU adapter unavailable");
-    return adapter.requestDevice();
+    return adapter.requestDevice({
+      requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
+    });
   })();
   const renderer = await createRenderer({
     canvas,
@@ -302,6 +305,7 @@ export async function loadTrack(
   });
   let simulation: Simulation | null = null,
     warning = "";
+  const simulationStarted = performance.now();
   try {
     simulation = judgeReplay(replay, raw).simulation;
     const differences = Object.entries(simulation.differences).map(
@@ -320,6 +324,8 @@ export async function loadTrack(
   } catch (e) {
     warning = String(e);
   }
+  const simulationMs = performance.now() - simulationStarted;
+  const sceneStarted = performance.now();
   // Judgements are drawn from the simulation whether or not it verified;
   // only the HUD counters wait for verification.
   renderer.setBeatmap(source, {
@@ -340,6 +346,7 @@ export async function loadTrack(
     replay,
     map,
     simulation,
+    timings: { simulation: simulationMs, sceneBuild: performance.now() - sceneStarted },
     renderer,
     canvas,
     skin: preset.skin,
@@ -435,28 +442,39 @@ export const DEFAULT_OUTRO_MS = 1250,
 export class Composition {
   canvas = document.createElement("canvas");
   context: CanvasRenderingContext2D;
-  private staging = document.createElement("canvas");
+  private staging: HTMLCanvasElement;
+  /** Wall-clock stage timings for the most recently completed offline frame. */
+  timings = { scene: 0, readback: 0, composite: 0, gpu: null as number | null };
   private frameContext: CanvasRenderingContext2D;
   private readbacks: {
     texture: GPUTexture;
+    view: GPUTextureView;
     buffer: GPUBuffer;
     width: number;
     height: number;
     stride: number;
     pixels: ImageData;
     canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    query?: GPUQuerySet;
+    queryResolve?: GPUBuffer;
+    queryRead?: GPUBuffer;
   }[] = [];
   constructor(
     public tracks: Track[],
     public width: number,
     public height: number,
     public layout: Layout,
+    /** Preview publishes atomically; exports have no visible previous frame. */
+    atomic = true,
+    private profile = false,
   ) {
     this.canvas.width = width;
     this.canvas.height = height;
     const context = this.canvas.getContext("2d", { willReadFrequently: true });
     if (!context) throw new Error("Canvas2D unavailable");
     this.context = context;
+    this.staging = atomic ? document.createElement("canvas") : this.canvas;
     const frameContext = this.staging.getContext("2d", {
       willReadFrequently: true,
     });
@@ -493,12 +511,19 @@ export class Composition {
       const canvas = document.createElement("canvas");
       canvas.width = w;
       canvas.height = h;
+      const texture = renderer.device.createTexture({
+        size: [w, h],
+        format: "rgba8unorm",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
+      });
+      const query = this.profile && renderer.device.features.has("timestamp-query")
+        ? renderer.device.createQuerySet({ type: "timestamp", count: 2 }) : undefined;
       this.readbacks.push({
-        texture: renderer.device.createTexture({
-          size: [w, h],
-          format: "rgba8unorm",
-          usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-        }),
+        texture,
+        view: texture.createView(),
+        query,
+        queryResolve: query ? renderer.device.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : undefined,
+        queryRead: query ? renderer.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : undefined,
         buffer: renderer.device.createBuffer({
           size: stride * h,
           usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
@@ -508,6 +533,7 @@ export class Composition {
         stride,
         pixels: new ImageData(w, h),
         canvas,
+        context: canvas.getContext("2d", { willReadFrequently: true })!,
       });
     });
   }
@@ -530,6 +556,7 @@ export class Composition {
   /** Draws the frame at map `time`. `fade` false leaves the fade to the caller
    *  (the MP4 export composites overlay pages first). */
   async renderOffline(time: number, { fade = true } = {}): Promise<HTMLCanvasElement> {
+    this.timings = { scene: 0, readback: 0, composite: 0, gpu: this.readbacks.some((resource) => resource.query) ? 0 : null };
     const context = this.frameContext;
     context.fillStyle = "#000";
     context.fillRect(0, 0, this.width, this.height);
@@ -565,7 +592,9 @@ export class Composition {
       context.restore();
       layers.push({ name: `V${i + 1} background`, kind: "background", box: rect, ms: took() });
     });
+    const mappings: Promise<void>[] = [];
     for (let i = 0; i < this.tracks.length; i++) {
+      const sceneStarted = performance.now();
       const track = this.tracks[i],
         frame = frameAt(track.replay, time),
         resource = this.readbacks[i],
@@ -584,7 +613,10 @@ export class Composition {
           });
         }
       track.renderer.renderAt(time, {
-        target: resource.texture.createView(),
+        target: resource.view,
+        timestampWrites: resource.query ? {
+          querySet: resource.query, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
+        } : undefined,
         cursor: {
           x: frame.x,
           y: frame.y,
@@ -601,16 +633,42 @@ export class Composition {
         { buffer: resource.buffer, bytesPerRow: resource.stride },
         { width: tw, height: th },
       );
+      if (resource.query) {
+        commands.resolveQuerySet(resource.query, 0, 2, resource.queryResolve!, 0);
+        commands.copyBufferToBuffer(resource.queryResolve!, 0, resource.queryRead!, 0, 16);
+      }
       track.renderer.device.queue.submit([commands.finish()]);
-      await resource.buffer.mapAsync(GPUMapMode.READ);
+      this.timings.scene += performance.now() - sceneStarted;
+      mappings.push(resource.buffer.mapAsync(GPUMapMode.READ));
+      if (resource.queryRead) mappings.push(resource.queryRead.mapAsync(GPUMapMode.READ));
+    }
+    // Submit every player's work before waiting for the GPU, then preserve
+    // paint order while consuming the mapped buffers. No frame clock changes.
+    const readbackStarted = performance.now();
+    await Promise.all(mappings);
+    this.timings.readback += performance.now() - readbackStarted;
+    for (let i = 0; i < this.tracks.length; i++) {
+      const copyStarted = performance.now(),
+        resource = this.readbacks[i],
+        track = this.tracks[i],
+        rect = rects[i],
+        { width: tw, height: th } = resource;
       const source = new Uint8Array(resource.buffer.getMappedRange());
-      for (let y = 0; y < th; y++)
+      if (resource.stride === tw * 4) resource.pixels.data.set(source);
+      else for (let y = 0; y < th; y++)
         resource.pixels.data.set(
           source.subarray(y * resource.stride, y * resource.stride + tw * 4),
           y * tw * 4,
         );
       resource.buffer.unmap();
-      resource.canvas.getContext("2d")!.putImageData(resource.pixels, 0, 0);
+      if (resource.queryRead) {
+        const ticks = new BigUint64Array(resource.queryRead.getMappedRange());
+        this.timings.gpu! += Number(ticks[1] - ticks[0]) / 1e6;
+        resource.queryRead.unmap();
+      }
+      this.timings.readback += performance.now() - copyStarted;
+      const compositeStarted = performance.now();
+      resource.context.putImageData(resource.pixels, 0, 0);
       // Playfields may be moved anywhere in the frame, so they clip to it.
       const { draw, box } = place(rect, track.content, transformOf(track), {
         width: tw,
@@ -618,6 +676,7 @@ export class Composition {
       });
       context.drawImage(resource.canvas, draw.x, draw.y, draw.width, draw.height);
       layers.push({ name: `V${i + 1} playfield`, kind: "playfield", box, ms: took() });
+      this.timings.composite += performance.now() - compositeStarted;
     }
     // HUD layers last: they stay above every playfield, wherever those were moved.
     this.tracks.forEach((track, i) => {
@@ -633,7 +692,7 @@ export class Composition {
       if (this.inspect) this.drawInspector(time, this.overlayBoxes, context);
     }
     // Publish atomically: GPU readback must not blank the previous visible preview.
-    this.context.drawImage(this.staging, 0, 0);
+    if (this.staging !== this.canvas) this.context.drawImage(this.staging, 0, 0);
     return this.canvas;
   }
   /** Outro after the last object and the fade at its end (wall-clock ms);
@@ -699,6 +758,9 @@ export class Composition {
     for (const resource of this.readbacks) {
       resource.texture.destroy();
       resource.buffer.destroy();
+      resource.query?.destroy();
+      resource.queryRead?.destroy();
+      resource.queryResolve?.destroy();
     }
     this.readbacks = [];
   }

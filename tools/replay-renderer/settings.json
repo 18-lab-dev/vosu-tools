@@ -63,6 +63,14 @@
     "value": ""
   },
   {
+    "uniqueID": "encoder",
+    "type": "options",
+    "title": "Video encoder",
+    "description": "Auto probes hardware H.264 encoding and falls back to software. Hardware requires a working GPU encoder; software always uses libx264. The render job reports the encoder actually used.",
+    "options": ["auto", "hardware", "software"],
+    "value": "auto"
+  },
+  {
     "uniqueID": "ffmpeg_path",
     "type": "text",
     "title": "FFmpeg executable",
