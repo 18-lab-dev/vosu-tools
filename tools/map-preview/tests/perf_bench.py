@@ -8,15 +8,19 @@ Build the page, then run:
 
 --query=css=1280x720 (or size=WxH) sizes the canvas like a stage of that CSS
 size (shared playfieldSize rule) or exactly; the default is 1920x1080.
+--query=backend=webgl2 (or webgpu) forces render-core's backend; joined with
+&, query parameters combine (--query=backend=webgl2&css=1280x720).
 NAME=SKIN_DIR adds a mania case with that skin folder; --mania-only skips the
 other rulesets; --mania-map replaces the mania map. Draw calls per frame and the renderer's texture memory are
 reported too.
 
 Each case renders 600 measured frames at 1920x1080 (after 60 warm-up frames),
 advancing 1/60 s per frame from a busy part of the map, and reports CPU time
-per renderAt call, submit-to-GPU-done latency, and the GPU render pass time
-from timestamp queries. Skin load time covers fetching and decoding every
-element (files) or drawing them (built-ins). Inputs are temp copies.
+per renderAt call, frame time (renderAt to GPU finished, p50/p99), and on
+WebGPU the render pass time from timestamp queries. Skin load time covers
+fetching and decoding every element (files) or drawing them (built-ins);
+atlas time covers building and uploading the atlas until the GPU finished.
+Texture memory is the skin atlas and frame table. Inputs are temp copies.
 """
 import asyncio
 import json
@@ -93,10 +97,10 @@ async def bench(cases, query=''):
             result.update({'ruleset': ruleset, 'skin': skin})
             results.append(result)
             gpu = result['gpuPass']
-            print(f"{ruleset:6} {skin:18} objects {result['objects']:5}  skin {result['skinMs']:7.1f} ms  compile {result['compileMs']:6.1f} ms  "
-                  f"cpu mean {result['cpu']['mean']:.3f} p95 {result['cpu']['p95']:.3f} ms  "
+            print(f"{result['backend']:6} {ruleset:6} {skin:18} objects {result['objects']:5}  skin {result['skinMs']:7.1f} + atlas {result['atlasMs']:6.1f} ms  "
+                  f"compile {result['compileMs']:6.1f} ms  cpu mean {result['cpu']['mean']:.3f} p95 {result['cpu']['p95']:.3f} ms  "
+                  f"frame p50 {result['frame']['p50']:.2f} p99 {result['frame']['p99']:.2f} ms  "
                   f"gpu pass mean {gpu['mean'] if gpu else float('nan'):.3f} p95 {gpu['p95'] if gpu else float('nan'):.3f} ms  "
-                  f"submit→done p95 {result['submitToGpuDone']['p95']:.2f} ms  "
                   f"draws mean {result['drawCalls']['mean']:.1f} max {result['drawCalls']['max']}  "
                   f"textures {result['textureMB']:.0f} MB  canvas {result.get('canvas')}")
             await page.close()

@@ -32,6 +32,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'web/dist'
 PORT = 25650
 ORIGIN = f'http://127.0.0.1:{PORT}'
+# MAP_PREVIEW_BACKEND=webgl2 (or webgpu) forces render-core's backend in every
+# suite that opens the UI through QUERY; the default is the automatic choice.
+BACKEND = os.environ.get('MAP_PREVIEW_BACKEND', '')
+QUERY = 'presentation=bitmap' + (f'&backend={BACKEND}' if BACKEND else '')
 CHROME = Path.home() / '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome'
 MAPS = {
     'osu': ('1230019 Hikiray - Zero Two (prod by Gotze)', 'Hikiray - Zero Two (prod. by Gotze) (Flexo123) [Insane].osu', 38000),
@@ -225,7 +229,7 @@ async def checks(host: Host, osk: Path, evidence: Path):
             await page.route_web_socket('**/websocket/v2/subscribe', game.route)
             # Headless screenshots cannot see a canvas's direct WebGPU swapchain;
             # the documented bitmap presentation exists for capture environments.
-            await page.goto(f'{ORIGIN}/tools/map-preview/?presentation=bitmap#theme={theme}')
+            await page.goto(f'{ORIGIN}/tools/map-preview/?{QUERY}#theme={theme}')
             return page
 
         async def shows(page, selector, text, timeout=30000):
@@ -253,6 +257,8 @@ async def checks(host: Host, osk: Path, evidence: Path):
         bar = await page.locator('#bar').bounding_box()
         stage = await page.locator('#stage').bounding_box()
         assert bar['height'] <= 48 and stage['height'] >= 1080 - 48, (bar, stage)
+        # The controls panel names the backend drawing the playfield.
+        await shows(page, '#backend', {'webgl2': 'WebGL2'}.get(BACKEND, 'WebGPU'))
         await settle(page)
         await page.screenshot(path=str(evidence / 'osu-argon-1920x1080.png'))
         shots = {'osu-argon': await playfield(page)}

@@ -1,6 +1,11 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
-import { ATLAS_PADDING, planAtlas, type AtlasStrip } from "./atlas";
+import {
+  ATLAS_PADDING,
+  planAtlas,
+  type AtlasLimits,
+  type AtlasStrip,
+} from "./atlas";
 import {
   maniaConfig,
   maniaJudgementImages,
@@ -543,6 +548,14 @@ export function wrappedImages(
     }
   return out;
 }
+/** Where `buildAtlas` puts its pages: a backend's 2D array texture. */
+export interface AtlasSink {
+  readonly limits: AtlasLimits;
+  /** Creates the array texture: `pages` layers of `width` × `height`, RGBA8. */
+  allocate(width: number, height: number, pages: number): void;
+  /** Copies a drawn page (unpremultiplied RGBA) into layer `page`. */
+  upload(page: number, source: OffscreenCanvas): void;
+}
 /**
  * Skin images on array-texture pages (see atlas.ts) and one immutable frame
  * table; animations and strips select UVs entirely in WGSL.
@@ -554,10 +567,9 @@ export function wrappedImages(
  * `first + f * stride + k`.
  */
 export function buildAtlas(
-  device: GPUDevice,
+  sink: AtlasSink,
   skin?: Skin,
 ): {
-  texture: GPUTexture;
   regions: Map<string, AtlasRegion>;
   frames: Float32Array<ArrayBuffer>;
 } {
@@ -608,11 +620,11 @@ export function buildAtlas(
     }
   const plan = planAtlas(
     [...sources].map(([key, { width, height }]) => ({ key, width, height })),
-    device.limits,
+    sink.limits,
   );
   if (plan.downscaled.length)
     console.warn(
-      `Skin images wider than this GPU allows (${device.limits.maxTextureDimension2D} px) are scaled down: ${plan.downscaled.join(", ")}`,
+      `Skin images wider than this GPU allows (${sink.limits.maxTextureDimension2D} px) are scaled down: ${plan.downscaled.join(", ")}`,
     );
   const { pageWidth, pageHeight, pages } = plan;
   const regions = new Map<string, AtlasRegion>();
@@ -644,14 +656,7 @@ export function buildAtlas(
     if (region) regions.set(name, { ...region });
   }
   // Pixels: one canvas reused for every page.
-  const texture = device.createTexture({
-    size: [pageWidth, pageHeight, pages],
-    format: "rgba8unorm",
-    usage:
-      GPUTextureUsage.TEXTURE_BINDING |
-      GPUTextureUsage.COPY_DST |
-      GPUTextureUsage.RENDER_ATTACHMENT,
-  });
+  sink.allocate(pageWidth, pageHeight, pages);
   const canvas = new OffscreenCanvas(pageWidth, pageHeight),
     ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingQuality = "high";
@@ -722,11 +727,7 @@ export function buildAtlas(
           );
       }
     }
-    device.queue.copyExternalImageToTexture(
-      { source: canvas },
-      { texture, origin: [0, 0, page], premultipliedAlpha: false },
-      [pageWidth, pageHeight],
-    );
+    sink.upload(page, canvas);
   }
   const values: number[] = [];
   const frameRate = skin?.frameRate ?? -1;
@@ -768,5 +769,5 @@ export function buildAtlas(
         for (let k = 0; k < stride; k++) push(frame[k], stride);
     }
   }
-  return { texture, regions, frames: new Float32Array(values) };
+  return { regions, frames: new Float32Array(values) };
 }

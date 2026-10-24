@@ -58,7 +58,11 @@ try {
   composition = new Composition(tracks, width, height, spec.layout, false, true);
   composition.timing = { outroMs: spec.outro_ms, fadeMs: spec.fade_ms };
   composition.validate();
-  const adapterInfo = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
+  // The export's diagnostics: which render-core backend drew, and the WebGPU adapter if any.
+  const backend = tracks[0]?.renderer.backend ?? null;
+  const adapterInfo = backend === "webgpu"
+    ? (await navigator.gpu?.requestAdapter({ powerPreference: "high-performance" }))?.info
+    : undefined;
   const rate = tracks[0].replay.rate,
     start = composition.start,
     frames = Math.ceil((composition.duration / rate / 1000) * spec.fps);
@@ -202,9 +206,12 @@ try {
   if (first < end) await request("finish", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ timings_ms: timings, startup_ms: startup, adapter: adapterInfo && {
-      vendor: adapterInfo.vendor, architecture: adapterInfo.architecture,
-      device: adapterInfo.device, description: adapterInfo.description,
+    body: JSON.stringify({ timings_ms: timings, startup_ms: startup, adapter: {
+      backend,
+      ...(adapterInfo && {
+        vendor: adapterInfo.vendor, architecture: adapterInfo.architecture,
+        device: adapterInfo.device, description: adapterInfo.description,
+      }),
     } }),
   });
   document.querySelector("#status")!.textContent = "Export complete";

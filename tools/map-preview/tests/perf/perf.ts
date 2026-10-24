@@ -1,19 +1,23 @@
 /**
  * Render benchmark for Map preview's playfield: one map, one skin, 1920×1080
- * direct WebGPU presentation, 600 frames advancing 1/60 s through the map.
+ * direct presentation, 600 frames advancing 1/60 s through the map.
  *
  * Query: ?map=<url>&start=<ms>&skin=builtin:<name>|files:<base url>
+ *   [&backend=webgpu|webgl2] (default: auto, WebGPU with a WebGL2 fallback)
  *   [&css=WxH] a stage of that CSS size at pixel ratio 1, sized by the shared
  *   playfield rule (playfieldSize), or [&size=WxH] that exact canvas size.
  * The page uses the pipeline every tool draws with (createPlayfield).
- * Result: window.__perf = { skinMs, compileMs, cpu, gpuPass | null, drawCalls,
- *   textureMB } (draw calls per frame; GPU textures the renderer created).
+ * Result: window.__perf = { backend, adapter, skinMs (decode), atlasMs (atlas
+ *   build and upload, GPU finished), compileMs, cpu (renderAt), frame
+ *   (renderAt to GPU finished), gpuPass (WebGPU timestamp queries) | null,
+ *   drawCalls, textureMB (the skin atlas and frame table) }.
  */
 import { parseOsu } from "@vosu-tools/osu-parse";
 import {
   builtinLook,
   createPlayfield,
   loadPlayfieldSkin,
+  type Backend,
   type BuiltinSkinName,
   type Skin,
 } from "@vosu-tools/render-core";
@@ -30,21 +34,36 @@ const stats = (values: number[]) => {
     mean: values.reduce((a, b) => a + b, 0) / values.length,
     p50: sorted[Math.floor(sorted.length * 0.5)],
     p95: sorted[Math.floor(sorted.length * 0.95)],
+    p99: sorted[Math.floor(sorted.length * 0.99)],
     max: sorted[sorted.length - 1],
   };
 };
 
+/** The GPU a WebGL2 context reports (unmasked where the browser allows it). */
+function webglAdapter(): string {
+  const gl = new OffscreenCanvas(1, 1).getContext("webgl2");
+  if (!gl) return "unknown";
+  const info = gl.getExtension("WEBGL_debug_renderer_info");
+  return String(
+    gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER),
+  );
+}
+
 async function run() {
+  const wanted = params.get("backend") as Backend | null;
+  // WebGPU: an explicit device with timestamp queries for the pass timings.
   const adapter =
-    (await navigator.gpu.requestAdapter({
-      powerPreference: "high-performance",
-    })) ??
-    (await navigator.gpu.requestAdapter({
-      powerPreference: "high-performance",
-    }));
-  if (!adapter) throw new Error("No WebGPU adapter");
-  const timing = adapter.features.has("timestamp-query");
-  const device = await adapter.requestDevice({
+    wanted === "webgl2"
+      ? null
+      : ((await navigator.gpu?.requestAdapter({
+          powerPreference: "high-performance",
+        })) ??
+        (await navigator.gpu?.requestAdapter({
+          powerPreference: "high-performance",
+        })));
+  if (wanted === "webgpu" && !adapter) throw new Error("No WebGPU adapter");
+  const timing = !!adapter?.features.has("timestamp-query");
+  const device = await adapter?.requestDevice({
     requiredFeatures: timing ? ["timestamp-query"] : [],
   });
   const map = parseOsu(await (await fetch(params.get("map")!)).text());
@@ -64,15 +83,15 @@ async function run() {
   }
   const skinMs = performance.now() - skinStart;
   const canvas = document.querySelector("canvas")!;
-  // Texture memory the renderer allocates (atlas pages included).
-  let textureBytes = 0;
-  const createTexture = device.createTexture.bind(device);
-  device.createTexture = (descriptor) => {
-    const [w, h = 1, layers = 1] = [...(descriptor.size as Iterable<number>)];
-    textureBytes += w * h * layers * 4;
-    return createTexture(descriptor);
-  };
-  const renderer = await createPlayfield({ canvas, device, skin });
+  const renderer = await createPlayfield({
+    canvas,
+    device,
+    backend: wanted ?? "auto",
+  });
+  const atlasStart = performance.now();
+  renderer.setSkin(skin);
+  await renderer.finished();
+  const atlasMs = performance.now() - atlasStart;
   const dims = (key: string) => params.get(key)?.split("x").map(Number);
   const css = dims("css"),
     size = dims("size");
@@ -80,25 +99,34 @@ async function run() {
   else if (size) renderer.resize(size[0], size[1]);
   // Draw calls per frame.
   let draws = 0;
-  const draw = GPURenderPassEncoder.prototype.draw;
-  GPURenderPassEncoder.prototype.draw = function (...args) {
-    draws++;
-    return draw.apply(this, args);
-  };
+  if (renderer.backend === "webgpu") {
+    const draw = GPURenderPassEncoder.prototype.draw;
+    GPURenderPassEncoder.prototype.draw = function (...args) {
+      draws++;
+      return draw.apply(this, args);
+    };
+  } else {
+    const draw = WebGL2RenderingContext.prototype.drawArraysInstanced;
+    WebGL2RenderingContext.prototype.drawArraysInstanced = function (...args) {
+      draws++;
+      return draw.apply(this, args);
+    };
+  }
   const compileStart = performance.now();
   renderer.setBeatmap(map, { scrollSpeed: 24 });
   const compileMs = performance.now() - compileStart;
-  const querySet = timing
-    ? device.createQuerySet({ type: "timestamp", count: 2 })
-    : undefined;
-  const resolve = timing
-    ? device.createBuffer({
+  const querySet =
+    timing && device && renderer.backend === "webgpu"
+      ? device.createQuerySet({ type: "timestamp", count: 2 })
+      : undefined;
+  const resolve = querySet
+    ? device!.createBuffer({
         size: 16,
         usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
       })
     : undefined;
-  const read = timing
-    ? device.createBuffer({
+  const read = querySet
+    ? device!.createBuffer({
         size: 16,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
       })
@@ -118,12 +146,12 @@ async function run() {
     });
     const submitted = performance.now();
     if (querySet && resolve && read) {
-      const encoder = device.createCommandEncoder();
+      const encoder = device!.createCommandEncoder();
       encoder.resolveQuerySet(querySet, 0, 2, resolve, 0);
       encoder.copyBufferToBuffer(resolve, 0, read, 0, 16);
-      device.queue.submit([encoder.finish()]);
+      device!.queue.submit([encoder.finish()]);
     }
-    await device.queue.onSubmittedWorkDone();
+    await renderer.finished();
     const finished = performance.now();
     if (read) {
       await read.mapAsync(GPUMapMode.READ);
@@ -142,16 +170,22 @@ async function run() {
     await frameDone.promise;
   }
   return {
+    backend: renderer.backend,
+    fallbackReason: renderer.fallbackReason,
     skinMs,
+    atlasMs,
     compileMs,
     objects: map.objects.length,
     assets: skin.assets.size,
-    adapter: adapter.info?.description || adapter.info?.vendor || "unknown",
+    adapter:
+      renderer.backend === "webgpu"
+        ? adapter?.info?.description || adapter?.info?.vendor || "unknown"
+        : webglAdapter(),
     cpu: stats(cpu),
-    submitToGpuDone: stats(done),
+    frame: stats(done),
     gpuPass: gpu.length ? stats(gpu) : null,
     drawCalls: stats(drawCalls),
-    textureMB: textureBytes / 2 ** 20,
+    textureMB: renderer.textureBytes / 2 ** 20,
     canvas: [canvas.width, canvas.height],
   };
 }
