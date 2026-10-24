@@ -114,6 +114,28 @@ export const fontPrefixes = (ini: Ini): Set<string> =>
     ),
   );
 
+/**
+ * The mix unit a skin file belongs to, the inverse of {@link inUnit}: glyphs
+ * of the skin's fonts belong to their font, frames (`name-N`, `sliderbN`) and
+ * `@2x` variants to their image, audio files to their sound. Files that are
+ * no asset (skin.ini, text, archives) give undefined.
+ */
+export function unitOf(
+  file: string,
+  fonts: ReadonlySet<string> = new Set(),
+): AssetRef | undefined {
+  const s = stem(file);
+  if (audioExt.test(file)) return { kind: "sound", name: s };
+  if (!imageExt.test(file)) return undefined;
+  const glyph = GLYPH.exec(s);
+  if (glyph && fonts.has(glyph[1])) return { kind: "font", name: glyph[1] };
+  const dashed = /^(.+)-\d+$/.exec(s);
+  if (dashed && !noDash(dashed[1])) return { kind: "image", name: dashed[1] };
+  const plain = /^(.+?)\d+$/.exec(s);
+  if (plain && noDash(plain[1])) return { kind: "image", name: plain[1] };
+  return { kind: "image", name: s };
+}
+
 /** The font prefix of a glyph file (`<prefix>-<digit|comma|dot|percent|x>`); only meaningful for font elements, since animation frames look the same. */
 export const fontOf = (file: string) =>
   imageExt.test(file) ? GLYPH.exec(stem(file))?.[1] : undefined;

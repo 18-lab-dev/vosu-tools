@@ -1,5 +1,5 @@
-//! Skin sources: stable `Skins/` folders, folders added by path, and lazer
-//! skins read through the optional `lazer-library` tool.
+//! Skin sources: stable `Skins/` folders, folders and `.osk` files added by
+//! path, and lazer skins read through the optional `lazer-library` tool.
 
 use crate::{App, Failure, failure};
 use axum::http::StatusCode;
@@ -12,6 +12,8 @@ use std::{
 pub const LAZER_TOOL: &str = "lazer-library";
 const LAZER_PREFIX: &str = "lazer:";
 pub const MAX_FILES: usize = 50_000;
+/// Largest single file read out of an `.osk`.
+const MAX_ENTRY: u64 = 128 * 1024 * 1024;
 
 #[derive(Deserialize)]
 struct Context {
@@ -75,11 +77,13 @@ impl Default for Settings {
 pub enum Origin {
     Stable,
     Added,
+    /// An `.osk` file added by path, read in place (never written).
+    Osk,
     Lazer,
 }
 #[derive(Serialize, Clone, Debug)]
 pub struct Skin {
-    /// Stable/added: the absolute folder. Lazer: `lazer:<id>`.
+    /// Stable/added: the absolute folder; `.osk`: the absolute file. Lazer: `lazer:<id>`.
     pub key: String,
     pub name: String,
     pub origin: Origin,
@@ -119,6 +123,7 @@ pub struct Library {
 #[derive(Clone, Debug)]
 pub enum Source {
     Folder(PathBuf),
+    Osk(PathBuf),
     Lazer(String),
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -178,6 +183,106 @@ pub fn skin_folder(path: &Path) -> Result<PathBuf, Failure> {
         return Err(failure("No skin.ini or skininfo.json in that folder"));
     }
     Ok(folder)
+}
+
+/// Whether a path names an `.osk` file (by extension).
+pub fn is_osk(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("osk"))
+}
+
+/// Accepts an absolute folder that looks like a skin (see [`skin_folder`])
+/// or an absolute `.osk` file that opens as a zip archive.
+pub fn skin_source(path: &Path) -> Result<PathBuf, Failure> {
+    if !is_osk(path) {
+        return skin_folder(path);
+    }
+    if !path.is_absolute() {
+        return Err(failure("Use an absolute path"));
+    }
+    let file = path
+        .canonicalize()
+        .map_err(|e| failure(format!("Cannot open {}: {e}", path.display())))?;
+    if !file.is_file() {
+        return Err(failure("Not a file"));
+    }
+    osk_entries(&file)?;
+    Ok(file)
+}
+
+fn open_osk(file: &Path) -> Result<zip::ZipArchive<fs::File>, Failure> {
+    let reader = fs::File::open(file).map_err(failure)?;
+    zip::ZipArchive::new(reader).map_err(|e| failure(format!("Not a readable .osk: {e}")))
+}
+
+/// Entry name inside an archive as a skin-relative path (`/` separators), or
+/// None for folders and names that would leave the skin.
+fn osk_name(raw: &str) -> Option<String> {
+    let name = raw.replace('\\', "/");
+    if name.ends_with('/') {
+        return None;
+    }
+    relative(&name).ok().map(|_| name)
+}
+
+/// Files of an `.osk` with their uncompressed sizes.
+fn osk_entries(file: &Path) -> Result<Vec<FileEntry>, Failure> {
+    let mut archive = open_osk(file)?;
+    if archive.len() > MAX_FILES {
+        return Err(failure("Skin file tree exceeds safe limits."));
+    }
+    let mut files = Vec::with_capacity(archive.len());
+    for i in 0..archive.len() {
+        let entry = archive.by_index_raw(i).map_err(failure)?;
+        if let Some(name) = osk_name(entry.name()) {
+            files.push(FileEntry {
+                name,
+                size: entry.size(),
+            });
+        }
+    }
+    Ok(files)
+}
+
+/// One file of an `.osk` by skin-relative name (exact, else case-insensitive).
+fn osk_read(file: &Path, name: &str) -> Result<Vec<u8>, Failure> {
+    use std::io::Read;
+    let mut archive = open_osk(file)?;
+    let mut found = None;
+    for i in 0..archive.len() {
+        let entry = archive.by_index_raw(i).map_err(failure)?;
+        let Some(entry_name) = osk_name(entry.name()) else {
+            continue;
+        };
+        if entry_name == name {
+            found = Some(i);
+            break;
+        }
+        if found.is_none() && entry_name.eq_ignore_ascii_case(name) {
+            found = Some(i);
+        }
+    }
+    let index = found.ok_or((StatusCode::NOT_FOUND, "No such skin file.".to_owned()))?;
+    let entry = archive.by_index(index).map_err(failure)?;
+    if entry.size() > MAX_ENTRY {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Skin file exceeds 128 MiB.".into(),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    entry
+        .take(MAX_ENTRY + 1)
+        .read_to_end(&mut bytes)
+        .map_err(failure)?;
+    Ok(bytes)
+}
+
+fn osk_ini_name(file: &Path) -> Option<String> {
+    let bytes = osk_read(file, "skin.ini").ok()?;
+    (bytes.len() <= 4 * 1024 * 1024)
+        .then(|| ini_name(&String::from_utf8_lossy(&bytes)))
+        .flatten()
 }
 
 /// The stable Skins folder new skins are written to.
@@ -304,6 +409,24 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
         if skins.iter().any(|s| s.key == key) {
             continue;
         }
+        if is_osk(folder) {
+            let available = folder.is_file();
+            skins.push(Skin {
+                name: available
+                    .then(|| osk_ini_name(folder))
+                    .flatten()
+                    .or_else(|| folder.file_stem().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| key.clone()),
+                current: false,
+                key,
+                origin: Origin::Osk,
+                available,
+                writable: false,
+                creator: None,
+                builtin: None,
+            });
+            continue;
+        }
         let available = skin_folder(folder).is_ok_and(|f| &f == folder);
         skins.push(Skin {
             name: folder_ini_name(folder)
@@ -381,9 +504,10 @@ pub async fn resolve(app: &App, key: &str) -> Result<(Source, Skin), Failure> {
             .find(|s| s.key == key && s.available)
             .ok_or_else(|| failure("Not in the library"))?,
     };
-    let source = match key.strip_prefix(LAZER_PREFIX) {
-        Some(id) => Source::Lazer(id.to_owned()),
-        None => Source::Folder(PathBuf::from(key)),
+    let source = match (key.strip_prefix(LAZER_PREFIX), skin.origin) {
+        (Some(id), _) => Source::Lazer(id.to_owned()),
+        (None, Origin::Osk) => Source::Osk(PathBuf::from(key)),
+        (None, _) => Source::Folder(PathBuf::from(key)),
     };
     Ok((source, skin))
 }
@@ -434,6 +558,12 @@ impl Source {
                 .await
                 .map_err(failure)??
             }
+            Source::Osk(file) => {
+                let file = file.clone();
+                tokio::task::spawn_blocking(move || osk_entries(&file))
+                    .await
+                    .map_err(failure)??
+            }
             Source::Lazer(id) => {
                 #[derive(Deserialize)]
                 struct Files {
@@ -478,6 +608,12 @@ impl Source {
                 .await
                 .map_err(failure)?
             }
+            Source::Osk(file) => {
+                let (file, name) = (file.clone(), name.to_owned());
+                tokio::task::spawn_blocking(move || osk_read(&file, &name))
+                    .await
+                    .map_err(failure)?
+            }
             Source::Lazer(id) => {
                 let path = format!(
                     "v1/skins/{}/file/{}",
@@ -517,7 +653,7 @@ impl Source {
                     Err(e) => Err(failure(e)),
                 }
             }
-            Source::Lazer(_) => match self.read(app, "skin.ini").await {
+            Source::Osk(_) | Source::Lazer(_) => match self.read(app, "skin.ini").await {
                 Err((StatusCode::NOT_FOUND, _)) => Ok(Vec::new()),
                 other => other,
             },
@@ -561,6 +697,43 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/etc/passwd", dir.path().join("skin.ini")).unwrap();
         assert!(skin_folder(dir.path()).is_err());
+    }
+    #[test]
+    fn osk_files_are_listed_and_read_in_place() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Proof.OSK");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.add_directory("mania/", options).unwrap();
+        for (name, body) in [
+            ("Skin.ini", &b"[General]\r\nName: Proof\r\n"[..]),
+            ("mania\\note1.png", b"png"),
+            ("../escape.png", b"no"),
+            ("hitcircle@2x.png", b"hd"),
+        ] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(body).unwrap();
+        }
+        zip.finish().unwrap();
+        assert!(skin_source(Path::new("Proof.osk")).is_err());
+        let file = skin_source(&path).unwrap();
+        let mut names: Vec<_> = osk_entries(&file)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.name)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["Skin.ini", "hitcircle@2x.png", "mania/note1.png"]);
+        assert_eq!(osk_read(&file, "mania/note1.png").unwrap(), b"png");
+        assert_eq!(osk_read(&file, "HITCIRCLE@2X.png").unwrap(), b"hd");
+        assert_eq!(osk_ini_name(&file).as_deref(), Some("Proof"));
+        assert_eq!(
+            osk_read(&file, "missing.png").unwrap_err().0,
+            StatusCode::NOT_FOUND
+        );
+        fs::write(dir.path().join("bad.osk"), "not a zip").unwrap();
+        assert!(skin_source(&dir.path().join("bad.osk")).is_err());
     }
     #[test]
     fn reads_general_name() {

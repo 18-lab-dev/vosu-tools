@@ -6,6 +6,7 @@ Browse osu! skins, preview their elements, mix element groups from several skins
 
 - **Stable**: folders in the stable `Skins` folder (setting `stable_skins_dir`, else `<osu_dir>/Skins` of the attached stable client). Read and written.
 - **Added folders**: any folder with `skin.ini` or lazer's `skininfo.json` (for example lazer's skin editor → File → Edit externally… folder), added from a dashboard session and kept in the tool's data folder. Only `skin.ini` is ever written there.
+- **`.osk` files**: added by path like folders (`POST /v1/folders/add` accepts an absolute folder or `.osk` file) and read in place from the archive; never written. Entry names are normalised to `/` and names that would leave the skin are skipped.
 - **Lazer**: imported lazer skins through the optional [`lazer-library`](../lazer-library) tool (`GET /v1/skins`, `/v1/skins/<id>/files`, `/v1/skins/<id>/file/<name>`). Skin studio does not list it in `[[requires]]`, so it keeps working without it; those routes are open read routes and are requested without this tool's token. Lazer skins are read-only; built-in lazer skins have no files and are listed but not browsable.
 
 ## Mixing
@@ -38,6 +39,10 @@ The UI composes the mix into a build plan:
 `skin` is a library key from `GET /v1/library` (an absolute folder, or `lazer:<id>`). `POST /v1/build` (write route) creates a stable skin: output is staged in a hidden folder inside `Skins` and renamed into place; an existing skin of the same name is replaced only with `overwrite: true` (the UI asks first) and is swapped atomically. `POST /v1/exports` (write route) accepts the same plan for an `.osk` (a zip lazer imports) and answers `{"url":"v1/exports/<id>","filename":"<name>.osk"}`; `GET` on that URL streams the archive once as a download, within a few minutes. Nothing is written outside `Skins`; the browser saves the `.osk` where the user chooses. With `credits`, `skin-studio-credits.txt` lists the source skins.
 
 **Download plan** in the studio saves this JSON; `vosux skin-studio build plan.json [--osk out.osk] [--overwrite]` builds it later.
+
+## Explorer
+
+The **Explorer** tab is an in-page browser (no native file dialog) for any library skin, with its own skin switcher so one skin can be browsed while another is focused: a folder tree, a virtualised file list (name, asset, kind, size, pixel size measured from the image) with a filter, and a details pane (image or animation preview, sound play button, text view of `.ini`/`.txt`/`.json` up to 2 MiB through `GET /v1/asset`). **Assets** lists one row per mix unit (an image with its `@2x` variant and frames, a sound, a font's glyphs; `unitOf` in `web/src/assets.ts`), **Files** one row per file. Selected rows (click, Ctrl/Shift+click; keyboard: arrows, Shift+arrows, Space, Ctrl+A, Enter, Escape; Down from the filter) go into the mix as single-asset overrides with **Use in mix**; when everything selected already is, the button removes it. Sounds play only from their play button. Elements tiles and Mix override rows have **Files** to reveal an asset here, and **Show in Elements** jumps back to its tile. Nothing in the Explorer renames, moves or deletes files.
 
 ## Previews
 

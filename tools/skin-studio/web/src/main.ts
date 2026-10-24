@@ -38,16 +38,19 @@ import {
   assetId,
   fontOf,
   fontPrefixes,
+  groupOf,
   parseAssetId,
   unitFiles,
 } from "./assets";
 import { Preview, type Resolver } from "./preview";
+import { $, h } from "./dom";
+import { Explorer } from "./explorer";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
   key: string;
   name: string;
-  origin: "stable" | "added" | "lazer";
+  origin: "stable" | "added" | "osk" | "lazer";
   current: boolean;
   available: boolean;
   writable: boolean;
@@ -77,20 +80,6 @@ interface Loaded {
   data: SkinData;
 }
 
-const $ = <T extends HTMLElement>(selector: string) =>
-  document.querySelector<T>(selector)!;
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> & { class?: string } = {},
-  ...children: (Node | string | null | false | undefined)[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  const { class: className, ...rest } = props;
-  if (className) node.className = className;
-  Object.assign(node, rest);
-  node.append(...children.filter((c): c is Node | string => !!c));
-  return node;
-}
 const message = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -118,7 +107,9 @@ const loaded = new Map<string, Loaded>();
 let focused: string | null = null;
 let category: Category = "osu";
 let categoryChosen = false;
-let view: "elements" | "ini" | "preview" = "elements";
+let view: "elements" | "explorer" | "ini" | "preview" = "elements";
+/** The Explorer tab (created once the rest of the page is wired). */
+let explorer: Explorer | undefined;
 let iniMode: "focus" | "mix" = "focus";
 let saving = false;
 let conflict = false;
@@ -253,7 +244,7 @@ function renderIni() {
         ? "Edited"
         : ""
       : focused && !writable
-        ? skin?.origin === "lazer" || vosu.canWrite
+        ? skin?.origin === "lazer" || skin?.origin === "osk" || vosu.canWrite
           ? "Read-only"
           : "Read-only tab"
         : "";
@@ -261,7 +252,9 @@ function renderIni() {
   note.title =
     iniMode === "mix"
       ? "Used as-is when you build"
-      : !loadedFocus?.snapshot.writable && skin?.origin !== "lazer"
+      : !loadedFocus?.snapshot.writable &&
+          skin?.origin !== "lazer" &&
+          skin?.origin !== "osk"
         ? "Not UTF-8"
         : "";
   const issues = check(model);
@@ -340,6 +333,7 @@ function renderLibrary() {
   const sections: [string, Skin["origin"]][] = [
     ["Stable", "stable"],
     ["Added", "added"],
+    [".osk", "osk"],
     ["Lazer", "lazer"],
   ];
   const nodes: Node[] = [];
@@ -354,7 +348,8 @@ function renderLibrary() {
       note = !library.lazer.enabled
         ? "Hidden in settings"
         : library.lazer.error;
-    if (!all.length && !note && origin === "added") continue;
+    if (!all.length && !note && (origin === "added" || origin === "osk"))
+      continue;
     nodes.push(
       h(
         "div",
@@ -393,7 +388,7 @@ function renderLibrary() {
               recipe.base === skin.key &&
                 h("span", { class: "v-badge v-badge--ok" }, "base"),
             ),
-            skin.origin === "added"
+            skin.origin === "added" || skin.origin === "osk"
               ? h(
                   "button",
                   {
@@ -431,6 +426,7 @@ async function loadLibrary(): Promise<Library | null> {
   }
   renderLibrary();
   renderMix();
+  explorer?.refreshSkins();
   if (!focused) renderFocus();
   return library;
 }
@@ -439,6 +435,7 @@ async function forget(skin: Skin) {
   try {
     library = await post<Library>("v1/folders/forget", { skin: skin.key });
     loaded.delete(skin.key);
+    explorer?.refreshSkins();
     if (focused === skin.key) await focus(null);
     status.textContent = `Forgot ${skin.name}`;
     renderLibrary();
@@ -465,6 +462,7 @@ addForm.addEventListener("submit", async (event) => {
   input.removeAttribute("aria-invalid");
   try {
     library = await post<Library>("v1/folders/add", { path });
+    explorer?.refreshSkins();
     input.value = "";
     addForm.hidden = true;
     addToggle.setAttribute("aria-expanded", "false");
@@ -484,6 +482,7 @@ async function focus(key: string | null) {
   focused = key;
   conflict = false;
   renderLibrary();
+  void explorer?.open(key);
   if (!key) {
     focusModel.setValue("");
     savedText = "";
@@ -583,6 +582,7 @@ function renderFocus() {
   $("#elements-view").hidden = !focused || view !== "elements";
   $("#ini-view").hidden = view !== "ini";
   $("#preview-view").hidden = view !== "preview";
+  $("#explorer-view").hidden = view !== "explorer";
   renderCats();
   renderGroups();
   renderIni();
@@ -727,6 +727,23 @@ function useButton(unit: { ref: AssetRef; skin: string }, label: string) {
   return button;
 }
 
+/** Opens the asset's files in the Explorer. */
+function filesButton(unit: { ref: AssetRef; skin: string }, label: string) {
+  return h(
+    "button",
+    {
+      type: "button",
+      class: "v-btn v-btn--sm v-btn--ghost files",
+      ariaLabel: `Show the files of ${label} in Explorer`,
+      onclick: (event: MouseEvent) => {
+        event.stopPropagation();
+        void revealInExplorer(unit.ref, unit.skin);
+      },
+    },
+    "Files",
+  );
+}
+
 function tile(
   label: string,
   src: string,
@@ -747,8 +764,14 @@ function tile(
       h("span", { class: "tile-name" }, label),
       h("span", { class: "tile-meta" }, meta),
     ),
-    useButton(unit, label),
+    h(
+      "div",
+      { class: "tile-actions" },
+      useButton(unit, label),
+      filesButton(unit, label),
+    ),
   );
+  figure.dataset.asset = assetId(unit.ref);
   const toggle = () => figure.classList.toggle("zoomed");
   figure.onclick = toggle;
   figure.onkeydown = (e) => {
@@ -772,22 +795,13 @@ function audioTile(data: SkinData, label: string, file: string) {
       type: "button",
       class: "v-btn v-btn--sm v-btn--icon play",
       ariaLabel: `Play ${file}`,
-      onclick: () => {
-        if (player.dataset.src === url && !player.paused) {
-          player.pause();
-          return;
-        }
-        player.src = url;
-        player.dataset.src = url;
-        void player.play().catch((error) => {
-          status.textContent = `Cannot play ${file}: ${message(error)}`;
-        });
-      },
+      onclick: () => play(url, file),
     },
     "▶",
   );
   button.dataset.src = url;
-  return h(
+  const ref: AssetRef = { kind: "sound", name: label };
+  const figure = h(
     "figure",
     { class: "tile audio" },
     button,
@@ -801,8 +815,11 @@ function audioTile(data: SkinData, label: string, file: string) {
         `${file.split(".").pop()} · ${size ? `${Math.max(1, Math.round(size / 1024))} KB` : "empty"}`,
       ),
     ),
-    useButton({ ref: { kind: "sound", name: label }, skin: data.key }, label),
+    useButton({ ref, skin: data.key }, label),
+    filesButton({ ref, skin: data.key }, label),
   );
+  figure.dataset.asset = assetId(ref);
+  return figure;
 }
 const syncPlayer = () =>
   document.querySelectorAll<HTMLButtonElement>("button.play").forEach((b) => {
@@ -975,9 +992,10 @@ $("#use-base").onclick = () => {
 // ---- views -----------------------------------------------------------------
 function showView(next: typeof view) {
   view = next;
-  for (const name of ["elements", "ini", "preview"] as const)
+  for (const name of ["elements", "explorer", "ini", "preview"] as const)
     $(`#tab-${name}`).setAttribute("aria-selected", String(view === name));
   $("#elements-view").hidden = view !== "elements" || !focused;
+  $("#explorer-view").hidden = view !== "explorer";
   $("#ini-view").hidden = view !== "ini";
   $("#preview-view").hidden = view !== "preview";
   $("#guide").hidden = !!focused || view !== "elements";
@@ -989,6 +1007,7 @@ function showView(next: typeof view) {
   void showPreview(view === "preview");
 }
 $("#tab-elements").onclick = () => showView("elements");
+$("#tab-explorer").onclick = () => showView("explorer");
 $("#tab-ini").onclick = () => showView("ini");
 $("#tab-preview").onclick = () => showView("preview");
 $("#ini-focus").onclick = () => {
@@ -1162,7 +1181,13 @@ function overrideRow(id: string) {
         { class: "v-mono override-name", title: id },
         ref.kind === "font" ? `${ref.name}-*` : ref.name,
       ),
-      h("div", { class: "override-tools" }, source, ...badges),
+      h(
+        "div",
+        { class: "override-tools" },
+        source,
+        ...badges,
+        filesButton({ ref, skin: override.skin }, ref.name),
+      ),
     ),
     h(
       "button",
@@ -1270,6 +1295,7 @@ function renderMix() {
       ? `${library.stable_dir}/${recipe.name.trim()}`
       : "No Skins folder");
   osk.title = reason || `${recipe.name.trim()}.osk`;
+  explorer?.refreshMix();
 }
 $("#mix-base-clear").onclick = () => {
   recipe.base = null;
@@ -1674,6 +1700,83 @@ $("#pv-play").onclick = () => {
   renderPreviewControls();
 };
 
+// ---- explorer ----------------------------------------------------------------
+/** Plays (or pauses) a preview sound; only called from an explicit click or key. */
+function play(url: string, label: string) {
+  if (player.dataset.src === url && !player.paused) {
+    player.pause();
+    return;
+  }
+  player.src = url;
+  player.dataset.src = url;
+  void player.play().catch((error) => {
+    status.textContent = `Cannot play ${label}: ${message(error)}`;
+  });
+}
+
+/** Takes (`on`) or drops several assets from one skin in the mix. */
+function useUnits(refs: AssetRef[], skin: string, on: boolean) {
+  recipe.overrides ??= {};
+  for (const ref of refs) {
+    const id = assetId(ref);
+    if (on) recipe.overrides[id] = { skin };
+    else if (recipe.overrides[id]?.skin === skin) delete recipe.overrides[id];
+  }
+  persist();
+  renderGroups();
+  renderMix();
+  scheduleCompose();
+}
+
+async function revealInExplorer(ref: AssetRef, skin: string) {
+  showView("explorer");
+  await explorer?.reveal(skin, ref);
+}
+
+/** Opens the asset's element group in Elements and highlights its tile. */
+async function showInElements(ref: AssetRef, skin: string) {
+  if (focused !== skin) await focus(skin);
+  const entry = focused === skin ? loaded.get(skin) : undefined;
+  if (!entry) return;
+  const group = groupById(groupOf(ref, parseIni(entry.data.text)));
+  if (!group) {
+    status.textContent = `${ref.name} is not in an element group`;
+    return;
+  }
+  category = group.category;
+  categoryChosen = true;
+  renderCats();
+  renderGroups();
+  showView("elements");
+  const target = $("#groups").querySelector<HTMLElement>(
+    `[data-asset="${CSS.escape(assetId(ref))}"]`,
+  );
+  if (!target) {
+    status.textContent = `${ref.name} is not shown in ${group.label}`;
+    return;
+  }
+  target.scrollIntoView({ block: "center" });
+  target.focus({ preventScroll: true });
+  target.classList.add("found");
+  setTimeout(() => target.classList.remove("found"), 1600);
+}
+
+explorer = new Explorer({
+  skins: () => library?.skins ?? [],
+  load: async (key) => {
+    const { snapshot } = await load(key);
+    return { text: snapshot.text, files: snapshot.files };
+  },
+  assetUrl,
+  animationUrl,
+  play,
+  inMix: (ref) => recipe.overrides?.[assetId(ref)]?.skin,
+  use: useUnits,
+  group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
+  showInElements: (ref, skin) => void showInElements(ref, skin),
+  status: (text) => (status.textContent = text),
+});
+
 // ---- live game state -------------------------------------------------------
 const rulesets: Record<string, Category> = {
   osu: "osu",
@@ -1775,7 +1878,7 @@ setInterval(async () => {
   if (library?.lazer.enabled && library.lazer.error) await loadLibrary();
   if (saving || !focused) return;
   const skin = skinByKey(focused);
-  if (!skin || skin.origin === "lazer") return;
+  if (!skin || skin.origin === "lazer" || skin.origin === "osk") return;
   try {
     const snapshot = await request<Snapshot>(
       `v1/skin?skin=${encodeURIComponent(focused)}`,

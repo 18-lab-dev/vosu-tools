@@ -39,7 +39,8 @@ pub struct App {
     pub http: reqwest::Client,
     pub cache_dir: PathBuf,
     writes: Arc<Mutex<()>>,
-    /// Folders the user added from a write session, persisted in the data dir.
+    /// Folders and `.osk` files the user added from a write session, persisted
+    /// in the data dir.
     pub added: Arc<Mutex<Vec<PathBuf>>>,
     added_file: Arc<Path>,
     /// Recently listed skins, so bursts of asset reads skip re-listing.
@@ -120,17 +121,26 @@ struct AssetQuery {
     skin: String,
     name: String,
 }
-/// One skin file (image or audio) for previews.
+/// One skin file for previews: images, audio, and text (.ini, .txt, .json)
+/// up to 2 MiB for the Explorer's text view.
 async fn asset(
     State(app): State<App>,
     Query(query): Query<AssetQuery>,
 ) -> Result<Response, Failure> {
     let (source, _) = library::resolve(&app, &query.skin).await?;
     let kind = content_type(&query.name);
-    if !(kind.starts_with("image/") || kind.starts_with("audio/")) {
-        return Err(failure("Only images and audio are previewed."));
+    let text = kind.starts_with("text/") || kind == "application/json";
+    if !(kind.starts_with("image/") || kind.starts_with("audio/") || text) {
+        return Err(failure("Only images, audio and text are previewed."));
     }
-    Ok(bytes(source.read(&app, &query.name).await?, kind))
+    let body = source.read(&app, &query.name).await?;
+    if text && body.len() > 2 * 1024 * 1024 {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "Text files over 2 MiB are not shown.".into(),
+        ));
+    }
+    Ok(bytes(body, kind))
 }
 
 #[derive(Deserialize)]
@@ -259,7 +269,7 @@ async fn save(State(app): State<App>, Json(save): Json<Save>) -> Result<Json<Sav
     let (source, skin) = library::resolve(&app, &save.skin).await?;
     let Source::Folder(folder) = source else {
         return Err(failure(
-            "Lazer skins are read-only here; export a mix as .osk instead.",
+            "Lazer skins and .osk files are read-only here; export a mix as .osk instead.",
         ));
     };
     if !skin.writable {
@@ -288,7 +298,7 @@ async fn add_folder(
     Json(add): Json<AddFolder>,
 ) -> Result<Json<Library>, Failure> {
     let path = PathBuf::from(add.path.trim());
-    let folder = tokio::task::spawn_blocking(move || library::skin_folder(&path))
+    let folder = tokio::task::spawn_blocking(move || library::skin_source(&path))
         .await
         .map_err(failure)??;
     {
