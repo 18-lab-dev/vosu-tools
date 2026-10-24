@@ -108,6 +108,9 @@ export function goldenSkin(skin: GoldenSkin): {
   for (const [name, region] of [...regions])
     if (name.endsWith("-0") && !regions.has(name.slice(0, -2)))
       regions.set(name.slice(0, -2), region);
+  // The slider ball's frames are sliderb0, sliderb1, ... (no dash).
+  if (regions.has("sliderb0") && !regions.has("sliderb"))
+    regions.set("sliderb", regions.get("sliderb0")!);
   return {
     skin: { name: skin.name, assets: new Map(), sections, version },
     regions,

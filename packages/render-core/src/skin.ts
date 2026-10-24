@@ -1,10 +1,11 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
-import { planAtlas, type AtlasStrip } from "./atlas";
+import { ATLAS_PADDING, planAtlas, type AtlasStrip } from "./atlas";
 import {
   maniaConfig,
   maniaJudgementImages,
   maniaLayout,
+  maniaWrappedImages,
   normaliseManiaImage,
 } from "./mania";
 export interface Skin {
@@ -134,6 +135,8 @@ export const assetNames = [
   "spinner-rpm",
   "spinner-spin",
   "spinner-clear",
+  // osu!taiko's swell note (LegacySwell).
+  "spinner-warning",
   "taikohitcircle",
   "taikohitcircleoverlay",
   "taikobigcircle",
@@ -143,6 +146,8 @@ export const assetNames = [
   "taiko-slider",
   "taiko-bar-left",
   "taiko-bar-right",
+  "taiko-bar-right-glow",
+  "taiko-barline",
   "taiko-roll-middle",
   "taiko-roll-end",
   "fruit-apple",
@@ -160,6 +165,8 @@ export const assetNames = [
   "fruit-catcher-idle",
   "fruit-catcher-kiai",
   "fruit-catcher-fail",
+  // LegacyCatcherOld (skins before version 2.3 without fruit-catcher-*).
+  "fruit-ryuuta",
   "mania-stage-left",
   "mania-stage-right",
   "mania-stage-bottom",
@@ -204,12 +211,14 @@ function judgementNames(): string[] {
 }
 const animated = new Set([
   "sliderb",
+  "sliderfollowcircle",
   "hitcircleoverlay",
   "taikohitcircleoverlay",
   "taikobigcircleoverlay",
   "fruit-catcher-idle",
   "fruit-catcher-kiai",
   "fruit-catcher-fail",
+  "fruit-ryuuta",
   "mania-stage-light",
   "lightingN",
   "lightingL",
@@ -485,6 +494,25 @@ async function decode(
   return added;
 }
 /**
+ * Images lazer loads with ClampToEdge or Repeat wrapping, per axis (S, T):
+ * `LegacyDrumRoll`'s body and end, and the mania notes, keys and bodies of
+ * every key count. Everything else is WrapMode.None.
+ */
+export function wrappedImages(
+  skin?: Skin,
+): Map<string, readonly [boolean, boolean]> {
+  const out = new Map<string, readonly [boolean, boolean]>([
+    ["taiko-roll-middle", [true, true]],
+    ["taiko-roll-end", [true, true]],
+  ]);
+  for (let keys = 1; keys <= 18; keys++)
+    for (const [name, [s, t]] of maniaWrappedImages(maniaConfig(skin, keys))) {
+      const [s0, t0] = out.get(name) ?? [false, false];
+      out.set(name, [s0 || s, t0 || t]);
+    }
+  return out;
+}
+/**
  * Skin images on array-texture pages (see atlas.ts) and one immutable frame
  * table; animations and strips select UVs entirely in WGSL.
  *
@@ -594,6 +622,33 @@ export function buildAtlas(
   const canvas = new OffscreenCanvas(pageWidth, pageHeight),
     ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingQuality = "high";
+  const wrapped = wrappedImages(skin);
+  // osu!framework's atlas pads every image with its edge pixels: at full
+  // opacity on axes the texture clamps or repeats, transparent otherwise
+  // (WrapMode.None). Filtering at a stretched image's edges then blends with
+  // the same colour or with nothing, like lazer.
+  const extendEdges = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    sides: boolean,
+    top: boolean,
+    bottom: boolean,
+  ) => {
+    const P = ATLAS_PADDING;
+    ctx.imageSmoothingEnabled = false;
+    if (top) ctx.drawImage(canvas, x, y, w, 1, x, y - P, w, P);
+    if (bottom) ctx.drawImage(canvas, x, y + h - 1, w, 1, x, y + h, w, P);
+    if (sides) {
+      // Corners are opaque only when both axes are.
+      const y0 = top ? y - P : y,
+        h0 = h + (top ? P : 0) + (bottom ? P : 0);
+      ctx.drawImage(canvas, x, y0, 1, h0, x - P, y0, P, h0);
+      ctx.drawImage(canvas, x + w - 1, y0, 1, h0, x + w, y0, P, h0);
+    }
+    ctx.imageSmoothingEnabled = true;
+  };
   for (let page = 0; page < pages; page++) {
     ctx.clearRect(0, 0, pageWidth, pageHeight);
     for (const [name, source] of sources) {
@@ -607,17 +662,30 @@ export function buildAtlas(
         if (source.blank) {
           ctx.fillStyle = "#000";
           ctx.fillRect(piece.x, y, piece.width, height);
-        } else
-          ctx.drawImage(
-            source.image,
-            0,
-            top * rows,
-            source.width,
-            height * rows,
+          continue;
+        }
+        ctx.drawImage(
+          source.image,
+          0,
+          top * rows,
+          source.width,
+          height * rows,
+          piece.x,
+          y,
+          piece.width,
+          height,
+        );
+        const [s, t] =
+          wrapped.get(name) ?? wrapped.get(name.replace(/-\d+$/, "")) ?? [];
+        if (s || t)
+          extendEdges(
             piece.x,
             y,
             piece.width,
             height,
+            !!s,
+            !!t && piece.top === 0,
+            !!t && piece.bottom === placement.height,
           );
       }
     }

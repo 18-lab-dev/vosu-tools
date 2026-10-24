@@ -65,6 +65,17 @@ roll, bar line, swell, hit explosion), `DrawableHit` / `DrawableDrumRoll`;
 and lazer's combo colour normalisation (`DrawableHitObject.UpdateComboColour`,
 `HSPAColour`, osu!framework 2026.921.1 `Interpolation.ValueAt`).
 
+`src/osu.ts` and its kinds in `src/shader.ts` (legacy spinners, slider ball
+and follow circle) are a port (translated code) of osu! (lazer) at the same
+tag: `osu.Game.Rulesets.Osu/Skinning/Legacy/{LegacySpinner,LegacyOldStyleSpinner,LegacyNewStyleSpinner,LegacySliderBall,LegacyFollowCircle,OsuLegacySkinTransformer}.cs`,
+`Skinning/Default/SpinnerRotationTracker.cs`, `Objects/{Spinner,OsuHitObject}.cs`,
+`Objects/Drawables/{DrawableSlider,DrawableSliderBall}.cs`,
+`Replays/OsuAutoGenerator.cs` (autoplay spin) and
+`UI/OsuPlayfieldAdjustmentContainer.cs` (the playfield shift). The atlas's
+opaque edge padding for images lazer loads with `ClampToEdge` / `Repeat`
+follows osu!framework 2026.921.1 `TextureAtlas.BackingAtlasTexture`, and
+skin.ini values lose `//` comments as in `LegacyDecoder.StripComments`.
+
 Judgements, hit lighting and explosions (`src/judgements.ts`, the motion-35
 profiles in `src/shader.ts`, and their call sites in `src/scene.ts`,
 `src/taiko.ts` and `src/fruits.ts`) are a port (translated code) of osu!

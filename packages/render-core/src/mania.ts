@@ -365,6 +365,36 @@ export function fallbackColumnIndex(
   return distance % 2 === 0 ? "1" : "2";
 }
 
+/**
+ * The images a stage of `config` loads with osu!framework's ClampToEdge or
+ * Repeat wrapping, per axis (S, T): `LegacyKeyArea` keys clamp horizontally,
+ * `LegacyNotePiece` notes, heads and tails clamp both ways and
+ * `LegacyBodyPiece` bodies clamp or repeat both ways.
+ */
+export function maniaWrappedImages(
+  config: ManiaConfig,
+): Map<string, readonly [boolean, boolean]> {
+  const out = new Map<string, readonly [boolean, boolean]>();
+  const image = (key: string, fallback: string) =>
+    config.images.get(key) ?? fallback;
+  const set = (name: string, s: boolean, t: boolean) => {
+    const [s0, t0] = out.get(name) ?? [false, false];
+    out.set(name, [s0 || s, t0 || t]);
+  };
+  for (let i = 0; i < config.keys; i++) {
+    const F = fallbackColumnIndex(config.keys, i);
+    set(image(`KeyImage${i}`, `mania-key${F}`), true, false);
+    set(image(`KeyImage${i}D`, `mania-key${F}D`), true, false);
+    for (const suffix of ["", "H", "T", "L"])
+      set(
+        image(`NoteImage${i}${suffix}`, `mania-note${F}${suffix}`),
+        true,
+        true,
+      );
+  }
+  return out;
+}
+
 /** The legacy stage for `config`, with element sizes from `size`. */
 export function maniaLayout(config: ManiaConfig, size: ImageSize): ManiaLayout {
   const { keys, images, colours } = config;
