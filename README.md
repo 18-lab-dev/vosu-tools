@@ -35,6 +35,10 @@ vosu --tool tools/<id>             # run a tool from this checkout; vosu restart
 vosux <id> --help
 ```
 
+Beatmap fixtures use LF on every checkout, including Windows (`.gitattributes`),
+so golden comparisons and section-insertion tests do not depend on Git's
+`core.autocrlf` setting.
+
 ## Release packaging
 
 With Python 3.11+, the target's native build dependencies, Rust, and Bun installed:
