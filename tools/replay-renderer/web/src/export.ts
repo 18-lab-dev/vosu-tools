@@ -16,7 +16,6 @@ let composition: Composition | undefined;
 const bitmaps = new Map<string, { png: string; bitmap: ImageBitmap }>();
 const loadStarted = performance.now();
 try {
-  const adapterInfo = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
   const spec = (await (await request("spec")).json()) as {
     replays: ({ id: string } & Preset)[];
     fps: number;
@@ -59,6 +58,7 @@ try {
   composition = new Composition(tracks, width, height, spec.layout, false, true);
   composition.timing = { outroMs: spec.outro_ms, fadeMs: spec.fade_ms };
   composition.validate();
+  const adapterInfo = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
   const rate = tracks[0].replay.rate,
     start = composition.start,
     frames = Math.ceil((composition.duration / rate / 1000) * spec.fps);

@@ -158,6 +158,22 @@ pub(super) async fn select(
 mod tests {
     use super::*;
     #[test]
+    fn pinned_nvenc_uses_uuid_and_local_ordinal_zero() {
+        let mut encoder = Encoder::new("h264_nvenc", &[]);
+        encoder.gpu = Some("GPU-spare".into());
+        let mut command = encoder.command("ffmpeg");
+        encoder.configure(&mut command);
+        let args: Vec<_> = command.as_std().get_args().collect();
+        assert!(args.windows(2).any(|pair| pair == ["-gpu", "0"]));
+        assert!(
+            command
+                .as_std()
+                .get_envs()
+                .any(|(key, value)| key == "CUDA_VISIBLE_DEVICES"
+                    && value == Some(std::ffi::OsStr::new("GPU-spare")))
+        );
+    }
+    #[test]
     fn quality_and_input_options_are_explicit() {
         assert_eq!(software().name, "libx264");
         assert!(

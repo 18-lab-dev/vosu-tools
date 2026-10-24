@@ -44,6 +44,8 @@ pub(super) async fn resolve(value: &str) -> Result<Option<Gpu>, String> {
     let pci = pci(value)?;
     let output = Command::new("nvidia-smi")
         .args([
+            "-i",
+            &pci,
             "--query-gpu=index,pci.bus_id,uuid",
             "--format=csv,noheader,nounits",
         ])
@@ -159,6 +161,31 @@ impl Gpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn browser_exposes_only_the_selected_device_nodes() {
+        let gpu = Gpu {
+            pci: "0000:01:00.0".into(),
+            index: 0,
+            uuid: "GPU-spare".into(),
+            nodes: vec![
+                "/dev/nvidiactl".into(),
+                "/dev/nvidia1".into(),
+                "/dev/dri/renderD130".into(),
+            ],
+        };
+        let command = gpu.browser(Path::new("/chrome"), Path::new("/tmp/profile"));
+        let args: Vec<_> = command.as_std().get_args().collect();
+        assert!(args.iter().any(|arg| *arg == "/dev/nvidia1"));
+        assert!(args.iter().any(|arg| *arg == "/dev/dri/renderD130"));
+        assert!(!args.iter().any(|arg| *arg == "/dev/nvidia0"));
+        assert!(
+            command
+                .as_std()
+                .get_envs()
+                .any(|(key, value)| key == "CUDA_VISIBLE_DEVICES"
+                    && value == Some(std::ffi::OsStr::new("GPU-spare")))
+        );
+    }
     #[test]
     fn pci_ids_are_canonical_and_not_paths() {
         assert_eq!(pci("0000:01:00.0").unwrap(), "0000:01:00.0");
