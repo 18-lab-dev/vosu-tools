@@ -7,6 +7,7 @@ pub(super) struct Encoder {
     pub name: &'static str,
     device: Option<PathBuf>,
     pub output: &'static [&'static str],
+    gpu: Option<String>,
 }
 impl Encoder {
     fn new(name: &'static str, options: &'static [&'static str]) -> Self {
@@ -14,14 +15,26 @@ impl Encoder {
             name,
             device: None,
             output: options,
+            gpu: None,
         }
     }
     pub fn command(&self, executable: &str) -> Command {
         let mut command = Command::new(executable);
+        if let Some(uuid) = &self.gpu {
+            command
+                .env("CUDA_VISIBLE_DEVICES", uuid)
+                .env("CUDA_DEVICE_ORDER", "PCI_BUS_ID");
+        }
         if let Some(device) = &self.device {
             command.arg("-vaapi_device").arg(device);
         }
         command
+    }
+    pub fn configure(&self, command: &mut Command) {
+        command.args(["-c:v", self.name]).args(self.output);
+        if self.gpu.is_some() {
+            command.args(["-gpu", "0"]);
+        }
     }
 }
 fn software() -> Encoder {
@@ -91,9 +104,9 @@ async fn available(
             "-frames:v",
             "1",
         ])
-        .args(["-pix_fmt", "yuv420p"])
-        .args(["-c:v", encoder.name])
-        .args(encoder.output)
+        .args(["-pix_fmt", "yuv420p"]);
+    encoder.configure(&mut command);
+    command
         .args(["-f", "null", "-"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -113,12 +126,19 @@ pub(super) async fn select(
     preference: &str,
     width: u32,
     height: u32,
+    gpu: Option<&crate::gpu::Gpu>,
 ) -> Result<Encoder, String> {
     if !matches!(preference, "auto" | "hardware" | "software") {
         return Err("Encoder must be auto, hardware or software".into());
     }
     if preference != "software" {
-        for encoder in hardware() {
+        for mut encoder in hardware() {
+            if let Some(gpu) = gpu {
+                if encoder.name != "h264_nvenc" {
+                    continue;
+                }
+                encoder.gpu = Some(gpu.uuid.clone());
+            }
             if available(executable, &encoder, width, height).await? {
                 return Ok(encoder);
             }
@@ -138,6 +158,22 @@ pub(super) async fn select(
 mod tests {
     use super::*;
     #[test]
+    fn pinned_nvenc_uses_uuid_and_local_ordinal_zero() {
+        let mut encoder = Encoder::new("h264_nvenc", &[]);
+        encoder.gpu = Some("GPU-spare".into());
+        let mut command = encoder.command("ffmpeg");
+        encoder.configure(&mut command);
+        let args: Vec<_> = command.as_std().get_args().collect();
+        assert!(args.windows(2).any(|pair| pair == ["-gpu", "0"]));
+        assert!(
+            command
+                .as_std()
+                .get_envs()
+                .any(|(key, value)| key == "CUDA_VISIBLE_DEVICES"
+                    && value == Some(std::ffi::OsStr::new("GPU-spare")))
+        );
+    }
+    #[test]
     fn quality_and_input_options_are_explicit() {
         assert_eq!(software().name, "libx264");
         assert!(
@@ -154,7 +190,7 @@ mod tests {
     #[tokio::test]
     async fn invalid_preference_does_not_launch_a_process() {
         assert!(
-            select("does-not-exist", "typo", 1920, 1080)
+            select("does-not-exist", "typo", 1920, 1080, None)
                 .await
                 .unwrap_err()
                 .contains("auto")

@@ -71,6 +71,20 @@
     "value": "auto"
   },
   {
+    "uniqueID": "parallel_jobs",
+    "type": "number",
+    "title": "Parallel jobs",
+    "description": "0 selects automatically from CPU cores and resolution (at most 4 without overlays, 8 with overlays); 1–8 overrides. Each job uses a private browser and encoder; lower this on memory-constrained machines.",
+    "value": 0
+  },
+  {
+    "uniqueID": "render_gpu",
+    "type": "text",
+    "title": "Render GPU",
+    "description": "Optional NVIDIA PCI bus id, e.g. 0000:01:00.0. Empty uses the system default. Explicit selection requires Linux and bubblewrap, isolates Chrome to this GPU, and pins NVENC by GPU UUID. Unavailable devices fail rather than falling back. VOSU_RENDER_GPU overrides this setting.",
+    "value": ""
+  },
+  {
     "uniqueID": "ffmpeg_path",
     "type": "text",
     "title": "FFmpeg executable",

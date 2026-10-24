@@ -9,6 +9,7 @@ import { parseReplay, replayMods, replayPitched } from "@vosu-tools/replay";
 import type { Layout } from "./layout";
 import { telemetry } from "./telemetry";
 import type { InspectedLayer } from "./inspector";
+import { frameRange } from "./partition";
 const request = async (path: string, init?: RequestInit) =>
   checked(await fetch(new URL(path, location.href), init));
 let composition: Composition | undefined;
@@ -29,6 +30,7 @@ try {
     fade_ms: number;
     /** Debug export: draw the composition inspector into every frame. */
     inspect?: boolean;
+    segment: [number, number] | null;
   };
   const tracks: Track[] = [];
   for (const entry of spec.replays) {
@@ -56,6 +58,7 @@ try {
   composition = new Composition(tracks, width, height, spec.layout, false, true);
   composition.timing = { outroMs: spec.outro_ms, fadeMs: spec.fade_ms };
   composition.validate();
+  const adapterInfo = (await navigator.gpu.requestAdapter({ powerPreference: "high-performance" }))?.info;
   const rate = tracks[0].replay.rate,
     start = composition.start,
     frames = Math.ceil((composition.duration / rate / 1000) * spec.fps);
@@ -64,6 +67,8 @@ try {
   const overlaid = spec.overlays.length
     ? tracks.map((_, i) => spec.overlays.some((layer) => !layer.tracks || layer.tracks.includes(i)))
     : tracks.map(() => false);
+  const [segment, jobs] = spec.segment ?? [0, 1];
+  const [first, end] = frameRange(frames, segment, jobs, overlaid.some(Boolean));
   await request("begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -71,7 +76,8 @@ try {
       hash: tracks[0].replay.beatmapHash,
       rate,
       pitch: replayPitched(tracks[0].replay),
-      frames,
+      frames: end - first,
+      full_frames: frames,
       start_ms: start,
       tracks: tracks.map((track) => ({
         hash: track.replay.beatmapHash,
@@ -86,6 +92,7 @@ try {
     load: performance.now() - loadStarted,
     simulation: tracks.reduce((sum, track) => sum + (track.timings?.simulation ?? 0), 0),
     scene_build: tracks.reduce((sum, track) => sum + (track.timings?.sceneBuild ?? 0), 0),
+    warmup: 0,
   };
   // One upload may overlap the next frame's GPU/overlay work. Await it before
   // posting another frame, so HTTP scheduling can never reorder the encoder.
@@ -94,7 +101,25 @@ try {
     const result = await upload;
     if (result instanceof Error) throw result;
   };
-  for (let i = 0; i < frames; i++) {
+  // Replay every prior overlay state and clock tick, without screenshots. This
+  // preserves history-dependent widgets and animations at partition boundaries.
+  const warmupStarted = performance.now();
+  if (overlaid.some(Boolean) && first < end) {
+    for (let i = 0; i < first; i++) {
+      const time = start + i * 1000 / spec.fps * rate;
+      await request("frame-state", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(tracks.map((track, t) => {
+          if (!overlaid[t]) return null;
+          const state = telemetry(track, time, start);
+          return { ...state, __render: { ...state.__render, capture: false } };
+        })),
+      });
+    }
+  }
+  startup.warmup = performance.now() - warmupStarted;
+  for (let i = first; i < end; i++) {
     const time = start + ((i * 1000) / spec.fps) * rate;
     await composition.renderOffline(time, { fade: false });
     for (const stage of ["scene", "readback", "composite"] as const)
@@ -174,10 +199,13 @@ try {
     document.querySelector("#status")!.textContent = `Frame ${i + 1}/${frames}`;
   }
   await uploaded();
-  await request("finish", {
+  if (first < end) await request("finish", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ timings_ms: timings, startup_ms: startup }),
+    body: JSON.stringify({ timings_ms: timings, startup_ms: startup, adapter: adapterInfo && {
+      vendor: adapterInfo.vendor, architecture: adapterInfo.architecture,
+      device: adapterInfo.device, description: adapterInfo.description,
+    } }),
   });
   document.querySelector("#status")!.textContent = "Export complete";
 } catch (error) {

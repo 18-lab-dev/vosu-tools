@@ -1,3 +1,4 @@
+mod parallel;
 use super::*;
 use axum::{body::Body, response::Response};
 use std::{process::Stdio, time::Instant};
@@ -20,6 +21,13 @@ pub(super) struct Request {
     layout: String,
     #[serde(default)]
     encoder: Option<String>,
+    #[serde(default)]
+    parallel_jobs: Option<u32>,
+    /// Internal half-open timeline partition; never accepted from clients.
+    #[serde(skip)]
+    segment: Option<(u32, u32)>,
+    #[serde(skip)]
+    selected: Option<Arc<crate::encoder::Encoder>>,
     #[serde(default)]
     overlays: Vec<crate::overlays::Overlay>,
     /// Time after the last object and the fade at its end, wall-clock ms;
@@ -47,6 +55,8 @@ struct Worker {
     /// One overlay runtime per track that shows overlays, each on its own
     /// private origin so its pages read that track's state.
     overlays: Arc<Vec<Instance>>,
+    audio: Arc<Mutex<Value>>,
+    gpu: Option<Arc<crate::gpu::Gpu>>,
 }
 struct Instance {
     track: usize,
@@ -65,6 +75,17 @@ pub(super) async fn start(
     }
     let (width, height) = crate::output::parse_size(&request.resolution)?;
     let settings: Value = app.env.client().settings().await.map_err(error)?;
+    let gpu_id = match std::env::var("VOSU_RENDER_GPU") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => {
+            settings["render_gpu"].as_str().unwrap_or("").to_owned()
+        }
+        Err(message) => return Err(error(message)),
+    };
+    let gpu = crate::gpu::resolve(&gpu_id)
+        .await
+        .map_err(error)?
+        .map(Arc::new);
     let defaults = crate::output::defaults(&settings);
     let preference = request
         .encoder
@@ -74,6 +95,22 @@ pub(super) async fn start(
         return Err(error("Encoder must be auto, hardware or software"));
     }
     request.encoder = Some(preference.to_owned());
+    let jobs = request.parallel_jobs.unwrap_or_else(|| {
+        u32::try_from(settings["parallel_jobs"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX)
+    });
+    if jobs > 8 {
+        return Err(error("Parallel jobs must be 0 (auto) or 1–8"));
+    }
+    request.parallel_jobs = Some(if jobs == 0 {
+        let cores = std::thread::available_parallelism().map_or(1, usize::from);
+        let memory_cap = (16_588_800_u64 / (u64::from(width) * u64::from(height))).clamp(1, 8);
+        // Capture-heavy workers benefit from more concurrency; raw-frame-only
+        // workers saturate transfer/encoding sooner and contend beyond four.
+        let work_cap = if request.overlays.is_empty() { 4 } else { 8 };
+        (cores as u32 / 4).clamp(1, (memory_cap as u32).min(work_cap))
+    } else {
+        jobs
+    });
     let outro = request
         .outro_ms
         .unwrap_or(defaults["outro_ms"].as_u64().unwrap_or(1250) as u32);
@@ -131,6 +168,8 @@ pub(super) async fn start(
         encoder: Arc::default(),
         frames: Arc::default(),
         start: Instant::now(),
+        audio: Arc::default(),
+        gpu,
     };
     tokio::spawn(async move {
         if let Err(message) = run(worker.clone()).await {
@@ -155,6 +194,14 @@ async fn run(worker: Worker) -> Result<(), String> {
         .acquire_owned()
         .await
         .map_err(|e| e.to_string())?;
+    let jobs = worker.request.parallel_jobs.unwrap_or(1);
+    if jobs == 1 {
+        return run_single(worker).await;
+    }
+    parallel::run(worker, jobs).await
+}
+
+async fn run_single(worker: Worker) -> Result<(), String> {
     if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" {
         return Err("Render cancelled".into());
     }
@@ -204,7 +251,15 @@ async fn run(worker: Worker) -> Result<(), String> {
         .env
         .cache_dir
         .join(format!("chromium-{}", worker.id));
-    let spawned = Process::new(browser)
+    tokio::fs::create_dir_all(&profile)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut command = if let Some(gpu) = &worker.gpu {
+        gpu.browser(&browser, &profile)
+    } else {
+        Process::new(browser)
+    };
+    let spawned = command
         .args([
             "--headless=new",
             "--no-first-run",
@@ -304,6 +359,7 @@ async fn run(worker: Worker) -> Result<(), String> {
 }
 async fn spec(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
     let mut value = json!(worker.request);
+    value["segment"] = json!(worker.request.segment);
     value["presets"] = json!(*worker.app.presets.lock().await);
     let context = host_context(&worker.app).await?;
     value["default_settings"] = context["default_settings"].clone();
@@ -350,6 +406,8 @@ struct Begin {
     #[serde(default)]
     pitch: bool,
     frames: u64,
+    #[serde(default)]
+    full_frames: u64,
     /// Map time of the first frame; negative during a lead-in before the song.
     #[serde(default)]
     start_ms: f64,
@@ -380,7 +438,10 @@ async fn begin(
         return Err(error("Encoder already started"));
     }
     // lazer's rate mods run from 0.5× to 2×.
-    if !(0.5..=2.0).contains(&input.rate) || input.frames == 0 || !input.start_ms.is_finite() {
+    if !(0.5..=2.0).contains(&input.rate)
+        || (input.frames == 0 && worker.request.segment.is_none())
+        || !input.start_ms.is_finite()
+    {
         return Err(error("Invalid export clock"));
     }
     let map = crate::library::find_map(&worker.app, &input.hash).await?;
@@ -413,53 +474,74 @@ async fn begin(
         .map(str::trim)
         .ok_or_else(|| error("Beatmap has no audio"))?;
     let audio = map.asset(audio)?;
+    let filter = audio_filter(
+        input.rate,
+        input.pitch,
+        input.start_ms,
+        input.full_frames.max(input.frames) as f64 / f64::from(worker.request.fps),
+        worker.request.fade_ms.unwrap_or(0),
+    );
+    *worker.audio.lock().await = json!({"path": audio, "filter": filter});
     let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
     let executable = crate::output::ffmpeg(&settings);
-    let selected = crate::encoder::select(
-        &executable,
-        worker.request.encoder.as_deref().unwrap_or("auto"),
-        worker.width,
-        worker.height,
-    )
-    .await
-    .map_err(error)?;
+    let selected = if let Some(selected) = &worker.request.selected {
+        selected.clone()
+    } else {
+        Arc::new(
+            crate::encoder::select(
+                &executable,
+                worker.request.encoder.as_deref().unwrap_or("auto"),
+                worker.width,
+                worker.height,
+                worker.gpu.as_deref(),
+            )
+            .await
+            .map_err(error)?,
+        )
+    };
+    if input.frames == 0 {
+        worker.app.jobs.lock().await.insert(
+            worker.id.clone(),
+            json!({
+                "state":"done","progress":1.0,"encoder":selected.name,
+                "result":{"frames":0,"encoder":selected.name}
+            }),
+        );
+        return Ok(Json(json!({"ready":true})));
+    }
     let mut command = selected.command(&executable);
+    command.args([
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-n",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgba",
+        "-video_size",
+        &format!("{}x{}", worker.width, worker.height),
+        "-framerate",
+        &worker.request.fps.to_string(),
+        "-i",
+        "pipe:0",
+    ]);
+    if worker.request.segment.is_none() {
+        command.arg("-i").arg(&audio);
+    }
+    command.args(["-pix_fmt", "yuv420p"]);
+    selected.configure(&mut command);
+    command.args(["-g", &worker.request.fps.to_string(), "-flags", "+cgop"]);
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let threads = (cores / worker.request.parallel_jobs.unwrap_or(1) as usize).max(1);
+    command.args(["-threads", &threads.to_string(), "-filter_threads", "1"]);
+    if worker.request.segment.is_none() {
+        command.args(["-c:a", "aac", "-af", &filter, "-shortest"]);
+    } else {
+        command.arg("-an");
+    }
     let mut child = command
-        .args([
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-n",
-            "-f",
-            "rawvideo",
-            "-pixel_format",
-            "rgba",
-            "-video_size",
-            &format!("{}x{}", worker.width, worker.height),
-            "-framerate",
-            &worker.request.fps.to_string(),
-            "-i",
-            "pipe:0",
-            "-i",
-        ])
-        .arg(audio)
-        .args(["-pix_fmt", "yuv420p"])
-        .args(["-c:v", selected.name])
-        .args(selected.output)
-        .args([
-            "-c:a",
-            "aac",
-            "-af",
-            &audio_filter(
-                input.rate,
-                input.pitch,
-                input.start_ms,
-                input.frames as f64 / f64::from(worker.request.fps),
-                worker.request.fade_ms.unwrap_or(0),
-            ),
-            "-shortest",
-        ])
         .arg(&worker.staged)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -473,7 +555,7 @@ async fn begin(
         })?;
     *worker.pipe.lock().await = child.stdin.take();
     *encoder = Some(child);
-    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"total_frames":input.frames,"result":null}));
+    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"total_frames":input.frames,"result":null}));
     Ok(Json(json!({"ready":true})))
 }
 /// The song on the video clock: tempo for the replay rate (pitch-shifted when
@@ -571,10 +653,10 @@ async fn finish(
         .map_err(error)?;
     let seconds = worker.start.elapsed().as_secs_f64();
     let encoder = worker.app.jobs.lock().await[&worker.id]["encoder"].clone();
-    let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
+    let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
     worker.app.jobs.lock().await.insert(
         worker.id.clone(),
-        json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"result":result}),
+        json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"result":result}),
     );
     Ok(Json(result))
 }

@@ -259,7 +259,12 @@ impl Driver {
         self.pages.push(session);
         Ok(())
     }
-    pub async fn capture(&mut self, sequence: u64, wall_ms: f64) -> Result<Vec<String>, String> {
+    pub async fn capture(
+        &mut self,
+        sequence: u64,
+        wall_ms: f64,
+        capture: bool,
+    ) -> Result<Vec<String>, String> {
         if wall_ms < self.last_wall {
             return Err("Overlay export clock must be monotonic".into());
         }
@@ -272,6 +277,7 @@ impl Driver {
         for session in &pages {
             self.event(session, "Emulation.virtualTimeBudgetExpired").await?;
         }
+        if !capture { return Ok(Vec::new()); }
         // Capture follows the existing fixed virtual clock, with lossless alpha.
         let screenshots = self.batch(&pages, "Page.captureScreenshot", json!({"format":"png","fromSurface":true,"captureBeyondViewport":false,"optimizeForSpeed":true})).await?;
         let mut images = Vec::with_capacity(pages.len());
