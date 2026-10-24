@@ -53,6 +53,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run build
+      - run: bun test ./packages ./tools
       - run: python -m unittest discover -s scripts -p test_package.py
       - name: Validate package build plan
         run: python scripts/package.py --target ${{ matrix.target }} --base-url https://example.invalid/releases/test --dry-run
