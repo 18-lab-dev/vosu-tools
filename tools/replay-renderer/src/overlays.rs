@@ -600,6 +600,12 @@ impl Overlays {
             })
             .collect())
     }
+    /// Evaluates `expression` on every page (tests read what pages saw).
+    #[cfg(test)]
+    pub async fn evaluate(&self, expression: &str) -> Vec<Value> {
+        let mut driver = self.driver.lock().await;
+        driver.as_mut().unwrap().evaluate(expression).await.unwrap()
+    }
 }
 
 /// What vosu reports about the map itself, from the rated (converted) map.
@@ -1230,7 +1236,8 @@ mod tests {
         assert_eq!(second[0].png, second[1].png);
         let _ = chromium.kill().await;
         task.abort();
-        std::fs::remove_dir_all(root).unwrap();
+        // Chrome's helper processes may still be leaving the profile: best effort.
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Starts headless Chromium on a throwaway profile; its DevTools endpoint.
@@ -1305,7 +1312,83 @@ mod tests {
         }
         let _ = child.kill().await;
         task.abort();
-        std::fs::remove_dir_all(root).unwrap();
+        // Chrome's helper processes may still be leaving the profile: best effort.
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Regression: an overlay's animation runs once per export frame. Every
+    /// animation frame callback runs exactly once per frame with the frame's
+    /// time (so a page measuring its own frame rate sees the video's), the
+    /// precise feed delivers every frame and `/websocket/v2` keeps vosu's
+    /// 150 ms poll grid, also across uncaptured frames (parallel workers
+    /// replaying history).
+    #[tokio::test]
+    async fn animation_frames_follow_export_frames_in_headless_chromium() {
+        let page = r#"<!doctype html><html><body><script type="module">
+            let precise = 0, full = 0;
+            const frames = [];
+            const loop = (time) => {
+              frames.push([time, performance.now(), precise, full]);
+              requestAnimationFrame(loop);
+            };
+            requestAnimationFrame(loop);
+            new WebSocket(`ws://${location.host}/websocket/v2/precise`).onmessage = () => precise++;
+            new WebSocket(`ws://${location.host}/websocket/v2`).onmessage = () => full++;
+            window.frames = frames;
+        </script></body></html>"#;
+        for fps in [30.0, 60.0] {
+            let (runtime, _origin, root, task) = stand_in(page, true).await;
+            let Some((mut child, endpoint)) = chromium(&root).await else {
+                eprintln!("skipped: VOSU_RENDER_CHROMIUM is not set");
+                task.abort();
+                return;
+            };
+            runtime.debug(endpoint).await;
+            let step = 1000.0 / fps;
+            let count = 2 * fps as u32;
+            for frame in 0..=count {
+                let state = json!({"client": "stable", "play": {"mode": {"number": 3},
+                    "hits": {"300": frame}, "hitErrorArray": [frame]},
+                    "__render": {"wallMs": f64::from(frame) * step, "epochMs": 0.0, "capture": frame > count / 2}});
+                runtime.frame(state).await.unwrap();
+            }
+            let seen = runtime.evaluate("window.frames").await.remove(0);
+            // Callbacks Chrome ran while the page loaded (before the first frame) are at time 0.
+            let frames: Vec<[f64; 4]> = serde_json::from_value::<Vec<[f64; 4]>>(seen)
+                .unwrap()
+                .into_iter()
+                .filter(|frame| frame[0] > 0.0)
+                .collect();
+            assert_eq!(
+                frames.len(),
+                count as usize,
+                "{fps} fps: one callback per frame"
+            );
+            for (index, [time, now, precise, full]) in frames.iter().copied().enumerate() {
+                let expected = (index + 1) as f64 * step;
+                assert!(
+                    (time - expected).abs() < 1e-6,
+                    "{fps} fps frame {index}: {time}"
+                );
+                assert_eq!(now, time, "performance.now() is the frame time");
+                // The connect document plus one per frame since.
+                assert_eq!(
+                    precise,
+                    index as f64 + 2.0,
+                    "{fps} fps frame {index}: precise"
+                );
+                // The connect document (frame 0) plus one per 150 ms poll.
+                assert_eq!(
+                    full,
+                    (expected / 150.0).floor() + 1.0,
+                    "{fps} fps frame {index}: v2"
+                );
+            }
+            let _ = child.kill().await;
+            task.abort();
+            // Chrome's helper processes may still be leaving the profile: best effort.
+            let _ = std::fs::remove_dir_all(root);
+        }
     }
 
     #[test]

@@ -477,6 +477,23 @@ impl Driver {
             Err(reasons.join("; "))
         }
     }
+    /// The value of `expression` on every page.
+    #[cfg(test)]
+    pub async fn evaluate(&mut self, expression: &str) -> Result<Vec<Value>, String> {
+        let pages = std::mem::take(&mut self.pages);
+        let results = self
+            .batch_named(
+                &pages,
+                "Runtime.evaluate",
+                json!({"expression":expression,"returnByValue":true}),
+            )
+            .await;
+        self.pages = pages;
+        Ok(results?
+            .into_iter()
+            .map(|mut result| result["result"]["value"].take())
+            .collect())
+    }
     pub async fn capture(
         &mut self,
         sequence: u64,
@@ -490,7 +507,7 @@ impl Driver {
         self.last_wall = wall_ms;
         let pages = std::mem::take(&mut self.pages);
         let result=async {
-        self.settle(&pages, format!("window.__vosuAdvance({wall_ms});window.__vosuWait({sequence}).then(()=>window.__vosuIdle())"), sequence).await?;
+        self.settle(&pages, format!("window.__vosuAdvance({wall_ms});window.__vosuWait({sequence}).then(()=>window.__vosuIdle()).then(()=>window.__vosuAnimate()).then(()=>window.__vosuIdle())"), sequence).await?;
         self.batch_named(&pages, "Emulation.setVirtualTimePolicy", json!({"policy":"advance","budget":budget,"maxVirtualTimeTaskStarvationCount":1000})).await?;
         for page in &pages {
             self.event(&page.session, "Emulation.virtualTimeBudgetExpired")

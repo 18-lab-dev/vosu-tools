@@ -158,28 +158,36 @@ async fn sync(socket: &mut WebSocket, state: &Overlays, sequence: u64) -> bool {
     !state.offline || send(socket, format!("{SYNC_PREFIX}{sequence}")).await
 }
 
-/// The whole document on connect, then whenever it changed, at most once per
-/// vosu publishing interval of render time (a clock that went back sends at
-/// once). Client text (tosu's `applyFilters`) is accepted and ignored: the
-/// full document is a superset of any filtered one.
+/// The whole document on connect, then at each vosu poll (every publishing
+/// interval of render time, on a grid from the connection) when it changed;
+/// a clock that went back restarts the grid. Client text (tosu's
+/// `applyFilters`) is accepted and ignored: the full document is a superset of
+/// any filtered one.
 async fn full_stream(mut socket: WebSocket, state: Arc<Overlays>, stream: Stream) {
     let mut receiver = state.source.subscribe();
-    let mut last: Option<(f64, String)> = None;
+    // vosu polls on a fixed grid from the connection: the next poll's render
+    // time, and the document last sent.
+    let mut poll = f64::NEG_INFINITY;
+    let mut sent: Option<String> = None;
     loop {
         let documents = receiver.borrow_and_update().clone();
-        let text = stream.document(&documents).to_string();
-        let due = match &last {
-            None => true,
-            Some((wall, sent)) => {
-                *sent != text
-                    && (documents.wall - wall >= stream.interval() || documents.wall < *wall)
+        let wall = documents.wall;
+        let rewound = wall < poll - stream.interval();
+        if sent.is_none() || rewound || wall >= poll {
+            poll = if sent.is_none() || rewound {
+                wall + stream.interval()
+            } else {
+                poll + ((wall - poll) / stream.interval())
+                    .floor()
+                    .mul_add(stream.interval(), stream.interval())
+            };
+            let text = stream.document(&documents).to_string();
+            if sent.as_ref() != Some(&text) {
+                if !send(&mut socket, text.clone()).await {
+                    return;
+                }
+                sent = Some(text);
             }
-        };
-        if due {
-            if !send(&mut socket, text.clone()).await {
-                return;
-            }
-            last = Some((documents.wall, text));
         }
         if !sync(&mut socket, &state, documents.sequence).await {
             return;
