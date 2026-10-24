@@ -11,7 +11,7 @@ import type { Replay } from "./index";
 import { isClassic, replayMods, replayRate } from "./mods";
 import { difficultyRange } from "./osu";
 import { lazerMultiplier, type HealthInfo, type HitResult, type Outcome, type Rules } from "./scoring";
-import type { Result, Simulation } from "./simulation";
+import { realWindows, type Result, type Simulation } from "./simulation";
 import { judgeWithHealth } from "./health";
 
 /** The windows in order perfect, great, good, ok, meh, miss. */
@@ -327,5 +327,11 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
   // Results land in judgement order (time, then the order they were applied).
   const order = outcomes.map((o, i) => ({ o, i })).sort((a, b) => a.o.time - b.o.time || a.i - b.i);
   const judged = order.map(({ o }) => o);
-  return judgeWithHealth(replay, { mode: 3, map, mods, classic: false }, perfect, judged, rules, warnings);
+  const simulation = judgeWithHealth(replay, { mode: 3, map, mods, classic: false }, perfect, judged, rules, warnings);
+  const [perfectWindow, great, good, ok] = windows;
+  simulation.hitWindow = realWindows(
+    { perfect: perfectWindow, great, good, ok, meh, miss: missWindow },
+    replayRate(replay),
+  );
+  return simulation;
 }

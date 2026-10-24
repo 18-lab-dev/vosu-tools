@@ -38,33 +38,49 @@ function track(value: Replay) {
     simulation: simulateStableMania(value, playableMap(value, map)),
   };
 }
-test("synthetic v2 follows verified judgement and recorded key/HP clocks", () => {
+test("the v2 partial follows the judgement, key and HP clocks in vosu's shapes", () => {
   const source = track(replay()),
     before = telemetry(source, 999),
     after = telemetry(source, 1005);
-  expect(before.play.hits?.geki).toBe(0);
-  expect(after.play.hits?.geki).toBe(1);
+  expect(before.play.hits.geki).toBe(0);
+  expect(after.play.hits.geki).toBe(1);
   expect(after.play.accuracy).toBe(100);
-  expect(after.keys[0].isPressed).toBe(true);
-  expect(after.play.healthBar.normal).toBeCloseTo(0.599);
+  expect(after.state).toEqual({ number: 2, name: "play" });
+  expect(after.keys.all[0]).toEqual({ name: "K1", isPressed: true, count: 1, pressedAt: 1005, releasedAt: null });
+  expect(after.keys.k1).toEqual({ isPressed: true, count: 1 });
+  expect(after.keys.all).toHaveLength(4);
+  expect(after.play.healthBar.normal).toBeCloseTo(59.9);
+  // Hit errors in gameplay milliseconds; windows in real milliseconds.
   expect(after.play.hitErrorArray).toEqual([5]);
+  expect(after.__render.precise).toEqual({ pressHitErrors: [5], releaseHitErrors: [] });
+  expect(after.beatmap.stats.hitWindow).toEqual({ perfect: 16, great: 49, good: 82, ok: 112, meh: 136, miss: 173 });
+  expect(after.play.mods).toEqual({ checksum: "", number: 0, name: "", array: [], rate: 1 });
+  expect(after.play.rank.current).toBe("SS");
   expect(after.__render.wallMs).toBe(1005);
-  expect(after.play.pp.current).toBeNull();
 });
-test("mismatched scoring remains explicitly unknown", () => {
+test("a simulation that does not reproduce the counts still gives overlays numbers", () => {
   const value = replay();
   value.counts.geki = 2;
   const result = telemetry(track(value), 1500);
   expect(result.__render.verified).toBe(false);
-  expect(result.play.accuracy).toBeNull();
-  expect(result.play.hits).toBeNull();
-  expect(result.play.combo.current).toBeNull();
+  expect(result.play.accuracy).toBe(100);
+  expect(result.play.hits.geki).toBe(1);
+  expect(result.play.combo.current).toBe(1);
 });
-test("combo is independently gated by stored maximum", () => {
+test("rate mods put hit windows in real time and keys follow presses", () => {
   const value = replay();
-  value.maxCombo = 2;
-  const result = telemetry(track(value), 1500);
-  expect(result.__render.verified).toBe(true);
-  expect(result.play.combo.current).toBeNull();
-  expect(result.play.combo.max).toBeNull();
+  value.mods = 64;
+  value.rate = 1.5;
+  value.frames = [
+    { time: 0, x: 0, y: 0, keys: 0 },
+    { time: 990, x: 1, y: 0, keys: 0 },
+    { time: 1100, x: 0, y: 0, keys: 0 },
+    { time: 1200, x: 1, y: 0, keys: 0 },
+  ];
+  const result = telemetry(track(value), 1150);
+  expect(result.play.mods.name).toBe("DT");
+  expect(result.play.mods.rate).toBe(1.5);
+  expect(result.beatmap.stats.hitWindow.great).toBe(49);
+  expect(result.keys.all[0]).toEqual({ name: "K1", isPressed: false, count: 1, pressedAt: 990, releasedAt: 1100 });
+  expect(telemetry(track(value), 1250).keys.all[0].count).toBe(2);
 });

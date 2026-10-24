@@ -142,5 +142,8 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
     lazerMultiplier: lazerMultiplier(2, mods, replay.version),
   };
   const judged = order.map(({ o }) => o);
-  return judgeWithHealth(replay, { mode: 2, map, mods, classic: false }, perfect, judged, rules, []);
+  const simulation = judgeWithHealth(replay, { mode: 2, map, mods, classic: false }, perfect, judged, rules, []);
+  // Catch is judged by position, not time.
+  simulation.hitWindow = {};
+  return simulation;
 }

@@ -40,6 +40,16 @@ export interface Simulation {
   statistics?: Record<string, number>;
   /** lazer's health bar from these judgements (see `health.ts`). */
   health?: HealthPoint[];
+  /** The judgement windows used, in real milliseconds (vosu's `beatmap.stats.hitWindow`). */
+  hitWindow?: HitWindow;
+}
+/** Judgement windows by lazer result name, real milliseconds; absent where the ruleset has none. */
+export type HitWindow = Partial<Record<"perfect" | "great" | "good" | "ok" | "meh" | "miss", number>>;
+/** `windows` (map milliseconds at `rate`) as real milliseconds with two decimals, like vosu. */
+export function realWindows(windows: HitWindow, rate: number): HitWindow {
+  return Object.fromEntries(
+    Object.entries(windows).map(([name, ms]) => [name, Math.round(((ms as number) / rate) * 100) / 100]),
+  );
 }
 const empty = (): Counts => ({
   n300: 0,

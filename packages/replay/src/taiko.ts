@@ -23,10 +23,10 @@
 import type { Beatmap } from "@vosu-tools/osu-parse";
 import { convertToTaiko, legacyBeatmap, timingPointAt } from "@vosu-tools/ruleset-convert";
 import type { Replay } from "./index";
-import { replayMods } from "./mods";
+import { replayMods, replayRate } from "./mods";
 import { difficultyRange } from "./osu";
 import { clientOf, lazerMultiplier, type HealthInfo, type HitResult, type Outcome, type Rules } from "./scoring";
-import type { Result, Simulation } from "./simulation";
+import { realWindows, type Result, type Simulation } from "./simulation";
 import { judgeWithHealth } from "./health";
 
 /** `TaikoHitWindows` for an overall difficulty: great, ok and miss. */
@@ -349,5 +349,7 @@ export function simulateTaiko(replay: Replay, map: Beatmap, options: { source?: 
   };
   const order = outcomes.map((o, i) => ({ o, i })).sort((a, b) => a.o.time - b.o.time || a.i - b.i);
   const judged = order.map(({ o }) => o);
-  return judgeWithHealth(replay, { mode: 1, map, mods, classic: false }, perfect, judged, rules, warnings);
+  const simulation = judgeWithHealth(replay, { mode: 1, map, mods, classic: false }, perfect, judged, rules, warnings);
+  simulation.hitWindow = realWindows({ great, ok, miss }, replayRate(replay));
+  return simulation;
 }

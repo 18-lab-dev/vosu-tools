@@ -194,6 +194,36 @@ pub(super) async fn current_file(app: &App, context: &Value, path: &str) -> Resu
     }
 }
 
+/// vosu's `/files/skin/` descriptor (`{client,name,files,builtin,base}`) for
+/// the skin a track renders with, as its overlays read it: the client's own
+/// descriptor for the current skin, else the preset's skin.
+pub(super) async fn overlay_descriptor(app: &App, skin: &str) -> Result<Value, Error> {
+    if skin.is_empty() {
+        let response = app
+            .env
+            .client()
+            .request(Method::GET, "/files/skin/")
+            .send()
+            .await
+            .map_err(error)?;
+        if !response.status().is_success() {
+            return Err(not_found("Current skin is unavailable"));
+        }
+        return response.json().await.map_err(error);
+    }
+    if let Some(id) = skin.strip_prefix(BUILTIN) {
+        return Ok(json!({"client":"lazer","name":id,"files":false,"builtin":id,"base":id}));
+    }
+    let (client, name, base) = if let Some(name) = skin.strip_prefix(IMPORTED) {
+        (Value::Null, name, Value::Null)
+    } else if let Some(id) = skin.strip_prefix(LAZER) {
+        (json!("lazer"), id, Value::Null)
+    } else {
+        (json!("stable"), skin, json!("legacy"))
+    };
+    Ok(json!({"client":client,"name":name,"files":true,"builtin":null,"base":base}))
+}
+
 #[derive(Deserialize)]
 pub(super) struct Start {
     name: String,
@@ -569,6 +599,7 @@ mod tests {
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             uploads: Arc::default(),
             lazer_maps: Arc::default(),
+            preview: Arc::default(),
         }
     }
     fn skin_query(path: &str) -> Query<BTreeMap<String, String>> {

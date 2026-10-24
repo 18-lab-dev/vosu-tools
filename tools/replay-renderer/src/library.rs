@@ -23,6 +23,26 @@ impl MapFiles {
             Self::Stable(path) | Self::Lazer { osu: path, .. } => path,
         }
     }
+    /// vosu's `folders.beatmap` and `files.beatmap`: the stable map folder's
+    /// name and the `.osu` file name; lazer maps have no folder, only the
+    /// beatmap's own file name.
+    pub(super) fn names(&self) -> (String, String) {
+        let name = |path: &FsPath| {
+            path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        match self {
+            Self::Stable(osu) => (osu.parent().map(name).unwrap_or_default(), name(osu)),
+            Self::Lazer { osu, files } => (
+                String::new(),
+                files
+                    .iter()
+                    .find_map(|(file, path)| (path == osu).then(|| file.clone()))
+                    .unwrap_or_else(|| name(osu)),
+            ),
+        }
+    }
     /// Resolves a file named by the beatmap (audio, background, …).
     pub(super) fn asset(&self, name: &str) -> Result<PathBuf, Error> {
         match self {
@@ -829,6 +849,7 @@ mod tests {
             render_gate: Arc::new(tokio::sync::Semaphore::new(1)),
             uploads: Arc::default(),
             lazer_maps: Arc::default(),
+            preview: Arc::default(),
         }
     }
     #[tokio::test]
