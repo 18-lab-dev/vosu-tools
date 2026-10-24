@@ -2,6 +2,8 @@
 
 Every first-party tool has an icon and a banner drawn as one family, so the dashboard's Tools page reads as one product. The same rules cover vosulay's catalog art (`assets/branding/vosu-tool-*.svg` in that repository). Packaging limits are in the [package contract](catalog.md); this page is the look.
 
+First-party artwork in `tools/*/art/` and `assets/` is © 2026 sxlvia, licensed under MIT OR Apache-2.0.
+
 ## Files
 
 Each tool keeps `art/icon.svg` and `art/banner.svg`, named by its `tool.toml`. Both are hand-written SVG: no text, fonts, rasters, scripts or external references. Keep them small (under 5 KB) and readable enough to edit by hand.

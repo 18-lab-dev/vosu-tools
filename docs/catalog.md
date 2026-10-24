@@ -1,6 +1,6 @@
 # Release packages and catalogs
 
-vosu installs tools and overlays from **catalog sources**; it embeds no tools. This page is the contract between `scripts/package.py` here (and the equivalent in vosu-overlays) and vosu's catalog client (`docs/tools/protocol.md` in the vosu repository).
+vosu installs tools and overlays from **catalog sources**; it embeds no tools. This page is the contract between `scripts/package.py` here and vosu's catalog client (`docs/tools/protocol.md` in the vosu repository).
 
 ## Sources
 
@@ -9,7 +9,7 @@ A source is either:
 - a GitHub repository written `owner/repo` (optionally `owner/repo@tag`), resolved to `https://github.com/owner/repo/releases/latest/download/catalog.json` (or `/releases/download/<tag>/catalog.json`), or
 - any HTTPS URL of a `catalog.json`.
 
-vosu ships three default sources, enabled by default and removable or disableable like any other: `18-lab-dev/vosu-tools`, `18-lab-dev/vosulay`, and `18-lab-dev/vosu-overlays`. Users add, remove, disable, and reorder sources in the dashboard settings. Every catalog entry is shown with its source. When two sources offer the same id, the earlier source wins and the later entry is marked as shadowed.
+vosu ships two default sources, enabled by default and removable or disableable like any other: `18-lab-dev/vosu-tools` and `18-lab-dev/vosulay`. Users add, remove, disable, and reorder sources in the dashboard settings. Every catalog entry is shown with its source. When two sources offer the same id, the earlier source wins and the later entry is marked as shadowed. Overlays remain available through the existing tosu community catalog on the Available page; the private vosu-overlays repository is not a default catalog source or an installation source.
 
 Trust: tools from the exact default `18-lab-dev/vosu-tools` or `18-lab-dev/vosulay` source install as source `official` and are trusted, including if that identical source string is removed and re-added. Tagged, differently cased, or HTTPS-URL variants, and all other sources, install tools as `user`, untrusted until approved. Overlays have no trust gate (installed overlays are third-party JavaScript on the overlay origin; see vosu ADR 0013/0016), and the dashboard keeps its existing third-party disclosure.
 
@@ -64,7 +64,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "version": "0.1.0",
       "description": "…",
       "author": "18-LAB",
-      "homepage": "https://github.com/18-lab-dev/vosu-overlays/tree/main/overlays/ratings-timeline",
+      "homepage": "https://example.org/overlays/ratings-timeline",
       "resolution": [640, 120],
       "preview": "https://…/ratings-timeline.png",
       "icon_url": "https://…/vosu-overlay-ratings-timeline-icon.png",
