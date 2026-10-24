@@ -180,7 +180,7 @@ test("host errors other than 404 are counted as failures", async () => {
   expect(files.served).toBe(0);
 });
 
-test("with vosu's file list, only listed files are requested, by their listed names", async () => {
+test("with vosu's file list, only listed files are requested, as asked", async () => {
   report = {
     client: "stable",
     name: "Listed",
@@ -201,16 +201,42 @@ test("with vosu's file list, only listed files are requested, by their listed na
   requests.length = 0;
   const files = hostSkinFiles(host, current.info.entries);
   const skin = await loadSkin(files.resolve, "Listed");
-  // Listed names are asked for as listed; everything else never reaches vosu.
+  // Unlisted names never reach vosu; listed ones are asked for as the loader
+  // spelled them, leaving case folding to the host's exact-first rule.
   expect(requests.sort()).toEqual([
-    "/files/skin/HitCircle.png",
     "/files/skin/Mania/Key%20Left.png",
     "/files/skin/approachcircle%402x.png",
+    "/files/skin/hitcircle.png",
     "/files/skin/skin.ini",
   ]);
   expect(files.served).toBe(4);
   expect(skin.assets.has("hitcircle")).toBe(true);
   expect(skin.pixelScale?.get("approachcircle")).toBe(2);
+});
+
+test("names differing only in case stay distinct files", async () => {
+  const asked: string[] = [];
+  const files = hostSkinFiles(
+    async (url) => {
+      asked.push(url);
+      return new Response(url);
+    },
+    [
+      { path: "mania/Note1.png", size: 1, modified: 1 },
+      { path: "mania/note1.png", size: 1, modified: 1 },
+    ],
+  );
+  expect(await (await files.resolve("mania/Note1.png"))!.text()).toBe(
+    "/files/skin/mania/Note1.png",
+  );
+  expect(await (await files.resolve("mania\\note1.png"))!.text()).toBe(
+    "/files/skin/mania/note1.png",
+  );
+  expect(await files.resolve("mania/NOTE2.png")).toBeNull();
+  expect(asked).toEqual([
+    "/files/skin/mania/Note1.png",
+    "/files/skin/mania/note1.png",
+  ]);
 });
 
 test("a truncated or missing file list falls back to asking for each name", async () => {

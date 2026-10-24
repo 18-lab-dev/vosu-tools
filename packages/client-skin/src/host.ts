@@ -163,9 +163,12 @@ export interface HostSkinFiles {
 /**
  * Resolves skin files by filename through `/files/skin/<path>`, keeping
  * subfolder separators, and counts what the host actually served. With the
- * host's file list, names it does not list are answered without a request
- * (most of a skin loader's lookups are for files a skin lacks: @2x variants,
- * animation frames), and the listed name is requested, whatever its case.
+ * host's file list, names it does not list in any letter case are answered
+ * without a request (most of a skin loader's lookups are for files a skin
+ * lacks: @2x variants, animation frames). A listed name is requested exactly
+ * as asked: the host matches the exact path first and only then folds case,
+ * so picking a listed spelling here would turn `Note1.png` and `note1.png`
+ * on a case-sensitive disk into one asset.
  */
 export function hostSkinFiles(
   fetcher: Fetcher = fetch,
@@ -173,17 +176,11 @@ export function hostSkinFiles(
 ): HostSkinFiles {
   let served = 0,
     failures = 0;
-  const listed =
-    entries &&
-    new Map(entries.map((e) => [e.path.toLowerCase(), e.path] as const));
+  const folded = entries && new Set(entries.map((e) => e.path.toLowerCase()));
   return {
     async resolve(path) {
-      let name = path.replace(/\\/g, "/");
-      if (listed) {
-        const exact = listed.get(name.toLowerCase());
-        if (exact === undefined) return null;
-        name = exact;
-      }
+      const name = path.replace(/\\/g, "/");
+      if (folded && !folded.has(name.toLowerCase())) return null;
       const url =
         "/files/skin/" + name.split("/").map(encodeURIComponent).join("/");
       const response = await fetcher(url);
