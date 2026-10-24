@@ -28,11 +28,10 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from preview_e2e import CONTROLS_KEY, playfield_unblocked, set_controls
+from preview_e2e import CHROME, CONTROLS_KEY, playfield_unblocked, set_controls
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGIN = 'http://127.0.0.1:25650'
-CHROME = Path.home() / '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome'
 SIZES = [(1920, 1080), (2560, 1440), (1280, 720), (960, 1080)]
 FITS = '''() => {
     const out = [];
