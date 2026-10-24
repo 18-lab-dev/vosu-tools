@@ -213,7 +213,6 @@ async fn run(worker: Worker) -> Result<(), String> {
             "--disable-dev-shm-usage",
             "--run-all-compositor-stages-before-draw",
             "--disable-gpu-vsync",
-            "--disable-frame-rate-limit",
         ])
         .args(if cfg!(target_os = "linux") {
             &[

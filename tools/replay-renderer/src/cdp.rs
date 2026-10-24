@@ -102,8 +102,8 @@ impl Driver {
             self.events.push_back(response);
         }
     }
-    /// Dispatch independent pages together. Waiting for each screenshot before
-    /// requesting the next serialized compositor/GPU round trips per player.
+    /// Dispatch independent pages together instead of serializing compositor/
+    /// GPU round trips per player.
     async fn batch(
         &mut self,
         sessions: &[String],
@@ -127,7 +127,10 @@ impl Driver {
         let mut results = vec![Value::Null; sessions.len()];
         let mut remaining = sessions.len();
         while remaining > 0 {
-            let mut response = self.receive().await?;
+            let mut response = self
+                .receive()
+                .await
+                .map_err(|error| format!("{method}: {error}"))?;
             if let Some(index) = response["id"]
                 .as_u64()
                 .and_then(|id| ids.iter().position(|candidate| *candidate == id))
@@ -269,8 +272,7 @@ impl Driver {
         for session in &pages {
             self.event(session, "Emulation.virtualTimeBudgetExpired").await?;
         }
-        // Browser launch disables wall-clock vsync/frame throttling. Capture
-        // still follows the existing fixed virtual clock, with lossless alpha.
+        // Capture follows the existing fixed virtual clock, with lossless alpha.
         let screenshots = self.batch(&pages, "Page.captureScreenshot", json!({"format":"png","fromSurface":true,"captureBeyondViewport":false,"optimizeForSpeed":true})).await?;
         let mut images = Vec::with_capacity(pages.len());
         for mut image in screenshots {
