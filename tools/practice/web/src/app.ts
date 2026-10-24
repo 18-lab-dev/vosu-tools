@@ -5,7 +5,7 @@ import { Timeline, type TimelineData } from './timeline';
 import { clock, nearestOutputTime, parseClock, sourceTime, type Range, type Window } from './time';
 import { Follow, SUBSCRIPTION } from './follow';
 import { ClientSkin } from '@vosu-tools/client-skin';
-import { maniaKeysFor } from '@vosu-tools/render-core';
+import { sceneScope } from '@vosu-tools/render-core';
 
 // The look comes from vosu's shared theme.css; the bridge sets data-theme.
 
@@ -271,8 +271,9 @@ const preview = new Preview(
     timeline.setPlayhead(duration ? sourceTime(t, preview.rate, preview.windows) : null);
   },
   (message) => stageMessage(message),
-  // Mania skin images are decoded for the previewed key count only.
-  (map) => skins.useManiaKeys(maniaKeysFor(map)),
+  // Skin images are decoded for the previewed ruleset and key count only;
+  // the first frame waits for the client's skin instead of drawing the fallback.
+  (map) => skins.useScope(sceneScope(map)),
   (backend) => {
     const el = $('backend');
     el.textContent = backend.label;
@@ -283,7 +284,7 @@ const preview = new Preview(
 // The preview draws with the osu! client's current skin and follows changes
 // to it (from the game subscription below); misses fall back to the classic look.
 const skins = new ClientSkin({
-  maniaKeys: [],
+  scope: { rulesets: [], maniaKeys: [] },
   onChange(state) {
     preview.setSkin(state.skin);
     const el = $('skin');
@@ -612,6 +613,9 @@ form.onsubmit = (e) => {
 
 void (async () => {
   writable();
+  // The GPU starts now, alongside the map and skin requests (a failure is
+  // reported when the first preview is shown).
+  preview.start().catch(() => {});
   await vosu.ready;
   const access = $('access');
   access.textContent = vosu.canWrite ? 'Write session' : 'Read only';

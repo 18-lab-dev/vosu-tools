@@ -9,7 +9,7 @@ import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
   createPlayfield,
   describeBackend,
-  maniaKeysFor,
+  sceneScope,
   playfieldSize,
   type BuiltinSkinName,
   type Playfield,
@@ -72,6 +72,8 @@ let renderer: Playfield | undefined,
   conversionKey = "",
   mapKey = "",
   sceneKey = "",
+  /** The renderer has a scene: until the skin has the first map's images, nothing is drawn. */
+  sceneSet = false,
   loadSequence = 0,
   settings: PreviewSettings = { ...defaultSettings },
   following = true,
@@ -95,8 +97,8 @@ function showError(error: unknown): void {
   say(error instanceof Error ? error.message : String(error), "error");
 }
 const skins = new ClientSkin({
-  // Mania images are decoded per scene (see refreshScene).
-  maniaKeys: [],
+  // Images are decoded for the scene on screen only (see refreshScene).
+  scope: { rulesets: [], maniaKeys: [] },
   onChange(state) {
     renderer?.setSkin(state.skin);
     if (state.busy) skinPanel.setAttribute("aria-busy", "true");
@@ -265,7 +267,9 @@ function updateConversion(): void {
   }
 }
 function refreshScene(force = false): void {
-  if (!renderer || !source) return;
+  // Without a renderer yet, the scene's skin images are still requested
+  // (below), so they load while the GPU starts.
+  if (!source) return;
   try {
     updateConversion();
   } catch (error) {
@@ -276,16 +280,20 @@ function refreshScene(force = false): void {
   const options = renderOptions(),
     key = JSON.stringify(options);
   if (!map || (!force && key === sceneKey)) return;
-  // The skin decodes mania images for the stage on screen only; the previous
-  // scene stays drawn until they are ready (onChange then refreshes).
-  const keys = maniaKeysFor(map, options);
-  if (!skins.hasManiaKeys(keys)) {
-    void skins.useManiaKeys(keys);
+  // The skin decodes the images of the scene on screen only (its ruleset and
+  // mania stage); the previous scene stays drawn until they are ready
+  // (onChange then refreshes), and nothing is drawn in the fallback look
+  // while the client's skin is still loading.
+  const scope = sceneScope(map, options);
+  if (!skins.hasScope(scope)) {
+    void skins.useScope(scope);
     return;
   }
+  if (!renderer) return;
   sceneKey = key;
   try {
     renderer.setBeatmap(map, options);
+    sceneSet = true;
   } catch (error) {
     showError(error);
   }
@@ -299,7 +307,7 @@ function tick(): void {
   requestAnimationFrame(tick);
   if (hidden || !renderer || !source) return;
   refreshScene();
-  if (!map) return;
+  if (!map || !sceneSet) return;
   const now = currentTime();
   try {
     renderer.renderAt(now);
@@ -326,7 +334,7 @@ async function openMap(text: string, label: string): Promise<void> {
   const parsed = parseOsu(text);
   if (!parsed.objects.length)
     throw new Error("This beatmap contains no hit objects.");
-  await ensureRenderer();
+  const ready = ensureRenderer();
   source = parsed;
   map = undefined;
   mapLabel = label;
@@ -336,6 +344,8 @@ async function openMap(text: string, label: string): Promise<void> {
     `${source.metadata.Artist ?? ""} — ${source.metadata.Title ?? "Untitled"}`;
   refreshScene(true);
   updateFollowNotice();
+  await ready;
+  refreshScene(true);
 }
 /** Title line, ruleset badge and the drawer's ruleset controls for what is shown. */
 function describeMap(): void {

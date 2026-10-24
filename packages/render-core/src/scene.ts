@@ -12,6 +12,7 @@ import {
   regionInstances,
   type Skin,
   type AtlasRegion,
+  type SkinScope,
 } from "./skin";
 import { compileTaiko } from "./taiko";
 import { sliderBall, spinner } from "./osu";
@@ -85,9 +86,9 @@ export interface InputFrame {
   keys: number;
 }
 /**
- * The mania key counts a scene of this map draws (empty for other rulesets),
- * for `loadManiaKeys`: the stage follows the map's CS after Difficulty
- * Adjust and the `cs` override, like `setBeatmap`.
+ * The mania key counts a scene of this map draws (empty for other rulesets):
+ * the stage follows the map's CS after Difficulty Adjust and the `cs`
+ * override, like `setBeatmap`.
  */
 export function maniaKeysFor(
   map: Beatmap,
@@ -100,6 +101,11 @@ export function maniaKeysFor(
       cs = Number(mod.settings?.circle_size ?? cs);
   if (options.cs !== undefined) cs = options.cs;
   return [Math.max(1, Math.round(cs))];
+}
+
+/** The skin images a scene of this map draws: its ruleset and mania stage (`loadScope`). */
+export function sceneScope(map: Beatmap, options: RenderOptions = {}): SkinScope {
+  return { rulesets: [map.mode], maniaKeys: maniaKeysFor(map, options) };
 }
 
 export interface Scene {

@@ -6,7 +6,7 @@ import {
   builtinLook,
   createPlayfield,
   describeBackend,
-  loadManiaKeys,
+  loadScope,
   loadPlayfieldSkin,
   overLook,
   playfieldSize,
@@ -117,7 +117,7 @@ export class Preview {
           keys = stageKeys(this.#demo);
         if (!from || !keys.length || keys.join() === this.#decoded) break;
         this.#state("Loading stage…");
-        const next = await loadManiaKeys(from, keys);
+        const next = await loadScope(from, { maniaKeys: keys });
         if (this.#fileSkin !== from) releaseExcept(next, this.#fileSkin);
         else this.#install(next, keys.join());
       }

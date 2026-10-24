@@ -10,12 +10,28 @@ import type { BuiltinSkinName } from "@vosu-tools/render-core";
 /** `fetch` on the overlay origin (the global one, or a stand-in in tests). */
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
 
+export interface HostSkinEntry {
+  /** Relative path with `/` separators, as vosu serves it. */
+  path: string;
+  size: number;
+  /** Stable: modification time (ms). */
+  modified?: number;
+  /** lazer: the file store hash. */
+  hash?: string;
+}
+
 export interface HostSkinInfo {
   client: "stable" | "lazer" | null;
   name: string | null;
   files: boolean;
   builtin: string | null;
   base: string | null;
+  /**
+   * Every file of the skin, when vosu lists them (and the list is complete):
+   * only these are requested. Older vosu (or a truncated list): undefined,
+   * and files are probed by name.
+   */
+  entries?: HostSkinEntry[];
 }
 
 /** What the preview should show for the client's current skin. */
@@ -81,6 +97,13 @@ export async function readCurrentSkin(
           files: body.files,
           builtin: text(body.builtin),
           base: text(body.base),
+          entries:
+            Array.isArray(body.entries) && body.truncated !== true
+              ? body.entries.filter(
+                  (e: unknown): e is HostSkinEntry =>
+                    !!e && typeof (e as HostSkinEntry).path === "string",
+                )
+              : undefined,
         };
       }
     } catch {
@@ -139,16 +162,30 @@ export interface HostSkinFiles {
 }
 /**
  * Resolves skin files by filename through `/files/skin/<path>`, keeping
- * subfolder separators, and counts what the host actually served.
+ * subfolder separators, and counts what the host actually served. With the
+ * host's file list, names it does not list are answered without a request
+ * (most of a skin loader's lookups are for files a skin lacks: @2x variants,
+ * animation frames), and the listed name is requested, whatever its case.
  */
-export function hostSkinFiles(fetcher: Fetcher = fetch): HostSkinFiles {
+export function hostSkinFiles(
+  fetcher: Fetcher = fetch,
+  entries?: readonly HostSkinEntry[],
+): HostSkinFiles {
   let served = 0,
     failures = 0;
+  const listed =
+    entries &&
+    new Map(entries.map((e) => [e.path.toLowerCase(), e.path] as const));
   return {
     async resolve(path) {
+      let name = path.replace(/\\/g, "/");
+      if (listed) {
+        const exact = listed.get(name.toLowerCase());
+        if (exact === undefined) return null;
+        name = exact;
+      }
       const url =
-        "/files/skin/" +
-        path.replace(/\\/g, "/").split("/").map(encodeURIComponent).join("/");
+        "/files/skin/" + name.split("/").map(encodeURIComponent).join("/");
       const response = await fetcher(url);
       if (response.ok) {
         served++;

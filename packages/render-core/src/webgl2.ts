@@ -225,26 +225,47 @@ export function createWebGl2(options: GpuOptions): Gpu {
       let bytes = 0;
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, next);
+      // Premultiplied bitmaps (built-in looks) go through a 2D canvas, whose
+      // pixels WebGL unpremultiplies on upload (UNPACK_PREMULTIPLY_ALPHA is
+      // false); bitmaps themselves are uploaded as they are.
+      let convert: OffscreenCanvasRenderingContext2D | undefined;
       const frames = build({
         limits: gpu.limits,
         allocate(w, h, pages) {
           gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, w, h, pages);
           bytes = w * h * pages * 4;
         },
-        upload(page, source) {
+        upload(page, x, y, source, [fromX, fromY], [w, h], premultiplied) {
+          if (premultiplied) {
+            if (!convert || convert.canvas.width < w || convert.canvas.height < h)
+              convert = new OffscreenCanvas(
+                Math.max(w, convert?.canvas.width ?? 0),
+                Math.max(h, convert?.canvas.height ?? 0),
+              ).getContext("2d")!;
+            convert.clearRect(0, 0, w, h);
+            convert.drawImage(source, fromX, fromY, w, h, 0, 0, w, h);
+            source = convert.canvas;
+            fromX = fromY = 0;
+          }
+          // The source rectangle of a TexImageSource is selected with the
+          // unpack skip parameters (WebGL 2).
+          gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, fromX);
+          gl.pixelStorei(gl.UNPACK_SKIP_ROWS, fromY);
           gl.texSubImage3D(
             gl.TEXTURE_2D_ARRAY,
             0,
-            0,
-            0,
+            x,
+            y,
             page,
-            source.width,
-            source.height,
+            w,
+            h,
             1,
             gl.RGBA,
             gl.UNSIGNED_BYTE,
             source,
           );
+          gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+          gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
         },
       });
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);

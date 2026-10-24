@@ -31,7 +31,9 @@ export class Preview {
     /** The backend drawing the preview, once it has started. */
     private readonly onBackend?: (backend: { label: string; detail: string }) => void,
   ) {
-    this.audio.preload = 'auto';
+    // The preview starts muted and silent: the source audio (often 10+ MB) is
+    // fetched when Play is pressed, not streamed in the background on load.
+    this.audio.preload = 'none';
     this.observer.observe(canvas);
   }
 
@@ -58,9 +60,9 @@ export class Preview {
     const map = parseOsu(next.osu);
     if (!map.objects.length) throw new Error('The result has no hit objects.');
     const seq = ++this.showing;
-    const renderer = await this.ensureRenderer();
-    // The previous map stays drawn until the skin has what this one needs.
-    await this.prepare?.(map);
+    // The GPU starts while the skin fetches what this map needs; the previous
+    // map stays drawn until both are ready.
+    const [renderer] = await Promise.all([this.start(), this.prepare?.(map)]);
     if (seq !== this.showing) return;
     const keepTime = this.current !== null;
     this.current = next;
@@ -75,10 +77,13 @@ export class Preview {
 
   clear(): void {
     this.pause();
+    // Blank the canvas only if a map was drawn: the renderer (started early)
+    // has no scene before the first one.
+    const drawn = this.map !== null;
     this.map = null;
     this.current = null;
     this.time = 0;
-    this.renderer?.renderAt(-1e9);
+    if (drawn) this.renderer?.renderAt(-1e9);
     this.onTick(0, 0, false);
   }
 
@@ -164,7 +169,8 @@ export class Preview {
     this.draw();
   }
 
-  private ensureRenderer(): Promise<Playfield> {
+  /** Starts the renderer (once); the page calls it early so a map need not wait for the GPU. */
+  start(): Promise<Playfield> {
     if (this.renderer) return Promise.resolve(this.renderer);
     this.resize();
     this.creating ??= createPlayfield({

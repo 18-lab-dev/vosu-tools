@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import type { SkinScope } from "@vosu-tools/render-core";
 import { ClientSkin, SKIN_POINTERS, type SkinState } from "../src/index";
 import type { Fetcher } from "../src/host";
 
@@ -82,12 +83,12 @@ const server = Bun.serve({
 afterAll(() => server.stop(true));
 const host: Fetcher = (url, init) => fetch(new URL(url, server.url), init);
 
-function controller(maniaKeys?: number[]) {
+function controller(scope?: SkinScope) {
   const seen: SkinState[] = [];
   const skin = new ClientSkin({
     fetch: host,
     onChange: (s) => seen.push(s),
-    maniaKeys,
+    scope,
   });
   return { skin, seen, last: () => seen.at(-1)! };
 }
@@ -250,7 +251,7 @@ test("mania images load per key count, sharing and releasing bitmaps", async () 
     builtin: null,
     base: "legacy",
   };
-  const { skin, last } = controller([]);
+  const { skin, last } = controller({ maniaKeys: [] });
   closed.clear();
   fileRequests.length = 0;
   await skin.useClient();
@@ -261,16 +262,16 @@ test("mania images load per key count, sharing and releasing bitmaps", async () 
   // No stage yet: only general elements (and the built-in fallback's mania look).
   expect(fileRequests.some((p) => p.startsWith("four/"))).toBe(false);
   expect(last().skin.assets.has("four/body")).toBe(false);
-  expect(skin.hasManiaKeys([4])).toBe(false);
+  expect(skin.hasScope({ maniaKeys: [4] })).toBe(false);
   const circle = last().skin.assets.get("hitcircle");
   // Asking every frame while the set loads starts one load.
-  await Promise.all([skin.useManiaKeys([4]), skin.useManiaKeys([4])]);
+  await Promise.all([skin.useScope({ maniaKeys: [4] }), skin.useScope({ maniaKeys: [4] })]);
   expect(fileRequests.filter((p) => p === "four/body.png")).toHaveLength(1);
   expect(names(last())).toEqual(["four/body", "mania-note1", "hitcircle"]);
-  expect(skin.hasManiaKeys([4])).toBe(true);
+  expect(skin.hasScope({ maniaKeys: [4] })).toBe(true);
   const note = last().skin.assets.get("mania-note1");
   // 4K -> 7K: the 4K body is released, shared images are kept as they are.
-  await skin.useManiaKeys([7]);
+  await skin.useScope({ maniaKeys: [7] });
   expect(names(last())).toEqual(["seven/body", "mania-note1", "hitcircle"]);
   expect(last().skin.assets.get("hitcircle")).toBe(circle);
   expect(last().skin.assets.get("mania-note1")).toBe(note);
@@ -287,8 +288,88 @@ test("mania images load per key count, sharing and releasing bitmaps", async () 
   // Leaving mania releases every mania image of the skin (the built-in
   // fallback still lends its classic mania look).
   closed.clear();
-  await skin.useManiaKeys([]);
+  await skin.useScope({ maniaKeys: [] });
   expect(last().skin.assets.has("seven/body")).toBe(false);
   expect([...closed].sort()).toEqual(["seven-body", "shared-note"]);
+  skin.destroy();
+});
+
+test("the game's first frame during the startup load joins it: each file is fetched once", async () => {
+  report = {
+    client: "stable",
+    name: "Ralsei",
+    files: true,
+    builtin: null,
+    base: null,
+  };
+  const { skin, last } = controller();
+  const release = Promise.withResolvers<void>(),
+    requested = Promise.withResolvers<void>();
+  held = { release: release.promise, requested: requested.resolve };
+  fileRequests.length = 0;
+  const first = skin.useClient();
+  await requested.promise;
+  held = undefined;
+  const second = skin.gameChanged("stable", "Ralsei");
+  release.resolve();
+  await Promise.all([first, second]);
+  expect(last()).toMatchObject({ label: "Ralsei", busy: false });
+  expect(fileRequests.length).toBe(new Set(fileRequests).size);
+  // A different skin reported meanwhile still replaces the unfinished load.
+  fileRequests.length = 0;
+  report = { ...report, name: "Staircase" };
+  await skin.gameChanged("stable", "Staircase");
+  expect(last().label).toBe("Staircase");
+});
+
+test("a scene scope requests only its ruleset's images", async () => {
+  report = {
+    client: "lazer",
+    name: "Keys",
+    files: true,
+    builtin: null,
+    base: "legacy",
+  };
+  const { skin, last } = controller({ rulesets: [3], maniaKeys: [] });
+  fileRequests.length = 0;
+  await skin.useClient();
+  expect(fileRequests).not.toContain("hitcircle.png");
+  await skin.useScope({ rulesets: [3], maniaKeys: [4] });
+  expect(last().skin.assets.has("four/body")).toBe(true);
+  // Switching to an osu! scene decodes its images and drops the stage.
+  await skin.useScope({ rulesets: [0], maniaKeys: [] });
+  expect(fileRequests).toContain("hitcircle.png");
+  expect(last().skin.assets.has("four/body")).toBe(false);
+  expect(skin.hasScope({ rulesets: [0], maniaKeys: [] })).toBe(true);
+  skin.destroy();
+});
+
+test("while the first skin loads, a scene waits for it instead of the fallback look", async () => {
+  report = {
+    client: "lazer",
+    name: "Keys",
+    files: true,
+    builtin: null,
+    base: "legacy",
+  };
+  const { skin, last } = controller({ rulesets: [], maniaKeys: [] });
+  const release = Promise.withResolvers<void>(),
+    requested = Promise.withResolvers<void>();
+  held = { release: release.promise, requested: requested.resolve };
+  const loading = skin.useClient();
+  await requested.promise;
+  held = undefined;
+  const scene = { rulesets: [3], maniaKeys: [4] };
+  // Nothing from files is shown yet: drawing now would show the classic look.
+  expect(skin.hasScope(scene)).toBe(false);
+  let ready = false;
+  const scoped = skin.useScope(scene).then(() => (ready = true));
+  await Promise.resolve();
+  expect(ready).toBe(false);
+  release.resolve();
+  await Promise.all([loading, scoped]);
+  expect(skin.hasScope(scene)).toBe(true);
+  expect(last()).toMatchObject({ label: "Keys", busy: false });
+  expect(last().skin.assets.has("four/body")).toBe(true);
   skin.destroy();
 });

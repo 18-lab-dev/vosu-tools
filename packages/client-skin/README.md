@@ -36,24 +36,40 @@ Built-in looks are drawn once and reused. `useClient({ force: false })` and
 `gameChanged` only while the client's skin is the current choice. A later load
 always wins over one still in progress.
 
+When the report lists the skin's files (`entries: [{path, size, modified |
+hash}]`, `truncated: false`; vosu 1.2.0 and later), only listed files are
+requested, by their listed names (so a `skin.ini` path's case does not have to
+match the file's); the skin loader's guesses for files a skin lacks (`@2x`
+variants, animation frames) never reach vosu. Without the list (older vosu, or
+a list cut short) every name is asked for, as before. A changed file changes
+the report, so the skin reloads. Files are fetched through the browser's HTTP
+cache: vosu's validators make a later visit revalidate them instead of
+downloading them again.
+
 ## API
 
-- `new ClientSkin({ onChange, fetch?, maniaKeys? })`: `onChange(state)` runs
+- `new ClientSkin({ onChange, fetch?, scope? })`: `onChange(state)` runs
   synchronously after every change; bitmaps the new skin no longer uses are
   released right after it returns, so hand `state.skin` to the renderer there.
   `fetch` defaults to the global one (the tool page is on the overlay origin).
-  `maniaKeys` (default: every key count) limits which mania key counts skin
-  images are decoded for; tools that follow maps pass `[]`.
-- `useManiaKeys(keys)`, `hasManiaKeys(keys)`: decode the shown skin's mania
-  images for exactly these key counts (render-core's `maniaKeysFor(map,
-options)`; `[]` outside mania) and release the others. Images shared by
-  both sets are kept, repeated calls for the set being loaded wait for that
-  load, and the skin stays as it is until the new set is ready, so set the
-  new beatmap once `hasManiaKeys` is true (Map preview keeps drawing the
-  previous scene meanwhile). Later skin loads use the same key counts.
+  `scope` (render-core's `SkinScope`, default: everything) limits which
+  rulesets' images and which mania key counts are requested and decoded;
+  tools that follow maps pass `{ rulesets: [], maniaKeys: [] }`.
+- `useScope(scope)`, `hasScope(scope)`: decode the shown skin's images for
+  exactly this scope (render-core's `sceneScope(map, options)`: the scene's
+  ruleset and mania stage) and release the others. Images shared by both
+  scopes are kept, images the skin turned out not to have are not requested
+  again, repeated calls for the scope being loaded wait for that load, and
+  the skin stays as it is until the new set is ready, so set the new beatmap
+  once `hasScope` is true (Map preview keeps drawing the previous scene
+  meanwhile). `hasScope` is false while the first skin from files is still
+  loading, and `useScope` resolves after such a load, so nothing is drawn in
+  the fallback look first. Later skin loads use the same scope.
 - `state: SkinState`: `{ skin, choice, label, source, message, tone, busy }`;
   `choice` is `"client"`, `"user"` (a file or folder) or a built-in name.
 - `useClient({ force = true })`, `gameChanged(client, skinFolder)`: see above.
+  A `force: false` reload that finds the same skin already loading joins
+  that load instead of fetching every file again.
 - `useBuiltin(name, source?)`: `"legacy" | "triangles" | "argon" | "argon-pro"`.
 - `loadOsk(file)`: an `.osk` archive, read in the browser (ZIP, stored or
   deflated entries; a single wrapping folder is unwrapped; ZIP64 is refused).

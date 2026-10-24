@@ -228,11 +228,11 @@ export async function createWebGpu(
           });
           bytes = width * height * pages * 4;
         },
-        upload(page, source) {
+        upload(page, x, y, source, [fromX, fromY], size) {
           device.queue.copyExternalImageToTexture(
-            { source },
-            { texture: next!, origin: [0, 0, page], premultipliedAlpha: false },
-            [source.width, source.height],
+            { source, origin: { x: fromX, y: fromY } },
+            { texture: next!, origin: [x, y, page], premultipliedAlpha: false },
+            size,
           );
         },
       });

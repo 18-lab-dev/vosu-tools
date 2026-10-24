@@ -8,13 +8,13 @@ import { createWebGl2 } from "./webgl2";
 export type { Backend, RenderTarget } from "./gpu";
 export {
   loadSkin,
-  loadManiaKeys,
+  loadScope,
   maniaImageNames,
   assetNames,
   legacySliderStyle,
 } from "./skin";
-export { maniaKeysFor } from "./scene";
-export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
+export { maniaKeysFor, sceneScope } from "./scene";
+export type { Skin, SkinStyle, SkinScope, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene, InputFrame } from "./scene";

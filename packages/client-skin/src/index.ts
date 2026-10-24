@@ -13,17 +13,29 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import {
   builtinLook,
-  loadManiaKeys,
+  loadScope,
   loadSkin,
   overLook,
   type BuiltinSkinName,
   type Skin,
+  type SkinScope,
 } from "@vosu-tools/render-core";
-import { hostSkinFiles, readCurrentSkin, type Fetcher } from "./host";
+import {
+  hostSkinFiles,
+  readCurrentSkin,
+  type CurrentSkin,
+  type Fetcher,
+} from "./host";
 import { openOsk } from "./osk";
 
 export { hostSkinFiles, readCurrentSkin } from "./host";
-export type { CurrentSkin, Fetcher, HostSkinFiles, HostSkinInfo } from "./host";
+export type {
+  CurrentSkin,
+  Fetcher,
+  HostSkinEntry,
+  HostSkinFiles,
+  HostSkinInfo,
+} from "./host";
 export { openOsk } from "./osk";
 export type { SkinArchive } from "./osk";
 
@@ -52,12 +64,14 @@ export interface ClientSkinOptions {
   /** Fetch on the overlay origin; defaults to the global `fetch`. */
   fetch?: Fetcher;
   /**
-   * Mania key counts to decode skin images for until `useManiaKeys` says
-   * otherwise; every key count when omitted. Tools that follow maps pass
-   * `[]` and call `useManiaKeys` per scene: mania images (hold bodies can be
-   * tens of megabytes) are then only decoded for the stage on screen.
+   * The images to decode (rulesets and mania key counts, render-core's
+   * `SkinScope`) until `useScope` says otherwise; everything when omitted.
+   * Tools that follow maps pass `{ rulesets: [], maniaKeys: [] }` and call
+   * `useScope(sceneScope(map))` per scene: only what the scene on screen
+   * draws is then requested and decoded (a mania scene asks for a tenth of
+   * a full skin's files; hold bodies can be tens of megabytes).
    */
-  maniaKeys?: readonly number[];
+  scope?: SkinScope;
 }
 
 /**
@@ -73,14 +87,15 @@ export const builtinLabels: Record<BuiltinSkinName, string> = {
   legacy: "Classic",
 };
 
-const sameKeys = (
-  a: readonly number[] | undefined,
-  b: readonly number[] | undefined,
-) =>
-  a === b ||
-  (!!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]));
-const keySet = (keys: readonly number[]) =>
-  [...new Set(keys)].sort((a, b) => a - b);
+const sorted = (values: readonly number[] | undefined) =>
+  values && [...new Set(values)].sort((a, b) => a - b);
+/** A scope with its lists sorted and deduplicated (undefined lists stay "all"). */
+const normalise = (scope: SkinScope | undefined): SkinScope =>
+  scope ? { rulesets: sorted(scope.rulesets), maniaKeys: sorted(scope.maniaKeys) } : {};
+const sameList = (a: readonly number[] | undefined, b: readonly number[] | undefined) =>
+  a === b || (!!a && !!b && a.length === b.length && a.every((k, i) => k === b[i]));
+const sameScope = (a: SkinScope, b: SkinScope) =>
+  sameList(a.rulesets, b.rulesets) && sameList(a.maniaKeys, b.maniaKeys);
 
 const fileCount = (count: number) =>
   `${count.toLocaleString()} file${count === 1 ? "" : "s"}`;
@@ -91,25 +106,29 @@ export class ClientSkin {
   #sequence = 0;
   #clientKey = "";
   #game: [string | null, string | null] = [null, null];
-  /** Key counts mania images are decoded for; undefined: all of them. */
-  #keys: readonly number[] | undefined;
+  /** What the shown skin decodes images for (normalised). */
+  #scope: SkinScope;
   /** The shown skin loaded from files, before built-in fallbacks fill it. */
   #files:
     | {
         skin: Skin;
         fallback: BuiltinSkinName;
-        keys: readonly number[] | undefined;
+        scope: SkinScope;
       }
     | undefined;
-  #maniaSequence = 0;
-  #maniaPending: { keys: readonly number[]; done: Promise<void> } | undefined;
+  #scopeSequence = 0;
+  #scopePending: { scope: SkinScope; done: Promise<void> } | undefined;
+  /** The client skin load in progress, and the host report it loads once known. */
+  #clientPending: { key?: string; done: Promise<void> } | undefined;
+  /** The latest skin load started (`#load`), until it settles. */
+  #loading: { seq: number; done: Promise<void> } | undefined;
   readonly #onChange: (state: SkinState) => void;
   readonly #fetch: Fetcher;
 
   constructor(options: ClientSkinOptions) {
     this.#onChange = options.onChange;
     this.#fetch = options.fetch ?? ((url, init) => fetch(url, init));
-    this.#keys = options.maniaKeys && keySet(options.maniaKeys);
+    this.#scope = normalise(options.scope);
     this.#state = {
       skin: this.#builtin("legacy"),
       choice: "client",
@@ -148,33 +167,46 @@ export class ClientSkin {
     source: string,
     message = "",
     tone: SkinTone = "info",
-    owned: ImageBitmap[] = [],
+    /** The file skin's bitmaps; omitted for looks not loaded from files. */
+    owned?: ImageBitmap[],
   ): void {
     // Only an installed client skin counts as "already shown" for reloads.
     if (choice !== "client") this.#clientKey = "";
-    if (!owned.length) this.#files = undefined;
-    this.#emit({ skin, choice, label, source, message, tone }, owned);
+    // A file skin may own no bitmaps yet (a scope with nothing to draw).
+    if (!owned) this.#files = undefined;
+    this.#emit({ skin, choice, label, source, message, tone }, owned ?? []);
   }
 
   /** Runs one load; a later load always wins over one still in progress. */
-  async #load(
+  #load(
     pending: string,
     load: (isCurrent: () => boolean) => Promise<void>,
   ): Promise<void> {
     const seq = ++this.#sequence,
       isCurrent = () => seq === this.#sequence;
     this.#emit({ busy: true, message: pending, tone: "info" });
-    try {
-      await load(isCurrent);
-    } catch (error) {
-      if (isCurrent())
-        this.#emit({
-          message: error instanceof Error ? error.message : String(error),
-          tone: "error",
-        });
-    } finally {
-      if (isCurrent()) this.#emit({ busy: false });
-    }
+    const record = { seq, done: Promise.resolve() };
+    this.#loading = record;
+    record.done = (async () => {
+      try {
+        await load(isCurrent);
+      } catch (error) {
+        if (isCurrent())
+          this.#emit({
+            message: error instanceof Error ? error.message : String(error),
+            tone: "error",
+          });
+      } finally {
+        if (this.#loading === record) this.#loading = undefined;
+        if (isCurrent()) this.#emit({ busy: false });
+      }
+    })();
+    return record.done;
+  }
+
+  /** The skin load in progress, unless a later choice replaced it. */
+  #inFlight(): Promise<void> | undefined {
+    return this.#loading?.seq === this.#sequence ? this.#loading.done : undefined;
   }
 
   /** Shows a short line in the skin status without changing the skin. */
@@ -191,20 +223,40 @@ export class ClientSkin {
 
   /**
    * Shows the client's current skin. With `force: false` nothing is reloaded
-   * when vosu reports the same skin as last time.
+   * when vosu reports the skin already shown or already loading (at startup
+   * the game's first frame asks while the first load is still running).
    */
   useClient({ force = true }: { force?: boolean } = {}): Promise<void> {
     this.#state = { ...this.#state, choice: "client" };
-    return this.#load(
+    if (force) return this.#loadClient();
+    return (async () => {
+      const current = await readCurrentSkin(this.#fetch);
+      const key = JSON.stringify(current);
+      const pending = this.#clientPending;
+      // A load that has not read the report yet will read this one.
+      if (pending && (pending.key === undefined || pending.key === key))
+        return pending.done;
+      if (!pending && this.#state.choice === "client" && key === this.#clientKey) {
+        this.#emit({ message: "", tone: "info" });
+        return;
+      }
+      return this.#loadClient(current);
+    })();
+  }
+
+  /** Loads the client's skin (`known`: the host report already read). */
+  #loadClient(known?: CurrentSkin): Promise<void> {
+    const pending: { key?: string; done: Promise<void> } = {
+      key: known && JSON.stringify(known),
+      done: Promise.resolve(),
+    };
+    pending.done = this.#load(
       "Asking vosu for the current skin…",
       async (isCurrent) => {
-        const current = await readCurrentSkin(this.#fetch);
+        const current = known ?? (await readCurrentSkin(this.#fetch));
         if (!isCurrent()) return;
         const key = JSON.stringify(current);
-        if (!force && key === this.#clientKey) {
-          this.#emit({ message: "", tone: "info" });
-          return;
-        }
+        pending.key = key;
         const client = current.info?.client ?? "client";
         if (current.kind === "unavailable") {
           this.#clientKey = key;
@@ -222,7 +274,10 @@ export class ClientSkin {
           let skin = this.#builtin(current.look);
           if (current.coloursFromFiles) {
             // lazer skins based on Argon or Triangles only add configuration.
-            const ini = await hostSkinFiles(this.#fetch).resolve("skin.ini");
+            const ini = await hostSkinFiles(
+              this.#fetch,
+              current.info.entries,
+            ).resolve("skin.ini");
             const colours = ini
               ? parseSkinIni(await ini.text()).get("Colours")
               : undefined;
@@ -245,12 +300,12 @@ export class ClientSkin {
           return;
         }
         this.#emit({ message: `Loading “${current.name}” from ${client}…` });
-        const host = hostSkinFiles(this.#fetch),
-          asked = this.#keys,
-          first = await loadSkin(host.resolve, current.name, {
-            maniaKeys: asked,
-          }),
-          { skin: loaded, keys } = await this.#currentKeys(first, asked);
+        // vosu's file list (when it sends one) spares requests for files
+        // the skin lacks.
+        const host = hostSkinFiles(this.#fetch, current.info.entries),
+          asked = this.#scope,
+          first = await loadSkin(host.resolve, current.name, asked),
+          { skin: loaded, scope } = await this.#currentScope(first, asked);
         if (!isCurrent()) {
           for (const bitmap of loaded.assets.values()) bitmap.close();
           return;
@@ -270,7 +325,7 @@ export class ClientSkin {
           return;
         }
         this.#clientKey = key;
-        this.#files = { skin: loaded, fallback: current.fallback, keys };
+        this.#files = { skin: loaded, fallback: current.fallback, scope };
         this.#install(
           overLook(loaded, current.fallback),
           "client",
@@ -281,7 +336,11 @@ export class ClientSkin {
           [...loaded.assets.values()],
         );
       },
-    );
+    ).finally(() => {
+      if (this.#clientPending === pending) this.#clientPending = undefined;
+    });
+    this.#clientPending = pending;
+    return pending.done;
   }
 
   /**
@@ -306,8 +365,8 @@ export class ClientSkin {
     isCurrent: () => boolean,
   ): Promise<void> {
     let used = 0;
-    const asked = this.#keys;
-    const { skin: loaded, keys } = await this.#currentKeys(
+    const asked = this.#scope;
+    const { skin: loaded, scope } = await this.#currentScope(
       await loadSkin(
         async (path) => {
           const blob = await resolve(path);
@@ -315,7 +374,7 @@ export class ClientSkin {
           return blob;
         },
         name,
-        { maniaKeys: asked },
+        asked,
       ),
       asked,
     );
@@ -327,7 +386,7 @@ export class ClientSkin {
       this.#emit({ message: `“${name}” has nothing to draw.`, tone: "notice" });
       return;
     }
-    this.#files = { skin: loaded, fallback: "legacy", keys };
+    this.#files = { skin: loaded, fallback: "legacy", scope };
     this.#install(
       overLook(loaded),
       "user",
@@ -339,57 +398,67 @@ export class ClientSkin {
     );
   }
 
-  /** Whether the shown skin has its mania images for exactly these key counts. */
-  hasManiaKeys(keys: readonly number[]): boolean {
-    const wanted = keySet(keys);
+  /**
+   * Whether the shown skin has its images for exactly this scope. False
+   * while the first skin from files is still loading, so a tool does not
+   * draw the scene in the fallback look first.
+   */
+  hasScope(scope: SkinScope): boolean {
+    const wanted = normalise(scope);
+    if (!this.#files && this.#inFlight()) return false;
     return (
-      sameKeys(this.#keys, wanted) &&
-      (!this.#files || sameKeys(this.#files.keys, wanted))
+      sameScope(this.#scope, wanted) &&
+      (!this.#files || sameScope(this.#files.scope, wanted))
     );
   }
 
-  /** A freshly loaded skin with the key counts asked for while it loaded. */
-  async #currentKeys(
+  /** A freshly loaded skin with the scope asked for while it loaded. */
+  async #currentScope(
     loaded: Skin,
-    keys: readonly number[] | undefined,
-  ): Promise<{ skin: Skin; keys: readonly number[] | undefined }> {
-    const now = this.#keys;
-    if (!now || sameKeys(keys, now)) return { skin: loaded, keys };
-    const next = await loadManiaKeys(loaded, now);
+    scope: SkinScope,
+  ): Promise<{ skin: Skin; scope: SkinScope }> {
+    const now = this.#scope;
+    if (sameScope(scope, now)) return { skin: loaded, scope };
+    const next = await loadScope(loaded, now);
     const kept = new Set(next.assets.values());
     for (const bitmap of loaded.assets.values())
       if (!kept.has(bitmap)) bitmap.close();
-    return { skin: next, keys: now };
+    return { skin: next, scope: now };
   }
 
   /**
-   * Decodes the shown skin's mania images for exactly these key counts (the
-   * scene's stage; none for other rulesets) and releases the others. The
-   * current skin stays drawn until the new set is ready; then `onChange`
-   * reports it. Later skin loads use these key counts too.
+   * Decodes the shown skin's images for exactly this scope (the scene's
+   * ruleset and mania stage, render-core's `sceneScope`) and releases the
+   * others. The current skin stays drawn until the new set is ready; then
+   * `onChange` reports it. Later skin loads use this scope too. Resolves
+   * once a skin load in progress has finished as well.
    */
-  useManiaKeys(keys: readonly number[]): Promise<void> {
-    const wanted = keySet(keys);
-    // Asking again while the same set loads (e.g. every frame) waits for it.
-    const pending = this.#maniaPending;
-    if (pending && sameKeys(pending.keys, wanted)) return pending.done;
-    const done = this.#loadManiaKeys(wanted).finally(() => {
-      if (this.#maniaPending?.done === done) this.#maniaPending = undefined;
+  useScope(scope: SkinScope): Promise<void> {
+    const wanted = normalise(scope);
+    // Asking again while the same scope loads (e.g. every frame) waits for it.
+    const pending = this.#scopePending;
+    if (pending && sameScope(pending.scope, wanted)) return pending.done;
+    const done = this.#loadScope(wanted).finally(() => {
+      if (this.#scopePending?.done === done) this.#scopePending = undefined;
     });
-    this.#maniaPending = { keys: wanted, done };
+    this.#scopePending = { scope: wanted, done };
     return done;
   }
 
-  async #loadManiaKeys(wanted: readonly number[]): Promise<void> {
-    const maniaSequence = ++this.#maniaSequence;
-    this.#keys = wanted;
+  async #loadScope(wanted: SkinScope): Promise<void> {
+    const scopeSequence = ++this.#scopeSequence;
+    this.#scope = wanted;
+    // A skin still loading picks up this scope itself (#currentScope).
+    const inFlight = this.#inFlight();
+    if (inFlight) await inFlight;
+    if (scopeSequence !== this.#scopeSequence) return;
     const files = this.#files;
-    if (!files || sameKeys(files.keys, wanted)) return;
+    if (!files || sameScope(files.scope, wanted)) return;
     const sequence = this.#sequence;
-    const next = await loadManiaKeys(files.skin, wanted);
+    const next = await loadScope(files.skin, wanted);
     if (
       sequence !== this.#sequence ||
-      maniaSequence !== this.#maniaSequence ||
+      scopeSequence !== this.#scopeSequence ||
       this.#files !== files
     ) {
       // Superseded: release only what this call decoded.
@@ -398,7 +467,7 @@ export class ClientSkin {
         if (!old.has(bitmap)) bitmap.close();
       return;
     }
-    this.#files = { ...files, skin: next, keys: wanted };
+    this.#files = { ...files, skin: next, scope: wanted };
     this.#emit({ skin: overLook(next, files.fallback) }, [
       ...next.assets.values(),
     ]);
