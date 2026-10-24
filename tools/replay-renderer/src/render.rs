@@ -45,6 +45,15 @@ pub(super) struct Request {
     /// Debug export: the composition inspector is drawn into every frame.
     #[serde(default)]
     inspect: bool,
+    /// The worker count chosen when the export started, and why.
+    #[serde(skip)]
+    workers: Option<Arc<crate::budget::Workers>>,
+}
+impl Worker {
+    /// Why the export runs this many workers (see `budget`).
+    fn workers(&self) -> Option<String> {
+        self.request.workers.as_ref().map(|w| w.reason.clone())
+    }
 }
 #[derive(Clone)]
 struct Worker {
@@ -137,16 +146,26 @@ pub(super) async fn start(
     if jobs > 8 {
         return Err(error("Parallel jobs must be 0 (auto) or 1–8"));
     }
-    request.parallel_jobs = Some(if jobs == 0 {
-        let cores = std::thread::available_parallelism().map_or(1, usize::from);
-        let memory_cap = (16_588_800_u64 / (u64::from(width) * u64::from(height))).clamp(1, 8);
-        // Capture-heavy workers benefit from more concurrency; raw-frame-only
-        // workers saturate transfer/encoding sooner and contend beyond four.
-        let work_cap = if request.overlays.is_empty() { 4 } else { 8 };
-        (cores as u32 / 4).clamp(1, (memory_cap as u32).min(work_cap))
+    // A focused osu! instance in vosu's context means the game is running.
+    let game = app
+        .env
+        .client()
+        .host::<Value>("context")
+        .await
+        .is_ok_and(|context| !context["client"].is_null());
+    let machine = crate::budget::machine(
+        game,
+        gpu.as_ref().map(|gpu| gpu.pci.as_str()),
+        request.encoder.as_deref() != Some("software"),
+    )
+    .await;
+    let workers = if jobs == 0 {
+        machine.auto(width, height, !request.overlays.is_empty())
     } else {
-        jobs
-    });
+        machine.fixed(jobs)
+    };
+    request.parallel_jobs = Some(workers.count);
+    request.workers = Some(Arc::new(workers));
     let outro = request
         .outro_ms
         .unwrap_or(defaults["outro_ms"].as_u64().unwrap_or(1250) as u32);
@@ -192,7 +211,8 @@ pub(super) async fn start(
         })
         .collect::<Vec<_>>();
     let id = uuid::Uuid::new_v4().to_string();
-    app.jobs.lock().await.insert(id.clone(),json!({"state":"queued","progress":0.0,"message":"Starting private headless renderer","result":null}));
+    let workers = request.workers.as_ref().map(|w| w.reason.clone());
+    app.jobs.lock().await.insert(id.clone(),json!({"state":"queued","progress":0.0,"message":"Starting private headless renderer","workers":workers,"result":null}));
     let worker = Worker {
         app,
         id: id.clone(),
@@ -221,7 +241,10 @@ pub(super) async fn start(
             let _ = tokio::fs::remove_file(&worker.staged).await;
         }
     });
-    Ok((StatusCode::ACCEPTED, Json(json!({"job":id}))))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({"job":id,"workers":workers})),
+    ))
 }
 async fn run(worker: Worker) -> Result<(), String> {
     let _permit = worker
@@ -296,7 +319,7 @@ async fn run_single(worker: Worker) -> Result<(), String> {
     } else {
         Process::new(browser)
     };
-    let spawned = command
+    let spawned = crate::budget::background(&mut command)
         .args([
             "--headless=new",
             "--no-first-run",
@@ -305,6 +328,9 @@ async fn run_single(worker: Worker) -> Result<(), String> {
             "--disable-dev-shm-usage",
             "--run-all-compositor-stages-before-draw",
             "--disable-gpu-vsync",
+            // The export page collects each frame's dead pixel buffers itself
+            // (see web/src/export.ts); left to V8 they pile up to gigabytes.
+            "--js-flags=--expose-gc",
         ])
         .args(if cfg!(target_os = "linux") {
             &[
@@ -579,14 +605,20 @@ async fn begin(
         command.arg("-i").arg(&audio);
     }
     selected.configure(&mut command, &plan);
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
-    let threads = (cores / worker.request.parallel_jobs.unwrap_or(1) as usize).max(1);
+    let threads = (worker.request.workers.as_ref().map_or(1, |w| w.threads)
+        / worker.request.parallel_jobs.unwrap_or(1) as usize)
+        .max(1);
     command.args(["-threads", &threads.to_string(), "-filter_threads", "1"]);
     if worker.request.segment.is_none() {
+        // The soundtrack ends with the video's frame clock. Not -shortest:
+        // with it FFmpeg holds raw video frames in its sync queue whenever the
+        // padded audio lags the export pipe, about 180 MB more every second at
+        // 1080p60 once ten seconds are queued.
         command.args(plan.audio_args()).args([
             "-af",
             &filter,
-            "-shortest",
+            "-t",
+            &video_seconds(input.frames, worker.request.fps),
             "-movflags",
             "+faststart",
         ]);
@@ -607,8 +639,12 @@ async fn begin(
         })?;
     *worker.pipe.lock().await = child.stdin.take();
     *encoder = Some(child);
-    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"total_frames":input.frames,"warning":warning,"result":null}));
+    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"workers":worker.workers(),"encoder":selected.name,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"total_frames":input.frames,"warning":warning,"result":null}));
     Ok(Json(json!({"ready":true})))
+}
+/// `frames` at `fps` as an FFmpeg duration, exactly on the frame clock.
+pub(crate) fn video_seconds(frames: u64, fps: u32) -> String {
+    format!("{:.6}", frames as f64 / f64::from(fps.max(1)))
 }
 /// The song on the video clock: tempo for the replay rate (pitch-shifted when
 /// `pitch`, as Nightcore does), silence during a lead-in (or the map start
@@ -631,7 +667,15 @@ fn audio_filter(rate: f64, pitch: bool, start_ms: f64, seconds: f64, fade_ms: u3
         filters.push(format!("atempo={rate}"));
     }
     if start_ms < 0.0 {
-        filters.push(format!("adelay={:.0}:all=1", -start_ms / rate));
+        // adelay passes the song's frames on with their own timestamps after
+        // the silence; with apad and a slowly fed video (the export pipe) the
+        // AAC encoder then sees broken timestamps, and FFmpeg's interleaving
+        // queue grows until it fails ("No space left on device", gigabytes in
+        // a second). Timestamps from the sample count keep the stream whole.
+        filters.push(format!(
+            "adelay={:.0}:all=1,asetpts=N/SR/TB",
+            -start_ms / rate
+        ));
     }
     filters.push("apad".to_owned());
     let hold = f64::from(crate::output::ENTRY_HOLD_MS) / 1000.0;
@@ -714,10 +758,10 @@ async fn finish(
         )
     };
     let (width, height, fps) = plan.delivered(&fit);
-    let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
+    let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"workers":worker.workers(),"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
     worker.app.jobs.lock().await.insert(
         worker.id.clone(),
-        json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"result":result}),
+        json!({"state":"done","progress":1.0,"message":"Render complete","workers":worker.workers(),"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"result":result}),
     );
     Ok(Json(result))
 }
@@ -816,7 +860,7 @@ mod tests {
         // Lead-in two seconds before the song at 1.5×: 1333 ms of silence first.
         assert_eq!(
             audio_filter(1.5, false, -2000.0, 60.0, 250),
-            "atempo=1.5,adelay=1333:all=1,apad,afade=t=in:st=0.250:d=0.250,afade=t=out:st=59.750:d=0.250"
+            "atempo=1.5,adelay=1333:all=1,asetpts=N/SR/TB,apad,afade=t=in:st=0.250:d=0.250,afade=t=out:st=59.750:d=0.250"
         );
         // A render starting after the song begins skips into it; no fade out requested.
         assert_eq!(

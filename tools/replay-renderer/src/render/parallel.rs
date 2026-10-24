@@ -163,17 +163,18 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         }
         tokio::fs::write(&list, lines).await.map_err(|e| e.to_string())?;
         let audio = segments[0].audio.lock().await.clone();
+        let total: u64 = { let mut n = 0; for segment in &segments { n += *segment.frames.lock().await; } n };
         let mux_started = Instant::now();
-        let output = Process::new(executable)
+        let output = crate::budget::background(&mut Process::new(executable))
             .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-n", "-f", "concat", "-safe", "0", "-i"])
             .arg(&list).arg("-i").arg(audio["path"].as_str().ok_or("Missing soundtrack")?)
             .args(["-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy"]).args(plan.audio_args()).arg("-af")
             .arg(audio["filter"].as_str().ok_or("Missing soundtrack clock")?)
             // The index goes first in the final file, not in the segments.
-            .args(["-shortest", "-movflags", "+faststart"]).arg(&worker.staged).kill_on_drop(true).output().await.map_err(|e| e.to_string())?;
+            .arg("-t").arg(crate::render::video_seconds(total, worker.request.fps))
+            .args(["-movflags", "+faststart"]).arg(&worker.staged).kill_on_drop(true).output().await.map_err(|e| e.to_string())?;
         if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).into_owned()); }
         if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" { return Err("Render cancelled".into()); }
-        let total: u64 = { let mut n = 0; for segment in &segments { n += *segment.frames.lock().await; } n };
         let fit = fit_target(&worker, &worker.staged, &plan, total).await.map_err(|e| e.1["error"].as_str().unwrap_or("Discord fit failed").to_owned())?;
         tokio::fs::hard_link(&worker.staged, &worker.request.out).await.map_err(|e| e.to_string())?;
         let mut jobs = worker.app.jobs.lock().await;
@@ -187,8 +188,8 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
                 .chain(results.iter().map(|r| r["warning"].as_str())),
         );
         let (width, height, fps) = plan.delivered(&fit);
-        let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
-        jobs.insert(worker.id.clone(), json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":count,"gpu":gpu,"result":result}));
+        let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"workers":worker.workers(),"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
+        jobs.insert(worker.id.clone(), json!({"state":"done","progress":1.0,"message":"Render complete","workers":worker.workers(),"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"result":result}));
         Ok(())
     }.await;
     for segment in segments {

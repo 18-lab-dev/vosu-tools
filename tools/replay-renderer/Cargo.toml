@@ -23,3 +23,9 @@ futures-util = { version = "0.3", features = ["sink"] }
 base64 = "0.22"
 rosu-pp = { version = "=4.0.1", features = ["sync"] }
 vosu-mania-ratings = { path = "../mania-ratings" }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_SystemInformation"] }

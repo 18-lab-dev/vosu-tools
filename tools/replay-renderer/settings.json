@@ -103,7 +103,7 @@
     "uniqueID": "parallel_jobs",
     "type": "number",
     "title": "Parallel jobs",
-    "description": "0 selects automatically from CPU cores and resolution (at most 4 without overlays, 8 with overlays); 1–8 overrides. Each job uses a private browser and encoder; lower this on memory-constrained machines.",
+    "description": "0 picks automatically from free CPU threads (keeping two for a running osu!), free memory and free NVENC sessions (at most 4 without overlays, 8 with overlays); the job shows the count and what limited it. 1–8 overrides.",
     "value": 0
   },
   {

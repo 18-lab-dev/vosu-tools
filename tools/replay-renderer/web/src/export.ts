@@ -123,6 +123,13 @@ try {
     }
   }
   startup.warmup = performance.now() - warmupStarted;
+  // Every frame's getImageData is a new full-frame buffer that is garbage once
+  // uploaded. V8 frees such buffers only on its own schedule, which let one
+  // 1080p worker hold 4.5 GB of dead frames; collecting every ~256 MB keeps it
+  // near one frame. `gc` exists because the renderer starts Chrome with
+  // --expose-gc; elsewhere this is a no-op.
+  const collect = (globalThis as { gc?: () => void }).gc;
+  const collectEvery = Math.max(1, Math.floor((256 << 20) / (width * height * 4)));
   for (let i = first; i < end; i++) {
     const time = start + ((i * 1000) / spec.fps) * rate;
     await composition.renderOffline(time, { fade: false });
@@ -196,6 +203,7 @@ try {
     const pixels = composition.context.getImageData(0, 0, width, height);
     timings.pixels += performance.now() - pixelsStarted;
     await uploaded();
+    if ((i - first) % collectEvery === collectEvery - 1) collect?.();
     const transferStarted = performance.now();
     upload = request("frame", { method: "POST", body: pixels.data })
       .then(() => { timings.transfer += performance.now() - transferStarted; })

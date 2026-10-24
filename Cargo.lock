@@ -2787,6 +2787,7 @@ dependencies = [
  "base64 0.22.1",
  "clap",
  "futures-util",
+ "libc",
  "md-5 0.10.6",
  "reqwest",
  "rosu-pp",
@@ -2799,6 +2800,7 @@ dependencies = [
  "vosu-mania-ratings",
  "vosu-tool-sdk",
  "walkdir",
+ "windows-sys 0.61.2",
  "zip",
 ]
 

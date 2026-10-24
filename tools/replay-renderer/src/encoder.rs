@@ -23,6 +23,7 @@ impl Encoder {
     }
     pub fn command(&self, executable: &str) -> Command {
         let mut command = Command::new(executable);
+        crate::budget::background(&mut command);
         if let Some(uuid) = &self.gpu {
             command
                 .env("CUDA_VISIBLE_DEVICES", uuid)

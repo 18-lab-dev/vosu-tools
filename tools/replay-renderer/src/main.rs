@@ -18,6 +18,7 @@ use tokio::sync::Mutex;
 use vosu_tool_sdk::{ToolEnv, cli::Method};
 
 mod browser;
+mod budget;
 mod cdp;
 mod encoder;
 mod gpu;
@@ -500,6 +501,10 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto","export_for":export_for,"discord_mb":discord_mb.map(|mb| mb.parse::<u32>().unwrap_or(20))}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
             let mut warned = String::new();
+            // The worker count and why, printed once as soon as it is known.
+            if !as_json && let Some(workers) = started["workers"].as_str() {
+                eprintln!("{workers}");
+            }
             let result = client
                 .wait_job("replay-renderer", id, |state| {
                     if as_json {
