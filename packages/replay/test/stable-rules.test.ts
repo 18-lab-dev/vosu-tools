@@ -56,7 +56,11 @@ ${objects}
 const keys = (...steps: [number, number][]): ReplayFrame[] => steps.map(([time, x]) => ({ time, x, y: 0, keys: 0 }));
 const taikoKeys = (...steps: [number, number][]): ReplayFrame[] => steps.map(([time, keys]) => ({ time, x: 0, y: 0, keys }));
 const judged = (replay: Replay, raw: ReturnType<typeof map>) => judgeReplay(replay, raw).simulation;
-const results = (replay: Replay, raw: ReturnType<typeof map>) => judged(replay, raw).events.map((e) => e.result);
+/** Counted results in order (ignored misses are events too, for drawing). */
+const results = (replay: Replay, raw: ReturnType<typeof map>) =>
+  judged(replay, raw)
+    .events.filter((e) => e.kind !== "ignore_miss")
+    .map((e) => e.result);
 
 test("replay frames are decoded the way lazer reads stable replays", () => {
   // stable's two lead-in frames at (256, -500) are dropped, and the seed is kept.

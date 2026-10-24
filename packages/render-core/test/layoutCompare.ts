@@ -14,11 +14,13 @@ import { parseOsu } from "@vosu-tools/osu-parse";
 import { gameSpace, SPACE_SCALE } from "../src/taiko";
 import { compileScene, type RenderOptions } from "../src/scene";
 import type { AtlasRegion, Skin } from "../src/skin";
-import { goldenAsset } from "./maniaCompare";
+import { caseless, goldenAsset } from "./maniaCompare";
+import { evaluateJudgement } from "./judgementCompare";
 
 export interface LayoutCase {
   name: string;
-  ruleset: "taiko" | "catch";
+  /** osu! and mania only appear in judgement goldens (judgementCompare.ts). */
+  ruleset: "taiko" | "catch" | "osu" | "mania";
   /** Skin name (fixtures) or folder (real runs). */
   skin: string;
   /** The .osu text (fixtures) or path (real runs). */
@@ -50,12 +52,12 @@ export interface LayoutResult {
 }
 
 /**
- * Drawables render-core does not reproduce: the input drum's key flashes and
- * the mascot (both follow input/animation state), drum roll tick hits
- * flying off the playfield, swell clear text, judgement sprites (lazer shows
- * them for skins without taiko-hit explosions), catch hit lighting (classic
- * skin textures only), catcher dash trails and the plate's stacked fruits
- * (positions come from lazer's unseeded RNG).
+ * Drawables these layout cases do not compare: the input drum's key flashes
+ * and the mascot (both follow input/animation state), drum roll tick hits
+ * flying off the playfield, swell clear text, catcher dash trails and the
+ * plate's stacked fruits (positions come from lazer's unseeded RNG).
+ * Judgement sprites and catch hit lighting follow replay results, which these
+ * cases do not supply; the judgement goldens (judgementCompare.ts) cover them.
  */
 const UNMODELLED = [
   /^hit(0|50|100|300)[gk]?$/,
@@ -107,7 +109,7 @@ const CLASSIC = [
 export function withClassic(
   regions: Map<string, AtlasRegion>,
 ): Map<string, AtlasRegion> {
-  const out = new Map(regions);
+  const out = caseless(regions);
   let first = 100000;
   for (const name of CLASSIC)
     if (!out.has(name))
@@ -133,7 +135,7 @@ export function placeLayout(
   options: RenderOptions = {},
 ): PlacedItem[] {
   const map = parseOsu(mapText);
-  map.mode = c.ruleset === "taiko" ? 1 : 2;
+  map.mode = ({ osu: 0, taiko: 1, catch: 2, mania: 3 } as const)[c.ruleset];
   const aspect = c.width / c.height,
     scene = compileScene(
       map,
@@ -194,7 +196,14 @@ export function placeLayout(
       angle = 0,
       alpha = d[11];
     let colour = [d[8], d[9], d[10]];
-    if (kind === 3) {
+    if (kind === 35) {
+      const j = evaluateJudgement(d, now, catcherX);
+      ({ x, y, w, h, angle } = j);
+      alpha = j.alpha;
+    } else if (kind === 36) {
+      x = x0 + (start - now) * a;
+      if (now > start) alpha *= Math.max(0, Math.min(1, 1 - (now - start) / b));
+    } else if (kind === 3) {
       x = x0 + (start - now) * a;
       if (map.mode === 1 && now > start) continue;
     } else if (kind === 4) x = x0 + (start - now) * a + w / 2;
@@ -295,7 +304,7 @@ export function placeLayout(
           c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
       colour = colour.map((t) => srgb(1 + (lin(t) - 1) * hyper));
     }
-    if (from > -1e8 && now > end)
+    if (from > -1e8 && now > end && kind !== 35)
       alpha *= Math.max(0, Math.min(1, 1 - (now - end) / 120));
     if (
       map.mode === 1 &&

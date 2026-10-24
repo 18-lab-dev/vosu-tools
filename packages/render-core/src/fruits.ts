@@ -17,6 +17,12 @@ import { catchObjects, type CatchObject } from "@vosu-tools/ruleset-convert";
 import { normaliseComboColour } from "./colour";
 import type { AtlasRegion, Skin } from "./skin";
 import { capped, type Emit } from "./taiko";
+import {
+  catcherStates,
+  catchJudgements,
+  type JudgementEvent,
+  type Marks,
+} from "./judgements";
 
 /** Playfield y of the catcher's top (where objects are caught), in world units. */
 export const CATCHER_Y = 440 - 76;
@@ -114,6 +120,8 @@ export interface CatchScene {
   catcher: { time: number; x: number }[];
   /** Hyper-dashes: from the catch that starts one to its target's time. */
   hyper: { start: number; end: number }[];
+  /** With a replay's results: the catcher's state from each result on. */
+  states?: { time: number; state: number }[];
 }
 
 interface Layer {
@@ -143,12 +151,17 @@ const hex = (value: string | undefined) => {
 
 export function compileCatch(
   map: Beatmap,
-  options: { comboColourNormalisation?: number },
+  options: {
+    comboColourNormalisation?: number;
+    hitLighting?: boolean;
+    judgements?: readonly JudgementEvent[];
+  },
   regions: Map<string, AtlasRegion>,
   skin: Skin | undefined,
   add: Emit,
   /** Combo colours in use (beatmap or skin, as the client picks them). */
   colours: readonly (readonly number[])[],
+  marks?: Marks,
 ): CatchScene {
   const generated = catchObjects(map),
     objects = [...generated].sort((a, b) => a.time - b.time),
@@ -276,12 +289,23 @@ export function compileCatch(
 
   // The plate: caught fruits and droplets (bananas explode at once) ride on
   // the catcher at half size until the combo ends, behind everything else.
+  // With a replay's results only what it caught goes on the plate (objects
+  // are told apart by their top-level object and time).
+  const judgements = options.judgements;
+  const caught = judgements
+    ? new Set(
+        judgements
+          .filter((e) => !/miss/.test(e.result) && e.object !== undefined)
+          .map((e) => `${e.note}@${e.time}`),
+      )
+    : undefined;
   let clearAt = Infinity;
   const clears = objects.map((o) => o.lastInCombo);
   for (let i = objects.length - 1; i >= 0; i--) {
     if (clears[i]) clearAt = objects[i].time;
     const o = objects[i];
     if (o.kind === "banana" || clears[i] || clearAt <= o.time) continue;
+    if (caught && !caught.has(`${o.index}@${o.time}`)) continue;
     const dx = o.x - catcherAt(o.time);
     for (const layer of looks[i].layers)
       add(
@@ -415,5 +439,29 @@ export function compileCatch(
     if (previous && previous.end >= o.time) previous.end = catches[i + 1].time;
     else hyper.push({ start: o.time, end: catches[i + 1].time });
   }
-  return { catcher, hyper };
+  if (!judgements || !marks) return { catcher, hyper };
+  // Lighting and the combo counter on the catcher, from the replay's results.
+  const colourOf = (note: number) =>
+    normaliseComboColour(
+      colours.length ? colours[(note + 1) % colours.length] : [1, 1, 1],
+      amount,
+    );
+  catchJudgements({
+    events: judgements,
+    marks,
+    skin,
+    catcherY: CATCHER_Y,
+    catcherScale,
+    colour: colourOf,
+    hitLighting: options.hitLighting !== false,
+  });
+  const kiai = (time: number) => {
+    let effects = 0;
+    for (const point of map.timing) {
+      if (point.time > time) break;
+      effects = point.effects;
+    }
+    return (effects & 1) !== 0;
+  };
+  return { catcher, hyper, states: catcherStates(judgements, kiai) };
 }

@@ -5,6 +5,17 @@ struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:v
 @group(0) @binding(2) var atlasSampler:sampler;
 @group(0) @binding(3) var<storage,read> frameUV:array<vec4f>;
 struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32 }
+fn easeOut(t:f32)->f32{return 1.0-(1.0-t)*(1.0-t);}
+fn easeOutQuint(t:f32)->f32{let u=1.0-t;return 1.0-u*u*u*u*u;}
+fn outElastic(t:f32)->f32{if(t<=0.0){return 0.0;}if(t>=1.0){return 1.0;}return pow(2.0,-10.0*t)*sin((t-0.075)*6.2831853/0.3)+1.0;}
+// LegacyJudgementPieceOld's hit pop: 0.6 to 1.1 (96 ms), held to 120 ms, 0.9
+// at 144 ms, then 0.95 easing to the final scale at 168 ms.
+fn chainHit(dt:f32,endScale:f32)->f32{
+ if(dt<96.0){return 0.6+0.5*max(dt,0.0)/96.0;}
+ if(dt<120.0){return 1.1;}
+ if(dt<144.0){return 1.1-0.2*(dt-120.0)/24.0;}
+ if(dt<168.0){return 0.95+(endScale-0.95)*(dt-144.0)/24.0;}
+ return endScale;}
 @vertex fn vs(@builtin(vertex_index) index:u32,@location(0) geometry:vec4f,@location(1) life:vec4f,@location(2) tint:vec4f,@location(3) motion:vec4f,@location(4) uv:vec4f,@location(5) shape:vec4f)->Vertex{
  let corners=array<vec2f,6>(vec2f(-0.5,-0.5),vec2f(0.5,-0.5),vec2f(-0.5,0.5),vec2f(-0.5,0.5),vec2f(0.5,-0.5),vec2f(0.5,0.5));
  let now=g.viewport.x;let kind=u32(motion.x);let mode=u32(g.viewport.w);var centre=geometry.xy;var size=geometry.zw;var alpha=tint.a;var angle=0.0;var bodyV=1.0;
@@ -28,19 +39,69 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
  if(kind==33u || kind==34u){if(now<motion.z){alpha*=clamp((now-motion.y)/200.0,0.0,1.0);}else{let u=1.0-clamp((now-motion.z)/300.0,0.0,1.0);alpha*=clamp((motion.z-motion.y)/200.0,0.0,1.0)*u*u;}if(kind==34u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}}
  if(kind==30u){centre.x=g.cursor.x+motion.y;angle=motion.z;}
  if(kind==31u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/150.0,0.0,1.0);}}
+ // Taiko notes left unhit: they scroll on, masked, then fade over motion.z ms.
+ if(kind==36u){centre.x=geometry.x+(life.x-now)*motion.y;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/motion.z,0.0,1.0);}}
+ // Judgements, hit lighting and explosions (judgements.ts): motion.y picks
+ // the transform sequence of the lazer piece, from the result time life.x.
+ if(kind==35u){let dt=now-life.x;let profile=u32(motion.y+0.5);let animated=shape.z>1.0;
+  let in120=clamp(dt/120.0,0.0,1.0);let out500=clamp(1.0-(dt-500.0)/600.0,0.0,1.0);
+  if(profile==0u || profile==4u){alpha*=in120*out500;if(!animated || profile==4u){size*=chainHit(dt,motion.w);}
+   if(profile==4u){let half=select(0.5*(1.0-(dt-40.0)/300.0),0.5*easeOut(clamp((dt+16.0)/56.0,0.0,1.0)),dt<40.0);alpha*=max(0.0,half);}}
+  if(profile==1u){alpha*=in120*out500;if(!animated){let t=clamp(dt/100.0,0.0,1.0);size*=1.6-0.6*t*t;
+   let late=clamp((dt-120.0)/980.0,0.0,1.0);angle=motion.z*select(1.0+late*late,in120,dt<120.0);
+   let fall=clamp(dt/1100.0,0.0,1.0);centre.y+=motion.w*(-5.0+80.0*fall*fall);}}
+  if(profile==2u){alpha*=in120*clamp(1.0-(dt-250.0)/600.0,0.0,1.0);if(!animated){let t=clamp(dt/100.0,0.0,1.0);size*=1.2-0.2*t*t;}}
+  if(profile==3u){alpha*=in120*out500;if(!animated){size*=0.9+0.15*clamp(dt/1100.0,0.0,1.0);}}
+  if(profile==5u){alpha*=select(clamp(1.0-(dt-400.0)/1000.0,0.0,1.0),clamp(dt/200.0,0.0,1.0),dt<400.0);size*=0.8+0.4*easeOut(clamp(dt/600.0,0.0,1.0));}
+  if(profile==6u){centre.y-=10.0*motion.z*easeOut(clamp(dt/300.0,0.0,1.0));alpha*=clamp(1.0-(dt-300.0)/60.0,0.0,1.0);}
+  if(profile==7u || profile==8u){let late=clamp((dt-180.0)/40.0,0.0,1.0);alpha*=easeOut(clamp(dt/20.0,0.0,1.0))*(1.0-late*late);
+   if(profile==7u){size*=select(select(select(0.7-0.3*late*late,0.7,dt<180.0),0.85-0.15*(dt-40.0)/40.0,dt<80.0),0.8+0.2*dt/40.0,dt<40.0);}
+   else{let t=easeOut(clamp(dt/100.0,0.0,1.0));size*=1.2-0.2*t;angle=motion.z*t;}}
+  if(profile==9u){alpha*=select(clamp(1.0-(dt-80.0)/120.0,0.0,1.0),clamp(dt/80.0,0.0,1.0),dt<80.0);}
+  if(profile==10u){alpha*=select(clamp(1.0-(dt-120.0)/180.0,0.0,1.0),in120,dt<120.0);
+   if(!animated){size*=select(select(select(1.0,0.9+0.1*(dt-144.0)/24.0,dt<168.0),1.1-0.2*(dt-96.0)/48.0,dt<144.0),0.6+0.5*dt/96.0,dt<96.0);}
+   if(motion.z>0.0){let second=easeOutQuint(clamp((now-motion.z)/50.0,0.0,1.0));alpha*=select(1.0-second,second,motion.w>0.5);}}
+  if(profile==11u || profile==12u){
+   if(profile==11u){let e=easeOut(clamp(dt/160.0,0.0,1.0));alpha*=clamp(1.0-dt/300.0,0.0,1.0);size=vec2f(geometry.z*(0.9+0.2*e),geometry.w*(1.0+(motion.z-1.0)*e));}
+   else{alpha*=clamp(1.0-dt/700.0,0.0,1.0);size=vec2f(geometry.z*(1.0+0.3*easeOut(clamp(dt/500.0,0.0,1.0))),geometry.w*0.9);}
+   centre.y=geometry.y-size.y*0.5;if(dt>=700.0){alpha=0.0;}}
+  var group=1.0;
+  if(profile>=13u && profile<=15u){let since=now-motion.z;
+   alpha*=select(1.0,clamp(1.0-(since-1000.0)/300.0,0.0,1.0),since>1000.0)*select(1.0,1.0-easeOut(clamp((now-motion.w)/400.0,0.0,1.0)),now>motion.w);
+   if(profile==13u){group=1.5-0.7*easeOut(clamp(dt/250.0,0.0,1.0));}
+   if(profile==14u){group=select(select(1.0,1.1-0.1*(dt-60.0)/30.0,dt<90.0),1.0+0.1*dt/60.0,dt<60.0);}
+   if(profile==15u){group=1.5+0.4*easeOut(clamp(dt/400.0,0.0,1.0));alpha*=clamp(1.0-dt/400.0,0.0,1.0);}
+   size*=group;}
+  // Catch lighting and the combo counter ride on the catcher: x is an offset.
+  // Digits scale about the counter's centre, so their offsets scale too.
+  if(profile>=11u && profile<=15u){centre.x=g.cursor.x+geometry.x*group;}
+  // DefaultManiaJudgementPiece hits: 0.8 springing towards 1 (out elastic),
+  // then from 50 ms easing to 0.75 over 250 ms while fading over 200 ms.
+  if(profile==18u){let pop=0.8+0.2*outElastic(clamp(min(dt,50.0)/250.0,0.0,1.0));
+   size*=select(pop,mix(pop,0.75,clamp((dt-50.0)/250.0,0.0,1.0)),dt>50.0);alpha*=clamp(1.0-(dt-50.0)/200.0,0.0,1.0);}
+  // DefaultJudgementPiece (built-in triangles / argon looks): fades over 800 ms;
+  // misses drop 100 units and turn 40 degrees (in quint), popping 1.6 to 1.
+  if(profile==17u){alpha*=clamp(1.0-dt/800.0,0.0,1.0);
+   // osu!'s piece also widens hits from 0.8 to 1.2 over 1800 ms (out quint).
+   if(motion.z>1.5){size.x*=0.8+0.4*easeOutQuint(clamp(dt/1800.0,0.0,1.0));}
+   if(motion.z>0.5 && motion.z<1.5){let t=clamp(dt/100.0,0.0,1.0);let q=clamp(dt/800.0,0.0,1.0);let quint=q*q*q*q*q;
+   size*=1.6-0.6*t*t;centre.y+=100.0*motion.w*quint;angle=0.6981317*quint;}}
+  if(profile==16u){let duration=floor(motion.z/8.0);let direction=motion.z-duration*8.0;let progress=clamp((dt+100.0)/duration,0.0,1.0);
+   centre+=motion.w*progress*vec2f(sin(direction),cos(direction));alpha*=in120*out500*clamp(1.0-(dt+100.0)/1600.0,0.0,1.0)*(1.0-progress);}
+ }
  if(kind==9u || (kind>=15u && kind<=17u)){centre.x=g.cursor.x;}if(kind>=15u && kind<=17u){if(u32(g.flags.w)!=kind-15u){alpha=0.0;}if(g.cursor.w<0.0){size.x=-size.x;}}
  if(kind==10u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}
  if(kind>=11u && kind<=13u){let pressed=(u32(g.keys.x)&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
  if(kind==18u || kind==19u){let bit=1u<<u32(motion.y);let pressed=(u32(g.keys.x)&bit)!=0u;let held=(u32(g.keys.y)&bit)!=0u;if(!pressed || (kind==18u && held) || (kind==19u && !held)){alpha=0.0;}}
- if(mode==0u && life.z > -1e8 && kind!=5u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
- if(mode!=0u && life.z > -1e8 && now>life.y){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
- if(g.flags.x>0.0 && life.z > -1e8){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
- if(g.flags.y>0.0 && mode==3u && life.z > -1e8){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
+ if(mode==0u && life.z > -1e8 && kind!=5u && kind!=35u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
+ if(mode!=0u && life.z > -1e8 && now>life.y && kind!=35u){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
+ if(g.flags.x>0.0 && life.z > -1e8 && kind!=35u){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
+ if(g.flags.y>0.0 && mode==3u && life.z > -1e8 && kind!=35u){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
  if(g.flags.z>0.0 && mode==3u){centre.y=384.0-centre.y;}
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
- var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let frame=u32(max(0.0,now-origin)*abs(shape.w)/1000.0)%u32(shape.z);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
+ var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
  // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);
@@ -52,7 +113,7 @@ struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @lo
 @fragment fn fs(v:Vertex)->@location(0) vec4f{
  let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);
  if(u32(g.viewport.w)==3u && (v.world.y< -48.0 || v.world.y>432.0)){discard;}
- if(u32(g.viewport.w)==1u && (u32(v.shape.w)==3u || u32(v.shape.w)==4u || u32(v.shape.w)==32u) && v.world.x<g.timing.w){discard;}
+ if(u32(g.viewport.w)==1u && (u32(v.shape.w)==3u || u32(v.shape.w)==4u || u32(v.shape.w)==32u || u32(v.shape.w)==36u) && v.world.x<g.timing.w){discard;}
  if(shape==0u){coverage=1.0-smoothstep(1.0-aa,1.0,d);colour=vec4f(colour.rgb*(0.75+0.25*clamp(1.0-v.local.y,0.0,1.0)),colour.a);}
  if(shape==1u){coverage=(1.0-smoothstep(1.0-aa,1.0,d))*smoothstep(0.85-aa,0.85,d);}
  if(shape==2u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);coverage=1.0-smoothstep(1.0-aa,1.0,length(q));}

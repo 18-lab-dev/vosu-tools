@@ -296,14 +296,17 @@ function button(label: string, className = "v-btn v-btn--sm") {
   node.textContent = label;
   return node;
 }
-/** Built-in layers switched per track in the Layers group (HUD, hit lighting). */
+/** Built-in layers switched per track in the Layers group (HUD, hit lighting, taiko's top area). */
 const LAYER_SWITCHES = new Map<string, string>([
   ["hud.score", "Score"],
   ["hud.accuracy", "Accuracy"],
   ["hud.combo", "Combo"],
   ["hud.health", "Health bar"],
   ["hit_lighting", "Hit lighting"],
+  ["taiko.top_area", "Top area"],
 ]);
+/** Layers drawn into the playfield itself: switching them reloads the track. */
+const PLAYFIELD_LAYERS = new Set(["hit_lighting", "taiko.top_area"]);
 /** Reloads a track with a new skin or settings and swaps it in between frames. */
 async function reloadTrack(track: Track, preset: Preset) {
   const updated = await loadTrack(
@@ -322,7 +325,7 @@ async function reloadTrack(track: Track, preset: Preset) {
   return updated;
 }
 /** Per-track switches for the built-in layers and every overlay. HUD layers and
- *  overlays switch live; hit lighting is part of the playfield, so it reloads. */
+ *  overlays switch live; playfield layers (hit lighting, taiko's top area) reload. */
 function layerSwitches(track: Track) {
   const group = document.createElement("fieldset"),
     legend = document.createElement("legend");
@@ -348,7 +351,7 @@ function layerSwitches(track: Track) {
     const rule = settingSchema.find((r) => r.key === key)!;
     if (!rule.modes.includes(track.replay.mode)) continue;
     const input = check(caption, (track.settings[key] ?? rule.default) !== 0, (on) => {
-      if (key === "hit_lighting") {
+      if (PLAYFIELD_LAYERS.has(key)) {
         input.disabled = true;
         reloadTrack(track, { skin: track.skin, settings: { ...track.settings, [key]: Number(on) } }).catch(
           (error) => {

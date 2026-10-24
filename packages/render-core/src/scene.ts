@@ -15,10 +15,20 @@ import {
 } from "./skin";
 import { compileTaiko } from "./taiko";
 import {
+  catcherStates,
+  maniaExplosionEvents,
+  maniaJudgements,
+  Marks,
+  osuJudgements,
+  Profile,
+  type JudgementEvent,
+} from "./judgements";
+import {
   atlasImageSize,
   DEFAULT_SCROLL_LENGTH,
   MANIA_SCALE,
   maniaConfig,
+  maniaJudgementImages,
   maniaLayout,
   type Rgba,
 } from "./mania";
@@ -40,6 +50,17 @@ export interface RenderOptions {
    * colours move towards one perceived brightness. Omit for stable (none).
    */
   comboColourNormalisation?: number;
+  /**
+   * A replay's results (its judgement simulation): drawn as osu!lazer shows
+   * judgements, hit lighting and explosions. Without them the scene keeps
+   * its autoplay look (every object hit on time).
+   */
+  judgements?: readonly JudgementEvent[];
+  /**
+   * osu!taiko: draw the strip above the playfield (the skin's taiko-slider,
+   * lazer's default); off, the scene ends at the playfield's top edge.
+   */
+  taikoTopArea?: boolean;
 }
 /**
  * The mania key counts a scene of this map draws (empty for other rulesets),
@@ -71,6 +92,11 @@ export interface Scene {
   hyper: { start: number; end: number }[];
   /** osu!taiko: world x left of which scrolling hit objects are masked. */
   clipX: number;
+  /**
+   * osu!catch with judgements: the catcher's animation state from each result
+   * on (0 idle, 1 kiai, 2 fail).
+   */
+  catcherStates?: { time: number; state: number }[];
 }
 const palette: readonly (readonly number[])[] = [
   [1, 0.52, 0.24],
@@ -95,7 +121,8 @@ export function compileScene(
   aspect = 16 / 9,
 ): Scene {
   let clipX = -1e9,
-    hyper: Scene["hyper"] = [];
+    hyper: Scene["hyper"] = [],
+    states: Scene["catcherStates"];
   const values: number[] = [],
     preempt = approachTime(map.difficulty.ar),
     radius = circleRadius(map.difficulty.cs),
@@ -386,6 +413,24 @@ export function compileScene(
         catcher.push({ time: object.endTime, x: 256, y: 192 });
     }
     catcher.sort((a, b) => a.time - b.time);
+    const judged = options.judgements
+      ? osuJudgements({
+          map,
+          events: options.judgements,
+          marks: new Marks(values, regions),
+          skin,
+          colour: (note) => {
+            const combo = map.objects[note]?.combo ?? 0;
+            return (
+              shownColours[combo % shownColours.length] ??
+              palette[combo % palette.length]
+            );
+          },
+          hitLighting: options.hitLighting !== false,
+        })
+      : undefined;
+    // Hit lighting and new-style judgement pieces sit under the hit objects.
+    judged?.below();
     // Slider tracks sit below all hit objects. Skinned sliders follow the
     // client's body profile: all border capsules of a slider first, then all
     // body capsules, so joints between path segments never show a border.
@@ -779,6 +824,8 @@ export function compileScene(
         "approachcircle",
       );
     }
+    // Legacy judgement pieces are proxied above the hit objects.
+    judged?.above();
   } else if (map.mode === 3) {
     const keys = Math.max(1, Math.round(map.difficulty.cs));
     const layout = maniaLayout(
@@ -1024,14 +1071,18 @@ export function compileScene(
         "none",
         60,
       );
-    // Column top level: hit explosions and hold lighting, additive.
+    // Column top level: hit explosions and hold lighting, additive. With a
+    // replay's results, each hit lights its column once (Column.OnNewResult);
+    // previews light a column while its key is down.
+    const marks = new Marks(values, regions),
+      lightFps = (asset: string) =>
+        Math.min(60, ((regions.get(asset)?.count ?? 1) * 1000) / 170);
     for (const [lane, column] of columns.entries())
       for (const [light, motion] of [
         [column.explosion, 18],
         [column.holdLight, 19],
       ] as const)
-        if (light) {
-          const frames = regions.get(light.asset)?.count ?? 1;
+        if (light && !(motion === 18 && options.judgements))
           emit(
             light,
             WHITE,
@@ -1039,9 +1090,37 @@ export function compileScene(
             lane,
             light.asset,
             "additive",
-            Math.min(60, (frames * 1000) / 170),
+            lightFps(light.asset),
           );
+    if (options.judgements) {
+      if (options.hitLighting !== false)
+        for (const e of maniaExplosionEvents(options.judgements)) {
+          const light = columns[e.x]?.explosion;
+          if (!light) continue;
+          marks.put({
+            asset: light.asset,
+            x: toX(light.x + light.width / 2),
+            y: toY(light.y + light.height / 2),
+            w: light.width / MANIA_SCALE,
+            h: light.height / MANIA_SCALE,
+            time: e.time,
+            profile: Profile.maniaExplosion,
+            additive: true,
+            fps: lightFps(light.asset),
+          });
         }
+      // Stage judgements: centred over the stage at the skin's ScorePosition.
+      maniaJudgements({
+        events: options.judgements,
+        marks,
+        skin,
+        images: maniaJudgementImages(config),
+        x: toX(layout.width / 2),
+        y: toY(config.scorePosition),
+        hitY: hit,
+        scale: 1 / MANIA_SCALE,
+      });
+    }
   } else if (map.mode === 1) {
     clipX = compileTaiko(
       map,
@@ -1051,6 +1130,7 @@ export function compileScene(
       add,
       aspect,
       barLineTimes(map),
+      new Marks(values, regions),
     ).clipX;
   } else {
     const result = compileCatch(
@@ -1060,9 +1140,11 @@ export function compileScene(
       skin,
       add,
       colours.length ? colours : defaultComboColours,
+      new Marks(values, regions),
     );
     catcher.push(...result.catcher);
     hyper = result.hyper;
+    states = result.states;
   }
   const data = new Float32Array(values),
     count = values.length / 24,
@@ -1092,6 +1174,7 @@ export function compileScene(
     catcher,
     hyper,
     clipX,
+    catcherStates: states,
   };
 }
 

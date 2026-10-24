@@ -17,6 +17,7 @@
  */
 import type { Skin, SkinStyle } from "./skin";
 import { fallbackColumnIndex } from "./mania";
+import { CATCH_EXPLOSION_SIZES } from "./judgements";
 
 export type BuiltinSkinName = "legacy" | "triangles" | "argon" | "argon-pro";
 export const builtinSkinNames: readonly BuiltinSkinName[] = [
@@ -1043,6 +1044,169 @@ function catchSkin(b: Builder, family: "legacy" | "triangles" | "argon") {
   b.set("fruit-catcher-fail", plate("#ff6b6b"));
 }
 
+/* ----------------------------------------------------------- judgements */
+
+/** Lazer's result colours (`OsuColour.ForHitResult`). */
+const RESULT_COLOURS: Record<string, string> = {
+  perfect: "#99eeff",
+  great: "#66ccff",
+  good: "#b3d944",
+  ok: "#88b300",
+  meh: "#ffcc22",
+  miss: "#ed1121",
+};
+/** A judgement word or number, centred, with a soft dark outline. */
+function judgementText(
+  text: string,
+  fill: string | ((g: Context, w: number) => string | CanvasGradient),
+  size: number,
+  w: number,
+  h: number,
+) {
+  return draw(w, h, (g) => {
+    g.font = DIGIT_FONT.replace("{size}", String(size));
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.lineJoin = "round";
+    g.lineWidth = size * 0.12;
+    g.strokeStyle = "rgba(20,20,20,0.85)";
+    g.strokeText(text, w / 2, h / 2);
+    g.fillStyle = typeof fill === "string" ? fill : fill(g, w);
+    g.fillText(text, w / 2, h / 2);
+  });
+}
+/** A cross for the classic miss. */
+function missCross(size: number) {
+  return draw(size, size, (g) => {
+    g.lineCap = "round";
+    for (const [width, colour] of [
+      [size * 0.2, "rgba(40,0,0,0.8)"],
+      [size * 0.13, "#ff2a2a"],
+    ] as const) {
+      g.lineWidth = width;
+      g.strokeStyle = colour;
+      g.beginPath();
+      g.moveTo(size * 0.25, size * 0.25);
+      g.lineTo(size * 0.75, size * 0.75);
+      g.moveTo(size * 0.75, size * 0.25);
+      g.lineTo(size * 0.25, size * 0.75);
+      g.stroke();
+    }
+  });
+}
+/** A soft additive glow, brightest at `(cx, cy)` and falling off smoothly. */
+function glow(w: number, h: number, cx: number, cy: number, r: number) {
+  return draw(w, h, (g) => {
+    const light = g.createRadialGradient(cx, cy, 0, cx, cy, r);
+    for (let i = 0; i <= 8; i++) {
+      const t = i / 8;
+      light.addColorStop(t, `rgba(255,255,255,${((1 - t) ** 2.4).toFixed(3)})`);
+    }
+    g.fillStyle = light;
+    g.fillRect(0, 0, w, h);
+  });
+}
+
+/**
+ * Judgement images: the classic look draws stable-style numbers (hit300,
+ * mania-hit300g, ...), lighting and taiko explosions; lazer's own looks draw
+ * their result words in lazer's result colours. osu!catch's hit lighting
+ * always uses the classic skin's textures (`DefaultClassicSkin`), kept under
+ * names no skin file can provide.
+ */
+function judgementImages(
+  b: Builder,
+  family: "legacy" | "triangles" | "argon",
+) {
+  const legacy = family === "legacy";
+  const rainbow = (g: Context, w: number) => {
+    const gradient = g.createLinearGradient(w * 0.2, 0, w * 0.8, 0);
+    ["#ff5e5e", "#ffd25e", "#7dff5e", "#5ed6ff", "#c45eff"].forEach((c, i) =>
+      gradient.addColorStop(i / 4, c),
+    );
+    return gradient;
+  };
+  if (legacy) {
+    b.set("hit300", judgementText("300", "#4fc3ff", 56, 160, 80));
+    b.set("hit100", judgementText("100", "#7ddc4a", 56, 160, 80));
+    b.set("hit50", judgementText("50", "#ffae3d", 56, 160, 80));
+    b.set("hit0", missCross(96));
+    b.set("lighting", glow(128, 128, 64, 64, 64));
+    for (const [name, text, fill] of [
+      ["mania-hit300g", "300", rainbow],
+      ["mania-hit300", "300", "#ffd84a"],
+      ["mania-hit200", "200", "#7ddc4a"],
+      ["mania-hit100", "100", "#4fc3ff"],
+      ["mania-hit50", "50", "#c7c7c7"],
+      ["mania-hit0", "MISS", "#ff3b3b"],
+    ] as const)
+      b.set(name, judgementText(text, fill, 44, 180, 64));
+  } else {
+    for (const [name, result] of [
+      ["hit300", "great"],
+      ["hit100", "ok"],
+      ["hit50", "meh"],
+      ["hit0", "miss"],
+    ] as const)
+      b.set(
+        name,
+        judgementText(
+          result.toUpperCase(),
+          RESULT_COLOURS[result],
+          family === "argon" ? 26 : 30,
+          150,
+          48,
+        ),
+      );
+    for (const [name, result] of [
+      ["mania-hit300g", "perfect"],
+      ["mania-hit300", "great"],
+      ["mania-hit200", "good"],
+      ["mania-hit100", "ok"],
+      ["mania-hit50", "meh"],
+      ["mania-hit0", "miss"],
+    ] as const)
+      b.set(
+        name,
+        judgementText(result.toUpperCase(), RESULT_COLOURS[result], 34, 200, 56),
+      );
+  }
+  // Taiko explosions under the hit target (k: the strong second hit).
+  const burst = (r: number, colour: string, strong: boolean) =>
+    draw(160, 160, (g) => {
+      const light = g.createRadialGradient(80, 80, r * 0.2, 80, 80, r);
+      light.addColorStop(0, colour);
+      light.addColorStop(0.6, colour.replace(/[\d.]+\)$/, "0.35)"));
+      light.addColorStop(1, colour.replace(/[\d.]+\)$/, "0)"));
+      disc(g, 80, 80, r, light);
+      ring(g, 80, 80, r * 0.72, strong ? 7 : 4, "rgba(255,255,255,0.9)");
+    });
+  const great = legacy
+      ? "rgba(255,200,60,1)"
+      : family === "argon"
+        ? "rgba(102,204,255,1)"
+        : "rgba(255,255,255,1)",
+    ok = legacy ? "rgba(255,255,255,1)" : "rgba(136,179,0,1)";
+  b.set("taiko-hit300", burst(64, great, false));
+  b.set("taiko-hit300k", burst(78, great, true));
+  b.set("taiko-hit100", burst(52, ok, false));
+  b.set("taiko-hit100k", burst(64, ok, true));
+  b.set("taiko-hit0", missCross(110));
+  // osu!catch: the classic skin's scoreboard explosions, pre-rotation
+  // (length along x, thickness along y), and the combo counter's digits.
+  for (const [name, [w, h]] of Object.entries(CATCH_EXPLOSION_SIZES))
+    b.set(name, glow(w, h, 0, h / 2, h / 2));
+  const probe = new OffscreenCanvas(8, 8).getContext("2d")!;
+  probe.font = DIGIT_FONT.replace("{size}", "42");
+  for (let d = 0; d < 10; d++) {
+    const w = Math.ceil(probe.measureText(String(d)).width + 8);
+    b.set(
+      `score-${d}`,
+      judgementText(String(d), legacy ? "#ffffff" : "#f4f4f8", 42, w, 54),
+    );
+  }
+}
+
 /* ----------------------------------------------------------------- entry */
 
 /** Builds a client built-in skin from original drawings; synchronous Canvas 2D work only. */
@@ -1097,6 +1261,8 @@ export function builtinSkin(name: BuiltinSkinName): Skin {
   }
   taikoSkin(b, family);
   catchSkin(b, family);
+  judgementImages(b, family);
+  b.skin.judgements = family === "legacy" ? "legacy" : "default";
   return b.skin;
 }
 
@@ -1108,7 +1274,10 @@ export function builtinSkin(name: BuiltinSkinName): Skin {
  */
 export function withFallback(skin: Skin, fallback: Skin): Skin {
   const assets = new Map(fallback.assets),
-    pixelScale = new Map(fallback.pixelScale ?? []);
+    pixelScale = new Map(fallback.pixelScale ?? []),
+    borrowed = new Set(
+      [...fallback.assets.keys()].filter((name) => !skin.assets.has(name)),
+    );
   for (const [name, bitmap] of skin.assets) {
     assets.set(name, bitmap);
     pixelScale.set(name, skin.pixelScale?.get(name) ?? 1);
@@ -1126,5 +1295,6 @@ export function withFallback(skin: Skin, fallback: Skin): Skin {
     pixelScale,
     sections,
     style: { taiko: fallback.style?.taiko, ...skin.style },
+    fallback: borrowed,
   };
 }

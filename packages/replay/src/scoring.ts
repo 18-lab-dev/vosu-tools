@@ -83,6 +83,8 @@ export interface Outcome {
   v1: { value: number; multiplied: boolean; bonus: boolean; combo: "increase" | "break" | "none" };
   /** Taiko: the strong (big) note bonus scale (7, or 3 on a drum roll tick). */
   scale?: number;
+  /** osu!catch: the catcher's x when the object was judged. */
+  catcher?: number;
   /** The judged object, for health. */
   hp?: HealthInfo;
 }
@@ -408,7 +410,8 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
       withoutMods = Math.round(lazerTotal(mode, totals, lazer));
       total = Math.round(withoutMods * rules.lazerMultiplier);
     } else total = v1Score;
-    if (o.type === "ignore_hit" || o.type === "ignore_miss") continue;
+    // Ignored misses stay (osu! draws sliderendmiss for them); ignored hits do not.
+    if (o.type === "ignore_hit") continue;
     events.push({
       time: o.time,
       note: o.note,
@@ -419,6 +422,7 @@ export function tally(outcomes: readonly Outcome[], perfect: readonly Outcome[],
       object: o.hp?.object,
       x: o.x,
       y: o.y,
+      ...(o.catcher !== undefined ? { catcher: o.catcher } : {}),
       combo,
       counts: { ...counts },
       accuracy: client === "lazer" ? lazer.accuracy : accuracy(mode, counts),

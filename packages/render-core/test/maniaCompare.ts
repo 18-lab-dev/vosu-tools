@@ -53,6 +53,23 @@ export interface GoldenResult {
 }
 
 /** The skin as render-core's loader would build it, with display-sized regions. */
+/** Skin files resolve case-insensitively, as in lazer and vosu's skin route. */
+export function caseless<T>(entries: Map<string, T>): Map<string, T> {
+  const out = new (class extends Map<string, T> {
+    override get(key: string) {
+      return super.get(key.toLowerCase());
+    }
+    override has(key: string) {
+      return super.has(key.toLowerCase());
+    }
+    override set(key: string, value: T) {
+      return super.set(key.toLowerCase(), value);
+    }
+  })();
+  for (const [key, value] of entries) out.set(key, value);
+  return out;
+}
+
 export function goldenSkin(skin: GoldenSkin): {
   skin: Skin;
   regions: Map<string, AtlasRegion>;
@@ -64,18 +81,7 @@ export function goldenSkin(skin: GoldenSkin): {
     : general.Version?.toLowerCase() === "latest"
       ? Infinity
       : Number(general.Version ?? 1);
-  // Skin files resolve case-insensitively, as in lazer and vosu's skin route.
-  const regions = new (class extends Map<string, AtlasRegion> {
-    override get(key: string) {
-      return super.get(key.toLowerCase());
-    }
-    override has(key: string) {
-      return super.has(key.toLowerCase());
-    }
-    override set(key: string, value: AtlasRegion) {
-      return super.set(key.toLowerCase(), value);
-    }
-  })();
+  const regions = caseless(new Map<string, AtlasRegion>());
   // lazer prefers name@2x.png over name.png and halves its size.
   const files = Object.entries(skin.files).sort(
     ([a], [b]) => Number(/@2x\.png$/i.test(b)) - Number(/@2x\.png$/i.test(a)),
