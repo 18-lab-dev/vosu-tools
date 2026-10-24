@@ -8,7 +8,7 @@ import {
 import { convertBeatmap, maniaKeys } from "@vosu-tools/ruleset-convert";
 import {
   createPlayfield,
-  maniaKeysFor,
+  sceneScope,
   playfieldSize,
   type BuiltinSkinName,
   type Playfield,
@@ -94,8 +94,8 @@ function showError(error: unknown): void {
   say(error instanceof Error ? error.message : String(error), "error");
 }
 const skins = new ClientSkin({
-  // Mania images are decoded per scene (see refreshScene).
-  maniaKeys: [],
+  // Images are decoded for the scene on screen only (see refreshScene).
+  scope: { rulesets: [], maniaKeys: [] },
   onChange(state) {
     renderer?.setSkin(state.skin);
     if (state.busy) skinPanel.setAttribute("aria-busy", "true");
@@ -259,11 +259,13 @@ function refreshScene(force = false): void {
   const options = renderOptions(),
     key = JSON.stringify(options);
   if (!map || (!force && key === sceneKey)) return;
-  // The skin decodes mania images for the stage on screen only; the previous
-  // scene stays drawn until they are ready (onChange then refreshes).
-  const keys = maniaKeysFor(map, options);
-  if (!skins.hasManiaKeys(keys)) {
-    void skins.useManiaKeys(keys);
+  // The skin decodes the images of the scene on screen only (its ruleset and
+  // mania stage); the previous scene stays drawn until they are ready
+  // (onChange then refreshes), and nothing is drawn in the fallback look
+  // while the client's skin is still loading.
+  const scope = sceneScope(map, options);
+  if (!skins.hasScope(scope)) {
+    void skins.useScope(scope);
     return;
   }
   sceneKey = key;

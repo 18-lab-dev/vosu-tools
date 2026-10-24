@@ -262,8 +262,25 @@ export const animatedAssets: ReadonlySet<string> = new Set([
   "spinner-middle2",
   "spinner-glow",
 ]);
+/**
+ * Which images a skin decodes: the rulesets whose scenes it draws and the
+ * mania key counts of their stages. Omitted fields mean "all".
+ */
+export interface SkinScope {
+  /**
+   * Rulesets (0 osu!, 1 taiko, 2 catch, 3 mania) to decode general images for.
+   * Every ruleset when omitted; mania's own images follow `maniaKeys`.
+   */
+  rulesets?: readonly number[];
+  /**
+   * The mania key counts to decode images for (each key count has its own
+   * [Mania] images, and hold bodies can be tens of megabytes each). Every key
+   * count when omitted.
+   */
+  maniaKeys?: readonly number[];
+}
 /** Resolves logical asset names once. SD dimensions survive @2x selection and atlas packing. */
-export interface LoadSkinOptions {
+export interface LoadSkinOptions extends SkinScope {
   /**
    * Images larger than this on either axis are marked `blank` (drawn black),
    * emulating a client whose GPU upload fails. Off unless given: the limit
@@ -271,22 +288,22 @@ export interface LoadSkinOptions {
    * and no measured value is reported to tools yet.
    */
   maxTextureSize?: number;
-  /**
-   * The mania key counts to decode images for (each key count has its own
-   * [Mania] images, and hold bodies can be tens of megabytes each). Every key
-   * count when omitted; `loadManiaKeys` switches the set later.
-   */
-  maniaKeys?: readonly number[];
 }
 
-/** How a loaded skin decodes more images later (`loadManiaKeys`). */
+/** How a loaded skin decodes more images later (`loadScope`). */
 interface SkinSource {
   resolve: (file: string) => Promise<Blob | null>;
   maxTextureSize: number;
   /** Every image name a scene in some ruleset may look up, mania aside. */
   general: ReadonlySet<string>;
+  /** The ruleset(s) each general image belongs to (see `rulesetImages`). */
+  owners: ReadonlyMap<string, readonly number[]>;
   /** Asset keys (frames included) that belong to mania only. */
   mania: ReadonlySet<string>;
+  /** Every mania image the skin may use (custom paths and defaults). */
+  maniaAll: ReadonlySet<string>;
+  /** Asset keys the skin does not have: never requested again (shared by every scope). */
+  missing: Set<string>;
 }
 const sources = new WeakMap<Skin, SkinSource>();
 
@@ -294,6 +311,73 @@ const sources = new WeakMap<Skin, SkinSource>();
 const maniaDefaults = new Set(
   assetNames.filter((n) => n.startsWith("mania-") || /^lighting[NL]$/.test(n)),
 );
+
+const SPINNER = [
+  "spinner-background", "spinner-circle", "spinner-approachcircle", "spinner-bottom", "spinner-top",
+  "spinner-middle", "spinner-middle2", "spinner-glow", "spinner-metre", "spinner-rpm", "spinner-spin", "spinner-clear",
+];
+const JUDGEMENT = ["hit0", "hit50", "hit100", "hit300"];
+/**
+ * General (non-mania) images each ruleset's scenes look up, including the
+ * fallbacks they take from other rulesets' elements (taiko's swell uses
+ * spinner images, its judgements fall back to hit*). Combo digit fonts are
+ * added per skin (`rulesetImages`). An image listed nowhere is decoded for
+ * every ruleset. `test/skin-scope.test.ts` checks the lists against every
+ * name a compiled scene asks for.
+ */
+const RULESET_IMAGES: Record<number, readonly string[]> = {
+  0: [
+    "hitcircle", "hitcircleoverlay", "approachcircle", "sliderb", "sliderfollowcircle", "reversearrow",
+    "sliderscorepoint", "sliderendcircle", "cursor", "cursormiddle", "cursortrail", ...SPINNER, ...JUDGEMENT,
+    "slidertickmiss", "sliderendmiss", "sliderpoint10", "sliderpoint30", "particle50", "particle100", "particle300", "lighting",
+  ],
+  1: [
+    "spinner-warning", "spinner-approachcircle", "spinner-circle", "approachcircle", "sliderscorepoint",
+    "taikohitcircle", "taikohitcircleoverlay", "taikobigcircle", "taikobigcircleoverlay", "taiko-drum-inner",
+    "taiko-drum-outer", "taiko-glow", "pippidonidle", "pippidonkiai", "pippidonfail", "pippidonclear", "taiko-slider",
+    "taiko-bar-left", "taiko-bar-right", "taiko-bar-right-glow", "taiko-barline", "taiko-roll-middle", "taiko-roll-end",
+    "taiko-hit0", "taiko-hit100", "taiko-hit300", "taiko-hit100k", "taiko-hit300k", ...JUDGEMENT, "lighting",
+  ],
+  2: [
+    "fruit-apple", "fruit-grapes", "fruit-orange", "fruit-pear", "fruit-drop", "fruit-bananas", "fruit-apple-overlay",
+    "fruit-grapes-overlay", "fruit-orange-overlay", "fruit-pear-overlay", "fruit-drop-overlay", "fruit-bananas-overlay",
+    "fruit-catcher-idle", "fruit-catcher-kiai", "fruit-catcher-fail", "fruit-ryuuta", ...JUDGEMENT, "lighting",
+  ],
+  3: [],
+};
+
+/**
+ * The rulesets each general image of `skin` belongs to: the table above plus
+ * the skin's combo fonts (HitCirclePrefix: osu!; ComboPrefix: catch).
+ */
+function rulesetImages(skin: Skin): Map<string, readonly number[]> {
+  const owners = new Map<string, number[]>();
+  const add = (name: string, ruleset: number) => {
+    const list = owners.get(name) ?? [];
+    if (!list.includes(ruleset)) list.push(ruleset);
+    owners.set(name, list);
+  };
+  for (const [ruleset, names] of Object.entries(RULESET_IMAGES))
+    for (const name of names) add(name, Number(ruleset));
+  const fonts = skin.sections.get("Fonts")?.[0];
+  for (let i = 0; i < 10; i++) {
+    add(`default-${i}`, 0);
+    add(`${fonts?.HitCirclePrefix ?? "default"}-${i}`, 0);
+    add(`${fonts?.ComboPrefix ?? "score"}-${i}`, 2);
+  }
+  return owners;
+}
+
+/** Whether a general image is drawn by any of `rulesets` (all when omitted). */
+const inScope = (
+  name: string,
+  owners: ReadonlyMap<string, readonly number[]>,
+  rulesets: readonly number[] | undefined,
+) => {
+  if (!rulesets) return true;
+  const of = owners.get(name);
+  return !of || of.some((r) => rulesets.includes(r));
+};
 
 /** The mania images a stage of `keys` columns looks up (custom paths and the defaults they fall back to). */
 export function maniaImageNames(skin: Skin, keys: number): Set<string> {
@@ -367,20 +451,34 @@ export async function loadSkin(
     resolve,
     maxTextureSize: options.maxTextureSize ?? Infinity,
     general: generalNames,
+    owners: rulesetImages(skin),
     mania: new Set(),
+    maniaAll: maniaNames,
+    missing: new Set(),
   };
   sources.set(skin, source);
-  const wanted = options.maniaKeys
-    ? new Set(options.maniaKeys.flatMap((k) => [...maniaImageNames(skin, k)]))
-    : maniaNames;
+  const wanted = maniaWanted(skin, source, options.maniaKeys);
   const loadedMania = await decode(skin, source, [
-    ...generalNames,
+    ...[...generalNames].filter((n) => inScope(n, source.owners, options.rulesets)),
     ...[...wanted].filter((n) => !generalNames.has(n)),
   ]);
   source.mania = new Set(
     [...loadedMania].filter((key) => !isGeneral(key, generalNames)),
   );
   return skin;
+}
+
+/** The mania images of these key counts (every key count when omitted). */
+function maniaWanted(
+  skin: Skin,
+  source: SkinSource,
+  keys: readonly number[] | undefined,
+): Set<string> {
+  const wanted = keys
+    ? new Set(keys.flatMap((k) => [...maniaImageNames(skin, k)]))
+    : new Set(source.maniaAll);
+  for (const name of source.general) wanted.delete(name);
+  return wanted;
 }
 
 /** Whether an asset key (or animation frame key) belongs to a general element. */
@@ -397,19 +495,21 @@ const isGeneral = (key: string, general: ReadonlySet<string>) =>
   general.has(key) || general.has(frameOwner(key));
 
 /**
- * The skin with mania images for exactly these key counts: images already
- * decoded are shared, new ones are decoded, and mania images of other key
- * counts are left out (the caller closes them once nothing draws the old
- * skin). Skins not made by `loadSkin` are returned unchanged.
+ * The skin with images for exactly this scope: images already decoded are
+ * shared, new ones are decoded, and images outside the scope (other
+ * rulesets, other mania key counts) are left out; the caller closes them
+ * once nothing draws the old skin. Images the skin turned out not to have
+ * are not requested again. Skins not made by `loadSkin` are returned
+ * unchanged.
  */
-export async function loadManiaKeys(
-  skin: Skin,
-  keys: readonly number[],
-): Promise<Skin> {
+export async function loadScope(skin: Skin, scope: SkinScope): Promise<Skin> {
   const source = sources.get(skin);
   if (!source) return skin;
-  const wanted = new Set(keys.flatMap((k) => [...maniaImageNames(skin, k)]));
-  for (const name of source.general) wanted.delete(name);
+  const wanted = maniaWanted(skin, source, scope.maniaKeys);
+  const general = [...source.general].filter((n) =>
+    inScope(n, source.owners, scope.rulesets),
+  );
+  const generalWanted = new Set(general);
   const next: Skin = {
     ...skin,
     assets: new Map(),
@@ -417,11 +517,11 @@ export async function loadManiaKeys(
     animations: new Map(),
     blank: new Set(),
   };
-  // Keep every general asset and the wanted mania ones (with their frames).
+  // Keep the general images of the scope's rulesets and the wanted mania ones (with their frames).
   const keep = (key: string) =>
-    !source.mania.has(key) ||
-    wanted.has(key) ||
-    wanted.has(frameOwner(key));
+    source.mania.has(key)
+      ? wanted.has(key) || wanted.has(frameOwner(key))
+      : generalWanted.has(source.general.has(key) ? key : frameOwner(key));
   for (const [key, bitmap] of skin.assets)
     if (keep(key)) {
       next.assets.set(key, bitmap);
@@ -432,7 +532,7 @@ export async function loadManiaKeys(
     if (keep(key)) next.animations!.set(key, frames);
   const nextSource: SkinSource = { ...source, mania: new Set() };
   sources.set(next, nextSource);
-  const missing = [...wanted].filter(
+  const missing = [...general, ...wanted].filter(
     (name) => !next.assets.has(name) && !next.animations!.has(name),
   );
   await decode(next, nextSource, missing);
@@ -452,6 +552,7 @@ async function decode(
   const { resolve, maxTextureSize } = source;
   async function image(key: string, path = key): Promise<boolean> {
     if (skin.assets.has(key)) return true;
+    if (source.missing.has(key)) return false;
     const normalized = path.replace(/\\/g, "/").replace(/\.png$/i, "");
     const variants =
       normalized === "taiko-slider"
@@ -480,6 +581,7 @@ async function decode(
           /* Only the unavailable element falls back. */
         }
       }
+    source.missing.add(key);
     return false;
   }
   // Bounded concurrency avoids hundreds of simultaneous host requests for large key layouts.

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
-import { loadManiaKeys, loadSkin, maniaImageNames, maniaKeysFor } from "../src";
+import { loadScope, loadSkin, maniaImageNames, maniaKeysFor } from "../src";
 
 // Bun has no createImageBitmap: blobs become fake bitmaps named by their text.
 globalThis.createImageBitmap = (async (blob: Blob) => ({
@@ -59,7 +59,7 @@ test("mania images are decoded per key count and shared across switches", async 
   expect(general.assets.has("hitcircle")).toBe(true);
   expect(general.assets.has("mania-note1")).toBe(false);
   expect(requests.some((r) => r.startsWith("four/"))).toBe(false);
-  const four = await loadManiaKeys(general, [4]);
+  const four = await loadScope(general, { maniaKeys: [4] });
   expect(nameOf(four.assets.get("four/body"))).toBe("four-body");
   expect(nameOf(four.assets.get("mania-note1"))).toBe("note1");
   expect(four.assets.has("seven/body")).toBe(false);
@@ -67,7 +67,7 @@ test("mania images are decoded per key count and shared across switches", async 
   expect(four.assets.get("hitcircle")).toBe(general.assets.get("hitcircle"));
   expect(general.assets.has("four/body")).toBe(false);
   requests.length = 0;
-  const seven = await loadManiaKeys(four, [7]);
+  const seven = await loadScope(four, { maniaKeys: [7] });
   expect(seven.assets.has("four/body")).toBe(false);
   expect(seven.animations?.get("seven/body")).toEqual([
     "seven/body-0",
@@ -80,7 +80,7 @@ test("mania images are decoded per key count and shared across switches", async 
   expect(requests).not.toContain("mania-note1.png");
   expect(requests).not.toContain("hitcircle.png");
   expect(seven.assets.get("hitcircle")).toBe(general.assets.get("hitcircle"));
-  const none = await loadManiaKeys(seven, []);
+  const none = await loadScope(seven, { maniaKeys: [] });
   expect([...none.assets.keys()].some((k) => k.startsWith("seven/"))).toBe(
     false,
   );

@@ -3,7 +3,7 @@ import fixture from "./fixtures/sylvia-skin.json";
 import {
   buildAtlas,
   frameOwner,
-  loadManiaKeys,
+  loadScope,
   loadSkin,
   type Skin,
 } from "../src/skin";
@@ -11,7 +11,7 @@ import {
 /**
  * The user's lazer skin 「シルビア」 v1 (fixed) as file names and PNG sizes
  * (test/fixtures/sylvia-skin.json, no image data). Skin studio's preview
- * switches mania key counts with loadManiaKeys; frames of the osu!taiko
+ * switches mania key counts with loadScope; frames of the osu!taiko
  * mascot (pippidonidle0, ... without a dash) were taken for mania images and
  * dropped, so buildAtlas met an animation whose frames were gone and threw
  * ("Cannot destructure property 'u' of 's' as it is undefined").
@@ -99,7 +99,7 @@ test("switching mania key counts keeps every animation's frames (1K-10K)", async
   // Every key count, then back to 7K from each (the user's failing switch).
   for (let keys = 1; keys <= 10; keys++)
     for (const k of [keys, 7]) {
-      skin = await loadManiaKeys(skin, [k]);
+      skin = await loadScope(skin, { maniaKeys: [k] });
       expect(missingFrames(skin)).toEqual([]);
       expect(() => buildAtlas(device, skin)).not.toThrow();
     }

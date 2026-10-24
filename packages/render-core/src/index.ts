@@ -12,13 +12,13 @@ import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
 export {
   loadSkin,
-  loadManiaKeys,
+  loadScope,
   maniaImageNames,
   assetNames,
   legacySliderStyle,
 } from "./skin";
-export { maniaKeysFor } from "./scene";
-export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
+export { maniaKeysFor, sceneScope } from "./scene";
+export type { Skin, SkinStyle, SkinScope, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene, InputFrame } from "./scene";

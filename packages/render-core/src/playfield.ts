@@ -105,7 +105,7 @@ export function overLook(files: Skin, look: BuiltinSkinName = "legacy"): Skin {
 
 /**
  * Loads a skin from files. `files` is the skin itself (its bitmaps are the
- * caller's to close; pass it to `loadManiaKeys`), `skin` is what to draw.
+ * caller's to close; pass it to `loadScope`), `skin` is what to draw.
  * Image sizes are not limited (`maxTextureSize` is for emulating a GPU).
  */
 export async function loadPlayfieldSkin(

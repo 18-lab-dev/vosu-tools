@@ -28,7 +28,9 @@ export class Preview {
     /** Readies the skin for a map (mania images per key count) before it is drawn. */
     private readonly prepare?: (map: Beatmap) => Promise<void>,
   ) {
-    this.audio.preload = 'auto';
+    // The preview starts muted and silent: the source audio (often 10+ MB) is
+    // fetched when Play is pressed, not streamed in the background on load.
+    this.audio.preload = 'none';
     new ResizeObserver(() => this.resize()).observe(canvas);
   }
 
