@@ -613,6 +613,9 @@ form.onsubmit = (e) => {
 
 void (async () => {
   writable();
+  // The GPU starts now, alongside the map and skin requests (a failure is
+  // reported when the first preview is shown).
+  preview.start().catch(() => {});
   await vosu.ready;
   const access = $('access');
   access.textContent = vosu.canWrite ? 'Write session' : 'Read only';

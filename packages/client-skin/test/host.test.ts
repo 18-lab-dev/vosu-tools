@@ -179,3 +179,55 @@ test("host errors other than 404 are counted as failures", async () => {
   expect(files.failures).toBe(1);
   expect(files.served).toBe(0);
 });
+
+test("with vosu's file list, only listed files are requested, by their listed names", async () => {
+  report = {
+    client: "stable",
+    name: "Listed",
+    files: true,
+    builtin: null,
+    base: null,
+    entries: [
+      { path: "skin.ini", size: 80, modified: 1 },
+      { path: "HitCircle.png", size: 9, modified: 1 },
+      { path: "approachcircle@2x.png", size: 8, modified: 1 },
+      { path: "Mania/Key Left.png", size: 3, modified: 1 },
+    ],
+    truncated: false,
+  };
+  const current = await readCurrentSkin(host);
+  if (current.kind !== "files") throw new Error(current.kind);
+  expect(current.info.entries).toHaveLength(4);
+  requests.length = 0;
+  const files = hostSkinFiles(host, current.info.entries);
+  const skin = await loadSkin(files.resolve, "Listed");
+  // Listed names are asked for as listed; everything else never reaches vosu.
+  expect(requests.sort()).toEqual([
+    "/files/skin/HitCircle.png",
+    "/files/skin/Mania/Key%20Left.png",
+    "/files/skin/approachcircle%402x.png",
+    "/files/skin/skin.ini",
+  ]);
+  expect(files.served).toBe(4);
+  expect(skin.assets.has("hitcircle")).toBe(true);
+  expect(skin.pixelScale?.get("approachcircle")).toBe(2);
+});
+
+test("a truncated or missing file list falls back to asking for each name", async () => {
+  report = {
+    client: "stable",
+    name: "Big",
+    files: true,
+    builtin: null,
+    base: null,
+    entries: [{ path: "skin.ini", size: 80, modified: 1 }],
+    truncated: true,
+  };
+  const current = await readCurrentSkin(host);
+  if (current.kind !== "files") throw new Error(current.kind);
+  expect(current.info.entries).toBeUndefined();
+  requests.length = 0;
+  await loadSkin(hostSkinFiles(host, current.info.entries).resolve, "Big");
+  expect(requests).toContain("/files/skin/hitcircle.png");
+  expect(requests).toContain("/files/skin/hitcircle%402x.png");
+});

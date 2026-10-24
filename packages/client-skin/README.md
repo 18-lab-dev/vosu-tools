@@ -36,6 +36,16 @@ Built-in looks are drawn once and reused. `useClient({ force: false })` and
 `gameChanged` only while the client's skin is the current choice. A later load
 always wins over one still in progress.
 
+When the report lists the skin's files (`entries: [{path, size, modified |
+hash}]`, `truncated: false`; vosu 1.2.0 and later), only listed files are
+requested, by their listed names (so a `skin.ini` path's case does not have to
+match the file's); the skin loader's guesses for files a skin lacks (`@2x`
+variants, animation frames) never reach vosu. Without the list (older vosu, or
+a list cut short) every name is asked for, as before. A changed file changes
+the report, so the skin reloads. Files are fetched through the browser's HTTP
+cache: vosu's validators make a later visit revalidate them instead of
+downloading them again.
+
 ## API
 
 - `new ClientSkin({ onChange, fetch?, scope? })`: `onChange(state)` runs

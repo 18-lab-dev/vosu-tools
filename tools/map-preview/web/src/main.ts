@@ -265,7 +265,9 @@ function updateConversion(): void {
   }
 }
 function refreshScene(force = false): void {
-  if (!renderer || !source) return;
+  // Without a renderer yet, the scene's skin images are still requested
+  // (below), so they load while the GPU starts.
+  if (!source) return;
   try {
     updateConversion();
   } catch (error) {
@@ -285,6 +287,7 @@ function refreshScene(force = false): void {
     void skins.useScope(scope);
     return;
   }
+  if (!renderer) return;
   sceneKey = key;
   try {
     renderer.setBeatmap(map, options);
@@ -328,7 +331,7 @@ async function openMap(text: string, label: string): Promise<void> {
   const parsed = parseOsu(text);
   if (!parsed.objects.length)
     throw new Error("This beatmap contains no hit objects.");
-  await ensureRenderer();
+  const ready = ensureRenderer();
   source = parsed;
   map = undefined;
   mapLabel = label;
@@ -338,6 +341,8 @@ async function openMap(text: string, label: string): Promise<void> {
     `${source.metadata.Artist ?? ""} — ${source.metadata.Title ?? "Untitled"}`;
   refreshScene(true);
   updateFollowNotice();
+  await ready;
+  refreshScene(true);
 }
 /** Title line, ruleset badge and the drawer's ruleset controls for what is shown. */
 function describeMap(): void {

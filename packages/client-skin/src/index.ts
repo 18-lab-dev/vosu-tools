@@ -29,7 +29,13 @@ import {
 import { openOsk } from "./osk";
 
 export { hostSkinFiles, readCurrentSkin } from "./host";
-export type { CurrentSkin, Fetcher, HostSkinFiles, HostSkinInfo } from "./host";
+export type {
+  CurrentSkin,
+  Fetcher,
+  HostSkinEntry,
+  HostSkinFiles,
+  HostSkinInfo,
+} from "./host";
 export { openOsk } from "./osk";
 export type { SkinArchive } from "./osk";
 
@@ -268,7 +274,10 @@ export class ClientSkin {
           let skin = this.#builtin(current.look);
           if (current.coloursFromFiles) {
             // lazer skins based on Argon or Triangles only add configuration.
-            const ini = await hostSkinFiles(this.#fetch).resolve("skin.ini");
+            const ini = await hostSkinFiles(
+              this.#fetch,
+              current.info.entries,
+            ).resolve("skin.ini");
             const colours = ini
               ? parseSkinIni(await ini.text()).get("Colours")
               : undefined;
@@ -291,7 +300,9 @@ export class ClientSkin {
           return;
         }
         this.#emit({ message: `Loading “${current.name}” from ${client}…` });
-        const host = hostSkinFiles(this.#fetch),
+        // vosu's file list (when it sends one) spares requests for files
+        // the skin lacks.
+        const host = hostSkinFiles(this.#fetch, current.info.entries),
           asked = this.#scope,
           first = await loadSkin(host.resolve, current.name, asked),
           { skin: loaded, scope } = await this.#currentScope(first, asked);

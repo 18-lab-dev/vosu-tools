@@ -311,6 +311,11 @@ interface SkinSource {
   missing: Set<string>;
 }
 const sources = new WeakMap<Skin, SkinSource>();
+/**
+ * Bitmaps decoded with unpremultiplied alpha (skin files). Every other
+ * bitmap (built-in looks drawn on canvases, tools' own) is premultiplied.
+ */
+const straightBitmaps = new WeakSet<ImageBitmap>();
 
 /** Default mania element names (shared by every key count without overrides). */
 const maniaDefaults = new Set(
@@ -570,11 +575,16 @@ async function decode(
         const blob = await resolve(candidate + suffix);
         if (!blob) continue;
         try {
-          const bitmap = await createImageBitmap(blob);
+          // Decoded off the main thread, unpremultiplied: the atlas copies
+          // the pixels to the GPU as they are (buildAtlas).
+          const bitmap = await createImageBitmap(blob, {
+            premultiplyAlpha: "none",
+          });
           // osu!framework only size-checks partial uploads, so lazer keeps
           // the texture (no fallback, even from @2x) and its GL upload fails.
           if (bitmap.width > maxTextureSize || bitmap.height > maxTextureSize)
             skin.blank!.add(key);
+          straightBitmaps.add(bitmap);
           skin.assets.set(key, bitmap);
           added.add(key);
           skin.pixelScale!.set(
@@ -653,10 +663,25 @@ export function wrappedImages(
 /** Where `buildAtlas` puts its pages: a backend's 2D array texture. */
 export interface AtlasSink {
   readonly limits: AtlasLimits;
-  /** Creates the array texture: `pages` layers of `width` × `height`, RGBA8. */
+  /** Creates the array texture: `pages` layers of `width` × `height`, RGBA8, all transparent. */
   allocate(width: number, height: number, pages: number): void;
-  /** Copies a drawn page (unpremultiplied RGBA) into layer `page`. */
-  upload(page: number, source: OffscreenCanvas): void;
+  /**
+   * Copies the `size` pixels of `source` at `from` to (`x`, `y`) of layer
+   * `page`, as unpremultiplied RGBA: a GPU copy, no CPU readback.
+   */
+  upload(
+    page: number,
+    x: number,
+    y: number,
+    source: ImageBitmap | OffscreenCanvas,
+    from: readonly [number, number],
+    size: readonly [number, number],
+    /**
+     * `source` is an ImageBitmap holding premultiplied alpha. WebGPU's copy
+     * converts by itself; WebGL uploads bitmaps as they are and must not.
+     */
+    premultiplied: boolean,
+  ): void;
 }
 /**
  * Skin images on array-texture pages (see atlas.ts) and one immutable frame
@@ -683,6 +708,8 @@ export function buildAtlas(
       height: number;
       scale: number;
       blank: boolean;
+      /** A premultiplied bitmap (see `AtlasSink.upload`). */
+      premultiplied: boolean;
     }
   >();
   const owners = new Map<ImageBitmap, string>(),
@@ -701,6 +728,7 @@ export function buildAtlas(
         height: image.height,
         scale: skin.pixelScale?.get(name) ?? 1,
         blank: skin.blank?.has(name) ?? false,
+        premultiplied: !straightBitmaps.has(image),
       });
     }
   for (let i = 0; i < 10; i++)
@@ -718,6 +746,7 @@ export function buildAtlas(
         height: 80,
         scale: 1,
         blank: false,
+        premultiplied: false,
       });
     }
   const plan = planAtlas(
@@ -757,79 +786,112 @@ export function buildAtlas(
     const region = regions.get(owner);
     if (region) regions.set(name, { ...region });
   }
-  // Pixels: one canvas reused for every page.
+  // Pixels go straight from each image to its place on the GPU. Only pieces
+  // that are scaled, blank or edge-padded (below) are drawn first, each on a
+  // small scratch canvas; whole pages are never drawn on the CPU.
   sink.allocate(pageWidth, pageHeight, pages);
-  const canvas = new OffscreenCanvas(pageWidth, pageHeight),
-    ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingQuality = "high";
-  const wrapped = wrappedImages(skin);
-  // osu!framework's atlas pads every image with its edge pixels: at full
-  // opacity on axes the texture clamps or repeats, transparent otherwise
-  // (WrapMode.None). Filtering at a stretched image's edges then blends with
-  // the same colour or with nothing, like lazer.
-  const extendEdges = (
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    sides: boolean,
-    top: boolean,
-    bottom: boolean,
-  ) => {
-    const P = ATLAS_PADDING;
-    ctx.imageSmoothingEnabled = false;
-    if (top) ctx.drawImage(canvas, x, y, w, 1, x, y - P, w, P);
-    if (bottom) ctx.drawImage(canvas, x, y + h - 1, w, 1, x, y + h, w, P);
-    if (sides) {
-      // Corners are opaque only when both axes are.
-      const y0 = top ? y - P : y,
-        h0 = h + (top ? P : 0) + (bottom ? P : 0);
-      ctx.drawImage(canvas, x, y0, 1, h0, x - P, y0, P, h0);
-      ctx.drawImage(canvas, x + w - 1, y0, 1, h0, x + w, y0, P, h0);
-    }
-    ctx.imageSmoothingEnabled = true;
+  const P = ATLAS_PADDING;
+  let scratch: OffscreenCanvasRenderingContext2D | undefined;
+  const scratchOf = (width: number, height: number) => {
+    if (
+      !scratch ||
+      scratch.canvas.width < width ||
+      scratch.canvas.height < height
+    )
+      scratch = new OffscreenCanvas(
+        Math.max(width, scratch?.canvas.width ?? 0),
+        Math.max(height, scratch?.canvas.height ?? 0),
+      ).getContext("2d")!;
+    scratch.clearRect(0, 0, width, height);
+    scratch.imageSmoothingEnabled = true;
+    scratch.imageSmoothingQuality = "high";
+    return scratch;
   };
-  for (let page = 0; page < pages; page++) {
-    ctx.clearRect(0, 0, pageWidth, pageHeight);
-    for (const [name, source] of sources) {
-      const placement = plan.placements.get(name)!,
-        rows = source.height / placement.height;
-      for (const piece of placement.pieces) {
-        if (piece.page !== page) continue;
-        const top = piece.top - piece.gutterTop,
-          height = piece.bottom + piece.gutterBottom - top,
-          y = piece.y - piece.gutterTop;
-        if (source.blank) {
-          ctx.fillStyle = "#000";
-          ctx.fillRect(piece.x, y, piece.width, height);
-          continue;
+  const wrapped = wrappedImages(skin);
+  for (const [name, source] of sources) {
+    const placement = plan.placements.get(name)!,
+      rows = source.height / placement.height,
+      scaled = placement.width !== source.width || rows !== 1,
+      image = source.image as ImageBitmap | OffscreenCanvas;
+    const [s, t] =
+      wrapped.get(name) ?? wrapped.get(name.replace(/-\d+$/, "")) ?? [];
+    for (const piece of placement.pieces) {
+      const top = piece.top - piece.gutterTop,
+        height = piece.bottom + piece.gutterBottom - top,
+        y = piece.y - piece.gutterTop,
+        width = piece.width;
+      // osu!framework's atlas pads every image with its edge pixels: at full
+      // opacity on axes the texture clamps or repeats, transparent otherwise
+      // (WrapMode.None). Filtering at a stretched image's edges then blends
+      // with the same colour or with nothing, like lazer.
+      const sides = !!s && !source.blank,
+        above = !!t && !source.blank && piece.top === 0 ? P : 0,
+        below =
+          !!t && !source.blank && piece.bottom === placement.height ? P : 0,
+        left = sides ? P : 0;
+      if (!scaled && !source.blank && !sides && !above && !below) {
+        sink.upload(piece.page, piece.x, y, image, [0, top], [width, height], source.premultiplied);
+        continue;
+      }
+      const c = scratchOf(width + 2 * left, height + above + below);
+      if (source.blank) c.fillRect(0, 0, width, height);
+      else if (!scaled) {
+        // 1:1: every padding row and column is the image's own edge pixel.
+        const right = left + width,
+          bottom = above + height,
+          last = top + height - 1;
+        c.drawImage(image, 0, top, width, height, left, above, width, height);
+        c.imageSmoothingEnabled = false;
+        if (above) c.drawImage(image, 0, top, width, 1, left, 0, width, P);
+        if (below)
+          c.drawImage(image, 0, last, width, 1, left, bottom, width, P);
+        if (sides) {
+          const edges: [number, number][] = [
+            [0, 0],
+            [width - 1, right],
+          ];
+          for (const [sx, dx] of edges) {
+            c.drawImage(image, sx, top, 1, height, dx, above, P, height);
+            if (above) c.drawImage(image, sx, top, 1, 1, dx, 0, P, P);
+            if (below) c.drawImage(image, sx, last, 1, 1, dx, bottom, P, P);
+          }
         }
-        ctx.drawImage(
-          source.image,
+      } else {
+        // Scaled down: pad with the drawn (scaled) edge rows and columns.
+        c.drawImage(
+          image,
           0,
           top * rows,
           source.width,
           height * rows,
-          piece.x,
-          y,
-          piece.width,
+          left,
+          above,
+          width,
           height,
         );
-        const [s, t] =
-          wrapped.get(name) ?? wrapped.get(name.replace(/-\d+$/, "")) ?? [];
-        if (s || t)
-          extendEdges(
-            piece.x,
-            y,
-            piece.width,
-            height,
-            !!s,
-            !!t && piece.top === 0,
-            !!t && piece.bottom === placement.height,
-          );
+        c.imageSmoothingEnabled = false;
+        const canvas = c.canvas,
+          bottom = above + height;
+        if (above) c.drawImage(canvas, left, above, width, 1, left, 0, width, P);
+        if (below)
+          c.drawImage(canvas, left, bottom - 1, width, 1, left, bottom, width, P);
+        if (sides) {
+          // Corners are opaque only when both axes are.
+          const h0 = height + above + below;
+          c.drawImage(canvas, left, 0, 1, h0, 0, 0, P, h0);
+          c.drawImage(canvas, left + width - 1, 0, 1, h0, left + width, 0, P, h0);
+        }
       }
+      sink.upload(
+        piece.page,
+        piece.x - left,
+        y - above,
+        c.canvas,
+        [0, 0],
+        [width + 2 * left, height + above + below],
+        false,
+      );
     }
-    sink.upload(page, canvas);
   }
   const values: number[] = [];
   const frameRate = skin?.frameRate ?? -1;
