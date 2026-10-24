@@ -88,6 +88,24 @@
               <option value="grid">Grid</option>
             </select>
           </label>
+          <div class="pair">
+            <label class="v-field"><span>Export for</span>
+              <select id="export-for" class="v-select">
+                <option value="standard">Standard</option>
+                <option value="x">X / Twitter</option>
+                <option value="discord">Discord</option>
+                <option value="youtube">YouTube</option>
+              </select>
+            </label>
+            <label id="discord-field" class="v-field" hidden><span>File size</span>
+              <select id="discord-mb" class="v-select">
+                <option value="20">20 MB (free)</option>
+                <option value="50">50 MB (Nitro Basic)</option>
+                <option value="1000">1 GB (Nitro)</option>
+              </select>
+            </label>
+          </div>
+          <p id="export-note" class="export-note v-mono" role="status"></p>
           <label class="v-field"><span>File name</span><input id="out" class="v-input" placeholder="replay.mp4" spellcheck="false" /></label>
           <span id="folder" class="v-mono v-muted folder"></span>
           <div class="v-row">

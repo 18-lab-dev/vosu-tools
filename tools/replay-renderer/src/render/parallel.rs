@@ -17,8 +17,7 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         crate::encoder::select(
             &executable,
             worker.request.encoder.as_deref().unwrap_or("auto"),
-            worker.width,
-            worker.height,
+            &worker.plan(),
             worker.gpu.as_deref(),
         )
         .await?,
@@ -118,7 +117,11 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
                     .find_map(|s| jobs[&s.id]["encoder"].as_str())
                     .unwrap_or("probing")
                     .to_owned();
+                let warning = segments
+                    .iter()
+                    .find_map(|s| jobs[&s.id]["warning"].as_str().map(str::to_owned));
                 let job = jobs.get_mut(&worker.id).unwrap();
+                job["warning"] = json!(warning);
                 job["state"] = json!("running");
                 job["parallel_jobs"] = json!(count);
                 job["gpu"] = json!(worker.gpu.as_ref().map(|g| g.describe()));
@@ -141,6 +144,7 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         }
     }
     let list = worker.staged.with_extension("concat.txt");
+    let plan = worker.plan();
     let result = async {
         if let Some(message) = failure { return Err(message); }
         let settings: Value = worker.app.env.client().settings().await.map_err(|e| e.to_string())?;
@@ -162,11 +166,14 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         let output = Process::new(executable)
             .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-n", "-f", "concat", "-safe", "0", "-i"])
             .arg(&list).arg("-i").arg(audio["path"].as_str().ok_or("Missing soundtrack")?)
-            .args(["-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-af"])
+            .args(["-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy"]).args(plan.audio_args()).arg("-af")
             .arg(audio["filter"].as_str().ok_or("Missing soundtrack clock")?)
-            .arg("-shortest").arg(&worker.staged).kill_on_drop(true).output().await.map_err(|e| e.to_string())?;
+            // The index goes first in the final file, not in the segments.
+            .args(["-shortest", "-movflags", "+faststart"]).arg(&worker.staged).kill_on_drop(true).output().await.map_err(|e| e.to_string())?;
         if !output.status.success() { return Err(String::from_utf8_lossy(&output.stderr).into_owned()); }
         if worker.app.jobs.lock().await[&worker.id]["state"] == "cancelled" { return Err("Render cancelled".into()); }
+        let total: u64 = { let mut n = 0; for segment in &segments { n += *segment.frames.lock().await; } n };
+        let fit = fit_target(&worker, &worker.staged, &plan, total).await.map_err(|e| e.1["error"].as_str().unwrap_or("Discord fit failed").to_owned())?;
         tokio::fs::hard_link(&worker.staged, &worker.request.out).await.map_err(|e| e.to_string())?;
         let mut jobs = worker.app.jobs.lock().await;
         let results: Vec<Value> = segments.iter().map(|s| jobs[&s.id]["result"].clone()).collect();
@@ -174,7 +181,9 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         let seconds = worker.start.elapsed().as_secs_f64();
         let encoder = results[0]["encoder"].clone();
         let gpu = worker.gpu.as_ref().map(|g| g.describe());
-        let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
+        let warning = jobs[&worker.id]["warning"].clone();
+        let (width, height, fps) = plan.delivered(&fit);
+        let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
         jobs.insert(worker.id.clone(), json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":count,"gpu":gpu,"result":result}));
         Ok(())
     }.await;

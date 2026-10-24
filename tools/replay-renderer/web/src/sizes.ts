@@ -13,6 +13,8 @@ export interface SizeStore {
   last: string | null;
   /** Layout picked in the studio; absent means `auto`. */
   layout?: string | null;
+  /** "Export for" picked in the studio; absent: the tool settings. */
+  export?: { export_for: string; discord_mb: number } | null;
 }
 interface Group {
   ratio: string;
