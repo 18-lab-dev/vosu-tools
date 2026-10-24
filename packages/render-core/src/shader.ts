@@ -1,9 +1,13 @@
+/** Texels per row of the frame table texture (the shader's `frameUV`). */
+export const FRAME_TABLE_WIDTH = 1024;
 export const shader = /* wgsl */ `
 struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:vec4f, extra:vec4f }
 @group(0) @binding(0) var<uniform> g:Globals;
 @group(0) @binding(1) var atlas:texture_2d_array<f32>;
 @group(0) @binding(2) var atlasSampler:sampler;
-@group(0) @binding(3) var<storage,read> frameUV:array<vec4f>;
+@group(0) @binding(3) var frameTable:texture_2d<f32>;
+// The frame table (skin.ts buildAtlas): two texels per entry, FRAME_TABLE_WIDTH texels per row.
+fn frameUV(i:u32)->vec4f{return textureLoad(frameTable,vec2u(i%${FRAME_TABLE_WIDTH}u,i/${FRAME_TABLE_WIDTH}u),0);}
 struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32 }
 fn easeOut(t:f32)->f32{return 1.0-(1.0-t)*(1.0-t);}
 fn easeOutQuint(t:f32)->f32{let u=1.0-t;return 1.0-u*u*u*u*u;}
@@ -163,7 +167,7 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
  // An animated instance's uv slot carries a centred crop as (_, _, -w, -h) fractions (strips crop horizontally only).
- var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u || kind==40u || kind==41u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0 && motion.y!=26.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);if(shape.z>=1.0 && uv.z<0.0){let crop=-uv.zw;let whole=rows.x<=0.0 && rows.y>=1.0;selected=vec4f(selected.x+selected.z*(1.0-crop.x)*0.5,select(selected.y,selected.y+selected.w*(1.0-crop.y)*0.5,whole),selected.z*crop.x,select(selected.w,selected.w*crop.y,whole));}}
+ var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u || kind==40u || kind==41u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0 && motion.y!=26.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV(at*2u+1u).w));selected=frameUV(at*2u);}let info=frameUV(at*2u+1u);rows=info.xy;layer=u32(info.z);if(shape.z>=1.0 && uv.z<0.0){let crop=-uv.zw;let whole=rows.x<=0.0 && rows.y>=1.0;selected=vec4f(selected.x+selected.z*(1.0-crop.x)*0.5,select(selected.y,selected.y+selected.w*(1.0-crop.y)*0.5,whole),selected.z*crop.x,select(selected.w,selected.w*crop.y,whole));}}
  // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);

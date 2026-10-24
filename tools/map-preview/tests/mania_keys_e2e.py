@@ -29,7 +29,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from preview_e2e import CHROME, DIST, ORIGIN, PORT, Game, Host, handler  # noqa: E402
+from preview_e2e import CHROME, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
 
 def distance(a: bytes, b: bytes) -> float:
     """Mean absolute difference (0-255) of two screenshots, on a 192 px wide greyscale copy."""
@@ -92,7 +92,7 @@ async def run(host: Host, time: float, skin: str, evidence: Path):
         game.set('/beatmap/mode/number', 3)
         game.set('/settings/mode/number', 3)
         game.set('/beatmap/checksum', '4k')
-        await page.goto(f'{ORIGIN}/tools/map-preview/?presentation=bitmap#theme=dark')
+        await page.goto(f'{ORIGIN}/tools/map-preview/?{QUERY}#theme=dark')
 
         async def shows(selector, text, timeout=60000):
             await page.wait_for_function('([s, t]) => document.querySelector(s)?.textContent.includes(t)',

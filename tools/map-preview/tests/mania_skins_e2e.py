@@ -22,7 +22,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from preview_e2e import CHROME, DIST, ORIGIN, PORT, Game, Host, handler  # noqa: E402
+from preview_e2e import CHROME, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
 
 
 async def capture(host: Host, maps: dict, skins: list[str], evidence: Path):
@@ -45,7 +45,7 @@ async def capture(host: Host, maps: dict, skins: list[str], evidence: Path):
         page.on('requestfailed', lambda r: errors.append(f'{r.failure} {r.url}'))
         game = Game()
         await page.route_web_socket('**/websocket/v2/subscribe', game.route)
-        await page.goto(f'{ORIGIN}/tools/map-preview/?presentation=bitmap#theme=dark')
+        await page.goto(f'{ORIGIN}/tools/map-preview/?{QUERY}#theme=dark')
 
         async def shows(selector, text, timeout=60000):
             await page.wait_for_function('([s, t]) => document.querySelector(s)?.textContent.includes(t)',

@@ -1,0 +1,14 @@
+# Development tool, never shipped: translates render-core's WGSL shader to
+# GLSL ES 3.00 for the WebGL2 backend (run by generate.ts, output in ../src/shader-glsl.ts). Its own workspace so
+# the repository's crates and gates do not include it.
+[workspace]
+
+[package]
+name = "render-core-glsl"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+naga = { version = "=30.0.0", default-features = false, features = ["wgsl-in", "glsl-out"] }

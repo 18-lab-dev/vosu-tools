@@ -14,6 +14,7 @@ import {
   type FrameState,
   type Renderer,
   type RendererOptions,
+  type RenderTarget,
 } from "./index";
 import type { RenderOptions } from "./scene";
 import { loadSkin, type LoadSkinOptions, type Skin } from "./skin";
@@ -126,6 +127,30 @@ export interface PlayfieldOptions extends Omit<
    * composite the playfield over their own background (Replay renderer).
    */
   transparent?: boolean;
+  /**
+   * Called after the playfield replaced a lost GPU device or context: on a
+   * page the canvas element is replaced too (`playfield.canvas`), and the
+   * backend may have changed.
+   */
+  onRecover?: (playfield: Playfield, reason: string) => void;
+}
+
+/**
+ * The backend a renderer draws with, for a tool's status line: a short
+ * label, and a sentence saying why WebGL2 is used when WebGPU was wanted.
+ */
+export function describeBackend(renderer: {
+  backend: "webgpu" | "webgl2";
+  fallbackReason: string | null;
+}): { label: string; detail: string } {
+  if (renderer.backend === "webgpu")
+    return { label: "WebGPU", detail: "Drawn with WebGPU." };
+  return {
+    label: "WebGL2",
+    detail: renderer.fallbackReason
+      ? `Drawn with WebGL2: WebGPU is unavailable (${renderer.fallbackReason}).`
+      : "Drawn with WebGL2.",
+  };
 }
 
 /** A renderer drawing with the shared quality, options and canvas sizing. */
@@ -135,50 +160,203 @@ export interface Playfield extends Renderer {
    * (`playfieldSize`). Offscreen targets are sized with `resize`.
    */
   fit(cssWidth: number, cssHeight: number, pixelRatio?: number): void;
+  /** The canvas drawn on; a lost device or context replaces it. */
+  readonly canvas: HTMLCanvasElement | OffscreenCanvas | undefined;
+}
+
+/** An offscreen target that follows the playfield across renderer replacements. */
+class PlayfieldTarget implements RenderTarget {
+  private inner: RenderTarget | null = null;
+  private owner: Renderer | null = null;
+  /** Nothing was drawn into the current renderer's target (while replacing it). */
+  blank = false;
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {}
+  on(renderer: Renderer): RenderTarget {
+    if (this.owner !== renderer) {
+      this.release();
+      this.inner = renderer.createTarget(this.width, this.height);
+      this.owner = renderer;
+    }
+    this.blank = false;
+    return this.inner!;
+  }
+  async read(into?: Uint8Array): Promise<Uint8Array> {
+    if (this.blank || !this.inner) {
+      const out = into ?? new Uint8Array(this.width * this.height * 4);
+      return out.fill(0);
+    }
+    return this.inner.read(into);
+  }
+  private release(): void {
+    try {
+      this.inner?.destroy();
+    } catch {
+      // Its device is gone already.
+    }
+    this.inner = null;
+  }
+  destroy(): void {
+    this.release();
+    this.owner = null;
+  }
 }
 
 /**
  * Creates the renderer every tool draws with. On a canvas it presents
  * directly, unless the page URL has `?presentation=bitmap` (frames copied
- * into a bitmap canvas, which headless captures can see). `setBeatmap`
- * applies `PLAYFIELD_DEFAULTS` under the caller's options.
+ * into a bitmap canvas, which headless captures can see). The backend is
+ * WebGPU with a WebGL2 fallback; `?backend=webgl2` (or `webgpu`) in the page
+ * URL forces one, for tests. `setBeatmap` applies `PLAYFIELD_DEFAULTS` under
+ * the caller's options.
+ *
+ * If the GPU device or WebGL context is lost later (a driver reset, a lost
+ * GPU), the playfield builds a new renderer the same way, on a fresh canvas
+ * that replaces the old one in the page, with the same skin, map and size;
+ * frames asked for meanwhile are skipped (offscreen reads are transparent).
+ * `lost` resolves only if no backend can draw any more.
  */
 export async function createPlayfield(
   options: PlayfieldOptions,
 ): Promise<Playfield> {
-  const query =
-    typeof location === "undefined"
-      ? null
-      : new URLSearchParams(location.search).get("presentation");
-  const renderer = await createRenderer({
-    ...options,
-    presentation:
-      options.presentation ??
-      (options.canvas && query === "bitmap" ? "bitmap" : "direct"),
-    ...(options.transparent
-      ? { transparentBackground: true }
-      : { clearColour: PLAYFIELD_BACKGROUND }),
-  });
-  const canvas = options.canvas;
-  return {
+  const params =
+      typeof location === "undefined"
+        ? null
+        : new URLSearchParams(location.search),
+    query = params?.get("presentation"),
+    forced = params?.get("backend");
+  const build = (
+    canvas: PlayfieldOptions["canvas"],
+    device: GPUDevice | undefined,
+    width?: number,
+    height?: number,
+  ) =>
+    createRenderer({
+      ...options,
+      canvas,
+      device,
+      width: width ?? options.width,
+      height: height ?? options.height,
+      backend:
+        options.backend ??
+        (forced === "webgpu" || forced === "webgl2" ? forced : "auto"),
+      presentation:
+        options.presentation ??
+        (canvas && query === "bitmap" ? "bitmap" : "direct"),
+      ...(options.transparent
+        ? { transparentBackground: true }
+        : { clearColour: PLAYFIELD_BACKGROUND }),
+    });
+  let renderer: Renderer | null = await build(options.canvas, options.device),
+    canvas = options.canvas,
+    skin = options.skin,
+    beatmap: [Beatmap, RenderOptions | undefined] | null = null,
+    size: [number, number] | null = null,
+    destroyed = false;
+  let last = renderer;
+  let giveUp: (reason: string) => void = () => {};
+  const lost = new Promise<string>((resolve) => (giveUp = resolve));
+  const watch = (watched: Renderer) =>
+    void watched.lost.then((reason) => {
+      if (watched === renderer && !destroyed) void recover(reason);
+    });
+  async function recover(reason: string): Promise<void> {
+    const old = renderer!;
+    renderer = null;
+    try {
+      old.destroy();
+    } catch {
+      // Its device is gone already.
+    }
+    // A canvas keeps the context type it was first given: draw on a new one.
+    if (
+      typeof HTMLCanvasElement !== "undefined" &&
+      canvas instanceof HTMLCanvasElement
+    ) {
+      const fresh = canvas.cloneNode(false) as HTMLCanvasElement;
+      canvas.replaceWith(fresh);
+      canvas = fresh;
+    } else if (canvas)
+      canvas = new OffscreenCanvas(canvas.width, canvas.height);
+    try {
+      // A lost shared device is not reused: the new renderer finds its own.
+      const next = await build(canvas, undefined, size?.[0], size?.[1]);
+      if (destroyed) return next.destroy();
+      next.setSkin(skin);
+      if (size) next.resize(size[0], size[1]);
+      if (beatmap) next.setBeatmap(beatmap[0], beatmap[1]);
+      renderer = last = next;
+      watch(next);
+      options.onRecover?.(playfield, reason);
+    } catch (error) {
+      giveUp(
+        `${reason}; no backend could draw again: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  watch(renderer);
+  const playfield: Playfield = {
+    get backend() {
+      return last.backend;
+    },
+    get fallbackReason() {
+      return last.fallbackReason;
+    },
     get device() {
-      return renderer.device;
+      return renderer?.device ?? null;
     },
     get format() {
-      return renderer.format;
+      return last.format;
     },
+    get canvas() {
+      return canvas;
+    },
+    lost,
+    get textureBytes() {
+      return renderer?.textureBytes ?? 0;
+    },
+    createTarget: (width: number, height: number) =>
+      new PlayfieldTarget(
+        Math.max(1, Math.round(width)),
+        Math.max(1, Math.round(height)),
+      ),
+    finished: () => renderer?.finished() ?? Promise.resolve(),
     setBeatmap(map: Beatmap, beatmapOptions?: RenderOptions) {
-      renderer.setBeatmap(map, playfieldOptions(beatmapOptions));
+      beatmap = [map, playfieldOptions(beatmapOptions)];
+      renderer?.setBeatmap(beatmap[0], beatmap[1]);
     },
-    setSkin: (skin?: Skin) => renderer.setSkin(skin),
-    renderAt: (timeMs: number, frame?: FrameState) =>
-      renderer.renderAt(timeMs, frame),
-    resize: (width: number, height: number) => renderer.resize(width, height),
-    destroy: () => renderer.destroy(),
+    setSkin(next?: Skin) {
+      skin = next;
+      renderer?.setSkin(next);
+    },
+    renderAt(timeMs: number, frame?: FrameState) {
+      const target =
+        frame?.target instanceof PlayfieldTarget ? frame.target : undefined;
+      if (!renderer) {
+        if (target) target.blank = true;
+        return;
+      }
+      renderer.renderAt(
+        timeMs,
+        target ? { ...frame, target: target.on(renderer) } : frame,
+      );
+    },
+    resize(width: number, height: number) {
+      size = [width, height];
+      renderer?.resize(width, height);
+    },
+    destroy() {
+      destroyed = true;
+      renderer?.destroy();
+      renderer = null;
+    },
     fit(cssWidth, cssHeight, pixelRatio) {
       const { width, height } = playfieldSize(cssWidth, cssHeight, pixelRatio);
       if (canvas && canvas.width === width && canvas.height === height) return;
-      renderer.resize(width, height);
+      playfield.resize(width, height);
     },
   };
+  return playfield;
 }

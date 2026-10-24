@@ -236,3 +236,35 @@ test("images lazer clamps or repeats get opaque edge padding, per axis", () => {
   expect(wrapped.has("taiko-slider")).toBe(false);
   expect(wrapped.has("hitcircle")).toBe(false);
 });
+
+test("WebGL2's minimum limits still hold tall images at full resolution", () => {
+  // WebGL2 guarantees MAX_TEXTURE_SIZE 2048 and MAX_ARRAY_TEXTURE_LAYERS 256.
+  const webgl2 = { maxTextureDimension2D: 2048, maxTextureArrayLayers: 256 };
+  const plan = planAtlas(
+    [
+      { key: "holdbody", width: 138, height: 39950 },
+      { key: "stage", width: 2000, height: 3000 },
+      { key: "note", width: 256, height: 82 },
+    ],
+    webgl2,
+  );
+  expect(plan.pageWidth).toBeLessThanOrEqual(2048);
+  expect(plan.pageHeight).toBeLessThanOrEqual(2048);
+  expect(plan.pages).toBeLessThanOrEqual(256);
+  expect(plan.downscaled).toEqual([]);
+  const body = plan.placements.get("holdbody")!;
+  expect([body.width, body.height]).toEqual([138, 39950]);
+  expect(body.pieces.at(-1)!.bottom).toBe(39950);
+  expectDisjoint(plan);
+  // More pages than the layer limit allows is an error, not a silent cut.
+  expect(() =>
+    planAtlas(
+      Array.from({ length: 300 }, (_, i) => ({
+        key: `big-${i}`,
+        width: 2000,
+        height: 2000,
+      })),
+      webgl2,
+    ),
+  ).toThrow("exceeds GPU texture capacity");
+});

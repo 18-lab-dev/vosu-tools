@@ -5,6 +5,7 @@ import {
   frameOwner,
   loadScope,
   loadSkin,
+  type AtlasSink,
   type Skin,
 } from "../src/skin";
 
@@ -31,7 +32,6 @@ const resolve = async (file: string): Promise<Blob | null> => {
 const saved = {
   bitmap: globalThis.createImageBitmap,
   canvas: globalThis.OffscreenCanvas,
-  usage: (globalThis as { GPUTextureUsage?: unknown }).GPUTextureUsage,
 };
 beforeAll(() => {
   // Blobs carry their PNG size; bitmaps are stand-ins with that size.
@@ -39,11 +39,6 @@ beforeAll(() => {
     const [width, height] = JSON.parse(await blob.text());
     return { width, height, close() {} };
   }) as unknown as typeof createImageBitmap;
-  (globalThis as { GPUTextureUsage?: unknown }).GPUTextureUsage = {
-    TEXTURE_BINDING: 4,
-    COPY_DST: 2,
-    RENDER_ATTACHMENT: 16,
-  };
   // buildAtlas draws into canvases; every call is a no-op here.
   const context = new Proxy({}, { get: () => () => undefined });
   globalThis.OffscreenCanvas = class {
@@ -59,15 +54,14 @@ beforeAll(() => {
 afterAll(() => {
   globalThis.createImageBitmap = saved.bitmap;
   globalThis.OffscreenCanvas = saved.canvas;
-  (globalThis as { GPUTextureUsage?: unknown }).GPUTextureUsage = saved.usage;
 });
 
-/** A GPU device that only records nothing: enough for buildAtlas's plumbing. */
-const device = {
+/** An atlas sink that keeps nothing: enough for buildAtlas's plumbing. */
+const sink: AtlasSink = {
   limits: { maxTextureDimension2D: 8192, maxTextureArrayLayers: 256 },
-  createTexture: () => ({ createView: () => ({}), destroy() {} }),
-  queue: { copyExternalImageToTexture() {}, writeTexture() {} },
-} as unknown as GPUDevice;
+  allocate() {},
+  upload() {},
+};
 
 const missingFrames = (skin: Skin) =>
   [...(skin.animations ?? [])].flatMap(([name, frames]) =>
@@ -101,7 +95,7 @@ test("switching mania key counts keeps every animation's frames (1K-10K)", async
     for (const k of [keys, 7]) {
       skin = await loadScope(skin, { maniaKeys: [k] });
       expect(missingFrames(skin)).toEqual([]);
-      expect(() => buildAtlas(device, skin)).not.toThrow();
+      expect(() => buildAtlas(sink, skin)).not.toThrow();
     }
   // The 7K stage's own images are there after the switches.
   const seven = await loadSkin(resolve, fixture.name, { maniaKeys: [7] });
@@ -115,10 +109,10 @@ test("an animation missing frames draws what is left, as GetAnimation does", asy
   const frames = skin.animations!.get("pippidonclear")!;
   // Drop a middle frame: lazer stops at the first frame it cannot find.
   skin.assets.delete(frames[2]);
-  const { regions } = buildAtlas(device, skin);
+  const { regions } = buildAtlas(sink, skin);
   expect(regions.get("pippidonclear")?.count).toBe(2);
   // No frame left: the plain image (here the first frame's alias) is drawn.
   for (const f of skin.animations!.get("pippidonidle")!) skin.assets.delete(f);
-  const again = buildAtlas(device, skin);
+  const again = buildAtlas(sink, skin);
   expect(again.regions.get("pippidonidle")?.count ?? 1).toBe(1);
 });

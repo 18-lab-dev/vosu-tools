@@ -24,6 +24,7 @@ import {
   type BuiltinSkinName,
   type JudgementEvent,
   type Renderer,
+  type RenderTarget,
   type Skin,
 } from "@vosu-tools/render-core";
 const hitValues: Record<Result, number> = {
@@ -140,7 +141,8 @@ export async function checked(response: Response): Promise<Response> {
   }
   return response;
 }
-let sharedDevice: Promise<GPUDevice> | undefined;
+/** One WebGPU device for every track, when WebGPU is available. */
+let sharedDevice: Promise<GPUDevice | undefined> | undefined;
 /**
  * The playfield's visible extent in world units. osu! and catch use the
  * whole 640×480 view; mania stages and the taiko strip are measured from a
@@ -149,37 +151,13 @@ let sharedDevice: Promise<GPUDevice> | undefined;
 async function probeContent(renderer: Renderer, mode: number): Promise<Rect> {
   if (mode === 0 || mode === 2) return { ...VIEW };
   const { width, height } = VIEW;
-  const device = renderer.device;
-  const stride = Math.ceil((width * 4) / 256) * 256;
-  const texture = device.createTexture({
-    size: [width, height],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-  });
-  const buffer = device.createBuffer({
-    size: stride * height,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-  });
+  const target = renderer.createTarget(width, height);
   try {
     renderer.resize(width, height);
-    renderer.renderAt(0, { target: texture.createView() });
-    const commands = device.createCommandEncoder();
-    commands.copyTextureToBuffer(
-      { texture },
-      { buffer, bytesPerRow: stride },
-      { width, height },
-    );
-    device.queue.submit([commands.finish()]);
-    await buffer.mapAsync(GPUMapMode.READ);
-    const source = new Uint8Array(buffer.getMappedRange());
-    const pixels = new Uint8Array(width * height * 4);
-    for (let y = 0; y < height; y++)
-      pixels.set(source.subarray(y * stride, y * stride + width * 4), y * width * 4);
-    buffer.unmap();
-    return fitBounds(mode, contentBounds(pixels, width, height));
+    renderer.renderAt(0, { target });
+    return fitBounds(mode, contentBounds(await target.read(), width, height));
   } finally {
-    texture.destroy();
-    buffer.destroy();
+    target.destroy();
   }
 }
 const KNOWN = new Set(settingSchema.map((rule) => rule.key));
@@ -287,14 +265,20 @@ export async function loadTrack(
     background = await createImageBitmap(await response.blob());
   }
   const canvas = document.createElement("canvas");
+  // Tracks share one WebGPU device; without WebGPU (or with `?backend=webgl2`)
+  // each track draws with its own WebGL2 context instead.
   sharedDevice ??= (async () => {
-    const adapter =
-      (await navigator.gpu.requestAdapter()) ??
-      (await navigator.gpu.requestAdapter());
-    if (!adapter) throw new Error("WebGPU adapter unavailable");
-    return adapter.requestDevice({
-      requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
-    });
+    if (new URLSearchParams(location.search).get("backend") === "webgl2") return undefined;
+    try {
+      const adapter =
+        (await navigator.gpu?.requestAdapter()) ??
+        (await navigator.gpu?.requestAdapter());
+      return await adapter?.requestDevice({
+        requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
+      });
+    } catch {
+      return undefined;
+    }
   })();
   // Product: an offscreen target per track (sized by Composition for its
   // layout cell), cleared transparent for the background and dim beneath.
@@ -453,12 +437,9 @@ export class Composition {
   timings = { scene: 0, readback: 0, composite: 0, gpu: null as number | null };
   private frameContext: CanvasRenderingContext2D;
   private readbacks: {
-    texture: GPUTexture;
-    view: GPUTextureView;
-    buffer: GPUBuffer;
+    target: RenderTarget;
     width: number;
     height: number;
-    stride: number;
     pixels: ImageData;
     canvas: HTMLCanvasElement;
     context: CanvasRenderingContext2D;
@@ -513,30 +494,20 @@ export class Composition {
         renderer = track.renderer,
         { width: w, height: h } = place(cell, track.content, transformOf(track)).target;
       renderer.resize(w, h);
-      const stride = Math.ceil((w * 4) / 256) * 256;
       const canvas = document.createElement("canvas");
       canvas.width = w;
       canvas.height = h;
-      const texture = renderer.device.createTexture({
-        size: [w, h],
-        format: "rgba8unorm",
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC,
-      });
-      const query = this.profile && renderer.device.features.has("timestamp-query")
-        ? renderer.device.createQuerySet({ type: "timestamp", count: 2 }) : undefined;
+      // GPU pass timings need WebGPU's timestamp queries; WebGL2 reports none.
+      const device = renderer.device;
+      const query = this.profile && device?.features.has("timestamp-query")
+        ? device.createQuerySet({ type: "timestamp", count: 2 }) : undefined;
       this.readbacks.push({
-        texture,
-        view: texture.createView(),
+        target: renderer.createTarget(w, h),
         query,
-        queryResolve: query ? renderer.device.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : undefined,
-        queryRead: query ? renderer.device.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : undefined,
-        buffer: renderer.device.createBuffer({
-          size: stride * h,
-          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-        }),
+        queryResolve: query ? device!.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : undefined,
+        queryRead: query ? device!.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : undefined,
         width: w,
         height: h,
-        stride,
         pixels: new ImageData(w, h),
         canvas,
         context: canvas.getContext("2d", { willReadFrequently: true })!,
@@ -598,7 +569,7 @@ export class Composition {
       context.restore();
       layers.push({ name: `V${i + 1} background`, kind: "background", box: rect, ms: took() });
     });
-    const mappings: Promise<void>[] = [];
+    const mappings: Promise<unknown>[] = [];
     for (let i = 0; i < this.tracks.length; i++) {
       const sceneStarted = performance.now();
       const track = this.tracks[i],
@@ -619,7 +590,7 @@ export class Composition {
           });
         }
       track.renderer.renderAt(time, {
-        target: resource.view,
+        target: resource.target,
         timestampWrites: resource.query ? {
           querySet: resource.query, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1,
         } : undefined,
@@ -632,20 +603,15 @@ export class Composition {
         // The look-back trail for skins without a cursortrail image.
         cursorTrail: trail,
       });
-      const { width: tw, height: th } = resource;
-      const commands = track.renderer.device.createCommandEncoder();
-      commands.copyTextureToBuffer(
-        { texture: resource.texture },
-        { buffer: resource.buffer, bytesPerRow: resource.stride },
-        { width: tw, height: th },
-      );
-      if (resource.query) {
+      const device = track.renderer.device;
+      if (resource.query && device) {
+        const commands = device.createCommandEncoder();
         commands.resolveQuerySet(resource.query, 0, 2, resource.queryResolve!, 0);
         commands.copyBufferToBuffer(resource.queryResolve!, 0, resource.queryRead!, 0, 16);
+        device.queue.submit([commands.finish()]);
       }
-      track.renderer.device.queue.submit([commands.finish()]);
       this.timings.scene += performance.now() - sceneStarted;
-      mappings.push(resource.buffer.mapAsync(GPUMapMode.READ));
+      mappings.push(resource.target.read(new Uint8Array(resource.pixels.data.buffer)));
       if (resource.queryRead) mappings.push(resource.queryRead.mapAsync(GPUMapMode.READ));
     }
     // Submit every player's work before waiting for the GPU, then preserve
@@ -659,14 +625,6 @@ export class Composition {
         track = this.tracks[i],
         rect = rects[i],
         { width: tw, height: th } = resource;
-      const source = new Uint8Array(resource.buffer.getMappedRange());
-      if (resource.stride === tw * 4) resource.pixels.data.set(source);
-      else for (let y = 0; y < th; y++)
-        resource.pixels.data.set(
-          source.subarray(y * resource.stride, y * resource.stride + tw * 4),
-          y * tw * 4,
-        );
-      resource.buffer.unmap();
       if (resource.queryRead) {
         const ticks = new BigUint64Array(resource.queryRead.getMappedRange());
         this.timings.gpu! += Number(ticks[1] - ticks[0]) / 1e6;
@@ -762,8 +720,7 @@ export class Composition {
   }
   releaseTargets() {
     for (const resource of this.readbacks) {
-      resource.texture.destroy();
-      resource.buffer.destroy();
+      resource.target.destroy();
       resource.query?.destroy();
       resource.queryRead?.destroy();
       resource.queryResolve?.destroy();

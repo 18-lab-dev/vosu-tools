@@ -2,7 +2,7 @@
 // output map's own clock; the source audio is played at the chosen rate and
 // re-seeked into each trimmed section (silent in the gaps between them).
 import { parseOsu, type Beatmap } from '@vosu-tools/osu-parse';
-import { createPlayfield, playfieldSize, type Playfield, type Skin } from '@vosu-tools/render-core';
+import { createPlayfield, describeBackend, playfieldSize, type Playfield, type Skin } from '@vosu-tools/render-core';
 import { sourceTime, type Window } from './time';
 
 export type PreviewMap = { osu: string; rate: number; windows: Window[]; pitch: boolean };
@@ -20,18 +20,21 @@ export class Preview {
   private skin: Skin | undefined;
   private showing = 0;
   readonly audio = new Audio();
+  private readonly observer = new ResizeObserver(() => this.resize());
 
   constructor(
-    private readonly canvas: HTMLCanvasElement,
+    private canvas: HTMLCanvasElement,
     private readonly onTick: (outputMs: number, durationMs: number, playing: boolean) => void,
     private readonly onError: (message: string) => void,
     /** Readies the skin for a map (mania images per key count) before it is drawn. */
     private readonly prepare?: (map: Beatmap) => Promise<void>,
+    /** The backend drawing the preview, once it has started. */
+    private readonly onBackend?: (backend: { label: string; detail: string }) => void,
   ) {
     // The preview starts muted and silent: the source audio (often 10+ MB) is
     // fetched when Play is pressed, not streamed in the background on load.
     this.audio.preload = 'none';
-    new ResizeObserver(() => this.resize()).observe(canvas);
+    this.observer.observe(canvas);
   }
 
   get duration(): number {
@@ -56,7 +59,6 @@ export class Preview {
   async show(next: PreviewMap): Promise<void> {
     const map = parseOsu(next.osu);
     if (!map.objects.length) throw new Error('The result has no hit objects.');
-    if (!('gpu' in navigator)) throw new Error('Preview needs WebGPU.');
     const seq = ++this.showing;
     const renderer = await this.ensureRenderer();
     // The previous map stays drawn until the skin has what this one needs.
@@ -167,8 +169,21 @@ export class Preview {
   private ensureRenderer(): Promise<Playfield> {
     if (this.renderer) return Promise.resolve(this.renderer);
     this.resize();
-    this.creating ??= createPlayfield({ canvas: this.canvas, skin: this.skin }).then((renderer) => {
+    this.creating ??= createPlayfield({
+      canvas: this.canvas,
+      skin: this.skin,
+      // A lost GPU device or context: a new renderer on a fresh canvas.
+      onRecover: (playfield, reason) => {
+        console.info(`Preview restarted: ${reason}`);
+        this.observer.unobserve(this.canvas);
+        this.canvas = playfield.canvas as HTMLCanvasElement;
+        this.observer.observe(this.canvas);
+        this.onBackend?.(describeBackend(playfield));
+        this.resize();
+      },
+    }).then((renderer) => {
       this.renderer = renderer;
+      this.onBackend?.(describeBackend(renderer));
       // A skin that arrived while the renderer was being created must still reach it.
       if (this.skin) renderer.setSkin(this.skin);
       this.resize();
