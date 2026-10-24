@@ -51,7 +51,7 @@ impl Network {
     pub fn new(cache: PathBuf) -> Result<Self, String> {
         let http = Client::builder()
             .user_agent(
-                "vosu-tools/0.1.0 beatmap-downloader (+https://github.com/shiruviaa/vosu-tools)",
+                "vosu-tools/0.1.0 beatmap-downloader (+https://github.com/18-lab-dev/vosu-tools)",
             )
             .https_only(true)
             .connect_timeout(Duration::from_secs(15))

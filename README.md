@@ -1,6 +1,6 @@
 # vosu tools
 
-Official tools for [vosu](https://github.com/shiruviaa/vosu) by 18-LAB. Each tool is an out-of-process application hosted by vosu (tool protocol v1): it may have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
+Official tools for [vosu](https://github.com/18-lab-dev/vosu) by 18-LAB. Each tool is an out-of-process application hosted by vosu (tool protocol v1): it may have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
 
 | Tool | id | Interfaces | Purpose |
 | --- | --- | --- | --- |
@@ -42,7 +42,7 @@ With Python 3.11+, the target's native build dependencies, Rust, and Bun install
 ```sh
 bun install --frozen-lockfile
 python scripts/package.py --target x86_64-unknown-linux-gnu \
-  --base-url https://github.com/shiruviaa/vosu-tools/releases/download/v0.1.0
+  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.1.0
 python -m unittest discover -s scripts -p test_package.py
 ```
 
