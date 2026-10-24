@@ -102,6 +102,51 @@ impl Driver {
             self.events.push_back(response);
         }
     }
+    /// Dispatch independent pages together. Waiting for each screenshot before
+    /// requesting the next serialized compositor/GPU round trips per player.
+    async fn batch(
+        &mut self,
+        sessions: &[String],
+        method: &str,
+        params: Value,
+    ) -> Result<Vec<Value>, String> {
+        let mut ids = Vec::with_capacity(sessions.len());
+        for session in sessions {
+            self.id += 1;
+            ids.push(self.id);
+            self.socket
+                .feed(Message::Text(
+                    json!({"id":self.id,"sessionId":session,"method":method,"params":params})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        self.socket.flush().await.map_err(|e| e.to_string())?;
+        let mut results = vec![Value::Null; sessions.len()];
+        let mut remaining = sessions.len();
+        while remaining > 0 {
+            let mut response = self.receive().await?;
+            if let Some(index) = response["id"]
+                .as_u64()
+                .and_then(|id| ids.iter().position(|candidate| *candidate == id))
+            {
+                if let Some(error) = response.get("error") {
+                    return Err(format!("Overlay {method}: {error}"));
+                }
+                let result = response["result"].take();
+                if let Some(exception) = result.get("exceptionDetails") {
+                    return Err(format!("Overlay JavaScript: {exception}"));
+                }
+                results[index] = result;
+                remaining -= 1;
+            } else {
+                self.events.push_back(response);
+            }
+        }
+        Ok(results)
+    }
     async fn event(&mut self, session: &str, method: &str) -> Result<(), String> {
         loop {
             if let Some(index) = self
@@ -219,21 +264,18 @@ impl Driver {
         self.last_wall = wall_ms;
         let pages = std::mem::take(&mut self.pages);
         let result=async {
-        let mut images = Vec::with_capacity(pages.len());
+        self.batch(&pages, "Runtime.evaluate", json!({"expression":format!("window.__vosuTime={wall_ms};window.__vosuWait({sequence}).then(()=>window.__vosuIdle())"),"awaitPromise":true,"returnByValue":true})).await?;
+        self.batch(&pages, "Emulation.setVirtualTimePolicy", json!({"policy":"advance","budget":budget,"maxVirtualTimeTaskStarvationCount":1000})).await?;
         for session in &pages {
-            self.command(Some(session),"Runtime.evaluate",json!({"expression":format!("window.__vosuTime={wall_ms};window.__vosuWait({sequence}).then(()=>window.__vosuIdle())"),"awaitPromise":true,"returnByValue":true})).await?;
-            self.command(Some(session),"Emulation.setVirtualTimePolicy",json!({"policy":"advance","budget":budget,"maxVirtualTimeTaskStarvationCount":1000})).await?;
-            self.event(session, "Emulation.virtualTimeBudgetExpired")
-                .await?;
-            let mut image = self
-                .command(
-                    Some(session),
-                    "Page.captureScreenshot",
-                    json!({"format":"png","fromSurface":true,"captureBeyondViewport":false}),
-                )
-                .await?;
-            let Some(Value::String(data))=image.get_mut("data").map(Value::take) else {
-                return Err("Overlay screenshot missing".into());
+            self.event(session, "Emulation.virtualTimeBudgetExpired").await?;
+        }
+        // Browser launch disables wall-clock vsync/frame throttling. Capture
+        // still follows the existing fixed virtual clock, with lossless alpha.
+        let screenshots = self.batch(&pages, "Page.captureScreenshot", json!({"format":"png","fromSurface":true,"captureBeyondViewport":false,"optimizeForSpeed":true})).await?;
+        let mut images = Vec::with_capacity(pages.len());
+        for mut image in screenshots {
+            let Some(Value::String(data)) = image.get_mut("data").map(Value::take) else {
+                return Err(format!("Overlay screenshot missing: {image}"));
             };
             images.push(data);
         }

@@ -1,6 +1,7 @@
 {
   "extends": "../../../packages/tool-web/tsconfig.tool.json",
   "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "@webgpu/types", "dom-webcodecs"]
   },
   "include": ["src", "../../../packages/replay/src/lzma.d.ts"]

@@ -645,10 +645,12 @@ if (!vosu.canWrite) {
       output_dir: string | null;
       outro_ms: number;
       fade_ms: number;
+      encoder: "auto" | "hardware" | "software";
     };
     el<HTMLInputElement>("fps").value = String(defaults.fps);
     el<HTMLInputElement>("outro").value = String(defaults.outro_ms);
     el<HTMLInputElement>("fade").value = String(defaults.fade_ms);
+    el<HTMLSelectElement>("encoder").value = defaults.encoder;
     el("folder").textContent = defaults.output_dir ?? "No output folder: use an absolute path";
     const store = (await (await fetcher("v1/sizes")).json()) as SizeStore;
     if (LAYOUTS.includes(store.layout as Layout))
@@ -800,6 +802,7 @@ el("queue").onclick = async () => {
       inspect: INSPECT,
       outro_ms: composition.timing.outroMs,
       fade_ms: composition.timing.fadeMs,
+      encoder: el<HTMLSelectElement>("encoder").value,
     };
     const { job } = await (
       await fetcher("v1/render", {
@@ -831,7 +834,7 @@ el("queue").onclick = async () => {
       try {
         const current = await (await fetcher(`v1/jobs/${job}`)).json();
         meter.style.setProperty("--v-value", String(current.progress));
-        message.textContent = current.message;
+        message.textContent = `${current.message}${current.encoder ? ` · ${current.encoder}` : ""}`;
         if (["done", "failed", "cancelled"].includes(current.state)) {
           dot.dataset.state =
             current.state === "done" ? "ok" : current.state === "failed" ? "error" : "warn";
@@ -839,7 +842,7 @@ el("queue").onclick = async () => {
           activeJobs.delete(job);
           setTally();
           if (current.result)
-            message.textContent = `${current.result.out} · ${current.result.render_fps.toFixed(1)} fps`;
+            message.textContent = `${current.result.out} · ${current.result.render_fps.toFixed(1)} fps · ${current.result.encoder}`;
         } else
           setTimeout(() => {
             void update();
@@ -880,7 +883,7 @@ el("webm").onclick = async () => {
     // Export at the full output size; the preview runs at a capped size.
     composition.releaseTargets();
     const { width, height } = sizes.size;
-    const full = new Composition(tracks, width, height, composition.layout);
+    const full = new Composition(tracks, width, height, composition.layout, false);
     full.timing = composition.timing;
     try {
       const blob = await exportWebM({

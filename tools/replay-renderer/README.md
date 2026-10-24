@@ -33,6 +33,7 @@ Settings the dashboard can edit without opening the studio:
 - `outro_ms` and `fade_ms`: time after the last object and the fade at its end; lazer shows results 1250 ms after the last object, fading out over the last 250 ms.
 - `output_dir`: where file names are written; when empty, the Videos folder (XDG `user-dirs.dirs` on Linux, `%USERPROFILE%\Videos` on Windows).
 - `ffmpeg_path`: the FFmpeg executable; when empty, `VOSU_RENDER_FFMPEG`, then `ffmpeg` on PATH.
+- `encoder`: `auto` (default), `hardware`, or `software`. The studio's Output › Advanced › MP4 encoder can override it for one job. Auto tests the actual GPU encoder at the requested size, then falls back to software; hardware fails with an actionable error if none works. Jobs report the selected encoder, not merely the requested preference.
 - `osu_dir`, `songs_dir` and `skin`: an offline stable installation, a Songs folder override, and its fallback skin.
 
 ## Skins
@@ -91,6 +92,15 @@ Off by default. Adding `?inspect` to the studio's URL draws, over the preview an
 The Rust service drives Chrome Headless Shell and streams fixed-clock RGBA frames to external FFmpeg. On first native render, it downloads the release-pinned **156.0.8078.47** Linux/Windows x86_64 archive from Google's Chrome for Testing storage, checks an embedded SHA-256 before extraction/execution, rejects escaping paths/symlinks and oversized archives, and caches the runtime with its complete upstream `LICENSE.headless_shell`. `VOSU_RENDER_CHROMIUM` explicitly overrides this managed runtime for offline/custom installations; `VOSU_RENDER_FFMPEG` selects FFmpeg. No user-installed Chromium or Node is required. Initial rendering requires network access unless the runtime is cached or overridden; system libraries/sandbox support still follow the OS browser requirements. Native output is MP4 with VP9/AAC, not GPL libx264. FFmpeg remains external; use an LGPL-only distribution if redistributing it.
 
 Browser export uses WebCodecs VP9/Opus and writes WebM, with OfflineAudioContext rate/gain mixing. Both paths use the same absolute map-time compositor and GPUTexture readback; preview frames are staged before publication so asynchronous readback cannot blank the currently displayed frame.
+
+### Export throughput and diagnostics
+
+Native MP4 uses H.264: auto probes NVENC first, then Intel Quick Sync/AMD AMF on Windows or the available VAAPI render devices on Linux, and finally libx264. Hardware is tested with an actual RGBA frame at the output size before accepting input; an FFmpeg build listing an encoder is not enough to establish driver/device availability. Software explicitly selects libx264 (`veryfast`, CRF 18). Hardware uses comparable high-quality constant-quality settings. A device failure after encoding starts fails the job rather than silently dropping frames or changing codecs mid-file.
+
+The private browser has no wall-clock frame-rate/vsync limit. Overlay pages still receive every fixed-clock frame and advance their timers at the requested cadence; their state/clock/capture protocol is batched across independent pages, and PNG screenshots retain lossless pixels and transparency. Identical overlay PNGs reuse the decoded bitmap. Every player's GPU draw/readback is submitted before waiting for the GPU; CPU-only intermediate canvases avoid uploading readback pixels just to read them back again. Export compositions do not copy a full frame to a visible preview canvas. Native export overlaps one ordered frame upload with the following frame's work, with bounded buffering and encoder backpressure; preview publication remains atomic.
+
+Completed native jobs include `encoder`, `seconds`, `render_fps`, `startup_ms` (loading, replay simulation, scene compilation/probing), `timings_ms` (scene CPU/submission, GPU/readback wait and copy, playfield composition, overlay clock/capture/decode/composition, final pixels/fade, transfer/encoder backpressure), and `encoder_drain_ms`. `timings_ms.gpu` is the GPU render-pass timestamp total when the adapter supports timestamp queries, otherwise null; it is included in readback elapsed time, not an additional wall-clock stage. Transfer overlaps subsequent rendering, and players' GPU work overlaps, so stage totals must not be added to reconstruct job wall time. Browser WebM retains VP9/Opus and now uses dequeue-based bounded backpressure, flushing only at end-of-stream instead of repeatedly draining the encoder.
+
 
 ## Overlay pages (native MP4)
 

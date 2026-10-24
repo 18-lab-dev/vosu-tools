@@ -156,10 +156,28 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
     firstTimestampBehavior: "offset",
   });
   let failure: Error | undefined;
+  let wake: (() => void) | undefined;
+  // flush() is an end-of-stream barrier; using it for backpressure repeatedly
+  // drains the encoder's lookahead/workers. Wait only until the queue has room.
+  const capacity = async (encoder: VideoEncoder | AudioEncoder, limit: number) => {
+    while (encoder.encodeQueueSize > limit && !failure) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      const done = () => {
+        encoder.removeEventListener("dequeue", done);
+        wake = undefined;
+        resolve();
+      };
+      wake = done;
+      encoder.addEventListener("dequeue", done, { once: true });
+      await promise;
+    }
+    if (failure) throw failure;
+  };
   const encoder = new VideoEncoder({
     output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
     error: (error) => {
       failure = error;
+      wake?.();
     },
   });
   let audioEncoder: AudioEncoder | undefined;
@@ -184,7 +202,7 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
       } finally {
         frame.close();
       }
-      if (encoder.encodeQueueSize > 8) await encoder.flush();
+      if (encoder.encodeQueueSize > 8) await capacity(encoder, 8);
       options.progress?.(((i + 1) / frameCount) * (audio ? 0.9 : 1));
     }
     await encoder.flush();
@@ -193,6 +211,7 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
         output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
         error: (error) => {
           failure = error;
+          wake?.();
         },
       });
       audioEncoder.configure({
@@ -224,7 +243,7 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
         } finally {
           data.close();
         }
-        if (audioEncoder.encodeQueueSize > 16) await audioEncoder.flush();
+        if (audioEncoder.encodeQueueSize > 16) await capacity(audioEncoder, 16);
       }
       await audioEncoder.flush();
     }
