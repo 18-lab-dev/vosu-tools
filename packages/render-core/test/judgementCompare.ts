@@ -246,7 +246,7 @@ export const textureAsset = (name: string) =>
  */
 export const isJudgementTexture = (name: string | null) =>
   !!name &&
-  /^(hit(0|50|100|300)|lighting|lightingN|taiko-hit(0|100|300)k?|mania-hit(0|50|100|200|300|300g)|scoreboard-explosion-[12])$/.test(
+  /^(hit(0|50|100|300)|particle(50|100|300)|lighting|lightingN|taiko-hit(0|100|300)k?|mania-hit(0|50|100|200|300|300g)|scoreboard-explosion-[12])$/.test(
     textureAsset(name),
   );
 
@@ -309,7 +309,13 @@ export function compareJudgements(
       Math.hypot(best.centre[0] - centre[0], best.centre[1] - centre[1]) <= 1.5 ||
       (exempt && Math.abs(best.centre[0] - centre[0]) <= 1.5) ||
       (jitter && Math.abs(best.centre[1] - centre[1]) <= 1.5);
-    if (!placeOk || !sizeOk || Math.abs(best.alpha - item.alpha) > 0.05)
+    // A judgement piece's particles restart when it first loads (the frame
+    // after the hit) instead of 100 ms early as on reuse: a pooled piece's
+    // first use fades its particles up to 117 ms later than render-core's
+    // (and lazer's later uses), at most 117/1600 more opaque.
+    const particleSlack = /^particle/.test(name) ? 0.075 : 0;
+    const opacityOk = item.alpha - best.alpha <= 0.05 + particleSlack && best.alpha - item.alpha <= 0.05;
+    if (!placeOk || !sizeOk || !opacityOk)
       out.push({ asset: name, reason: !placeOk ? "place" : !sizeOk ? "size" : "opacity", lazer: theirsView(size), ours: view(best) });
   }
   for (const p of ours)
@@ -343,3 +349,27 @@ export const JUDGEMENT_SKIN = {
     ...Object.fromEntries(Array.from({ length: 10 }, (_, d) => [`score-${d}.png`, [24 + d, 36]])),
   } as Record<string, [number, number]>,
 };
+
+/**
+ * A second synthetic skin for LegacyJudgementPieceNew: hit images with
+ * particles and no taiko explosions, so osu! and osu!taiko both draw the
+ * whole new-style piece (particles, main piece, old-style flash).
+ */
+export const JUDGEMENT_SKIN_NEW = {
+  name: "judgements-new",
+  ini: "[General]\nName: judgements-new\nVersion: 2.7\n",
+  files: {
+    "hit0.png": [84, 84],
+    "hit50.png": [104, 52],
+    "hit100.png": [114, 57],
+    "hit300.png": [124, 62],
+    "particle50.png": [20, 20],
+    "particle100.png": [24, 24],
+    "particle300.png": [28, 28],
+  } as Record<string, [number, number]>,
+};
+/** Each golden skin and the rulesets it is played in. */
+export const JUDGEMENT_SKINS = [
+  { skin: JUDGEMENT_SKIN, prefix: "", rulesets: ["osu", "taiko", "catch", "mania"] },
+  { skin: JUDGEMENT_SKIN_NEW, prefix: "new-", rulesets: ["osu", "taiko"] },
+] as const;

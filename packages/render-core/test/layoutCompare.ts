@@ -13,10 +13,21 @@
 import { parseOsu } from "@vosu-tools/osu-parse";
 import { gameSpace, SPACE_SCALE } from "../src/taiko";
 import { compileScene, type RenderOptions } from "../src/scene";
-import { assetNames, type AtlasRegion, type Skin } from "../src/skin";
-import { caseless, goldenAsset } from "./maniaCompare";
+import {
+  animatedAssets,
+  assetNames,
+  type AtlasRegion,
+  type Skin,
+} from "../src/skin";
+import {
+  caseless,
+  frameAt,
+  frameElement,
+  goldenAsset,
+  regionNames,
+} from "./maniaCompare";
 import { evaluateJudgement } from "./judgementCompare";
-import { CATCH_EXPLOSION_SIZES } from "../src/judgements";
+import { CATCH_EXPLOSION_SIZES, Profile } from "../src/judgements";
 import { evaluateOsu } from "./osuCompare";
 
 export interface LayoutCase {
@@ -93,6 +104,8 @@ export interface PlacedItem {
   colour: number[];
   alpha: number;
   motion: number;
+  /** An animation frame shown within 2 ms of the next (or previous) one. */
+  nearFrameChange?: boolean;
 }
 
 /**
@@ -183,7 +196,7 @@ export function placeLayout(
     ),
     space = gameSpace(aspect),
     now = c.time,
-    names = new Map([...regions].map(([name, uv]) => [uv.first, name]));
+    names = regionNames(regions);
   // The catcher: interpolated between catches, facing its last move.
   let catcherX = 256,
     direction = 1,
@@ -213,7 +226,8 @@ export function placeLayout(
         ? ease((now - last.start) / 180)
         : ease((last.end - last.start) / 180) *
           (1 - ease((now - last.end) / 180));
-  const out: PlacedItem[] = [];
+  const out: PlacedItem[] = [],
+    particleGroups = new Set<string>();
   for (let i = 0; i < scene.count; i++) {
     const d = scene.data.subarray(i * 24, i * 24 + 24);
     const [x0, y0, w0, h0, start, end, from, until] = d;
@@ -232,7 +246,24 @@ export function placeLayout(
     let colour = [d[8], d[9], d[10]];
     const osu = map.mode === 0 ? evaluateOsu(d, now, scene.preempt) : null;
     if (osu) ({ x, y, w, h, angle, alpha, colour } = osu);
-    else if (kind === 35) {
+    else if (kind === 35 && Math.round(d[13]) === Profile.particle) {
+      // lazer's ParticleExplosion is one drawable, 140 units square at the
+      // judgement, fading from one over 1600 ms started 100 ms early, inside
+      // the judgement piece (in over 120 ms, out from 500 ms over 600); its
+      // particles are drawn inside it. Compare it, once, as that drawable.
+      const key = `${start}:${x0}:${y0}:${d[21]}`;
+      if (particleGroups.has(key)) continue;
+      particleGroups.add(key);
+      const name = names.get(d[21]) ?? "",
+        scale = d[2] / (regions.get(name)?.width || 1);
+      w = h = 140 * scale;
+      const dt = now - start,
+        clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+      alpha *=
+        clamp01(1 - (dt + 100) / 1600) *
+        clamp01(dt / 120) *
+        clamp01(1 - (dt - 500) / 600);
+    } else if (kind === 35) {
       const j = evaluateJudgement(d, now, catcherX);
       ({ x, y, w, h, angle } = j);
       alpha = j.alpha;
@@ -355,9 +386,11 @@ export function placeLayout(
     )
       continue;
     if (alpha < 0.02) continue;
+    const frame = frameAt(d, now);
     out.push({
       index: i,
-      asset: names.get(d[21]) ?? "",
+      asset: names.get(frame.entry) ?? "",
+      nearFrameChange: frame.nearChange,
       centre: [
         (x - 256) * SPACE_SCALE + space.width / 2,
         (y - 192) * SPACE_SCALE + space.height / 2,
@@ -408,9 +441,17 @@ export function compareLayout(
   c: LayoutCase,
   result: LayoutResult,
   placed: PlacedItem[],
-  own: (asset: string) => boolean = () => true,
+  ownImage: (asset: string) => boolean = () => true,
   tolerance = 1.5,
 ): LayoutMismatch[] {
+  // An animation's frames come from the skin only when it has the first
+  // frame (GetAnimation); otherwise lazer shows its classic skin's frames.
+  const own = (asset: string) => {
+    const element = frameElement(asset);
+    return element !== asset && animatedAssets.has(element)
+      ? ownImage(element === "sliderb" ? "sliderb0" : element)
+      : ownImage(asset);
+  };
   const mismatches: LayoutMismatch[] = [],
     used = new Set<number>(),
     [width, height] = result.size;
@@ -428,15 +469,13 @@ export function compareLayout(
     if (!item.texture || item.alpha < 0.05) continue;
     // Images over a size cap are cropped copies that lose their name; they
     // are matched by geometry alone.
-    // Animation frames are compared as their element (not their timing).
-    const asset = item.texture.name
-      ? goldenAsset(item.texture.name)
-          .replace(/-0$/, "")
-          .replace(/^sliderb\d+$/, "sliderb")
-          .replace(/^(sliderfollowcircle)-\d+$/, "$1")
-      : null;
+    // Animation frames are compared frame by frame (render-core's frame
+    // selection is evaluated like the shader's, see frameEntry).
+    const asset = item.texture.name ? goldenAsset(item.texture.name) : null;
     if (
-      (asset && (!own(asset) || UNMODELLED.some((r) => r.test(asset)))) ||
+      (asset &&
+        (!own(asset.replace(/-0$/, "")) ||
+          UNMODELLED.some((r) => r.test(asset)))) ||
       unmodelledPath(item.path) ||
       (c.ruleset === "osu" && !(asset && OSU_LAYOUT.test(asset)))
     )
@@ -472,7 +511,10 @@ export function compareLayout(
     const candidates = placed.filter(
       (p) =>
         !used.has(p.index) &&
-        (asset ? p.asset.replace(/-0$/, "") === asset : own(p.asset)),
+        (asset
+          ? p.asset === asset ||
+            (p.nearFrameChange && frameElement(p.asset) === frameElement(asset))
+          : own(p.asset)),
     );
     const distance = (p: PlacedItem) =>
       Math.hypot(p.centre[0] - s.centre[0], p.centre[1] - s.centre[1]);

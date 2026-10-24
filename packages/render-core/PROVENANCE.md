@@ -94,6 +94,17 @@ profiles in `src/shader.ts`, and their call sites in `src/scene.ts`,
 osu!framework 2026.921.1 transform sequencing (`TransformSequence.Then/Delay`).
 Lazer draws catch's hit lighting from its own classic skin, never the user's;
 render-core draws stand-ins of the same size (`CATCH_EXPLOSION_SIZES`).
+Animation lookups follow `LegacySkinExtensions.GetAnimation`: any frames
+(even a lone `name-0`) replace the plain image and set its size; taiko's hit
+explosions run at 60 fps without the pop when animated. Without a replay,
+osu!taiko shows autoplay's Great judgements (particles, main piece and
+old-style flash) for skins without explosions of their own. Falling catch
+objects are alive from when `ScrollingHitObjectContainer`'s 100-unit
+conservative bounding box would enter the playfield, so they scroll in from
+above its top. `test/judgementGolden.ts` also plays a second synthetic skin
+with particles (`JUDGEMENT_SKIN_NEW`); a pooled judgement piece's first use
+restarts its particles on load in lazer, so the golden allows that
+difference.
 
 Replay-input elements (`src/gameplay.ts`, the motion-35 profiles 19-27 in
 `src/shader.ts`, `taikoMascot`/`taikoKiaiGlow` in `src/taiko.ts`, the plate

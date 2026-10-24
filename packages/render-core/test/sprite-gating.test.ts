@@ -1,3 +1,4 @@
+import { legacyBool } from "../src/osu";
 import { test, expect } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
 import { compileScene } from "../src/scene";
@@ -81,4 +82,10 @@ test("spinners pick lazer's legacy style from the skin's own images, at any vers
   expect(
     drawn(["spinner-circle", "spinner-approachcircle"], ["spinner-circle"]),
   ).toEqual(["spinner-approachcircle", "spinner-circle"]);
+});
+
+test("skin.ini booleans read like lazer's LegacySkin", () => {
+  expect(["1", "36", "true", "True", " 2 "].map(legacyBool)).toEqual([true, true, true, true, true]);
+  expect(["0", "false", "FALSE"].map(legacyBool)).toEqual([false, false, false]);
+  expect([undefined, "", "yes"].map(legacyBool)).toEqual([undefined, undefined, undefined]);
 });

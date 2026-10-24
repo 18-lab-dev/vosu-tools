@@ -616,6 +616,60 @@
       "time": 5500,
       "width": 1024,
       "height": 768
+    },
+    {
+      "name": "catch-enter-2400",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2400,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-2500",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-2600",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2600,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3500",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3700",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3700,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3900",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3900,
+      "width": 1365.3334,
+      "height": 768
     }
   ]
 }

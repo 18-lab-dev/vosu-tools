@@ -90,6 +90,14 @@ export function regionStrips(region: AtlasRegion): AtlasStrip[] {
   return region.strips ?? [{ u, v, w, h, layer, a: 0, b: 1 }];
 }
 
+/** Whether a region has animation frames (`first` then leads into them). */
+export function hasFrames(region: AtlasRegion): boolean {
+  return (
+    (region.count ?? 1) > 1 ||
+    (region.still !== undefined && region.first !== region.still)
+  );
+}
+
 /**
  * The instances that draw a region: one per strip, each with its frame-table
  * entry and (for stills) its UV rectangle. `still` draws the plain image;
@@ -102,9 +110,11 @@ export function regionInstances(
   maxRow = 1,
 ): { entry: number; uv: AtlasStrip }[] {
   const strips = regionStrips(region),
-    animated = !still && (region.count ?? 0) > 1,
-    count = animated ? (region.stride ?? strips.length) : strips.length,
-    base = (animated ? region.first : (region.still ?? region.first)) ?? 0,
+    // An animation lookup uses the frames whenever there are any: a single
+    // frame (`name-0`) wins over the plain image, as in lazer's GetAnimation.
+    framed = !still && hasFrames(region),
+    count = framed ? (region.stride ?? strips.length) : strips.length,
+    base = (framed ? region.first : (region.still ?? region.first)) ?? 0,
     out: { entry: number; uv: AtlasStrip }[] = [];
   for (let k = 0; k < count; k++) {
     const uv = strips[k] ?? strips[0];
@@ -217,7 +227,8 @@ function judgementNames(): string[] {
     ...["0", "50", "100", "200", "300", "300g"].map((r) => `mania-hit${r}`),
   ];
 }
-const animated = new Set([
+/** Elements lazer looks up as animations (`GetAnimation`, animatable). */
+export const animatedAssets: ReadonlySet<string> = new Set([
   "sliderb",
   "sliderfollowcircle",
   "pippidonidle",
@@ -473,7 +484,7 @@ async function decode(
         const name = pending[cursor++];
         await image(name);
         if (
-          !animated.has(name) &&
+          !animatedAssets.has(name) &&
           !name.startsWith("mania-") &&
           !name.startsWith("mania/") &&
           !/lighting/i.test(name) &&

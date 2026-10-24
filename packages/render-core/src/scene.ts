@@ -237,7 +237,7 @@ export function compileScene(
     still = false,
     /**
      * Keep only the centre of the image (fractions of its width and height),
-     * like osu!'s `WithMaximumSize`; implies the first frame.
+     * like osu!'s `WithMaximumSize` (every frame of an animation).
      */
     crop?: readonly [number, number],
     /** Only these image rows (fractions of its height, top first); implies the first frame. */
@@ -250,10 +250,13 @@ export function compileScene(
       // One instance per strip of a tall image (atlas.ts). A crop keeps the
       // centre of each strip horizontally; tall images are never cropped
       // vertically (only small taiko and catch pieces are).
-      const animated = !(still || crop || rows);
+      const animated = !(still || rows);
       for (const { entry, uv: strip } of regionInstances(region, !animated)) {
         const uv =
-          crop && !region.strips
+          // The shader crops each frame it selects (shader.ts).
+          crop && animated
+            ? { u: 0, v: 0, w: -crop[0], h: -crop[1] }
+            : crop && !region.strips
             ? {
                 u: strip.u + (strip.w * (1 - crop[0])) / 2,
                 v: strip.v + (strip.h * (1 - crop[1])) / 2,
@@ -677,7 +680,7 @@ export function compileScene(
       circle(o, x, y, radius, colour);
       digits(o, x, y);
       // DrawableSlider: the ball and follow circle sit above the head circle.
-      if (o.type & 2) sliderBall(add, o, offset, colour, regions, skin, radius);
+      if (o.type & 2) sliderBall(add, o, offset, colour, regions, skin, radius, preempt);
       add(
         x,
         y,

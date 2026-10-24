@@ -59,6 +59,17 @@ const MAX_BALL_AREA = 128 * 3;
 /** `LegacyOldStyleSpinner`'s full metre, box units. */
 const METRE_HEIGHT = 692 * SPRITE_SCALE;
 
+/**
+ * A skin.ini boolean as `LegacySkin` reads it: true/false, else any integer
+ * (non-zero is true); anything else is unset.
+ */
+export function legacyBool(value: string | undefined): boolean | undefined {
+  const text = value?.trim();
+  if (text === undefined) return undefined;
+  if (/^(true|false)$/i.test(text)) return text.toLowerCase() === "true";
+  return /^[+-]?\d+$/.test(text) ? Number(text) !== 0 : undefined;
+}
+
 /** Instance kinds the shader animates (shader.ts). */
 export const SPINNER_PART = 37;
 export const FOLLOW_CIRCLE = 40;
@@ -398,8 +409,7 @@ function metre(
 ) {
   const region = regions.get("spinner-metre");
   if (!region) return;
-  const blink =
-    skin?.sections.get("General")?.[0]?.SpinnerNoBlink?.trim() !== "1";
+  const blink = !legacyBool(skin?.sections.get("General")?.[0]?.SpinnerNoBlink);
   const W = (region.width ?? 0) * SPRITE_SCALE,
     H = (region.height ?? 0) * SPRITE_SCALE,
     full = timing.required * timing.spin;
@@ -543,7 +553,11 @@ export function sliderBall(
   regions: Map<string, AtlasRegion>,
   skin: Skin | undefined,
   radius: number,
+  preempt: number,
 ): void {
+  // Both animations play from DrawableSlider's AnimationStartTime (its
+  // initial transforms: start time minus preempt).
+  const animationStart = o.time - preempt;
   // OsuHitObject.Scale (CalculateScaleFromCircleSize, with stable's fudge).
   const scale = (radius / 64) * 1.00041;
   const pieces = ballPieces(o, offset),
@@ -609,7 +623,7 @@ export function sliderBall(
         FOLLOW_CIRCLE,
         q.x,
         q.y,
-        o.time,
+        animationStart,
         "sliderfollowcircle",
         0,
         0,
@@ -639,10 +653,9 @@ export function sliderBall(
     );
   }
   const colours = skin?.sections.get("Colours")?.[0],
-    tint =
-      skin?.sections.get("General")?.[0]?.AllowSliderBallTint?.trim() === "1"
-        ? combo
-        : (colourOf(colours?.SliderBall) ?? [1, 1, 1]);
+    tint = legacyBool(skin?.sections.get("General")?.[0]?.AllowSliderBallTint)
+      ? combo
+      : (colourOf(colours?.SliderBall) ?? [1, 1, 1]);
   // LegacySliderBall: sliderb-nd (very dark) under the ball, sliderb-spec
   // (additive) over it; only the ball turns with the path. Its frames last
   // max(0.15 / velocity, 1) × 16.67 ms.
@@ -670,7 +683,7 @@ export function sliderBall(
         kind,
         piece.b.x,
         piece.b.y,
-        o.time,
+        animationStart,
         name,
         0,
         0,

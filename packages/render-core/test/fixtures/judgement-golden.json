@@ -1553,13 +1553,13 @@
      ],
      "additive": true,
      "quad": [
-      659.699,
+      640.846,
       659.2,
-      659.699,
+      640.846,
       527.979,
-      726.639,
+      707.786,
       659.2,
-      726.639,
+      707.786,
       527.979
      ],
      "clip": null
@@ -1587,13 +1587,13 @@
      ],
      "additive": true,
      "quad": [
-      642.56,
+      623.707,
       659.2,
-      642.56,
+      623.707,
       627.189,
-      743.778,
+      724.925,
       659.2,
-      743.778,
+      724.925,
       627.189
      ],
      "clip": null
@@ -1673,13 +1673,13 @@
      ],
      "additive": true,
      "quad": [
-      657.204,
+      638.006,
       659.2,
-      657.204,
+      638.006,
       444.698,
-      730.437,
+      711.24,
       659.2,
-      730.437,
+      711.24,
       444.698
      ],
      "clip": null
@@ -1707,13 +1707,13 @@
      ],
      "additive": true,
      "quad": [
-      636.748,
+      617.55,
       659.2,
-      636.748,
+      617.55,
       627.189,
-      750.894,
+      731.696,
       659.2,
-      750.894,
+      731.696,
       627.189
      ],
      "clip": null
@@ -1793,13 +1793,13 @@
      ],
      "additive": true,
      "quad": [
-      606.432,
+      609.614,
       659.2,
-      606.432,
+      609.614,
       627.189,
-      728.335,
+      731.517,
       659.2,
-      728.335,
+      731.517,
       627.189
      ],
      "clip": null
@@ -2283,6 +2283,2556 @@
       495.938,
       725.167,
       495.938
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1030",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1030,
+  "result": {
+   "name": "new-osu-1030",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.15,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      612.242,
+      326.376,
+      753.091,
+      326.376,
+      612.242,
+      467.224,
+      753.091,
+      467.224
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.2479,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.25,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      631.525,
+      371.229,
+      733.809,
+      371.229,
+      631.525,
+      422.371,
+      733.809,
+      422.371
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.121,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      639.888,
+      375.411,
+      725.446,
+      375.411,
+      639.888,
+      418.189,
+      725.446,
+      418.189
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1080",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1080,
+  "result": {
+   "name": "new-osu-1080",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.4,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      607.159,
+      321.293,
+      758.174,
+      321.293,
+      607.159,
+      472.307,
+      758.174,
+      472.307
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.6403,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      631.139,
+      371.036,
+      734.194,
+      371.036,
+      631.139,
+      422.564,
+      734.194,
+      422.564
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.2889,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      625.157,
+      368.045,
+      740.177,
+      368.045,
+      625.157,
+      425.555,
+      740.177,
+      425.555
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1110",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1110,
+  "result": {
+   "name": "new-osu-1110",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.55,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      604.334,
+      318.467,
+      761,
+      318.467,
+      604.334,
+      475.133,
+      761,
+      475.133
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.8632,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.9167,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      630.908,
+      370.921,
+      734.426,
+      370.921,
+      630.908,
+      422.679,
+      734.426,
+      422.679
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3514,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      620.443,
+      365.688,
+      744.891,
+      365.688,
+      620.443,
+      427.912,
+      744.891,
+      427.912
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1140",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1140,
+  "result": {
+   "name": "new-osu-1140",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.7,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      601.676,
+      315.809,
+      763.658,
+      315.809,
+      601.676,
+      477.791,
+      763.658,
+      477.791
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.9229,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      630.676,
+      370.805,
+      734.657,
+      370.805,
+      630.676,
+      422.795,
+      734.657,
+      422.795
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      629.871,
+      370.402,
+      735.463,
+      370.402,
+      629.871,
+      423.198,
+      735.463,
+      423.198
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1160",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1160,
+  "result": {
+   "name": "new-osu-1160",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.8,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      599.997,
+      314.13,
+      765.337,
+      314.13,
+      599.997,
+      479.47,
+      765.337,
+      479.47
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.9104,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      630.522,
+      370.728,
+      734.811,
+      370.728,
+      630.522,
+      422.872,
+      734.811,
+      422.872
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      625.157,
+      368.045,
+      740.177,
+      368.045,
+      625.157,
+      425.555,
+      740.177,
+      425.555
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1300",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1300,
+  "result": {
+   "name": "new-osu-1300",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      590.335,
+      304.468,
+      774.999,
+      304.468,
+      590.335,
+      489.132,
+      774.999,
+      489.132
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.8229,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      629.442,
+      370.188,
+      735.891,
+      370.188,
+      629.442,
+      423.412,
+      735.891,
+      423.412
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.0667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      623.271,
+      367.102,
+      742.062,
+      367.102,
+      623.271,
+      426.498,
+      742.062,
+      426.498
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1450",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1450,
+  "result": {
+   "name": "new-osu-1450",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.95,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      584.039,
+      298.172,
+      781.294,
+      298.172,
+      584.039,
+      495.428,
+      781.294,
+      495.428
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.7292,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      628.285,
+      369.609,
+      737.048,
+      369.609,
+      628.285,
+      423.991,
+      737.048,
+      423.991
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1700",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1700,
+  "result": {
+   "name": "new-osu-1700",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.7,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      581.941,
+      296.074,
+      783.393,
+      296.074,
+      581.941,
+      497.526,
+      783.393,
+      497.526
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.3819,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      626.357,
+      368.645,
+      738.977,
+      368.645,
+      626.357,
+      424.955,
+      738.977,
+      424.955
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-osu-1900",
+  "ruleset": "osu",
+  "skin": "judgements-new",
+  "map": "osu",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1900,
+  "result": {
+   "name": "new-osu-1900",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer",
+      "Container"
+     ],
+     "texture": {
+      "name": "lighting@2x:wrap-0-0",
+      "display": [
+       184,
+       184
+      ]
+     },
+     "alpha": 0.5,
+     "colour": [
+      0,
+      0.7904,
+      0
+     ],
+     "additive": true,
+     "quad": [
+      581.941,
+      296.074,
+      783.393,
+      296.074,
+      581.941,
+      497.526,
+      783.393,
+      497.526
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.1493,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      618.801,
+      332.934,
+      746.533,
+      332.934,
+      618.801,
+      460.666,
+      746.533,
+      460.666
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "OsuPlayfield",
+      "ScalingContainer",
+      "Container",
+      "OsuPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      624.814,
+      367.874,
+      740.52,
+      367.874,
+      624.814,
+      425.726,
+      740.52,
+      425.726
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1030",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1030,
+  "result": {
+   "name": "new-taiko-1030",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.25,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      183.4,
+      243.4,
+      328.6,
+      243.4,
+      183.4,
+      388.6,
+      328.6,
+      388.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.2479,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.25,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      199.946,
+      287.973,
+      312.054,
+      287.973,
+      199.946,
+      344.027,
+      312.054,
+      344.027
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.121,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      209.112,
+      292.556,
+      302.887,
+      292.556,
+      209.112,
+      339.444,
+      302.887,
+      339.444
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1080",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1080,
+  "result": {
+   "name": "new-taiko-1080",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      158.4,
+      218.4,
+      353.6,
+      218.4,
+      158.4,
+      413.6,
+      353.6,
+      413.6
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.6403,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.6667,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      199.524,
+      287.762,
+      312.476,
+      287.762,
+      199.524,
+      344.238,
+      312.476,
+      344.238
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.2889,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      192.967,
+      284.483,
+      319.033,
+      284.483,
+      192.967,
+      347.517,
+      319.033,
+      347.517
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1110",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1110,
+  "result": {
+   "name": "new-taiko-1110",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.9167,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      156,
+      216,
+      356,
+      216,
+      156,
+      416,
+      356,
+      416
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.8632,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.9167,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      199.27,
+      287.635,
+      312.73,
+      287.635,
+      199.27,
+      344.365,
+      312.73,
+      344.365
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3514,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      187.8,
+      281.9,
+      324.2,
+      281.9,
+      187.8,
+      350.1,
+      324.2,
+      350.1
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1150",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1150,
+  "result": {
+   "name": "new-taiko-1150",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.8333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      167.2,
+      227.2,
+      344.8,
+      227.2,
+      167.2,
+      404.8,
+      344.8,
+      404.8
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.9167,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      198.932,
+      287.466,
+      313.068,
+      287.466,
+      198.932,
+      344.534,
+      313.068,
+      344.534
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.3167,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      195.55,
+      285.775,
+      316.45,
+      285.775,
+      195.55,
+      346.225,
+      316.45,
+      346.225
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1200",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1200,
+  "result": {
+   "name": "new-taiko-1200",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.5556,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      160,
+      220,
+      352,
+      220,
+      160,
+      412,
+      352,
+      412
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.8854,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      198.509,
+      287.255,
+      313.491,
+      287.255,
+      198.509,
+      344.745,
+      313.491,
+      344.745
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.2333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      190.9,
+      283.45,
+      321.1,
+      283.45,
+      190.9,
+      348.55,
+      321.1,
+      348.55
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-1260",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 1260,
+  "result": {
+   "name": "new-taiko-1260",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.2222,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      160,
+      220,
+      352,
+      220,
+      160,
+      412,
+      352,
+      412
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.8479,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 1,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      198.002,
+      287.001,
+      313.998,
+      287.001,
+      198.002,
+      344.999,
+      313.998,
+      344.999
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.1333,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      190.9,
+      283.45,
+      321.1,
+      283.45,
+      190.9,
+      348.55,
+      321.1,
+      348.55
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-3025",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 3025,
+  "result": {
+   "name": "new-taiko-3025",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300@2x:wrap-0-0",
+      "display": [
+       192,
+       192
+      ]
+     },
+     "alpha": 0.0065,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      185.9,
+      245.9,
+      326.1,
+      245.9,
+      185.9,
+      386.1,
+      326.1,
+      386.1
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300k@2x:wrap-0-0",
+      "display": [
+       225,
+       225
+      ]
+     },
+     "alpha": 0.2018,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      173.852,
+      233.852,
+      338.148,
+      233.852,
+      173.852,
+      398.148,
+      338.148,
+      398.148
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.1921,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.2083,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      199.989,
+      287.994,
+      312.011,
+      287.994,
+      199.989,
+      344.006,
+      312.011,
+      344.006
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.0967,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      210.727,
+      293.364,
+      301.273,
+      293.364,
+      210.727,
+      338.636,
+      301.273,
+      338.636
+     ],
+     "clip": null
+    }
+   ]
+  }
+ },
+ {
+  "name": "new-taiko-3070",
+  "ruleset": "taiko",
+  "skin": "judgements-new",
+  "map": "taiko",
+  "width": 1365.3334,
+  "height": 768,
+  "time": 3070,
+  "result": {
+   "name": "new-taiko-3070",
+   "size": [
+    1365.3334,
+    768
+   ],
+   "items": [
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "taiko-hit300k@2x:wrap-0-0",
+      "display": [
+       225,
+       225
+      ]
+     },
+     "alpha": 0.5833,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      147.484,
+      207.484,
+      364.516,
+      207.484,
+      147.484,
+      424.516,
+      364.516,
+      424.516
+     ],
+     "clip": null
+    },
+    {
+     "type": "ParticleExplosion",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "particle300:wrap-0-0",
+      "display": [
+       28,
+       28
+      ]
+     },
+     "alpha": 0.5214,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      186,
+      246,
+      326,
+      246,
+      186,
+      386,
+      326,
+      386
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "Container",
+      "Container",
+      "TaikoPlayfield",
+      "TaikoPlayfieldAdjustmentContainer"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.5833,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": false,
+     "quad": [
+      199.608,
+      287.804,
+      312.392,
+      287.804,
+      199.608,
+      344.196,
+      312.392,
+      344.196
+     ],
+     "clip": null
+    },
+    {
+     "type": "Sprite",
+     "path": [
+      "JudgementContainer`1",
+      "Container",
+      "Container",
+      "TaikoPlayfield"
+     ],
+     "texture": {
+      "name": "hit300:wrap-0-0",
+      "display": [
+       124,
+       62
+      ]
+     },
+     "alpha": 0.2625,
+     "colour": [
+      1,
+      1,
+      1
+     ],
+     "additive": true,
+     "quad": [
+      196.196,
+      286.098,
+      315.804,
+      286.098,
+      196.196,
+      345.902,
+      315.804,
+      345.902
      ],
      "clip": null
     }
