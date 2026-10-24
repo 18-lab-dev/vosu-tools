@@ -25,6 +25,7 @@ mod library;
 mod output;
 mod overlays;
 mod render;
+mod share;
 mod skins;
 type Error = (StatusCode, Json<Value>);
 fn error(message: impl ToString) -> Error {
@@ -84,6 +85,13 @@ enum Cli {
         /// Overlay folder (with index.html) or single .html page; repeatable
         #[arg(long = "overlay")]
         overlays: Vec<PathBuf>,
+        /// Where the MP4 is going: x, discord or youtube (sized, rated and
+        /// encoded for its upload limits); defaults to the tool's setting
+        #[arg(long = "for", value_parser = ["standard", "x", "discord", "youtube"])]
+        export_for: Option<String>,
+        /// Discord's size limit in MB: 20 (free), 50 (Nitro Basic) or 1000 (Nitro)
+        #[arg(long, value_parser = ["20", "50", "1000"])]
+        discord_mb: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -230,6 +238,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
         .route("/v1/sizes", get(output::get_sizes).post(output::save_size))
         .route("/v1/sizes/last", post(output::set_last))
         .route("/v1/sizes/layout", post(output::set_layout))
+        .route("/v1/sizes/export", post(output::set_export))
         .route("/v1/sizes/overlay", post(output::set_overlay_size))
         .route("/v1/overlays", get(output::installed_overlays))
         .route(
@@ -243,6 +252,7 @@ async fn execute() -> Result<(), Box<dyn std::error::Error>> {
             post(save_preset).delete(delete_preset),
         )
         .route("/v1/render", post(render::start))
+        .route("/v1/render/plan", get(share::plan))
         .route("/v1/skins/uploads", post(skins::start))
         .route("/v1/skins/uploads/{id}", post(skins::part))
         .route("/v1/skins/uploads/{id}/finish", post(skins::finish))
@@ -446,6 +456,8 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             fps,
             resolution,
             overlays,
+            export_for,
+            discord_mb,
             json: as_json,
         } => {
             let defaults: Value = client.own_json("v1/context").await?;
@@ -478,13 +490,19 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                     .to_owned()
             })?;
             let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width.min(4096),"height":height.min(4096),"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
-            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto"}))).await?;
+            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto","export_for":export_for,"discord_mb":discord_mb.map(|mb| mb.parse::<u32>().unwrap_or(20))}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
+            let mut warned = false;
             let result = client
                 .wait_job("replay-renderer", id, |state| {
-                    if !as_json {
-                        eprintln!("{}", state["message"].as_str().unwrap_or("Rendering"));
+                    if as_json {
+                        return;
                     }
+                    if let Some(warning) = state["warning"].as_str().filter(|_| !warned) {
+                        eprintln!("warning: {warning}");
+                        warned = true;
+                    }
+                    eprintln!("{}", state["message"].as_str().unwrap_or("Rendering"));
                 })
                 .await?;
             if as_json {

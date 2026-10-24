@@ -1,4 +1,6 @@
 //! Select an encoder by actually opening it, not merely trusting FFmpeg's build flags.
+//! Its options come from the export plan (`share.rs`), so the probe opens it
+//! exactly as the export will: profile, level, size and frame rate.
 use std::{path::PathBuf, process::Stdio, time::Duration};
 use tokio::process::Command;
 
@@ -6,15 +8,16 @@ use tokio::process::Command;
 pub(super) struct Encoder {
     pub name: &'static str,
     device: Option<PathBuf>,
-    pub output: &'static [&'static str],
+    /// Filter that hands frames to the encoder's hardware (VAAPI).
+    upload: Option<&'static str>,
     gpu: Option<String>,
 }
 impl Encoder {
-    fn new(name: &'static str, options: &'static [&'static str]) -> Self {
+    fn new(name: &'static str) -> Self {
         Self {
             name,
             device: None,
-            output: options,
+            upload: None,
             gpu: None,
         }
     }
@@ -30,32 +33,29 @@ impl Encoder {
         }
         command
     }
-    pub fn configure(&self, command: &mut Command) {
-        command.args(["-c:v", self.name]).args(self.output);
+    /// Video filter, pixel format, codec and tags for `plan`.
+    pub fn configure(&self, command: &mut Command, plan: &crate::share::Plan) {
+        command.arg("-vf").arg(plan.video_filter(self.upload));
+        if self.upload.is_none() {
+            command.args(["-pix_fmt", "yuv420p"]);
+        }
+        command
+            .args(["-c:v", self.name])
+            .args(plan.codec_args(self.name))
+            .args(plan.common_args());
         if self.gpu.is_some() {
             command.args(["-gpu", "0"]);
         }
     }
 }
 fn software() -> Encoder {
-    Encoder::new("libx264", &["-preset", "veryfast", "-crf", "18"])
+    Encoder::new("libx264")
 }
 fn hardware() -> Vec<Encoder> {
-    let mut encoders = vec![Encoder::new(
-        "h264_nvenc",
-        &["-preset", "p4", "-rc", "vbr", "-cq", "18", "-b:v", "0"],
-    )];
+    let mut encoders = vec![Encoder::new("h264_nvenc")];
     if cfg!(windows) {
-        encoders.push(Encoder::new(
-            "h264_qsv",
-            &["-preset", "veryfast", "-global_quality", "18"],
-        ));
-        encoders.push(Encoder::new(
-            "h264_amf",
-            &[
-                "-quality", "speed", "-rc", "cqp", "-qp_i", "18", "-qp_p", "18",
-            ],
-        ));
+        encoders.push(Encoder::new("h264_qsv"));
+        encoders.push(Encoder::new("h264_amf"));
     }
     if cfg!(target_os = "linux")
         && let Ok(devices) = std::fs::read_dir("/dev/dri")
@@ -70,17 +70,8 @@ fn hardware() -> Vec<Encoder> {
             .collect::<Vec<_>>();
         devices.sort();
         for device in devices {
-            let mut encoder = Encoder::new(
-                "h264_vaapi",
-                &[
-                    "-vf",
-                    "format=nv12,hwupload",
-                    "-qp",
-                    "18",
-                    "-pix_fmt",
-                    "vaapi",
-                ],
-            );
+            let mut encoder = Encoder::new("h264_vaapi");
+            encoder.upload = Some("format=nv12,hwupload");
             encoder.device = Some(device);
             encoders.push(encoder);
         }
@@ -90,8 +81,7 @@ fn hardware() -> Vec<Encoder> {
 async fn available(
     executable: &str,
     encoder: &Encoder,
-    width: u32,
-    height: u32,
+    plan: &crate::share::Plan,
 ) -> Result<bool, String> {
     let mut command = encoder.command(executable);
     command
@@ -100,12 +90,14 @@ async fn available(
             "-f",
             "lavfi",
             "-i",
-            &format!("color=size={width}x{height}:rate=60,format=rgba"),
+            &format!(
+                "color=size={}x{}:rate={},format=rgba",
+                plan.input.0, plan.input.1, plan.fps
+            ),
             "-frames:v",
             "1",
-        ])
-        .args(["-pix_fmt", "yuv420p"]);
-    encoder.configure(&mut command);
+        ]);
+    encoder.configure(&mut command, plan);
     command
         .args(["-f", "null", "-"])
         .stdin(Stdio::null())
@@ -124,8 +116,7 @@ async fn available(
 pub(super) async fn select(
     executable: &str,
     preference: &str,
-    width: u32,
-    height: u32,
+    plan: &crate::share::Plan,
     gpu: Option<&crate::gpu::Gpu>,
 ) -> Result<Encoder, String> {
     if !matches!(preference, "auto" | "hardware" | "software") {
@@ -139,7 +130,7 @@ pub(super) async fn select(
                 }
                 encoder.gpu = Some(gpu.uuid.clone());
             }
-            if available(executable, &encoder, width, height).await? {
+            if available(executable, &encoder, plan).await? {
                 return Ok(encoder);
             }
         }
@@ -148,7 +139,7 @@ pub(super) async fn select(
         }
     }
     let encoder = software();
-    if available(executable, &encoder, width, height).await? {
+    if available(executable, &encoder, plan).await? {
         Ok(encoder)
     } else {
         Err("FFmpeg has no working libx264 encoder; install an FFmpeg build with H.264 encoding support".into())
@@ -157,14 +148,21 @@ pub(super) async fn select(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::share::{Plan, Target};
+    fn args(encoder: &Encoder, plan: &Plan) -> Vec<String> {
+        let mut command = encoder.command("ffmpeg");
+        encoder.configure(&mut command, plan);
+        command
+            .as_std()
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
     #[test]
     fn pinned_nvenc_uses_uuid_and_local_ordinal_zero() {
-        let mut encoder = Encoder::new("h264_nvenc", &[]);
+        let mut encoder = Encoder::new("h264_nvenc");
         encoder.gpu = Some("GPU-spare".into());
-        let mut command = encoder.command("ffmpeg");
-        encoder.configure(&mut command);
-        let args: Vec<_> = command.as_std().get_args().collect();
-        assert!(args.windows(2).any(|pair| pair == ["-gpu", "0"]));
+        let command = encoder.command("ffmpeg");
         assert!(
             command
                 .as_std()
@@ -172,25 +170,39 @@ mod tests {
                 .any(|(key, value)| key == "CUDA_VISIBLE_DEVICES"
                     && value == Some(std::ffi::OsStr::new("GPU-spare")))
         );
+        let plan = Plan::new(Target::Standard, 1920, 1080, 60);
+        assert!(
+            args(&encoder, &plan)
+                .windows(2)
+                .any(|pair| pair == ["-gpu", "0"])
+        );
     }
     #[test]
-    fn quality_and_input_options_are_explicit() {
-        assert_eq!(software().name, "libx264");
-        assert!(
-            software()
-                .output
-                .windows(2)
-                .any(|pair| pair == ["-crf", "18"])
-        );
-        let nvenc = &hardware()[0];
-        assert_eq!(nvenc.name, "h264_nvenc");
-        assert!(nvenc.device.is_none());
-        assert!(nvenc.output.windows(2).any(|pair| pair == ["-cq", "18"]));
+    fn every_encoder_gets_profile_tags_and_conversion() {
+        let plan = Plan::new(Target::X, 2560, 1080, 40);
+        for encoder in [software(), Encoder::new("h264_nvenc")] {
+            let args = args(&encoder, &plan);
+            let pair = |a: &str, b: &str| args.windows(2).any(|w| w[0] == a && w[1] == b);
+            assert!(pair("-c:v", encoder.name));
+            assert!(pair("-profile:v", "high") && pair("-pix_fmt", "yuv420p"));
+            assert!(pair("-colorspace", "bt709") && pair("-g", "40"));
+            assert!(pair(
+                "-vf",
+                "scale=1920:810:flags=lanczos,scale=out_color_matrix=bt709:out_range=tv,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709:range=tv,format=yuv420p"
+            ));
+        }
+        let mut vaapi = Encoder::new("h264_vaapi");
+        vaapi.upload = Some("format=nv12,hwupload");
+        vaapi.device = Some("/dev/dri/renderD128".into());
+        let args = args(&vaapi, &plan);
+        assert!(!args.iter().any(|a| a == "-pix_fmt"));
+        assert!(args.iter().any(|a| a.ends_with("format=nv12,hwupload")));
     }
     #[tokio::test]
     async fn invalid_preference_does_not_launch_a_process() {
+        let plan = Plan::new(Target::Standard, 1920, 1080, 60);
         assert!(
-            select("does-not-exist", "typo", 1920, 1080, None)
+            select("does-not-exist", "typo", &plan, None)
                 .await
                 .unwrap_err()
                 .contains("auto")

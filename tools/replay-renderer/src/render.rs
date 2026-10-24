@@ -23,6 +23,12 @@ pub(super) struct Request {
     encoder: Option<String>,
     #[serde(default)]
     parallel_jobs: Option<u32>,
+    /// "Export for": standard, x, discord or youtube; absent: the tool setting.
+    #[serde(default)]
+    export_for: Option<String>,
+    /// Discord's size limit in MB (20, 50 or 1000); absent: the tool setting.
+    #[serde(default)]
+    discord_mb: Option<u32>,
     /// Internal half-open timeline partition; never accepted from clients.
     #[serde(skip)]
     segment: Option<(u32, u32)>,
@@ -57,6 +63,19 @@ struct Worker {
     overlays: Arc<Vec<Instance>>,
     audio: Arc<Mutex<Value>>,
     gpu: Option<Arc<crate::gpu::Gpu>>,
+}
+impl Worker {
+    /// The export's target, frame geometry and rate (`start` validated them).
+    fn plan(&self) -> crate::share::Plan {
+        let target = crate::share::Target::parse(
+            self.request.export_for.as_deref().unwrap_or("standard"),
+            self.request
+                .discord_mb
+                .unwrap_or(crate::share::DISCORD_MB[0]),
+        )
+        .unwrap_or(crate::share::Target::Standard);
+        crate::share::Plan::new(target, self.width, self.height, self.request.fps)
+    }
 }
 struct Instance {
     track: usize,
@@ -95,6 +114,23 @@ pub(super) async fn start(
         return Err(error("Encoder must be auto, hardware or software"));
     }
     request.encoder = Some(preference.to_owned());
+    let target = crate::share::Target::parse(
+        request
+            .export_for
+            .as_deref()
+            .unwrap_or_else(|| defaults["export_for"].as_str().unwrap_or("standard")),
+        request.discord_mb.unwrap_or_else(|| {
+            u32::try_from(defaults["discord_mb"].as_u64().unwrap_or(0)).unwrap_or(0)
+        }),
+    )
+    .map_err(error)?;
+    request.export_for = Some(target.name().to_owned());
+    request.discord_mb = match target {
+        crate::share::Target::Discord { megabytes } => Some(megabytes),
+        _ => None,
+    };
+    // Rendered at the target's rate (X: at most 40 fps), not resampled later.
+    request.fps = target.fps(request.fps);
     let jobs = request.parallel_jobs.unwrap_or_else(|| {
         u32::try_from(settings["parallel_jobs"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX)
     });
@@ -484,6 +520,9 @@ async fn begin(
     *worker.audio.lock().await = json!({"path": audio, "filter": filter});
     let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
     let executable = crate::output::ffmpeg(&settings);
+    let plan = worker.plan();
+    let warning =
+        plan.warning(input.full_frames.max(input.frames) as f64 / f64::from(worker.request.fps));
     let selected = if let Some(selected) = &worker.request.selected {
         selected.clone()
     } else {
@@ -491,8 +530,7 @@ async fn begin(
             crate::encoder::select(
                 &executable,
                 worker.request.encoder.as_deref().unwrap_or("auto"),
-                worker.width,
-                worker.height,
+                &plan,
                 worker.gpu.as_deref(),
             )
             .await
@@ -530,14 +568,18 @@ async fn begin(
     if worker.request.segment.is_none() {
         command.arg("-i").arg(&audio);
     }
-    command.args(["-pix_fmt", "yuv420p"]);
-    selected.configure(&mut command);
-    command.args(["-g", &worker.request.fps.to_string(), "-flags", "+cgop"]);
+    selected.configure(&mut command, &plan);
     let cores = std::thread::available_parallelism().map_or(1, usize::from);
     let threads = (cores / worker.request.parallel_jobs.unwrap_or(1) as usize).max(1);
     command.args(["-threads", &threads.to_string(), "-filter_threads", "1"]);
     if worker.request.segment.is_none() {
-        command.args(["-c:a", "aac", "-af", &filter, "-shortest"]);
+        command.args(plan.audio_args()).args([
+            "-af",
+            &filter,
+            "-shortest",
+            "-movflags",
+            "+faststart",
+        ]);
     } else {
         command.arg("-an");
     }
@@ -555,7 +597,7 @@ async fn begin(
         })?;
     *worker.pipe.lock().await = child.stdin.take();
     *encoder = Some(child);
-    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"total_frames":input.frames,"result":null}));
+    worker.app.jobs.lock().await.insert(worker.id.clone(),json!({"state":"running","progress":0.0,"message":format!("Rendering frames ({})",selected.name),"encoder":selected.name,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"total_frames":input.frames,"warning":warning,"result":null}));
     Ok(Json(json!({"ready":true})))
 }
 /// The song on the video clock: tempo for the replay rate (pitch-shifted when
@@ -645,6 +687,8 @@ async fn finish(
     if frames != total {
         return Err(error("Export ended before every frame was encoded"));
     }
+    let plan = worker.plan();
+    let fit = fit_target(&worker, &worker.staged, &plan, frames).await?;
     tokio::fs::hard_link(&worker.staged, &worker.request.out)
         .await
         .map_err(error)?;
@@ -652,13 +696,39 @@ async fn finish(
         .await
         .map_err(error)?;
     let seconds = worker.start.elapsed().as_secs_f64();
-    let encoder = worker.app.jobs.lock().await[&worker.id]["encoder"].clone();
-    let result = json!({"out":worker.request.out,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
+    let (encoder, warning) = {
+        let jobs = worker.app.jobs.lock().await;
+        (
+            jobs[&worker.id]["encoder"].clone(),
+            jobs[&worker.id]["warning"].clone(),
+        )
+    };
+    let (width, height, fps) = plan.delivered(&fit);
+    let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
     worker.app.jobs.lock().await.insert(
         worker.id.clone(),
         json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"result":result}),
     );
     Ok(Json(result))
+}
+/// Discord: re-encodes the finished file to fit the chosen size limit.
+async fn fit_target(
+    worker: &Worker,
+    file: &std::path::Path,
+    plan: &crate::share::Plan,
+    frames: u64,
+) -> Result<Value, Error> {
+    let crate::share::Target::Discord { megabytes } = plan.target else {
+        return Ok(Value::Null);
+    };
+    worker.app.jobs.lock().await.get_mut(&worker.id).unwrap()["message"] = json!(format!(
+        "Fitting to Discord's {megabytes} MB limit (two-pass x264)"
+    ));
+    let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
+    let executable = crate::output::ffmpeg(&settings);
+    crate::share::fit(&executable, file, plan, frames as f64 / f64::from(plan.fps))
+        .await
+        .map_err(error)
 }
 async fn fail(State(worker): State<Worker>, Json(value): Json<Value>) -> Json<Value> {
     let mut jobs = worker.app.jobs.lock().await;

@@ -52,6 +52,26 @@ pub(super) struct Sizes {
     /// Layout chosen in the studio; absent means `auto`.
     #[serde(default)]
     layout: Option<String>,
+    /// "Export for" chosen in the studio; absent: the tool settings.
+    #[serde(default)]
+    export: Option<ExportChoice>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub(super) struct ExportChoice {
+    export_for: String,
+    discord_mb: u32,
+}
+/// Remembers the studio's "Export for" choice.
+pub(super) async fn set_export(
+    State(app): State<App>,
+    Json(input): Json<ExportChoice>,
+) -> Result<Json<Sizes>, Error> {
+    crate::share::Target::parse(&input.export_for, input.discord_mb).map_err(error)?;
+    let _guard = SIZES_LOCK.lock().await;
+    let mut sizes = load(&app).await?;
+    sizes.export = Some(input);
+    store(&app, &sizes).await?;
+    Ok(Json(sizes))
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub(super) struct PageSize {
@@ -371,6 +391,13 @@ pub(super) fn defaults(settings: &Value) -> Value {
         "output_dir": output_dir(settings),
         "outro_ms": outro,
         "fade_ms": ms("fade_ms", 250).min(outro),
+        "export_for": setting(settings, "export_for")
+            .filter(|value| crate::share::TARGETS.contains(value))
+            .unwrap_or("standard"),
+        "discord_mb": number("discord_mb")
+            .map(|v| v.round() as u32)
+            .filter(|v| crate::share::DISCORD_MB.contains(v))
+            .unwrap_or(crate::share::DISCORD_MB[0]),
     })
 }
 /// lazer's player entry: hidden for 250 ms, then faded in over 250 ms.
@@ -429,6 +456,17 @@ mod tests {
         assert_eq!(value["fps"], 60);
         assert_eq!(value["resolution"], "1920x1080");
         assert_eq!(value["output_dir"], "/v");
+        assert_eq!(value["export_for"], "standard");
+        assert_eq!(value["discord_mb"], 20);
+        let value = defaults(&json!({"export_for": "x", "discord_mb": "50"}));
+        assert_eq!(
+            (value["export_for"].as_str(), value["discord_mb"].as_u64()),
+            (Some("x"), Some(50))
+        );
+        assert_eq!(
+            defaults(&json!({"export_for": "tiktok", "discord_mb": 10}))["discord_mb"],
+            20
+        );
         let value = defaults(
             &json!({"fps": "30", "resolution": "2560x1440", "ffmpeg_path": "/opt/ffmpeg"}),
         );

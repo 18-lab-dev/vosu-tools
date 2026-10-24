@@ -67,8 +67,37 @@
     "type": "options",
     "title": "Video encoder",
     "description": "Auto probes hardware H.264 encoding and falls back to software. Hardware requires a working GPU encoder; software always uses libx264. The render job reports the encoder actually used.",
-    "options": ["auto", "hardware", "software"],
+    "options": [
+      "auto",
+      "hardware",
+      "software"
+    ],
     "value": "auto"
+  },
+  {
+    "uniqueID": "export_for",
+    "type": "options",
+    "title": "Export for",
+    "description": "Default MP4 target. Every MP4 is H.264 High + AAC with the index first. X / Twitter keeps X's limits (at most 1920×1200 or 1200×1900, 40 fps, aspect up to 2.39:1); Discord re-encodes to fit the Discord size below; YouTube uses a higher quality. The studio remembers its own choice.",
+    "options": [
+      "standard",
+      "x",
+      "discord",
+      "youtube"
+    ],
+    "value": "standard"
+  },
+  {
+    "uniqueID": "discord_mb",
+    "type": "options",
+    "title": "Discord size limit (MB)",
+    "description": "File size the Discord target fits: 20 (free), 50 (Nitro Basic) or 1000 (Nitro).",
+    "options": [
+      "20",
+      "50",
+      "1000"
+    ],
+    "value": "20"
   },
   {
     "uniqueID": "parallel_jobs",

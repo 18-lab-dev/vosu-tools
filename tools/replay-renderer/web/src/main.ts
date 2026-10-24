@@ -75,6 +75,7 @@ function refreshComposition() {
     el("preview").innerHTML = emptyPreview;
     editor.render();
     el("duration").textContent = timecode(0);
+    void describeExport();
     return;
   }
   const { width: outW, height: outH } = sizes.size;
@@ -113,6 +114,7 @@ function refreshTimeline() {
   time = Math.min(composition.end, Math.max(composition.start, time));
   seek.value = String(time);
   el("duration").textContent = timecode(composition.duration / (tracks[0]?.replay.rate ?? 1));
+  void describeExport();
 }
 for (const id of ["outro", "fade"])
   el(id).onchange = () => {
@@ -120,6 +122,56 @@ for (const id of ["outro", "fade"])
     composition.timing = timing();
     refreshTimeline();
   };
+/** "Export for": what the MP4 becomes (size, rate, Discord bitrate) and a
+ *  one-line warning when the composition breaks the site's limits. */
+let describing = 0;
+async function describeExport() {
+  const target = el<HTMLSelectElement>("export-for").value;
+  el("discord-field").hidden = target !== "discord";
+  const note = el("export-note");
+  const seconds = composition ? composition.duration / (tracks[0]?.replay.rate ?? 1) / 1000 : 0;
+  const query = new URLSearchParams({
+    export_for: target,
+    discord_mb: el<HTMLSelectElement>("discord-mb").value,
+    width: String(sizes.size.width),
+    height: String(sizes.size.height),
+    fps: String(Math.round(Number(el<HTMLInputElement>("fps").value) || 60)),
+    seconds: seconds.toFixed(3),
+  });
+  const request = ++describing;
+  try {
+    const plan = await (await fetcher(`v1/render/plan?${query}`)).json();
+    if (request !== describing) return;
+    const kbps = plan.video_kbps ? ` · ${Math.round(plan.video_kbps).toLocaleString()} kbps` : "";
+    note.textContent = plan.warning ?? `MP4 ${plan.width} × ${plan.height} · ${plan.fps} fps${kbps}`;
+    note.dataset.tone = plan.warning ? "warn" : "";
+  } catch (error) {
+    if (request !== describing) return;
+    note.textContent = error instanceof Error ? error.message : String(error);
+    note.dataset.tone = "warn";
+  }
+}
+/** Saves run one after another, so the last choice is the one remembered. */
+let savingExport: Promise<unknown> = Promise.resolve();
+for (const id of ["export-for", "discord-mb"])
+  el(id).onchange = () => {
+    void describeExport();
+    if (!vosu.canWrite) return;
+    const body = JSON.stringify({
+      export_for: el<HTMLSelectElement>("export-for").value,
+      discord_mb: Number(el<HTMLSelectElement>("discord-mb").value),
+    });
+    savingExport = savingExport
+      .then(() =>
+        fetcher("v1/sizes/export", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        }),
+      )
+      .catch(report);
+  };
+el("fps").addEventListener("change", () => void describeExport());
 let swapping = 0;
 /** Applies a track/composition change between preview frames, so an in-flight
  *  GPU readback never sees a destroyed buffer. */
@@ -646,6 +698,8 @@ if (!vosu.canWrite) {
       outro_ms: number;
       fade_ms: number;
       encoder: "auto" | "hardware" | "software";
+      export_for: string;
+      discord_mb: number;
     };
     el<HTMLInputElement>("fps").value = String(defaults.fps);
     el<HTMLInputElement>("outro").value = String(defaults.outro_ms);
@@ -655,10 +709,13 @@ if (!vosu.canWrite) {
     const store = (await (await fetcher("v1/sizes")).json()) as SizeStore;
     if (LAYOUTS.includes(store.layout as Layout))
       el<HTMLSelectElement>("layout").value = store.layout as Layout;
+    el<HTMLSelectElement>("export-for").value = store.export?.export_for ?? defaults.export_for;
+    el<HTMLSelectElement>("discord-mb").value = String(store.export?.discord_mb ?? defaults.discord_mb);
     sizes.set(
       parseSize(store.last) ?? parseSize(defaults.resolution) ?? { width: 1920, height: 1080 },
       store,
     );
+    void describeExport();
     presets = await (await fetcher("v1/presets")).json();
     library.follow(vosu.subscribe.bind(vosu), setLink);
     library.show("map");
@@ -803,6 +860,8 @@ el("queue").onclick = async () => {
       outro_ms: composition.timing.outroMs,
       fade_ms: composition.timing.fadeMs,
       encoder: el<HTMLSelectElement>("encoder").value,
+      export_for: el<HTMLSelectElement>("export-for").value,
+      discord_mb: Number(el<HTMLSelectElement>("discord-mb").value),
     };
     const { job } = await (
       await fetcher("v1/render", {
@@ -841,8 +900,11 @@ el("queue").onclick = async () => {
           cancel.remove();
           activeJobs.delete(job);
           setTally();
-          if (current.result)
-            message.textContent = `${current.result.out} · ${current.result.render_fps.toFixed(1)} fps · ${current.result.encoder}`;
+          if (current.result) {
+            const r = current.result;
+            const size = r.fit?.bytes ? ` · ${(r.fit.bytes / 1e6).toFixed(1)} MB` : "";
+            message.textContent = `${r.out} · ${r.render_fps.toFixed(1)} fps · ${r.encoder}${size}`;
+          }
         } else
           setTimeout(() => {
             void update();
