@@ -203,6 +203,9 @@ Build with the workspace Rust toolchain, CMake >= 3.22 and a C++17 compiler:
 no separate Realm installation or network SDK is needed. Windows uses MSVC,
 or `cargo xwin` with clang-cl for the cross-check. Native static libraries are
 linked into the service executable.
+The build script explicitly gives Realm and the bridge the same MSVC runtime
+as Rust: `/MD` by default, or `/MT` with `-C target-feature=+crt-static`.
+Realm's upstream static-CRT default must not override the bridge's runtime.
 
 Load `tools/lazer-library` with `vosu --tool <absolute tool directory>`.
 Its dashboard settings expose `lazer_data_dir`. The tool has no UI: library
