@@ -48,7 +48,9 @@ using osu.Game.Database;
 using osu.Game.IO;
 using osu.Game.Rulesets;
 using osu.Game.Rulesets.Catch;
+using osu.Game.Rulesets.Mania;
 using osu.Game.Rulesets.Mods;
+using osu.Game.Rulesets.Osu;
 using osu.Game.Rulesets.Taiko;
 using osu.Game.Rulesets.UI;
 using osu.Game.Scoring;
@@ -120,6 +122,9 @@ namespace osu.Game.Tests.Visual
             {
                 "taiko" => new TaikoRuleset(),
                 "catch" => new CatchRuleset(),
+                // Judgement goldens (test/judgementGolden.ts) also run osu! and mania.
+                "osu" => new OsuRuleset(),
+                "mania" => new ManiaRuleset(),
                 _ => throw new ArgumentException(c.Ruleset),
             };
             var mods = c.Mods.Select(a => ruleset.CreateModFromAcronym(a) ?? throw new ArgumentException(a)).ToList();

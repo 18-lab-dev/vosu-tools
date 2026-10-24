@@ -65,9 +65,30 @@ roll, bar line, swell, hit explosion), `DrawableHit` / `DrawableDrumRoll`;
 and lazer's combo colour normalisation (`DrawableHitObject.UpdateComboColour`,
 `HSPAColour`, osu!framework 2026.921.1 `Interpolation.ValueAt`).
 
-Not modelled (lazer draws them from gameplay state the preview does not
-simulate): judgement sprites, kiai glow and drum hits in taiko; caught-fruit
-stacks on the plate, catch hit lighting, explosions and dash trails.
+Judgements, hit lighting and explosions (`src/judgements.ts`, the motion-35
+profiles in `src/shader.ts`, and their call sites in `src/scene.ts`,
+`src/taiko.ts` and `src/fruits.ts`) are a port (translated code) of osu!
+(lazer) at the same tag: `osu.Game/Rulesets/Judgements/DrawableJudgement.cs`,
+`osu.Game/Skinning/{LegacyJudgementPieceOld,LegacyJudgementPieceNew,LegacySkin}.cs`
+(judgement lookups), `osu.Game/Rulesets/Judgements/DefaultJudgementPiece.cs`,
+`osu.Game/Graphics/ParticleExplosion.cs`; `osu.Game.Rulesets.Osu`
+(`DrawableOsuJudgement`, `SkinnableLighting`, `OsuPlayfield`,
+`LegacyJudgementPieceSliderTickHit`, `OsuLegacySkinTransformer`);
+`osu.Game.Rulesets.Taiko` (`TaikoPlayfield`, `DrawableTaikoJudgement`,
+`Skinning/Legacy/{LegacyHitExplosion,TaikoLegacySkinTransformer}`);
+`osu.Game.Rulesets.Mania` (`Stage`, `Column`, `DrawableManiaJudgement`,
+`DefaultManiaJudgementPiece`, `Skinning/Legacy/{LegacyManiaJudgementPiece,LegacyHitExplosion,ManiaLegacySkinTransformer}`);
+`osu.Game.Rulesets.Catch` (`Catcher`, `CatcherArea`, `CatchComboDisplay`,
+`Skinning/Legacy/{LegacyHitExplosion,LegacyCatchComboCounter}`); and
+osu!framework 2026.921.1 transform sequencing (`TransformSequence.Then/Delay`).
+Lazer draws catch's hit lighting from its own classic skin, never the user's;
+render-core draws stand-ins of the same size (`CATCH_EXPLOSION_SIZES`).
+
+Not modelled (lazer draws them from gameplay state render-core does not
+simulate): kiai glow and drum hits in taiko; caught-fruit stacks on the plate
+and dash trails in catch. Lazer's gameplay shifts the osu! playfield 8 osu!
+pixels down (`OsuPlayfieldAdjustmentContainer.PlayfieldShift`); render-core's
+osu! scene stays centred.
 
 The optional oversized-texture rule (`Skin.blank`, off unless a caller passes
 `maxTextureSize`) is a source-reading hypothesis from osu!framework 2026.921.1,
@@ -79,7 +100,10 @@ limit, so no lazer render backs it; `test/texture-limit.test.ts` covers only the
 loader side.
 
 `test/reference/VosuLayout.cs` does the same for taiko and catch
-(`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`).
+(`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`), and for
+judgements in all four rulesets under lazer's autoplay
+(`test/judgementGolden.ts`, fixture `test/fixtures/judgement-golden.json`,
+compared by `test/judgementGolden.test.ts`).
 
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never

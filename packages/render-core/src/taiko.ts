@@ -19,6 +19,12 @@ import {
   type HitObject,
 } from "@vosu-tools/osu-parse";
 import type { AtlasRegion, Skin } from "./skin";
+import {
+  taikoJudgements,
+  taikoNoteResults,
+  type JudgementEvent,
+  type Marks,
+} from "./judgements";
 
 /** Emits one instance (scene.ts `add`). */
 export type Emit = (
@@ -136,16 +142,23 @@ export interface TaikoScene {
 
 /**
  * Emits osu!taiko for `aspect`. `barLines` are the bar line times
- * (`BarLineGenerator`). Instances are emitted in lazer's draw order.
+ * (`BarLineGenerator`). Instances are emitted in lazer's draw order. With a
+ * replay's `judgements`, notes are hit or missed when the replay says, and
+ * explosions and judgements follow its results.
  */
 export function compileTaiko(
   map: Beatmap,
-  options: { noteSpeed?: number },
+  options: {
+    noteSpeed?: number;
+    judgements?: readonly JudgementEvent[];
+    taikoTopArea?: boolean;
+  },
   regions: Map<string, AtlasRegion>,
   skin: Skin | undefined,
   add: Emit,
   aspect: number,
   barLines: readonly number[],
+  marks?: Marks,
 ): TaikoScene {
   const layout = taikoLayout(aspect),
     { space, scale: k, top } = layout,
@@ -169,8 +182,10 @@ export function compileTaiko(
   const style = skin?.style?.taiko;
 
   // LegacyTaikoScroller: a strip above the playfield, 1/20 of the playfield
-  // into it, scrolling left at 0.1 units/ms; behind everything.
-  const scroller = regions.get("taiko-slider");
+  // into it, scrolling left at 0.1 units/ms; behind everything. Optional
+  // (`taikoTopArea`): without it the scene starts at the playfield's top.
+  const scroller =
+    options.taikoTopArea === false ? undefined : regions.get("taiko-slider");
   if (scroller) {
     const [sw, sh] = fit(scroller),
       height = top + (BASE_HEIGHT * k) / 20,
@@ -267,9 +282,25 @@ export function compileTaiko(
     );
   }
 
-  // LegacyHitExplosion for great hits, under the hit target: fades in for
-  // 120 ms and out for 180 ms, popping 0.6 → 1.1 → 0.9 → 1 when not animated.
-  const explosion = regions.get("taiko-hit300");
+  // LegacyHitExplosion under the hit target: fades in for 120 ms and out for
+  // 180 ms, popping 0.6 → 1.1 → 0.9 → 1 when not animated. A replay's results
+  // pick the explosion (taiko-hit0/100/300); previews show great hits.
+  const judged =
+    options.judgements && marks
+      ? taikoJudgements({
+          events: options.judgements,
+          marks,
+          skin,
+          x: hitX,
+          y: midY,
+          scale: s,
+        })
+      : undefined;
+  const results = options.judgements
+    ? taikoNoteResults(options.judgements)
+    : undefined;
+  const explosion = judged ? undefined : regions.get("taiko-hit300");
+  judged?.explosions();
   if (explosion)
     for (const o of map.objects) {
       if (o.type & (2 | 8)) continue;
@@ -428,6 +459,17 @@ export function compileTaiko(
     else if (o.type & 2) drumRoll(o, big, v, lead);
     else {
       const colour = o.sound & 10 ? rimColour : centreColour;
+      // With a replay's results a note leaves when it is hit, scrolling on
+      // from wherever it was; a missed note scrolls past the hit target and
+      // fades over 100 ms once judged (DrawableHit). The scroll anchor moves
+      // to the result time, so positions stay those of the note's own time.
+      const result = results?.get(i),
+        anchor = result?.time ?? o.time,
+        x = hitX + (o.time - anchor) * v,
+        missed = result !== undefined && !result.hit,
+        kind = missed ? 36 : 3,
+        fade = missed ? 100 : 0,
+        until = missed ? anchor + 100 : anchor;
       for (const [layer, tint] of [
         ["circle", colour],
         ["circleoverlay", white],
@@ -438,36 +480,37 @@ export function compileTaiko(
           if (layer === "circle") {
             const d = (big ? STRONG_SIZE : DEFAULT_SIZE) * s;
             add(
-              hitX,
+              x,
               midY,
               d,
               d,
-              o.time,
-              o.time,
+              anchor,
+              anchor,
               o.time - lead,
-              o.time,
+              until,
               colour,
               0,
-              3,
+              kind,
               v,
+              fade,
             );
           }
           continue;
         }
         add(
-          hitX,
+          x,
           midY,
           piece.w,
           piece.h,
-          o.time,
-          o.time,
+          anchor,
+          anchor,
           o.time - lead,
-          o.time,
+          until,
           tint,
           0,
-          3,
+          kind,
           v,
-          0,
+          fade,
           0,
           piece.asset,
           0,
@@ -477,19 +520,20 @@ export function compileTaiko(
           true,
           piece.crop,
         );
+        if (missed) continue;
         // DrawableHit's hit animation: proxied above the playfield, it rises
         // 200 units (300 ms, out), falls 600 (600 ms, in), shrinks to 0.8
         // and fades over 800 ms while still scrolling.
         flying.push(() =>
           add(
-            hitX,
+            x,
             midY,
             piece.w,
             piece.h,
-            o.time,
-            o.time + 800,
-            o.time + 1,
-            o.time + 800,
+            anchor,
+            anchor + 800,
+            anchor + 1,
+            anchor + 800,
             tint,
             0,
             25,
@@ -507,6 +551,8 @@ export function compileTaiko(
       }
     }
   }
+  // Judgements sit over the hit target, under the flying hits.
+  judged?.judgements();
   for (const emit of flying) emit();
 
   function drumRoll(o: HitObject, big: boolean, v: number, lead: number): void {

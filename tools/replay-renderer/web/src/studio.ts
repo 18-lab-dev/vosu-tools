@@ -23,6 +23,7 @@ import {
   loadSkin,
   withFallback,
   type BuiltinSkinName,
+  type JudgementEvent,
   type Renderer,
   type Skin,
 } from "@vosu-tools/render-core";
@@ -178,6 +179,25 @@ async function probeContent(renderer: Renderer, mode: number): Promise<Rect> {
   }
 }
 const KNOWN = new Set(settingSchema.map((rule) => rule.key));
+/** The simulation's results in render-core's terms. */
+export function judgementEvents(simulation: Simulation): JudgementEvent[] {
+  return simulation.events.flatMap((e) =>
+    e.kind
+      ? [
+          {
+            time: e.time,
+            result: e.kind,
+            note: e.note,
+            object: e.object,
+            x: e.x,
+            y: e.y,
+            combo: e.combo,
+            catcher: e.catcher,
+          },
+        ]
+      : [],
+  );
+}
 /** Built-in skins are drawn once per page and shared by every track. */
 const builtins = new Map<BuiltinSkinName, Skin>();
 function builtin(name: BuiltinSkinName) {
@@ -281,13 +301,6 @@ export async function loadTrack(
     format: "rgba8unorm",
     transparentBackground: true,
   });
-  renderer.setBeatmap(source, {
-    mods,
-    scrollSpeed: settings["mania.scroll_speed"],
-    noteSpeed: settings.note_speed,
-    hitLighting: settings.hit_lighting !== 0,
-  });
-  const content = await probeContent(renderer, replay.mode);
   let simulation: Simulation | null = null,
     warning = "";
   try {
@@ -308,6 +321,17 @@ export async function loadTrack(
   } catch (e) {
     warning = String(e);
   }
+  // Judgements are drawn from the simulation whether or not it verified;
+  // only the HUD counters wait for verification.
+  renderer.setBeatmap(source, {
+    mods,
+    scrollSpeed: settings["mania.scroll_speed"],
+    noteSpeed: settings.note_speed,
+    hitLighting: settings.hit_lighting !== 0,
+    taikoTopArea: settings["taiko.top_area"] !== 0,
+    judgements: simulation ? judgementEvents(simulation) : undefined,
+  });
+  const content = await probeContent(renderer, replay.mode);
   return {
     id,
     replay,

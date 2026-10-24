@@ -10,12 +10,14 @@ export interface Judgement {
   offset: number;
   /** `false` when `offset` is not a hit error (ticks, catches, spinners). */
   timed?: boolean;
-  /** lazer's result name (`great`, `large_tick_hit`, ...), lazer's rules only. */
+  /** lazer's result name (`great`, `large_tick_hit`, `ignore_miss`, ...). */
   kind?: string;
   /** The judged object (a hold's `head` or `tail`, ...), lazer's rules only. */
   object?: string;
   x: number;
   y: number;
+  /** osu!catch: the catcher's x when the object was judged. */
+  catcher?: number;
   combo: number;
   counts: Counts;
   accuracy: number;

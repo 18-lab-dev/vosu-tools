@@ -9,11 +9,12 @@ renderer.setBeatmap(map, {
   mods: [{ acronym: "HR" }],
   scrollSpeed: 20,
   noteSpeed: 1,
+  // A replay's results (e.g. from packages/replay's judgeReplay), optional.
+  judgements: [{ time: 12200, result: "great", note: 41, object: "circle", x: 256, y: 192, combo: 42 }],
 });
 renderer.renderAt(12345, {
   cursor: { x: 256, y: 192, pressed: false },
   keys: [false, true, false, false],
-  judgements: [{ x: 256, y: 192, time: 12200, result: 300 }],
 });
 renderer.destroy();
 ```
@@ -30,7 +31,7 @@ renderer.destroy();
 
 Additional `setBeatmap` options, all optional: `beatmapColours: false` uses skin colours instead of the beatmap's combo/slider colours; `maniaScrollUp` mirrors the mania stage for upward scrolling (lazer's ManiaScrollingDirection Up); `snakingIn: false` shows slider bodies fully from fade-in; `hitLighting: false` hides mania lighting. There is deliberately no option that removes scroll velocity changes.
 
-Replay layers are supplied externally: cursor coordinates, per-column key state, judgement events and optional `failed` state. The engine does not grade replay input or infer accuracy. Judgements are colour-coded transient markers; replay grading belongs to `packages/replay`. Without external keys, mania previews generate deterministic merged key/hold intervals for pressed receptors and hit lighting. Catch fruits, droplets, tiny droplets and bananas come from `@vosu-tools/ruleset-convert`'s `catchObjects` (lazer's nesting, seeded offsets, Hard Rock offsets and hyper-dash marking); catch previews interpolate an automatic catcher; idle/kiai/fail sprites follow timing-point effects and `frame.failed`.
+Replay layers are supplied externally: cursor coordinates, per-column key state, judgement events and optional `failed` state. The engine does not grade replay input or infer accuracy. Judgement events (`RenderOptions.judgements`, graded by `packages/replay`) draw lazer's legacy judgements per ruleset: osu! hit/miss pieces, particles and lighting at the object; taiko explosions under the hit target (or judgement pieces for skins without them), with hit notes leaving at their hit and missed ones scrolling on and fading; mania judgements at the skin's ScorePosition and LightingN explosions per hit; catch hit lighting and the legacy combo counter on the catcher, whose idle/kiai/fail state follows the results. Skins lacking an image fall back to the built-in looks. Without events, previews keep autoplay-timed lighting. Without external keys, mania previews generate deterministic merged key/hold intervals for pressed receptors and hit lighting. Catch fruits, droplets, tiny droplets and bananas come from `@vosu-tools/ruleset-convert`'s `catchObjects` (lazer's nesting, seeded offsets, Hard Rock offsets and hyper-dash marking); catch previews interpolate an automatic catcher; idle/kiai/fail sprites follow timing-point effects and `frame.failed`.
 
 `parseOsu` preserves General, Metadata, needed Difficulty settings, timing/sample controls (with file order), events/breaks, combo colours, circles/holds/spinners, slider control points and flattened slider paths. Paths are built as lazer builds them (red-anchor segments, linear, Bézier/B-spline, perfect arcs, Catmull, then fitted to the declared length). Mods include HR/EZ/DA, deterministic RD, MR, HD/FI/FL and mania UD. Unsupported lazer mods are not advertised by the preview UI. To show an osu! map as the client plays it in another ruleset, pass it through `convertBeatmap` from `@vosu-tools/ruleset-convert` first.
 

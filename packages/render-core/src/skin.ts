@@ -1,7 +1,12 @@
 import { parseSkinIni } from "@vosu-tools/osu-parse";
 import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
 import { planAtlas, type AtlasStrip } from "./atlas";
-import { maniaConfig, maniaLayout, normaliseManiaImage } from "./mania";
+import {
+  maniaConfig,
+  maniaJudgementImages,
+  maniaLayout,
+  normaliseManiaImage,
+} from "./mania";
 export interface Skin {
   name: string;
   assets: Map<string, ImageBitmap>;
@@ -18,6 +23,18 @@ export interface Skin {
    * and the texture samples opaque black, so they are drawn black.
    */
   blank?: Set<string>;
+  /**
+   * Images a skin lacked and took from the built-in skin behind it
+   * (`withFallback`): the clients look those up in the next skin of the chain,
+   * which changes what some rulesets show (taiko judgements).
+   */
+  fallback?: ReadonlySet<string>;
+  /**
+   * How the skin draws judgements: "legacy" for skins loaded from files and
+   * the classic look (LegacyJudgementPiece), "default" for lazer's own looks
+   * (DefaultJudgementPiece).
+   */
+  judgements?: "legacy" | "default";
 }
 /**
  * Client rendering traits of a skin family. Skins loaded from files are legacy
@@ -159,7 +176,32 @@ export const assetNames = [
     `mania-key${kind}D`,
   ]),
   ...Array.from({ length: 10 }, (_, i) => `default-${i}`),
+  // Judgements (LegacySkin.getJudgementAnimation and the rulesets' lookups).
+  ...judgementNames(),
 ];
+/** Judgement images every ruleset but mania looks up (mania's come from its configuration). */
+function judgementNames(): string[] {
+  return [
+    "hit0",
+    "hit50",
+    "hit100",
+    "hit300",
+    "slidertickmiss",
+    "sliderendmiss",
+    "sliderpoint10",
+    "sliderpoint30",
+    "particle50",
+    "particle100",
+    "particle300",
+    "lighting",
+    "taiko-hit0",
+    "taiko-hit100",
+    "taiko-hit300",
+    "taiko-hit100k",
+    "taiko-hit300k",
+    ...["0", "50", "100", "200", "300", "300g"].map((r) => `mania-hit${r}`),
+  ];
+}
 const animated = new Set([
   "sliderb",
   "hitcircleoverlay",
@@ -171,6 +213,17 @@ const animated = new Set([
   "mania-stage-light",
   "lightingN",
   "lightingL",
+  "hit0",
+  "hit50",
+  "hit100",
+  "hit300",
+  "slidertickmiss",
+  "sliderendmiss",
+  "taiko-hit0",
+  "taiko-hit100",
+  "taiko-hit300",
+  "taiko-hit100k",
+  "taiko-hit300k",
   "spinner-circle",
   "spinner-top",
   "spinner-middle",
@@ -214,10 +267,12 @@ const maniaDefaults = new Set(
 export function maniaImageNames(skin: Skin, keys: number): Set<string> {
   const names = new Set<string>();
   // Report every lookup as missing, so every fallback candidate is recorded too.
-  maniaLayout(maniaConfig(skin, keys), (name) => {
+  const config = maniaConfig(skin, keys);
+  maniaLayout(config, (name) => {
     names.add(name);
     return undefined;
   });
+  for (const name of Object.values(maniaJudgementImages(config))) names.add(name);
   return names;
 }
 
@@ -257,7 +312,7 @@ export async function loadSkin(
   for (const section of skin.sections.get("Mania") ?? [])
     for (const [key, value] of Object.entries(section))
       if (
-        /^(NoteImage|KeyImage|Stage|Lighting)/.test(key) &&
+        /^(NoteImage|KeyImage|Stage|Lighting|Hit(0|50|100|200|300|300g)$)/.test(key) &&
         value &&
         !["null", "none"].includes(value.toLowerCase())
       ) {
@@ -266,8 +321,14 @@ export async function loadSkin(
         maniaNames.add(asset);
       }
   const generalNames = new Set(assetNames.filter((n) => !maniaDefaults.has(n)));
-  const prefix = skin.sections.get("Fonts")?.[0]?.HitCirclePrefix ?? "default";
-  for (let i = 0; i < 10; i++) generalNames.add(`${prefix}-${i}`);
+  const fonts = skin.sections.get("Fonts")?.[0];
+  for (const prefix of [
+    fonts?.HitCirclePrefix ?? "default",
+    // osu!catch's combo counter (LegacyFont.Combo).
+    fonts?.ComboPrefix ?? "score",
+  ])
+    for (let i = 0; i < 10; i++)
+      generalNames.add(`${prefix}-${i}`);
   // A custom mania path can name a general element; it is general then.
   for (const name of generalNames) maniaNames.delete(name);
   const source: SkinSource = {

@@ -20,6 +20,7 @@ export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene } from "./scene";
+export type { JudgementEvent } from "./judgements";
 export interface FrameState {
   target?: GPUTextureView;
   timestampWrites?: GPURenderPassTimestampWrites;
@@ -33,12 +34,6 @@ export interface FrameState {
   }[];
   keys?: readonly boolean[];
   failed?: boolean;
-  judgements?: readonly {
-    x: number;
-    y: number;
-    time: number;
-    result: string | number;
-  }[];
 }
 export interface RendererOptions {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
@@ -144,6 +139,20 @@ export async function createRenderer(
       ? ease((time - last.start) / 180)
       : ease((last.end - last.start) / 180) *
           (1 - ease((time - last.end) / 180));
+  }
+  /** The catcher's state from the last result at or before `time` (idle before any). */
+  function stateAt(
+    states: readonly { time: number; state: number }[],
+    time: number,
+  ): number {
+    let lo = 0,
+      hi = states.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (states[mid].time <= time) lo = mid + 1;
+      else hi = mid;
+    }
+    return states[lo - 1]?.state ?? 0;
   }
   const uniforms = new Float32Array(20),
     uniformBuffer = device.createBuffer({
@@ -423,9 +432,11 @@ export async function createRenderer(
         timingIndex++;
       uniforms[19] = frame?.failed
         ? 2
-        : (map.timing[timingIndex]?.effects ?? 0) & 1
-          ? 1
-          : 0;
+        : scene.catcherStates
+          ? stateAt(scene.catcherStates, time)
+          : (map.timing[timingIndex]?.effects ?? 0) & 1
+            ? 1
+            : 0;
       device.queue.writeBuffer(uniformBuffer, 0, uniforms);
       const swapchain = frame?.target
         ? undefined
@@ -468,28 +479,6 @@ export async function createRenderer(
           1,
           time,
         );
-      if (frame?.judgements)
-        for (let i = 0; i < frame.judgements.length && count < 512; i++) {
-          const j = frame.judgements[i],
-            age = time - j.time;
-          if (age < 0 || age > 500) continue;
-          const b = count * 24;
-          overlays.fill(0, b, b + 24);
-          overlays[b] = j.x;
-          overlays[b + 1] = j.y - age * 0.025;
-          overlays[b + 2] = 30;
-          overlays[b + 3] = 12;
-          overlays[b + 4] = time;
-          overlays[b + 5] = time;
-          overlays[b + 6] = -1e9;
-          overlays[b + 7] = 1e9;
-          overlays[b + 8] = j.result === "miss" || j.result === 0 ? 1 : 0.3;
-          overlays[b + 9] = j.result === "miss" || j.result === 0 ? 0.2 : 1;
-          overlays[b + 10] = 0.4;
-          overlays[b + 11] = 1 - age / 500;
-          overlays[b + 20] = 4;
-          count++;
-        }
       if (count) {
         device.queue.writeBuffer(
           overlayBuffer,

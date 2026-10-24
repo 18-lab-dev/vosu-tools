@@ -126,7 +126,7 @@ export function simulateCatch(replay: Replay, map: Beatmap, options: CatchSimula
     });
     perfect.push(outcome(true));
     const x = catcherAt(frames, o.time);
-    outcomes.push(outcome(o.x >= x - half && o.x <= x + half));
+    outcomes.push({ ...outcome(o.x >= x - half && o.x <= x + half), catcher: x });
   });
   // Judged in time order; objects due together resolve in beatmap order.
   const order = outcomes.map((o, i) => ({ o, i }));

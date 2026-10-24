@@ -50,6 +50,8 @@ export interface ManiaConfig {
   hitPosition: number;
   /** Distance of the column light's bottom edge from the stage's bottom edge. */
   lightPosition: number;
+  /** Judgement centre's distance from the stage's top edge (`ScorePosition`). */
+  scorePosition: number;
   /** Note height reference width (`WidthForNoteHeightScale`, else the narrowest column). */
   noteHeightWidth: number;
   showJudgementLine: boolean;
@@ -97,6 +99,27 @@ function parseColour(value: string): Rgba | undefined {
   ];
 }
 /** Element paths as the skin loader keys them: forward slashes, no extension, no @2x. */
+/** lazer's mania results with their `[Mania]` keys and default images. */
+export const maniaJudgementKeys = {
+  perfect: ["Hit300g", "mania-hit300g"],
+  great: ["Hit300", "mania-hit300"],
+  good: ["Hit200", "mania-hit200"],
+  ok: ["Hit100", "mania-hit100"],
+  meh: ["Hit50", "mania-hit50"],
+  miss: ["Hit0", "mania-hit0"],
+} as const;
+
+/** `ManiaLegacySkinTransformer.getResult`: the image each result looks up. */
+export function maniaJudgementImages(
+  config: ManiaConfig,
+): Record<keyof typeof maniaJudgementKeys, string> {
+  const out = {} as Record<keyof typeof maniaJudgementKeys, string>;
+  for (const [result, [key, fallback]] of Object.entries(maniaJudgementKeys))
+    out[result as keyof typeof maniaJudgementKeys] =
+      config.images.get(key) ?? fallback;
+  return out;
+}
+
 export function normaliseManiaImage(path: string): string {
   return path
     .trim()
@@ -124,6 +147,7 @@ export function maniaConfig(skin: Skin | undefined, keys: number): ManiaConfig {
     columnLineWidth: Array.from({ length: keys + 1 }, () => 2),
     hitPosition: (480 - 402) * MANIA_SCALE,
     lightPosition: (480 - 413) * MANIA_SCALE,
+    scorePosition: 300 * MANIA_SCALE,
     noteHeightWidth: 0,
     showJudgementLine: true,
     keysUnderNotes: false,
@@ -165,6 +189,10 @@ export function maniaConfig(skin: Skin | undefined, keys: number): ManiaConfig {
       case "LightPosition":
         if (Number.isFinite(float(value)))
           config.lightPosition = (480 - float(value)) * MANIA_SCALE;
+        break;
+      case "ScorePosition":
+        if (Number.isFinite(float(value)))
+          config.scorePosition = float(value) * MANIA_SCALE;
         break;
       case "JudgementLine":
         config.showJudgementLine = value === "1";
