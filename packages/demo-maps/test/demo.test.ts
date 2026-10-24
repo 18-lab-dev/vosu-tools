@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
 import { catchObjects } from "@vosu-tools/ruleset-convert";
-import { demoLoop, demos, repeatOsu } from "../src";
+import { MANIA_KEYS, demoLoop, demos, maniaDemo, repeatOsu } from "../src";
 
 const CIRCLE = 1,
   SLIDER = 2,
@@ -74,7 +74,9 @@ test("osu! has numbered circles, a repeating slider with ticks and a spinner", (
   expect(slider.ticks.length).toBeGreaterThan(0);
   expect(map.objects.some((o) => o.type & SPINNER)).toBe(true);
   expect(map.objects.filter((o) => o.type & CIRCLE).length).toBeGreaterThan(5);
-  expect(Math.max(...map.objects.map((o) => o.number))).toBeGreaterThanOrEqual(4);
+  expect(Math.max(...map.objects.map((o) => o.number))).toBeGreaterThanOrEqual(
+    4,
+  );
 });
 
 test("taiko has every note type, a kiai section and barlines", () => {
@@ -107,16 +109,35 @@ test("catch has a juice stream, a hyper-dash and a banana shower, off screen at 
     ).toBe(false);
 });
 
-test("mania has notes, long notes, a long-note chord and a long hold", () => {
-  for (const id of ["mania-4k", "mania-7k"] as const) {
+test("mania covers 1K-10K with notes, long notes, a long-note chord and a long hold", () => {
+  expect(demos.filter((d) => d.ruleset === 3).map((d) => d.keys)).toEqual([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+  ]);
+  for (const keys of MANIA_KEYS) {
+    const id = maniaDemo(keys)!;
     const map = parseOsu(demos.find((d) => d.id === id)!.osu);
+    expect(map.difficulty.cs).toBe(keys);
+    const column = (o: { x: number }) => Math.floor((o.x * keys) / 512);
     const holds = map.objects.filter((o) => o.type & HOLD);
     expect(map.objects.some((o) => o.type & CIRCLE)).toBe(true);
-    expect(Math.max(...holds.map((o) => o.endTime - o.time))).toBeGreaterThanOrEqual(2500);
-    const starts = holds.map((o) => o.time);
-    expect(starts.some((t, i) => starts.indexOf(t) !== i)).toBe(true);
-    const keys = map.difficulty.cs;
-    const columns = new Set(map.objects.map((o) => Math.floor((o.x * keys) / 512)));
-    expect(columns.size).toBe(keys);
+    expect(
+      Math.max(...holds.map((o) => o.endTime - o.time)),
+    ).toBeGreaterThanOrEqual(2500);
+    if (keys > 1) {
+      const starts = holds.map((o) => o.time);
+      expect(starts.some((t, i) => starts.indexOf(t) !== i)).toBe(true);
+    }
+    expect(new Set(map.objects.map(column)).size).toBe(keys);
+    // No column ever has two objects at once (a tap inside a hold, or two taps).
+    for (let c = 0; c < keys; c++) {
+      const own = map.objects
+        .filter((o) => column(o) === c)
+        .sort((a, b) => a.time - b.time);
+      for (let i = 1; i < own.length; i++)
+        expect(own[i].time).toBeGreaterThan(
+          Math.max(own[i - 1].time, own[i - 1].endTime),
+        );
+    }
   }
+  expect(maniaDemo(14)).toBeUndefined();
 });

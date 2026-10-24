@@ -5,12 +5,18 @@
 import {
   builtinSkin,
   createRenderer,
+  loadManiaKeys,
   loadSkin,
   withFallback,
   type Renderer,
   type Skin,
 } from "@vosu-tools/render-core";
-import { demoLoop, type DemoId, type DemoLoop } from "@vosu-tools/demo-maps";
+import {
+  demo,
+  demoLoop,
+  type DemoId,
+  type DemoLoop,
+} from "@vosu-tools/demo-maps";
 
 /** Returns a skin file by skin-relative name (any case), or null. */
 export type Resolver = (file: string) => Promise<Blob | null>;
@@ -22,8 +28,11 @@ export interface PreviewSource {
   resolve: Resolver | null;
 }
 
-/** Mania key counts with a demo map; skins decode only these stages. */
-const MANIA_KEYS = [4, 7];
+/** The mania stage the demo draws; skins decode only that one (holds are large). */
+const stageKeys = (id: DemoId) => {
+  const keys = demo(id).keys;
+  return keys ? [keys] : [];
+};
 
 export class Preview {
   #canvas: HTMLCanvasElement;
@@ -36,6 +45,9 @@ export class Preview {
   #skin: Skin = this.#classic;
   #source?: PreviewSource;
   #loading = 0;
+  /** Mania key counts the installed file skin has decoded (joined). */
+  #decoded = "";
+  #switching = false;
   #loop?: DemoLoop;
   #demo: DemoId = "osu";
   #playing = true;
@@ -81,6 +93,33 @@ export class Preview {
     this.#renderer?.setBeatmap(this.#loop.beatmap, this.#options());
     this.#epoch = performance.now();
     this.#pausedAt = 0;
+    void this.#reconcile();
+  }
+
+  /**
+   * Decodes the demo's mania stage into the file skin (sharing everything
+   * else) until the installed skin has it; one run at a time, re-checking
+   * after each step since the demo or the source may change meanwhile.
+   */
+  async #reconcile() {
+    if (this.#switching) return;
+    this.#switching = true;
+    try {
+      for (;;) {
+        const from = this.#fileSkin,
+          keys = stageKeys(this.#demo);
+        if (!from || !keys.length || keys.join() === this.#decoded) break;
+        this.#onState("Loading stage…");
+        const next = await loadManiaKeys(from, keys);
+        if (this.#fileSkin !== from) releaseExcept(next, this.#fileSkin);
+        else this.#install(next, keys.join());
+      }
+      this.#onState("");
+    } catch (error) {
+      this.#onState(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.#switching = false;
+    }
   }
 
   setPlaying(playing: boolean) {
@@ -105,32 +144,36 @@ export class Preview {
     }
     this.#onState("Loading skin…");
     try {
+      const keys = stageKeys(this.#demo);
       const loaded = await loadSkin(source.resolve, source.name, {
-        maniaKeys: MANIA_KEYS,
+        maniaKeys: keys,
       });
       if (ticket !== this.#loading) {
-        release(loaded);
+        releaseExcept(loaded, this.#fileSkin);
         return;
       }
-      this.#install(loaded);
+      this.#install(loaded, keys.join());
       this.#onState("");
+      void this.#reconcile();
     } catch (error) {
       if (ticket === this.#loading)
         this.#onState(error instanceof Error ? error.message : String(error));
     }
   }
 
-  #install(fileSkin: Skin | undefined) {
+  #install(fileSkin: Skin | undefined, decoded = "") {
     const previous = this.#fileSkin;
     this.#fileSkin = fileSkin;
+    this.#decoded = decoded;
     this.#skin = fileSkin
       ? withFallback(fileSkin, this.#classic)
       : this.#classic;
     this.#renderer?.setSkin(this.#skin);
     if (this.#loop)
       this.#renderer?.setBeatmap(this.#loop.beatmap, this.#options());
-    // The classic look's bitmaps are shared; only the file skin's own are released.
-    if (previous) release(previous);
+    // The classic look's bitmaps are shared; only the file skin's own are
+    // released, and not those the new file skin still uses.
+    if (previous) releaseExcept(previous, fileSkin);
   }
 
   #options() {
@@ -198,8 +241,11 @@ export class Preview {
   };
 }
 
-function release(skin: Skin) {
-  for (const bitmap of new Set(skin.assets.values())) bitmap.close();
+/** Closes `skin`'s bitmaps that `keep` does not also draw. */
+function releaseExcept(skin: Skin, keep: Skin | undefined) {
+  const kept = new Set(keep?.assets.values());
+  for (const bitmap of new Set(skin.assets.values()))
+    if (!kept.has(bitmap)) bitmap.close();
 }
 
 /** The playfield colour: the darkest system surface in either scheme. */

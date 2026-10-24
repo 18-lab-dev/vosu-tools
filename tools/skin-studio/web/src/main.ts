@@ -30,7 +30,7 @@ import {
   maniaKeyCounts,
   recipeSkins,
 } from "./plan";
-import { getValue, parseIni } from "./ini";
+import { getValue, maniaBlocks, parseIni } from "./ini";
 import {
   type AssetRef,
   type Carry,
@@ -42,7 +42,7 @@ import {
   unitFiles,
 } from "./assets";
 import { Preview, type Resolver } from "./preview";
-import type { DemoId } from "@vosu-tools/demo-maps";
+import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
   key: string;
@@ -1522,23 +1522,73 @@ function renderPreviewControls() {
       "aria-pressed",
       String(b.dataset.demo === previewPrefs.ruleset),
     );
-  for (const b of document.querySelectorAll<HTMLButtonElement>(
-    "#pv-keys button",
-  ))
-    b.setAttribute(
-      "aria-pressed",
-      String(Number(b.dataset.keys) === previewPrefs.keys),
-    );
   $("#pv-keys").hidden = previewPrefs.ruleset !== "mania";
+  renderKeys();
   const play = $("#pv-play");
   play.setAttribute("aria-pressed", String(previewPrefs.playing));
   play.textContent = previewPrefs.playing ? "Pause" : "Play";
 }
+
+/** skin.ini of what the preview shows: the selected skin's or the mix draft. */
+function previewIni(): string {
+  if (previewPrefs.source === "mix")
+    return mixModel.getValue() || lastPlan?.ini || "";
+  return focused && loaded.has(focused) ? focusModel.getValue() : "";
+}
+/**
+ * Key counts the preview offers: every `[Mania]` block with `Keys: N` in the
+ * previewed skin.ini, in order; lazer's default 4K and 7K when it defines no
+ * count a demo exists for.
+ */
+function keyModes(): number[] {
+  const defined = [...maniaBlocks(parseIni(previewIni())).keys()]
+    .filter((k) => k > 0)
+    .sort((a, b) => a - b);
+  return defined.some((k) => maniaDemo(k))
+    ? defined
+    : [...new Set([...defined, 4, 7])].sort((a, b) => a - b);
+}
+/** The key count drawn: the one last chosen if offered, else the first. */
+function activeKeys(modes = keyModes()): number {
+  const playable = modes.filter((k) => maniaDemo(k));
+  return playable.includes(previewPrefs.keys) ? previewPrefs.keys : playable[0];
+}
+function renderKeys() {
+  const modes = keyModes(),
+    active = activeKeys(modes);
+  const unsupported = modes.filter((k) => !maniaDemo(k));
+  const group = $("#pv-keys");
+  const hadFocus = group.contains(document.activeElement);
+  group.replaceChildren(
+    ...modes.map((k) =>
+      h(
+        "button",
+        {
+          type: "button",
+          ariaPressed: String(k === active),
+          disabled: !maniaDemo(k),
+          onclick: () => {
+            previewPrefs.keys = k;
+            savePreview();
+            renderKeys();
+            preview.setDemo(demoId());
+          },
+        },
+        `${k}K`,
+      ),
+    ),
+  );
+  if (hadFocus)
+    group.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
+  const help = $("#pv-keys-help");
+  help.hidden = previewPrefs.ruleset !== "mania" || !unsupported.length;
+  const tip = `${unsupported.map((k) => `${k}K`).join(", ")}: dual-stage layouts are not previewed yet.`;
+  help.dataset.tip = tip;
+  help.setAttribute("aria-label", tip);
+}
 const demoId = (): DemoId =>
   previewPrefs.ruleset === "mania"
-    ? previewPrefs.keys === 7
-      ? "mania-7k"
-      : "mania-4k"
+    ? maniaDemo(activeKeys())!
     : (previewPrefs.ruleset as DemoId);
 
 // skin.ini edits (draft or the selected skin's) reach the preview after a pause.
@@ -1559,6 +1609,9 @@ focusModel.onDidChangeContent(afterEdit(() => focusVersion++));
 /** Hands the preview the skin it should draw now (cheap when unchanged). */
 function updatePreview() {
   if (view !== "preview") return;
+  // The key counts follow the previewed skin.ini (edits included).
+  renderKeys();
+  preview.setDemo(demoId());
   if (previewPrefs.source === "mix") {
     void preview.setSource({
       key: "mix",
@@ -1613,13 +1666,7 @@ for (const b of document.querySelectorAll<HTMLButtonElement>(
     renderPreviewControls();
     preview.setDemo(demoId());
   };
-for (const b of document.querySelectorAll<HTMLButtonElement>("#pv-keys button"))
-  b.onclick = () => {
-    previewPrefs.keys = Number(b.dataset.keys);
-    savePreview();
-    renderPreviewControls();
-    preview.setDemo(demoId());
-  };
+
 $("#pv-play").onclick = () => {
   previewPrefs.playing = !previewPrefs.playing;
   savePreview();
