@@ -244,6 +244,7 @@ impl Overlays {
         let wall = state["__render"]["wallMs"]
             .as_f64()
             .ok_or_else(|| error("Frame has no render clock"))?;
+        let capture = state["__render"]["capture"] != false;
         let epoch = state["__render"]["epochMs"].as_f64().unwrap_or(0.0);
         if state["__render"]["verified"] == true
             && (state["play"]["mode"]["number"] == 3 || state["play"]["combo"]["current"].is_u64())
@@ -331,7 +332,7 @@ impl Overlays {
         let screenshots = driver
             .as_mut()
             .unwrap()
-            .capture(sequence, wall)
+            .capture(sequence, wall, capture)
             .await
             .map_err(error)?;
         Ok(screenshots

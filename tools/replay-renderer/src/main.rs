@@ -20,6 +20,7 @@ use vosu_tool_sdk::{ToolEnv, cli::Method};
 mod browser;
 mod cdp;
 mod encoder;
+mod gpu;
 mod library;
 mod output;
 mod overlays;
