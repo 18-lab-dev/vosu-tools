@@ -8,6 +8,7 @@ icon = "art/icon.svg"
 banner = "art/banner.svg"
 
 [service]
+role = "background"
 command = ["bin/vosu-mania-ratings"]
 startup = "on-demand"
 

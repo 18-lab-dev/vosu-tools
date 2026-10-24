@@ -49,7 +49,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "icon_url": "https://github.com/…/vosu-tool-practice-icon.svg",
       "banner_url": "https://github.com/…/vosu-tool-practice-banner.svg",
       "protocol": 1,
-      "interfaces": ["ui", "service", "cli"],
+      "interfaces": ["ui", "cli"],
       "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
       "packages": {
         "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.0-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
@@ -83,6 +83,8 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
 `python scripts/package.py --target <triple> --base-url https://…/releases/download/<tag>` builds every native tool with `cargo build --release --locked --target <triple> -p <package>` and every UI with `bun run build --sourcemap hidden`. Run `bun install --frozen-lockfile` first. The source manifest's UI root must be `web/dist`; Windows packages rewrite service/CLI executable names to `.exe`. UI-only tools use the `any` target. Each archive is validated before replacement, with sorted regular-file entries, 1980 timestamps and explicit Unix modes (0755 for `bin/*`, 0644 otherwise).
 
 `--out` selects the output directory, `--name` and `--published` set catalog metadata, and `SOURCE_DATE_EPOCH` supplies the default publication timestamp for reproducible runs. `--dry-run` validates manifests and prints commands without building/writing. `--skip-build` consumes already-built release binaries and hidden-sourcemap UI output. `--native-only` omits universal UI-only packages so release CI publishes those once, from Linux.
+
+Catalog `interfaces` describes user-facing interfaces: `service` is present only for `[service] role = "background"` (also the default when omitted). `role = "backend"` is a native implementation detail for UI/CLI tools and requires `startup = "on-demand"`; its package still includes the service executable and uses a native target, not `any`. Skin studio and downloader are UI-only with backends, practice and replay renderer are UI + CLI with backends, map preview is UI-only without a backend, server pp and mania ratings are UI + service + CLI, and lazer library is service-only. Background services support the user's **Start with vosu** override; `startup` remains the author's default.
 
 Merge platform catalogs with:
 

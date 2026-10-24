@@ -1,4 +1,3 @@
-use clap::{Parser, Subcommand};
 use notify::{RecursiveMode, Watcher};
 use serde_json::Value;
 use std::{
@@ -7,81 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 use vosu_lazer_library::{Index, Library, Shared, Status};
-use vosu_tool_sdk::{
-    ToolEnv,
-    cli::{print_result, table},
-};
-#[derive(Parser)]
-struct Args {
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-#[derive(Subcommand)]
-enum Command {
-    /// Query the running library service through vosu.
-    Cli {
-        #[arg(long, global = true)]
-        json: bool,
-        #[command(subcommand)]
-        query: Option<Query>,
-    },
-}
-#[derive(Subcommand)]
-enum Query {
-    Status,
-    Beatmap { md5: String },
-    OnlineIds,
-    Skins,
-    SkinFiles { id: String },
-    Scores { md5: String },
-}
-fn encoded(s: &str) -> String {
-    s.bytes()
-        .map(|b| {
-            if b.is_ascii_alphanumeric() || b"-_.".contains(&b) {
-                char::from(b).to_string()
-            } else {
-                format!("%{b:02X}")
-            }
-        })
-        .collect()
-}
+use vosu_tool_sdk::ToolEnv;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
     let env = ToolEnv::from_env()?;
-    if let Some(Command::Cli { json, query }) = args.command {
-        let route = match query.unwrap_or(Query::Status) {
-            Query::Status => "/v1/status".into(),
-            Query::Beatmap { md5 } => format!("/v1/beatmaps/by-md5/{}", encoded(&md5)),
-            Query::OnlineIds => "/v1/beatmapsets/online-ids".into(),
-            Query::Skins => "/v1/skins".into(),
-            Query::SkinFiles { id } => format!("/v1/skins/{}/files", encoded(&id)),
-            Query::Scores { md5 } => format!("/v1/scores/by-beatmap/{}", encoded(&md5)),
-        };
-        let value: Value = env.client().own_json(&route).await?;
-        print_result(&value, json, || {
-            if let Some(skins) = value["skins"].as_array() {
-                table(
-                    &["ID", "NAME", "CREATOR", "FILES"],
-                    &skins
-                        .iter()
-                        .map(|v| {
-                            vec![
-                                v["id"].as_str().unwrap_or_default().into(),
-                                v["name"].as_str().unwrap_or_default().into(),
-                                v["creator"].as_str().unwrap_or_default().into(),
-                                v["files"].to_string(),
-                            ]
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            } else {
-                serde_json::to_string_pretty(&value).unwrap_or_default()
-            }
-        })?;
-        return Ok(());
-    }
     let state: Shared = Arc::new(RwLock::new(Library::default()));
     let client = env.client();
     let service_state = state.clone();

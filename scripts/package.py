@@ -271,6 +271,13 @@ def discover(root):
         if manifest.get('manifest_version') != 1:
             raise ValueError(f'unsupported manifest version: {manifest_path}')
         artwork(directory, manifest, required=True)
+        service = manifest.get('service')
+        if service is not None:
+            role = service.get('role', 'background')
+            if role not in ('background', 'backend'):
+                raise ValueError(f'invalid service role: {manifest_path}')
+            if role == 'backend' and service.get('startup', 'on-demand') != 'on-demand':
+                raise ValueError(f'backend service must start on-demand: {manifest_path}')
         native = 'service' in manifest or 'cli' in manifest
         cargo = directory / 'Cargo.toml'
         package = tomllib.loads(cargo.read_text())['package']['name'] if native else None
@@ -335,7 +342,9 @@ def assemble(root, out, target, base_url, metadata, tools):
         integrity = write_zip(out / filename, files, 'tool', (identity, version))
         entry = {key: manifest.get(key, '') for key in ('id', 'name', 'version', 'description', 'author')}
         entry.update({'homepage': manifest.get('homepage'), 'protocol': 1,
-                      'interfaces': [section for section in ('ui', 'service', 'cli') if section in manifest],
+                      'interfaces': [section for section in ('ui', 'service', 'cli')
+                                     if section in manifest and (section != 'service'
+                                     or manifest['service'].get('role', 'background') == 'background')],
                       'requires': manifest.get('requires', []),
                       'packages': {package_target: {'url': release_url(base_url, filename), **integrity}}})
         publish_art(art, identity, 'tool', out)

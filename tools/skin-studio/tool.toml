@@ -11,12 +11,10 @@ banner = "art/banner.svg"
 root = "web/dist"
 
 [service]
+role = "backend"
 command = ["bin/vosu-skin-studio"]
 startup = "on-demand"
 
-[cli]
-command = ["bin/vosu-skin-studio", "cli"]
-summary = "List skins; save a skin or a mix plan as an .osk or a new stable skin"
 
 [api]
 read = ["/v1/library", "/v1/skin", "/v1/asset", "/v1/animation", "/v1/exports"]
