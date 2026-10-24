@@ -123,6 +123,8 @@ export const assetNames = [
   "sliderscorepoint",
   "sliderendcircle",
   "cursor",
+  "cursormiddle",
+  "cursortrail",
   "spinner-background",
   "spinner-circle",
   "spinner-approachcircle",
@@ -143,6 +145,12 @@ export const assetNames = [
   "taikobigcircleoverlay",
   "taiko-drum-inner",
   "taiko-drum-outer",
+  "taiko-glow",
+  // DrawableTaikoMascot: pippidon{state}0, 1, ... (frames without a dash).
+  "pippidonidle",
+  "pippidonkiai",
+  "pippidonfail",
+  "pippidonclear",
   "taiko-slider",
   "taiko-bar-left",
   "taiko-bar-right",
@@ -212,6 +220,10 @@ function judgementNames(): string[] {
 const animated = new Set([
   "sliderb",
   "sliderfollowcircle",
+  "pippidonidle",
+  "pippidonkiai",
+  "pippidonfail",
+  "pippidonclear",
   "hitcircleoverlay",
   "taikohitcircleoverlay",
   "taikobigcircleoverlay",
@@ -469,12 +481,13 @@ async function decode(
         )
           continue;
         const frames: string[] = [];
-        const prefix = name === "sliderb" ? name : `${name}-`;
+        const undashed = name === "sliderb" || name.startsWith("pippidon");
+        const prefix = undashed ? name : `${name}-`;
         for (let frame = 0; frame < 512; frame++) {
           const key = `${prefix}${frame}`;
           const pathName =
             name.replace(/@2x$/i, "") +
-            (name === "sliderb" ? "" : "-") +
+            (undashed ? "" : "-") +
             frame +
             (/@2x$/i.test(name) ? "@2x" : "");
           if (!(await image(key, pathName))) break;

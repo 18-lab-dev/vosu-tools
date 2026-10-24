@@ -1,5 +1,5 @@
-// Short looping demo maps for skin previews, one per ruleset (mania in 4K and
-// 7K). Each `.osu` file holds one period; `demoLoop` repeats it three times
+// Short looping demo maps for skin previews, one per ruleset (mania in every
+// key count from 1K to 10K, generated in ./mania). Each `.osu` file holds one period; `demoLoop` repeats it three times
 // and returns the middle copy's window, so a renderer that draws absolute
 // beatmap times shows the same picture at both ends of the window.
 
@@ -7,10 +7,10 @@ import { parseOsu, type Beatmap, type Ruleset } from "@vosu-tools/osu-parse";
 import osuText from "../maps/osu.osu?raw";
 import taikoText from "../maps/taiko.osu?raw";
 import catchText from "../maps/catch.osu?raw";
-import mania4kText from "../maps/mania-4k.osu?raw";
-import mania7kText from "../maps/mania-7k.osu?raw";
+import { MANIA_KEYS, MANIA_PERIOD, maniaOsu } from "./mania";
 
-export type DemoId = "osu" | "taiko" | "fruits" | "mania-4k" | "mania-7k";
+export { MANIA_KEYS } from "./mania";
+export type DemoId = "osu" | "taiko" | "fruits" | `mania-${number}k`;
 
 export interface Demo {
   id: DemoId;
@@ -29,9 +29,20 @@ export const demos: readonly Demo[] = [
   // Catch objects lie in [750, 9000]: nothing is on screen at the loop seam,
   // so the catcher, plate and randomised droplet/banana offsets never jump.
   { id: "fruits", ruleset: 2, period: 10000, osu: catchText },
-  { id: "mania-4k", ruleset: 3, keys: 4, period: 8000, osu: mania4kText },
-  { id: "mania-7k", ruleset: 3, keys: 7, period: 8000, osu: mania7kText },
+  ...MANIA_KEYS.map((keys): Demo => ({
+    id: `mania-${keys}k`,
+    ruleset: 3,
+    keys,
+    period: MANIA_PERIOD,
+    osu: maniaOsu(keys),
+  })),
 ];
+
+/** The mania demo for a key count, if there is one (1K–10K). */
+export const maniaDemo = (keys: number): DemoId | undefined =>
+  (MANIA_KEYS as readonly number[]).includes(keys)
+    ? `mania-${keys}k`
+    : undefined;
 
 export function demo(id: DemoId): Demo {
   const found = demos.find((d) => d.id === id);
@@ -45,7 +56,11 @@ const shift = (value: string, by: number) => String(Number(value) + by);
  * Repeats the timing points and hit objects of `text` `copies` times, each
  * `period` ms later (spinner/hold end times included).
  */
-export function repeatOsu(text: string, period: number, copies: number): string {
+export function repeatOsu(
+  text: string,
+  period: number,
+  copies: number,
+): string {
   const out: string[] = [];
   let section = "",
     block: string[] = [];
@@ -81,7 +96,8 @@ export function repeatOsu(text: string, period: number, copies: number): string 
       continue;
     }
     // Blank lines between sections stay outside the repeated block.
-    if (!raw.trim() && (section === "TimingPoints" || section === "HitObjects")) continue;
+    if (!raw.trim() && (section === "TimingPoints" || section === "HitObjects"))
+      continue;
     block.push(raw);
   }
   flush();

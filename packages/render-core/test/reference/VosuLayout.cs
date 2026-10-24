@@ -18,6 +18,12 @@
 // sprite's texture rectangle), draw colour, alpha, blending, the nearest
 // masking ancestor and the chain of parent types. test/layoutGolden.ts
 // compares render-core against that output.
+//
+// Cases with `From` seek there, then advance in 60 Hz frames to `Time`, so
+// input-driven drawables (the taiko drum, catcher trails, the cursor) see
+// every key press as in game; `Frames` also writes the autoplay replay as
+// legacy frames (time, x, y, button state) for render-core's `input`
+// (test/gameplayGolden.ts).
 
 using System;
 using System.Collections.Generic;
@@ -52,6 +58,7 @@ using osu.Game.Rulesets.Mania;
 using osu.Game.Rulesets.Mods;
 using osu.Game.Rulesets.Osu;
 using osu.Game.Rulesets.Taiko;
+using osu.Game.Rulesets.Replays.Types;
 using osu.Game.Rulesets.UI;
 using osu.Game.Scoring;
 using osu.Game.Skinning;
@@ -74,6 +81,8 @@ namespace osu.Game.Tests.Visual
             public double Time;
             public float Normalisation = 0.2f;
             public bool MapColours;
+            public double? From;
+            public bool Frames;
         }
 
         private class Spec
@@ -90,6 +99,7 @@ namespace osu.Game.Tests.Visual
 
         private ManualClock clock = null!;
         private Score replay = null!;
+        private IBeatmap playable = null!;
         private DrawableRuleset drawableRuleset = null!;
         private Container space = null!;
 
@@ -105,8 +115,15 @@ namespace osu.Game.Tests.Visual
                 AddStep($"set up {c.Name}", () => setUp(c));
                 AddUntilStep("wait for ruleset", () => drawableRuleset.IsLoaded);
                 AddStep("autoplay", () => drawableRuleset.SetReplayScore(replay));
-                AddStep($"seek {c.Name}", () => clock.CurrentTime = c.Time);
-                AddUntilStep("wait for seek", () => Precision.AlmostEquals(drawableRuleset.FrameStableClock.CurrentTime, c.Time, 0.5));
+                AddStep($"seek {c.Name}", () => clock.CurrentTime = c.From ?? c.Time);
+                AddUntilStep("wait for seek", () => Precision.AlmostEquals(drawableRuleset.FrameStableClock.CurrentTime, c.From ?? c.Time, 0.5));
+                AddUntilStep("play to time", () =>
+                {
+                    if (clock.CurrentTime >= c.Time - 1e-6)
+                        return Precision.AlmostEquals(drawableRuleset.FrameStableClock.CurrentTime, c.Time, 0.5);
+                    clock.CurrentTime = Math.Min(c.Time, clock.CurrentTime + 1000 / 60.0);
+                    return false;
+                });
                 AddWaitStep("settle layout", 3);
                 AddStep($"dump {c.Name}", () => results.Add(dump(c)));
             }
@@ -132,7 +149,7 @@ namespace osu.Game.Tests.Visual
             mods.Add(autoplay);
 
             var working = new FlatWorkingBeatmap(c.Map);
-            var playable = working.GetPlayableBeatmap(ruleset.RulesetInfo, mods);
+            playable = working.GetPlayableBeatmap(ruleset.RulesetInfo, mods);
             var userSkin = new DirectorySkin(new SkinInfo { Name = c.Name }, new FolderStore(c.Skin), this);
 
             drawableRuleset = ruleset.CreateDrawableRulesetWith(playable, mods);
@@ -234,6 +251,10 @@ namespace osu.Game.Tests.Visual
                 size = new[] { c.Width, c.Height },
                 playfield = local(drawableRuleset.Playfield.ScreenSpaceDrawQuad),
                 items,
+                frames = c.Frames
+                    ? replay.Replay.Frames.Select(f => ((IConvertibleReplayFrame)f).ToLegacy(playable))
+                            .Select(l => new { time = l.Time, x = l.MouseX ?? 0, y = l.MouseY ?? 0, keys = (int)l.ButtonState }).ToArray()
+                    : null,
             };
         }
 

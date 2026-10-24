@@ -1,5 +1,5 @@
 export const shader = /* wgsl */ `
-struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:vec4f }
+struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:vec4f, extra:vec4f }
 @group(0) @binding(0) var<uniform> g:Globals;
 @group(0) @binding(1) var atlas:texture_2d_array<f32>;
 @group(0) @binding(2) var atlasSampler:sampler;
@@ -119,10 +119,40 @@ fn chainHit(dt:f32,endScale:f32)->f32{
    size*=1.6-0.6*t*t;centre.y+=100.0*motion.w*quint;angle=0.6981317*quint;}}
   if(profile==16u){let duration=floor(motion.z/8.0);let direction=motion.z-duration*8.0;let progress=clamp((dt+100.0)/duration,0.0,1.0);
    centre+=motion.w*progress*vec2f(sin(direction),cos(direction));alpha*=in120*out500*clamp(1.0-(dt+100.0)/1600.0,0.0,1.0)*(1.0-progress);}
+  // Replay-input elements (gameplay.ts, taiko.ts, fruits.ts).
+  // LegacyHalfDrum: FadeTo(1, 80 × (1 - alpha), out quad) from the alpha
+  // at the press (motion.z), then 100 ms in a 50 ms fade out.
+  if(profile==19u){let down=80.0*(1.0-motion.z);var a=1.0;if(dt<down){let t=dt/down;a=motion.z+(1.0-motion.z)*(1.0-(1.0-t)*(1.0-t));}
+   alpha*=a*clamp(1.0-(dt-100.0)/50.0,0.0,1.0);}
+  // LegacyKiaiGlow: 100 ms in from the kiai start (motion.z), 600 ms out
+  // after its end (motion.w); a hit (any segment after the start) pops the
+  // scale 0.8 + 0.15 back to 0.8 over 80 ms (out quad).
+  if(profile==20u){alpha*=clamp((now-motion.z)/100.0,0.0,1.0)*select(1.0,clamp(1.0-(now-motion.w)/600.0,0.0,1.0),now>motion.w);
+   if(life.x>motion.z+0.01){let t=clamp(dt/80.0,0.0,1.0);size*=1.0+0.1875*(1.0-(1.0-(1.0-t)*(1.0-t)));}}
+  // Catcher.applyDropAnimation: Drop falls 75 over 750 ms (in sine); Explode
+  // rises 50 over 250 ms (out sine), falls 100 over 500 ms (in sine) and
+  // travels motion.z over 1000 ms; both fade over 750 ms. motion.w: angle.
+  if(profile==22u || profile==23u){angle=motion.w;let f=clamp(dt/750.0,0.0,1.0);alpha*=1.0-f;
+   if(profile==22u){centre.y+=75.0*(1.0-cos(f*1.5707963));}
+   else{centre.y+=select(-50.0+100.0*(1.0-cos(clamp((dt-250.0)/500.0,0.0,1.0)*1.5707963)),-50.0*sin(clamp(dt/250.0,0.0,1.0)*1.5707963),dt<250.0);
+    centre.x+=motion.z*clamp(dt/1000.0,0.0,1.0);}}
+  // CatcherTrail: dash trails FadeTo(0.4).FadeOut(800, out quint).
+  if(profile==24u){alpha*=0.4*(1.0-easeOutQuint(clamp(dt/800.0,0.0,1.0)));}
+  // Hyper-dash after-image: 10 up and 0.95 → 1.14 (ScaleTo(Scale × 1.2) after
+  // ScaleTo(Scale × 0.95) applied) about the catcher's top (motion.z) over
+  // 1200 ms (in quad), fading linearly.
+  if(profile==25u){let e=clamp(dt/1200.0,0.0,1.0);let q=e*e;let k=0.95+0.19*q;
+   centre.y=motion.z+(geometry.y-motion.z)*k-10.0*q;size*=k;alpha*=1.0-e;}
+  // LegacyColumnBackground: on release (motion.z) the light fades and
+  // shrinks to its bottom over 250 ms.
+  if(profile==26u && now>motion.z){let t=clamp((now-motion.z)/250.0,0.0,1.0);alpha*=1.0-t;size.y*=1.0-t;
+   centre.y=geometry.y+geometry.w*0.5-size.y*0.5;}
+  // Per-frame sprites (the osu! cursor): turned by motion.z.
+  if(profile==27u){angle=motion.z;}
  }
  if(kind==9u || (kind>=15u && kind<=17u)){centre.x=g.cursor.x;}if(kind>=15u && kind<=17u){if(u32(g.flags.w)!=kind-15u){alpha=0.0;}if(g.cursor.w<0.0){size.x=-size.x;}}
  if(kind==10u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}
- if(kind>=11u && kind<=13u){let pressed=(u32(g.keys.x)&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
+ if(kind>=11u && kind<=13u){let pressed=(u32(select(g.keys.x,g.extra.y,kind!=13u))&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
  if(kind==18u || kind==19u){let bit=1u<<u32(motion.y);let pressed=(u32(g.keys.x)&bit)!=0u;let held=(u32(g.keys.y)&bit)!=0u;if(!pressed || (kind==18u && held) || (kind==19u && !held)){alpha=0.0;}}
  if(mode==0u && life.z > -1e8 && kind!=5u && kind!=35u && kind!=37u && kind!=40u && kind!=41u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
  if(mode!=0u && life.z > -1e8 && now>life.y && kind!=35u){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
@@ -132,12 +162,12 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
- var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u || kind==40u || kind==41u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
+ var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u || kind==40u || kind==41u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0 && motion.y!=26.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
  // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);
  let local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
- let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point-vec2f(256.0,192.0))*scale;
+ let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point+vec2f(0.0,select(0.0,g.extra.x,mode==0u))-vec2f(256.0,192.0))*scale;
  let row=select(t,1.0-t,flipV)*bodyV;let stripV=(row-rows.x)/max(0.000001,rows.y-rows.x);
  var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
  // FadeColour / FlashColour mix in linear light.

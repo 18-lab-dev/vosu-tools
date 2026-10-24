@@ -277,6 +277,11 @@ pub(super) async fn part(
     tokio::io::AsyncWriteExt::write_all(&mut file, &body)
         .await
         .map_err(error)?;
+    // tokio writes on a blocking thread; without a flush the last write may
+    // still be in flight when the part is acknowledged and `finish` reads it.
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .map_err(error)?;
     upload.received += body.len() as u64;
     upload.parts += 1;
     upload.touched = Instant::now();

@@ -5,7 +5,8 @@ import {
   type Beatmap,
   type Mod,
 } from "@vosu-tools/osu-parse";
-import { buildAtlas, type Skin } from "./skin";
+import { buildAtlas, regionInstances, type Skin } from "./skin";
+import { CursorModel, PLAYFIELD_SHIFT, pressIntervals } from "./gameplay";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
 import { shader } from "./shader";
 export {
@@ -19,7 +20,7 @@ export { maniaKeysFor } from "./scene";
 export type { Skin, SkinStyle, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
-export type { RenderOptions, Scene } from "./scene";
+export type { RenderOptions, Scene, InputFrame } from "./scene";
 export type { JudgementEvent } from "./judgements";
 export interface FrameState {
   target?: GPUTextureView;
@@ -100,6 +101,8 @@ export async function createRenderer(
     aspect = width / height;
   let keyIntervals: { start: number; end: number }[][] = [];
   let holdIntervals: { start: number; end: number }[][] = [];
+  /** Key images (LegacyKeyArea) stay pressed 80 ms after a release. */
+  let keyImageIntervals: { start: number; end: number }[][] = [];
   function activeMask(
     columns: readonly (readonly { start: number; end: number }[])[],
     time: number,
@@ -154,9 +157,9 @@ export async function createRenderer(
     }
     return states[lo - 1]?.state ?? 0;
   }
-  const uniforms = new Float32Array(20),
+  const uniforms = new Float32Array(24),
     uniformBuffer = device.createBuffer({
-      size: 80,
+      size: 96,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
   const sampler = device.createSampler({
@@ -296,6 +299,33 @@ export async function createRenderer(
     overlays[b + 10] = 0.2;
     overlays[b + 11] = alpha;
   }
+  /** A textured per-frame sprite (kind 35, Profile.sprite); returns the next index. */
+  function writeSprite(
+    index: number,
+    asset: string,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    angle: number,
+    alpha: number,
+    additive: boolean,
+    time: number,
+  ): number {
+    const region = atlas.regions.get(asset);
+    if (!region) return index;
+    for (const { entry, uv } of regionInstances(region, true)) {
+      if (index >= 512) break;
+      overlays.set(
+        [x, y, w, h, time, time, -1e9, 1e9, 1, 1, 1, alpha, 35, 27, angle, 0,
+          uv.u, uv.v, uv.w, uv.h, additive ? 13 : 10, entry, 0, 0],
+        index++ * 24,
+      );
+    }
+    return index;
+  }
+  /** osu!: the replay's cursor with the skin's images (setBeatmap's `input`). */
+  let cursorModel: CursorModel | undefined;
   let disposed = false;
   const renderer: Renderer = {
     device,
@@ -312,7 +342,9 @@ export async function createRenderer(
           ? Array.from({ length: Math.round(map.difficulty.cs) }, () => [])
           : [];
       holdIntervals = keyIntervals.map(() => []);
-      if (map.mode === 3)
+      if (map.mode === 3 && opts.input)
+        keyIntervals = pressIntervals(opts.input, keyIntervals.length);
+      else if (map.mode === 3)
         for (const object of map.objects) {
           const lane = Math.min(
               keyIntervals.length - 1,
@@ -331,6 +363,39 @@ export async function createRenderer(
             else holds.push({ start: object.time, end: object.endTime });
           }
         }
+      if (map.mode === 3 && opts.input)
+        for (const object of map.objects) {
+          if (object.endTime <= object.time) continue;
+          const lane = Math.min(
+              holdIntervals.length - 1,
+              Math.floor((object.x * holdIntervals.length) / 512),
+            ),
+            holds = holdIntervals[lane],
+            previous = holds[holds.length - 1];
+          if (previous && previous.end >= object.time)
+            previous.end = Math.max(previous.end, object.endTime);
+          else holds.push({ start: object.time, end: object.endTime });
+        }
+      const general = skin?.sections.get("General")?.[0] ?? {},
+        flag = (key: string) => (general[key] ?? "1").trim() !== "0";
+      cursorModel =
+        map.mode === 0 && opts.input && atlas.regions.has("cursor")
+          ? new CursorModel(opts.input, {
+              size: (asset) => {
+                const r = atlas.regions.get(asset);
+                return r ? [r.width ?? 0, r.height ?? 0] : undefined;
+              },
+              centre: flag("CursorCentre"),
+              rotate: flag("CursorRotate"),
+              expand: flag("CursorExpand"),
+              trailRotate: flag("CursorTrailRotate"),
+            })
+          : undefined;
+      keyImageIntervals = opts.input
+        ? keyIntervals.map((column) =>
+            column.map(({ start, end }) => ({ start, end: end + 80 })),
+          )
+        : keyIntervals;
       instances?.destroy();
       instances = device.createBuffer({
         size: Math.max(96, scene.data.byteLength),
@@ -400,11 +465,16 @@ export async function createRenderer(
           }
         cursorY = (p.y ?? 350) + ((q.y ?? 350) - (p.y ?? 350)) * f;
       }
-      let mask = frame?.keys ? 0 : activeMask(keyIntervals, time);
-      if (frame?.keys)
+      // A replay's input (setBeatmap) wins over per-frame keys.
+      const fromInput = !!settings.input;
+      let mask = frame?.keys && !fromInput ? 0 : activeMask(keyIntervals, time);
+      if (frame?.keys && !fromInput)
         for (let lane = 0; lane < Math.min(31, frame.keys.length); lane++)
           if (frame.keys[lane]) mask |= 1 << lane;
       uniforms[13] = activeMask(holdIntervals, time) & mask;
+      uniforms[20] =
+        map.mode === 0 && settings.playfieldShift ? PLAYFIELD_SHIFT : 0;
+      uniforms[21] = fromInput ? activeMask(keyImageIntervals, time) : mask;
       uniforms[14] = hyperAmount(scene.hyper, time);
       uniforms[0] = time;
       uniforms[1] = width;
@@ -456,7 +526,17 @@ export async function createRenderer(
           pass.draw(6, chunk.count, 0, chunk.first);
       }
       let count = 0;
-      if (map.mode === 0 && frame?.cursorTrail)
+      const skinned = cursorModel?.sprites(
+        time,
+        Math.max(0, frame?.cursor?.scale ?? 1),
+        511,
+      );
+      // Skins without a cursor trail keep the caller's look-back trail.
+      if (
+        map.mode === 0 &&
+        frame?.cursorTrail &&
+        !(skinned && atlas.regions.has("cursortrail"))
+      )
         for (let i = 0; i < frame.cursorTrail.length && count < 511; i++) {
           const sample = frame.cursorTrail[i];
           if (sample.opacity > 0)
@@ -469,7 +549,21 @@ export async function createRenderer(
               time,
             );
         }
-      if (frame?.cursor && map.mode === 0)
+      if (skinned)
+        for (const sprite of skinned)
+          count = writeSprite(
+            count,
+            sprite.asset,
+            sprite.x,
+            sprite.y,
+            sprite.w,
+            sprite.h,
+            sprite.angle,
+            sprite.alpha,
+            sprite.additive,
+            time,
+          );
+      else if (frame?.cursor && map.mode === 0)
         writeCursor(
           count++,
           cursorX,

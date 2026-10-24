@@ -95,11 +95,32 @@ osu!framework 2026.921.1 transform sequencing (`TransformSequence.Then/Delay`).
 Lazer draws catch's hit lighting from its own classic skin, never the user's;
 render-core draws stand-ins of the same size (`CATCH_EXPLOSION_SIZES`).
 
-Not modelled (lazer draws them from gameplay state render-core does not
-simulate): kiai glow and drum hits in taiko; caught-fruit stacks on the plate
-and dash trails in catch. Lazer's gameplay shifts the osu! playfield 8 osu!
-pixels down (`OsuPlayfieldAdjustmentContainer.PlayfieldShift`); render-core's
-osu! scene stays centred.
+Replay-input elements (`src/gameplay.ts`, the motion-35 profiles 19-27 in
+`src/shader.ts`, `taikoMascot`/`taikoKiaiGlow` in `src/taiko.ts`, the plate
+and trails in `src/fruits.ts`) are a port (translated code) of osu! (lazer)
+at the same tag: `osu.Game.Rulesets.Taiko` (`Skinning/Legacy/LegacyInputDrum`,
+`Skinning/Legacy/LegacyKiaiGlow`, `UI/DrawableTaikoMascot`,
+`UI/TaikoMascotAnimation`, `UI/TaikoPlayfield`, `Replays/TaikoReplayFrame`);
+`osu.Game.Rulesets.Catch` (`UI/Catcher` placement, stacking, Drop/Explode,
+`UI/CatcherArea`, `UI/CatcherTrail`, `UI/CatcherTrailDisplay`,
+`Replays/CatchReplayFrame`); `osu.Game.Rulesets.Mania`
+(`Skinning/Legacy/LegacyKeyArea`, `Skinning/Legacy/LegacyColumnBackground`);
+`osu.Game.Rulesets.Osu` (`Skinning/Legacy/LegacyCursor`,
+`Skinning/Legacy/LegacyCursorTrail`, `UI/Cursor/OsuCursor`,
+`UI/Cursor/OsuCursorContainer`, `UI/Cursor/CursorTrail`,
+`UI/OsuPlayfieldAdjustmentContainer` for `playfieldShift`).
+
+Approximations: lazer stacks plate objects with its unseeded `RNG`, so
+render-core uses the same rule with a fixed-seed generator (positions are
+reproducible, not lazer's draws). The kiai glow and the mascot follow lazer's
+beat callbacks: render-core takes kiai from the timing lines and counts
+mascot frames by beat index from the first timing point (lazer counts beats
+since the drawable loaded, which only shifts the frame phase). Lazer shows its
+own classic pippidon when a skin has none; render-core draws a mascot only
+from the skin's images. The cursor trail ignores lazer's input resampling.
+
+Not modelled: taiko's drum-hit sounds and the mascot's swell-clear timing
+nuances beyond `TaikoSwellJudgement` hits.
 
 The optional oversized-texture rule (`Skin.blank`, off unless a caller passes
 `maxTextureSize`) is a source-reading hypothesis from osu!framework 2026.921.1,
@@ -114,7 +135,12 @@ loader side.
 (`test/layoutGolden.ts`, fixtures in `test/fixtures/layout-*.json`), and for
 judgements in all four rulesets under lazer's autoplay
 (`test/judgementGolden.ts`, fixture `test/fixtures/judgement-golden.json`,
-compared by `test/judgementGolden.test.ts`).
+compared by `test/judgementGolden.test.ts`); and for replay-driven gameplay
+(drum flashes, catcher trails and after-images, the plate's exploding
+objects, the cursor), with lazer's own autoplay replay as render-core's
+`input`, stepped at 60 Hz (`test/gameplayGolden.ts`, fixture
+`test/fixtures/gameplay-golden.json`, compared by
+`test/gameplayGolden.test.ts`).
 
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never

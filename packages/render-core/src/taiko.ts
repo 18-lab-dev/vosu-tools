@@ -25,6 +25,8 @@ import {
   type JudgementEvent,
   type Marks,
 } from "./judgements";
+import { drumFlashes } from "./gameplay";
+import type { InputFrame } from "./scene";
 
 /** Emits one instance (scene.ts `add`). */
 export type Emit = (
@@ -152,6 +154,7 @@ export function compileTaiko(
     noteSpeed?: number;
     judgements?: readonly JudgementEvent[];
     taikoTopArea?: boolean;
+    input?: readonly InputFrame[];
   },
   regions: Map<string, AtlasRegion>,
   skin: Skin | undefined,
@@ -280,7 +283,26 @@ export function compileTaiko(
       0,
       "taiko-bar-left",
     );
+    // LegacyInputDrum's half drums flash on the replay's presses.
+    if (options.input && marks)
+      drumFlashes(options.input, marks, px, py, s, skin?.version ?? 1);
   }
+
+  // DrawableTaikoMascot above the drum, with the strip above the playfield.
+  if (marks && options.taikoTopArea !== false)
+    taikoMascot(
+      map,
+      options.judgements,
+      marks,
+      px,
+      py,
+      s,
+      Math.min(0, (map.objects[0]?.time ?? 0) - 2000),
+      map.duration + 3000,
+    );
+
+  // LegacyKiaiGlow behind the explosions and hit target.
+  if (marks) taikoKiaiGlow(map, options.judgements, marks, hitX, midY, s);
 
   // LegacyHitExplosion under the hit target: fades in for 120 ms and out for
   // 180 ms, popping 0.6 → 1.1 → 0.9 → 1 when not animated. A replay's results
@@ -961,4 +983,185 @@ function kiaiSections(map: Beatmap): [number, number][] {
   }
   if (start !== null) out.push([start, map.duration]);
   return out;
+}
+
+/** Index of the beat at `time` counted across uninherited timing points. */
+export function beatOrdinal(map: Beatmap, time: number): number {
+  const points = map.timing.filter((p) => p.uninherited && p.beatLength > 0);
+  if (!points.length) return Math.floor(time / 1000);
+  let base = 0,
+    k = 0;
+  while (k + 1 < points.length && points[k + 1].time <= time) {
+    base += Math.ceil((points[k + 1].time - points[k].time) / points[k].beatLength - 1e-6);
+    k++;
+  }
+  return base + Math.floor((time - points[k].time) / points[k].beatLength + 1e-6);
+}
+
+/** Beat times in [from, to). */
+function beatTimes(map: Beatmap, from: number, to: number): number[] {
+  const points = map.timing.filter((p) => p.uninherited && p.beatLength > 0);
+  if (!points.length) return [];
+  const out: number[] = [];
+  for (let k = 0; k < points.length; k++) {
+    const p = points[k],
+      end = k + 1 < points.length ? points[k + 1].time : to,
+      start = k === 0 ? Math.min(from, p.time) : p.time;
+    let t = p.time + Math.ceil((start - p.time) / p.beatLength - 1e-6) * p.beatLength;
+    for (; t < Math.min(end, to) - 1e-6; t += p.beatLength) if (t >= from) out.push(t);
+  }
+  return out;
+}
+
+const COMBO_RESULTS = new Set(["perfect", "great", "good", "ok", "meh", "miss"]);
+const MASCOT_STATES = ["idle", "clear", "kiai", "fail"] as const;
+type MascotState = (typeof MASCOT_STATES)[number];
+/** `ClearMascotTextureAnimation`: frames at 10 fps, played once. */
+const CLEAR_SEQUENCE = [0, 1, 2, 3, 4, 5, 6, 5, 6, 5, 4, 3, 2, 1, 0];
+
+/**
+ * `DrawableTaikoMascot` with the skin's pippidon frames: idle, kiai or fail
+ * (after a missed combo object) advance a frame on every beat, starting from
+ * frame 0 whenever the state changes; every 50th combo and every completed
+ * swell play the clear animation (15 frames at 10 fps) to the end. Bottom-left
+ * at 0.2 of the playfield's height, at 0.6 scale.
+ */
+export function taikoMascot(
+  map: Beatmap,
+  judgements: readonly JudgementEvent[] | undefined,
+  marks: Marks,
+  px: (x: number) => number,
+  py: (y: number) => number,
+  scale: number,
+  from: number,
+  to: number,
+): void {
+  const frames = (state: MascotState) => {
+    const out: string[] = [];
+    for (let i = 0; marks.has(`pippidon${state}${i}`); i++) out.push(`pippidon${state}${i}`);
+    if (!out.length && marks.has(`pippidon${state}`)) out.push(`pippidon${state}`);
+    return out;
+  };
+  const sets = new Map(MASCOT_STATES.map((s) => [s, frames(s)] as const));
+  if (![...sets.values()].some((f) => f.length)) return;
+  const clearFrames: string[] = [];
+  for (const i of CLEAR_SEQUENCE) {
+    const name = sets.get("clear")![i];
+    if (!name) break;
+    clearFrames.push(name);
+  }
+  const kiai = kiaiSections(map);
+  const inKiai = (t: number) => kiai.some(([s, e]) => t >= s && t < e);
+  // Results in time order; without a replay every object is hit.
+  const results = (
+    judgements ??
+    map.objects.map((o, i) => ({ time: o.time, result: "great", note: i, object: o.type & 8 ? "swell" : "hit", x: 0, y: 0, combo: i + 1 }))
+  )
+    .filter((e) => COMBO_RESULTS.has(e.result) || e.object === "swell")
+    .sort((a, b) => a.time - b.time);
+  // Times the state can change: results, kiai edges, clear endings.
+  const put = (asset: string, start: number, end: number) => {
+    if (!(end > start)) return;
+    const [w, h] = marks.size(asset);
+    marks.put({
+      asset,
+      x: px((w * 0.6) / 2),
+      y: py(0.2 * 200 - (h * 0.6) / 2),
+      w: w * 0.6 * scale,
+      h: h * 0.6 * scale,
+      time: start,
+      until: end,
+      profile: 21,
+      fps: 0,
+    });
+  };
+  const beats = beatTimes(map, from, to);
+  let lastHit = true,
+    clearUntil = -Infinity,
+    r = 0;
+  const edges = [...new Set([from, to, ...results.map((e) => e.time), ...kiai.flat()])]
+    .filter((t) => t >= from && t <= to)
+    .sort((a, b) => a - b);
+  // Walk segments between edges, then draw each state's frames per beat.
+  const spans: { state: MascotState; start: number; end: number }[] = [];
+  for (let i = 0; i < edges.length - 1; i++) {
+    let t = edges[i];
+    while (r < results.length && results[r].time <= t) {
+      const e = results[r++];
+      const hit = e.result !== "miss";
+      if (((COMBO_RESULTS.has(e.result) && hit && e.combo % 50 === 0) || (e.object === "swell" && hit)) && sets.get("clear")!.length && t >= clearUntil) {
+        clearUntil = e.time + clearFrames.length * 100;
+        lastHit = true;
+      }
+      if (COMBO_RESULTS.has(e.result)) lastHit = hit;
+    }
+    const end = edges[i + 1];
+    while (t < end) {
+      const next: MascotState = t < clearUntil ? "clear" : !lastHit ? "fail" : inKiai(t) ? "kiai" : "idle";
+      const until = t < clearUntil ? Math.min(end, clearUntil) : end;
+      const last = spans[spans.length - 1];
+      if (last && last.state === next && last.end === t) last.end = until;
+      else spans.push({ state: next, start: t, end: until });
+      t = until;
+    }
+  }
+  for (const span of spans) {
+    if (span.state === "clear") {
+      for (let k = 0; k < clearFrames.length; k++)
+        put(clearFrames[k], Math.max(span.start, span.start + k * 100), Math.min(span.end, span.start + (k + 1) * 100));
+      continue;
+    }
+    const set = sets.get(span.state)!;
+    if (!set.length) continue;
+    // Frame 0 from the state's start until the next beat, then one frame per beat.
+    let t = span.start;
+    for (const beat of beats) {
+      if (beat <= span.start) continue;
+      if (beat >= span.end) break;
+      const frame = t === span.start ? set[0] : set[((beatOrdinal(map, t) % set.length) + set.length) % set.length];
+      put(frame, t, beat);
+      t = beat;
+    }
+    put(t === span.start ? set[0] : set[((beatOrdinal(map, t) % set.length) + set.length) % set.length], t, span.end);
+  }
+}
+
+/**
+ * `LegacyKiaiGlow` (taiko-glow, coloured (255, 228, 0) at the hit target's
+ * 0.8 scale): 100 ms in when kiai starts, 600 ms out after; every hit in
+ * kiai pops it 0.15 larger, easing back over 80 ms.
+ */
+export function taikoKiaiGlow(
+  map: Beatmap,
+  judgements: readonly JudgementEvent[] | undefined,
+  marks: Marks,
+  x: number,
+  y: number,
+  scale: number,
+): void {
+  if (!marks.has("taiko-glow")) return;
+  const [w, h] = marks.size("taiko-glow"),
+    hits = (judgements
+      ? judgements.filter((e) => !/miss/.test(e.result)).map((e) => e.time)
+      : map.objects.filter((o) => !(o.type & (2 | 8))).map((o) => o.time)
+    ).sort((a, b) => a - b);
+  for (const [start, end] of kiaiSections(map)) {
+    const inside = hits.filter((t) => t > start && t < end);
+    const cuts = [start, ...inside, end + 600];
+    for (let i = 0; i < cuts.length - 1; i++)
+      marks.put({
+        asset: "taiko-glow",
+        x,
+        y,
+        w: w * 0.8 * scale,
+        h: h * 0.8 * scale,
+        time: cuts[i],
+        until: cuts[i + 1],
+        profile: 20,
+        p1: start,
+        p2: end,
+        tint: [1, 228 / 255, 0, 1],
+        fps: 0,
+      });
+  }
 }
