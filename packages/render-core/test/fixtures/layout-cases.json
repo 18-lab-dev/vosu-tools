@@ -69,11 +69,54 @@
         "fruit-bananas.png": [300, 300],
         "fruit-catcher-idle.png": [300, 320]
       }
+    },
+    {
+      "name": "osu-old",
+      "ini": "[General]\nName: osu-old\nVersion: 2.7\n[Colours]\nCombo1: 255,128,0 // orange\nCombo2: 0,128,255\nSpinnerBackground: 200,180,160\nSliderBall: 2,170,255 // a trailing comment\n",
+      "files": {
+        "hitcircle@2x.png": [256, 256],
+        "hitcircleoverlay@2x.png": [256, 256],
+        "approachcircle@2x.png": [252, 256],
+        "sliderb0@2x.png": [200, 200],
+        "sliderb1@2x.png": [200, 200],
+        "sliderb@2x.png": [400, 400],
+        "sliderb-nd@2x.png": [200, 200],
+        "sliderb-spec@2x.png": [200, 200],
+        "sliderfollowcircle@2x.png": [512, 512],
+        "spinner-background@2x.png": [2048, 1536],
+        "spinner-circle@2x.png": [1200, 1200],
+        "spinner-metre@2x.png": [2048, 1536],
+        "spinner-approachcircle@2x.png": [800, 800],
+        "spinner-clear@2x.png": [600, 200],
+        "spinner-rpm@2x.png": [400, 120],
+        "spinner-spin@2x.png": [600, 160]
+      }
+    },
+    {
+      "name": "osu-new",
+      "ini": "[General]\nName: osu-new\nVersion: latest\nAllowSliderBallTint: 1\n[Colours]\nCombo1: 46,252,253\nCombo2: 253,99,2\nCombo3: 120,200,40\n",
+      "files": {
+        "hitcircle.png": [128, 128],
+        "hitcircleoverlay.png": [128, 128],
+        "sliderb.png": [120, 120],
+        "sliderfollowcircle-0.png": [300, 300],
+        "sliderfollowcircle-1.png": [300, 300],
+        "spinner-glow@2x.png": [1200, 1200],
+        "spinner-bottom@2x.png": [1000, 1000],
+        "spinner-top@2x.png": [1000, 1000],
+        "spinner-middle2@2x.png": [600, 600],
+        "spinner-middle@2x.png": [400, 400],
+        "spinner-approachcircle@2x.png": [800, 800],
+        "spinner-clear@2x.png": [600, 200],
+        "spinner-rpm@2x.png": [400, 120],
+        "spinner-spin@2x.png": [600, 160]
+      }
     }
   ],
   "maps": {
     "taiko": "osu file format v14\n\n[General]\nMode: 1\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:5\nOverallDifficulty:5\nApproachRate:5\nSliderMultiplier:1.4\nSliderTickRate:1\n\n[TimingPoints]\n0,300,4,1,0,100,1,0\n4000,-50,4,1,0,100,0,1\n6000,-100,4,1,0,100,0,0\n\n[HitObjects]\n256,192,1000,1,0,0:0:0:0:\n256,192,1150,1,2,0:0:0:0:\n256,192,1300,1,4,0:0:0:0:\n256,192,1450,1,8,0:0:0:0:\n256,192,1600,1,6,0:0:0:0:\n256,192,1750,1,12,0:0:0:0:\n256,192,1900,1,0,0:0:0:0:\n256,192,2050,1,8,0:0:0:0:\n256,192,2200,1,0,0:0:0:0:\n256,192,2350,1,2,0:0:0:0:\n256,192,2500,1,4,0:0:0:0:\n256,192,2650,1,8,0:0:0:0:\n256,192,2800,1,6,0:0:0:0:\n256,192,2950,1,12,0:0:0:0:\n256,192,3200,2,0,L|356:192,1,140\n256,192,4200,12,0,4800,0:0:0:0:\n256,192,5000,1,0,0:0:0:0:\n256,192,5150,1,8,0:0:0:0:\n256,192,5300,1,0,0:0:0:0:\n256,192,5450,1,2,0:0:0:0:\n256,192,5600,1,4,0:0:0:0:\n256,192,5750,1,8,0:0:0:0:\n256,192,5900,1,6,0:0:0:0:\n256,192,6050,1,12,0:0:0:0:\n256,192,6200,1,0,0:0:0:0:\n256,192,6350,1,8,0:0:0:0:\n256,192,6600,2,4,L|356:192,2,140\n",
-    "catch": "osu file format v14\n\n[General]\nMode: 2\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:5\nApproachRate:8\nSliderMultiplier:1.4\nSliderTickRate:2\n\n[TimingPoints]\n0,400,4,1,0,100,1,0\n5000,400,4,1,0,100,1,1\n\n[Colours]\nCombo1 : 255,0,128\nCombo2 : 255,255,0\nCombo3 : 128,0,255\nCombo4 : 0,172,255\n\n[HitObjects]\n64,192,1000,5,0,0:0:0:0:\n448,192,1150,1,0,0:0:0:0:\n256,192,1600,6,0,L|420:192,1,210\n100,192,2500,1,0,0:0:0:0:\n300,192,2800,5,0,0:0:0:0:\n256,192,3200,12,0,4200,0:0:0:0:\n200,192,4600,5,0,0:0:0:0:\n220,192,4800,1,0,0:0:0:0:\n480,192,5000,1,0,0:0:0:0:\n40,192,5150,5,0,0:0:0:0:\n300,192,5800,1,0,0:0:0:0:\n"
+    "catch": "osu file format v14\n\n[General]\nMode: 2\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:5\nApproachRate:8\nSliderMultiplier:1.4\nSliderTickRate:2\n\n[TimingPoints]\n0,400,4,1,0,100,1,0\n5000,400,4,1,0,100,1,1\n\n[Colours]\nCombo1 : 255,0,128\nCombo2 : 255,255,0\nCombo3 : 128,0,255\nCombo4 : 0,172,255\n\n[HitObjects]\n64,192,1000,5,0,0:0:0:0:\n448,192,1150,1,0,0:0:0:0:\n256,192,1600,6,0,L|420:192,1,210\n100,192,2500,1,0,0:0:0:0:\n300,192,2800,5,0,0:0:0:0:\n256,192,3200,12,0,4200,0:0:0:0:\n200,192,4600,5,0,0:0:0:0:\n220,192,4800,1,0,0:0:0:0:\n480,192,5000,1,0,0:0:0:0:\n40,192,5150,5,0,0:0:0:0:\n300,192,5800,1,0,0:0:0:0:\n",
+    "osu": "osu file format v14\n\n[General]\nAudioFilename: none\nAudioLeadIn: 0\nPreviewTime: -1\nCountdown: 0\nSampleSet: Soft\nStackLeniency: 0.7\nMode: 0\n\n[Metadata]\nTitle:Skin studio demo\nArtist:18-LAB\nCreator:vosu tools\nVersion:osu!\nSource:\nTags:\n\n[Difficulty]\nHPDrainRate:5\nCircleSize:4\nOverallDifficulty:7\nApproachRate:8\nSliderMultiplier:1.6\nSliderTickRate:2\n\n[TimingPoints]\n0,500,4,2,0,60,1,0\n\n[HitObjects]\n128,160,0,5,0,0:0:0:0:\n192,256,500,1,0,0:0:0:0:\n288,256,1000,1,0,0:0:0:0:\n352,160,1500,1,0,0:0:0:0:\n96,300,2000,6,0,B|176:200|336:200|416:300,2,320\n256,96,4500,1,0,0:0:0:0:\n256,192,5000,12,0,8000,0:0:0:0:\n160,288,8500,5,0,0:0:0:0:\n256,320,9000,1,0,0:0:0:0:\n352,288,9500,1,0,0:0:0:0:\n"
   },
   "cases": [
     {
@@ -274,6 +317,357 @@
       "skin": "catch-big",
       "map": "catch",
       "time": 3600,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-1900",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 1900,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-2030",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 2030,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-2100",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 2100,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-2260",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 2260,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-3150",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 3150,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-3250",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 3250,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-3990",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 3990,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-4100",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 4100,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-4700",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 4700,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-4900",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 4900,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-5300",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 5300,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-5500",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 5500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-6200",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 6200,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-6500",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 6500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-7960",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 7960,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-8050",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 8050,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-1900",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 1900,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-2030",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 2030,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-2100",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 2100,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-2260",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 2260,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-3150",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 3150,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-3250",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 3250,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-3990",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 3990,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-4100",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 4100,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-4700",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 4700,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-4900",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 4900,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-5300",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 5300,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-5500",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 5500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-6200",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 6200,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-6500",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 6500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-7960",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 7960,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-new-8050",
+      "ruleset": "osu",
+      "skin": "osu-new",
+      "map": "osu",
+      "time": 8050,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "osu-old-4:3-5500",
+      "ruleset": "osu",
+      "skin": "osu-old",
+      "map": "osu",
+      "time": 5500,
+      "width": 1024,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-2400",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2400,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-2500",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-2600",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 2600,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3500",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3500,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3700",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3700,
+      "width": 1365.3334,
+      "height": 768
+    },
+    {
+      "name": "catch-enter-3900",
+      "ruleset": "catch",
+      "skin": "catch-big",
+      "map": "catch",
+      "time": 3900,
       "width": 1365.3334,
       "height": 768
     }

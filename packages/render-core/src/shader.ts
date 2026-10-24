@@ -7,6 +7,9 @@ struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:v
 struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32 }
 fn easeOut(t:f32)->f32{return 1.0-(1.0-t)*(1.0-t);}
 fn easeOutQuint(t:f32)->f32{let u=1.0-t;return 1.0-u*u*u*u*u;}
+// SpinnerRotationTracker's damped rotation (half-life base 0.99 per ms) of
+// autoplay's 0.05 rad/ms spin from s to e, in radians.
+fn spinnerTurn(now:f32,s:f32,e:f32)->f32{let w=0.05;let tau=99.4992;if(now<=s){return 0.0;}let t=min(now,e)-s;let r=w*(t-tau*(1.0-exp(-t/tau)));if(now<=e){return r;}let goal=w*(e-s);return goal-(goal-r)*exp(-(now-e)/tau);}
 fn outElastic(t:f32)->f32{if(t<=0.0){return 0.0;}if(t>=1.0){return 1.0;}return pow(2.0,-10.0*t)*sin((t-0.075)*6.2831853/0.3)+1.0;}
 // LegacyJudgementPieceOld's hit pop: 0.6 to 1.1 (96 ms), held to 120 ms, 0.9
 // at 144 ms, then 0.95 easing to the final scale at 168 ms.
@@ -26,7 +29,9 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(kind==3u){centre.x=geometry.x+(life.x-now)*motion.y;}
  if(mode==1u && kind==3u && now>life.x){alpha=0.0;}
  if(kind==4u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;}
- if(kind==5u){centre=mix(geometry.xy,motion.yz,clamp((now-life.x)/max(0.01,life.y-life.x),0.0,1.0));}
+ if(kind==5u || kind==40u || kind==41u){centre=mix(geometry.xy,motion.yz,clamp((now-life.x)/max(0.01,life.y-life.x),0.0,1.0));}
+ // The legacy slider ball faces the way it travels.
+ if(kind==41u){let dir=motion.yz-geometry.xy;if(length(dir)>0.01){angle=atan2(dir.y,dir.x);}}
  if(kind==6u){size*=1.0+3.0*clamp((life.x-now)/g.timing.z,0.0,1.0);}
  if(kind==7u){angle=(now-life.x)*0.006;}
  if(kind==23u){let travel=now*motion.y;centre.x=geometry.x-(travel-floor(travel/motion.z)*motion.z);}
@@ -41,6 +46,32 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(kind==31u){centre.x=geometry.x+(life.x-now)*motion.y+size.x*0.5;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/150.0,0.0,1.0);}}
  // Taiko notes left unhit: they scroll on, masked, then fade over motion.z ms.
  if(kind==36u){centre.x=geometry.x+(life.x-now)*motion.y;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/motion.z,0.0,1.0);}}
+ // osu!'s legacy spinner parts (osu.ts): life.x/y are the spinner's start and
+ // end, motion.y the part's role, motion.z autoplay's completion and motion.w
+ // a role parameter. The whole spinner fades in over TimeFadeIn and out over
+ // 240 ms after its end.
+ var fromRgb=tint.rgb;var toRgb=tint.rgb;var mixRgb=0.0;
+ if(kind==37u){let s=life.x;let e=life.y;let fi=400.0*min(1.0,g.timing.z/450.0);let role=u32(motion.y+0.5);
+  alpha*=clamp((now-(s-fi))/fi,0.0,1.0);if(now>e){alpha*=clamp(1.0-(now-e)/240.0,0.0,1.0);}
+  let progress=clamp((now-s)/max(0.01,motion.z-s),0.0,1.0);
+  if(role==1u || role==8u){angle=spinnerTurn(now,s,e)*motion.w;}
+  if(role==2u){size*=mix(1.0,0.0625/1.1625,clamp((now-s)/max(1.0,e-s),0.0,1.0));}
+  if(role==3u){let dt=now-life.z;alpha*=easeOut(clamp(dt/400.0,0.0,1.0));if(now>e-50.0){alpha*=clamp((e-now)/50.0,0.0,1.0);}size*=select(0.8+0.2*clamp((dt-240.0)/160.0,0.0,1.0),2.0-1.2*easeOut(clamp(dt/240.0,0.0,1.0)),dt<240.0);}
+  if(role==4u){let half=fi*0.5;alpha*=clamp((now-(s-half))/half,0.0,1.0);}
+  if(role==5u){alpha*=clamp(1.0-(now-motion.w)/300.0,0.0,1.0);}
+  if(role==6u){centre.y+=50.0*(1.0-easeOut(clamp((now-(s-fi))/fi,0.0,1.0)));}
+  if(role>=8u){size*=0.8+0.2*easeOut(progress);}
+  if(role==9u){alpha*=progress;if(now>e){alpha*=clamp(1.0-(now-e)/300.0,0.0,1.0);}fromRgb=vec3f(1.0);mixRgb=clamp((now-motion.w)/200.0,0.0,1.0);}
+  if(role==10u){toRgb=vec3f(1.0,0.0,0.0);mixRgb=clamp((now-s)/max(1.0,e-s),0.0,1.0);}
+ }
+ // The legacy follow circle (osu.ts followEvents): tint.r is the segment's
+ // event time, tint.g its type (press, tick pop, end), tint.b the slider's
+ // remaining time (press) or the scale it starts from (end). Drawn white.
+ if(kind==40u){let dt=now-tint.r;let phase=u32(tint.g+0.5);var k=2.0;
+  if(phase==0u){k=1.0+easeOut(clamp(dt/max(0.001,min(180.0,tint.b)),0.0,1.0));alpha*=clamp(dt/max(0.001,min(60.0,tint.b)),0.0,1.0);}
+  if(phase==1u){k=2.2-0.2*clamp(dt/200.0,0.0,1.0);}
+  if(phase==2u){let u=clamp(dt/200.0,0.0,1.0);k=tint.b+(1.6-tint.b)*easeOut(u);alpha*=(1.0-u*u)*clamp(1.0-dt/240.0,0.0,1.0);}
+  size*=k;}
  // Judgements, hit lighting and explosions (judgements.ts): motion.y picks
  // the transform sequence of the lazer piece, from the result time life.x.
  if(kind==35u){let dt=now-life.x;let profile=u32(motion.y+0.5);let animated=shape.z>1.0;
@@ -123,22 +154,27 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(kind==10u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}
  if(kind>=11u && kind<=13u){let pressed=(u32(select(g.keys.x,g.extra.y,kind!=13u))&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
  if(kind==18u || kind==19u){let bit=1u<<u32(motion.y);let pressed=(u32(g.keys.x)&bit)!=0u;let held=(u32(g.keys.y)&bit)!=0u;if(!pressed || (kind==18u && held) || (kind==19u && !held)){alpha=0.0;}}
- if(mode==0u && life.z > -1e8 && kind!=5u && kind!=35u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
+ if(mode==0u && life.z > -1e8 && kind!=5u && kind!=35u && kind!=37u && kind!=40u && kind!=41u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
  if(mode!=0u && life.z > -1e8 && now>life.y && kind!=35u){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
- if(g.flags.x>0.0 && life.z > -1e8 && kind!=35u){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
+ if(g.flags.x>0.0 && life.z > -1e8 && kind!=35u && kind!=37u && kind!=40u && kind!=41u){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
  if(g.flags.y>0.0 && mode==3u && life.z > -1e8 && kind!=35u){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
  if(g.flags.z>0.0 && mode==3u){centre.y=384.0-centre.y;}
  if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
- var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0 && motion.y!=26.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);}
+ // An animated instance's uv slot carries a centred crop as (_, _, -w, -h) fractions (strips crop horizontally only).
+ var selected=uv;var layer=0u;var rows=vec2f(0.0,1.0);if(code==10.0 || code==13.0){var at=u32(shape.y);if(shape.z>=1.0){let origin=select(life.x,motion.w,kind==5u || kind==40u || kind==41u);let raw=u32(max(0.0,now-origin)*abs(shape.w)/1000.0);let once=kind==35u && motion.y!=7.0 && motion.y!=8.0 && motion.y!=26.0;let frame=select(raw%u32(shape.z),min(raw,u32(shape.z)-1u),once);at+=frame*u32(max(1.0,frameUV[at*2u+1u].w));selected=frameUV[at*2u];}let info=frameUV[at*2u+1u];rows=info.xy;layer=u32(info.z);if(shape.z>=1.0 && uv.z<0.0){let crop=-uv.zw;let whole=rows.x<=0.0 && rows.y>=1.0;selected=vec4f(selected.x+selected.z*(1.0-crop.x)*0.5,select(selected.y,selected.y+selected.w*(1.0-crop.y)*0.5,whole),selected.z*crop.x,select(selected.w,selected.w*crop.y,whole));}}
  // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);
  let local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
  let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point+vec2f(0.0,select(0.0,g.extra.x,mode==0u))-vec2f(256.0,192.0))*scale;
  let row=select(t,1.0-t,flipV)*bodyV;let stripV=(row-rows.x)/max(0.000001,rows.y-rows.x);
- var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}result.colour=vec4f(rgb,alpha);result.uv=vec2f(selected.x+(corners[index].x+0.5)*selected.z,selected.y+stripV*selected.w);result.layer=layer;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
+ var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
+ // FadeColour / FlashColour mix in linear light.
+ if(mixRgb>0.0){let a=select(pow((fromRgb+0.055)/1.055,vec3f(2.4)),fromRgb/12.92,fromRgb<=vec3f(0.04045));let b=select(pow((toRgb+0.055)/1.055,vec3f(2.4)),toRgb/12.92,toRgb<=vec3f(0.04045));let mixed=mix(a,b,mixRgb);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
+ else if(kind==37u){rgb=fromRgb;}
+ if(kind==40u){rgb=vec3f(1.0);}result.colour=vec4f(rgb,alpha);result.uv=vec2f(selected.x+(corners[index].x+0.5)*selected.z,selected.y+stripV*selected.w);result.layer=layer;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
 }
 @fragment fn fs(v:Vertex)->@location(0) vec4f{
  let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);

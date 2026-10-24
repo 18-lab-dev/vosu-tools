@@ -1,6 +1,10 @@
 import { parse as parseSkinDocument } from "@vosu-tools/skin-spec";
 
-/** Repeated Mania blocks are kept separate, keyed by their explicit Keys entry. */
+/**
+ * Repeated Mania blocks are kept separate, keyed by their explicit Keys entry.
+ * Values lose trailing `//` comments, as `LegacyDecoder.StripComments` does
+ * for every skin.ini line.
+ */
 export function parseSkinIni(
   text: string,
 ): Map<string, Record<string, string>[]> {
@@ -17,7 +21,9 @@ export function parseSkinIni(
       block = { __block: String(line.block) };
       blocks.push(block);
     }
-    block[line.key] = line.value;
+    const comment = line.value.indexOf("//");
+    block[line.key] =
+      comment < 0 ? line.value : line.value.slice(0, comment).trimEnd();
   }
   return sections;
 }

@@ -420,7 +420,11 @@ export function compileCatch(
   }
   for (const entry of plate) onPlate(entry, Infinity);
 
-  // Falling objects, landing on the catcher's top at their time.
+  // Falling objects, landing on the catcher's top at their time. Like
+  // ScrollingHitObjectContainer, each is alive from when a conservative
+  // bounding box (100 units) beyond its edge would enter the playfield, so
+  // objects scroll in from above its top.
+  const enter = preempt + 100 / speed;
   for (let i = 0; i < objects.length; i++) {
     const o = objects[i],
       { layers, angle, rate, grow } = looks[i];
@@ -432,7 +436,7 @@ export function compileCatch(
         layer.h,
         o.time,
         o.time,
-        o.time - preempt,
+        o.time - enter,
         o.time - 0.5,
         layer.tint,
         shapeOf(layer),

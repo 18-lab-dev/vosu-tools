@@ -6,7 +6,7 @@
  *
  *   bun test/judgementGolden.ts --osu ~/ppy-osu [--dotnet path]
  *     plays test/judgementCompare.ts's tiny maps with lazer's autoplay and
- *     the synthetic JUDGEMENT_SKIN (written as PNGs of the listed sizes),
+ *     the synthetic JUDGEMENT_SKINS (written as PNGs of the listed sizes),
  *     dumps lazer's drawables at JUDGEMENT_TIMES and stores the judgement
  *     sprites as test/fixtures/judgement-golden.json for `bun test`
  *     (`--raw out.json` also keeps lazer's whole dump).
@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { png } from "./goldenFiles";
 import type { LayoutResult } from "./layoutCompare";
-import { isJudgementTexture, JUDGEMENT_MAPS, JUDGEMENT_SKIN, JUDGEMENT_TIMES, type JudgementCase } from "./judgementCompare";
+import { isJudgementTexture, JUDGEMENT_MAPS, JUDGEMENT_SKINS, JUDGEMENT_TIMES, type JudgementCase } from "./judgementCompare";
 
 const here = import.meta.dir;
 const argument = (name: string) => {
@@ -36,20 +36,24 @@ if (!osu) {
 const project = join(osu, "osu.Game.Tests");
 if (!existsSync(project)) throw new Error(`no osu.Game.Tests project in ${osu}`);
 copyFileSync(join(here, "reference/VosuLayout.cs"), join(project, "Visual/VosuLayout.cs"));
-const work = mkdtempSync(join(tmpdir(), "vosu-judgement-golden-")),
-  skinDir = join(work, "skin");
-mkdirSync(skinDir);
-writeFileSync(join(skinDir, "skin.ini"), JUDGEMENT_SKIN.ini);
-for (const [file, [w, h]] of Object.entries(JUDGEMENT_SKIN.files)) {
-  mkdirSync(dirname(join(skinDir, file)), { recursive: true });
-  writeFileSync(join(skinDir, file), png(w, h));
-}
-const cases: JudgementCase[] = [];
-for (const ruleset of Object.keys(JUDGEMENT_MAPS) as JudgementCase["ruleset"][]) {
-  const map = join(work, `${ruleset}.osu`);
-  writeFileSync(map, JUDGEMENT_MAPS[ruleset]);
-  for (const time of JUDGEMENT_TIMES[ruleset])
-    cases.push({ name: `${ruleset}-${time}`, ruleset, skin: skinDir, map, width: 1365.3334, height: 768, time });
+const work = mkdtempSync(join(tmpdir(), "vosu-judgement-golden-"));
+const cases: JudgementCase[] = [],
+  skinNames: string[] = [];
+for (const ruleset of Object.keys(JUDGEMENT_MAPS) as JudgementCase["ruleset"][])
+  writeFileSync(join(work, `${ruleset}.osu`), JUDGEMENT_MAPS[ruleset]);
+for (const { skin, prefix, rulesets } of JUDGEMENT_SKINS) {
+  const skinDir = join(work, skin.name);
+  mkdirSync(skinDir);
+  writeFileSync(join(skinDir, "skin.ini"), skin.ini);
+  for (const [file, [w, h]] of Object.entries(skin.files)) {
+    mkdirSync(dirname(join(skinDir, file)), { recursive: true });
+    writeFileSync(join(skinDir, file), png(w, h));
+  }
+  for (const ruleset of rulesets)
+    for (const time of JUDGEMENT_TIMES[ruleset]) {
+      cases.push({ name: `${prefix}${ruleset}-${time}`, ruleset, skin: skinDir, map: join(work, `${ruleset}.osu`), width: 1365.3334, height: 768, time });
+      skinNames.push(skin.name);
+    }
 }
 const output = join(work, "out.json"),
   spec = join(work, "spec.json");
@@ -72,7 +76,7 @@ rmSync(work, { recursive: true, force: true });
 const round = (v: number, digits: number) => Number(v.toFixed(digits));
 const golden = results.map((r, i) => ({
   ...cases[i],
-  skin: JUDGEMENT_SKIN.name,
+  skin: skinNames[i],
   map: cases[i].ruleset,
   result: {
     name: r.name,

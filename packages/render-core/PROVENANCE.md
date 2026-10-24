@@ -65,6 +65,17 @@ roll, bar line, swell, hit explosion), `DrawableHit` / `DrawableDrumRoll`;
 and lazer's combo colour normalisation (`DrawableHitObject.UpdateComboColour`,
 `HSPAColour`, osu!framework 2026.921.1 `Interpolation.ValueAt`).
 
+`src/osu.ts` and its kinds in `src/shader.ts` (legacy spinners, slider ball
+and follow circle) are a port (translated code) of osu! (lazer) at the same
+tag: `osu.Game.Rulesets.Osu/Skinning/Legacy/{LegacySpinner,LegacyOldStyleSpinner,LegacyNewStyleSpinner,LegacySliderBall,LegacyFollowCircle,OsuLegacySkinTransformer}.cs`,
+`Skinning/Default/SpinnerRotationTracker.cs`, `Objects/{Spinner,OsuHitObject}.cs`,
+`Objects/Drawables/{DrawableSlider,DrawableSliderBall}.cs`,
+`Replays/OsuAutoGenerator.cs` (autoplay spin) and
+`UI/OsuPlayfieldAdjustmentContainer.cs` (the playfield shift). The atlas's
+opaque edge padding for images lazer loads with `ClampToEdge` / `Repeat`
+follows osu!framework 2026.921.1 `TextureAtlas.BackingAtlasTexture`, and
+skin.ini values lose `//` comments as in `LegacyDecoder.StripComments`.
+
 Judgements, hit lighting and explosions (`src/judgements.ts`, the motion-35
 profiles in `src/shader.ts`, and their call sites in `src/scene.ts`,
 `src/taiko.ts` and `src/fruits.ts`) are a port (translated code) of osu!
@@ -83,6 +94,17 @@ profiles in `src/shader.ts`, and their call sites in `src/scene.ts`,
 osu!framework 2026.921.1 transform sequencing (`TransformSequence.Then/Delay`).
 Lazer draws catch's hit lighting from its own classic skin, never the user's;
 render-core draws stand-ins of the same size (`CATCH_EXPLOSION_SIZES`).
+Animation lookups follow `LegacySkinExtensions.GetAnimation`: any frames
+(even a lone `name-0`) replace the plain image and set its size; taiko's hit
+explosions run at 60 fps without the pop when animated. Without a replay,
+osu!taiko shows autoplay's Great judgements (particles, main piece and
+old-style flash) for skins without explosions of their own. Falling catch
+objects are alive from when `ScrollingHitObjectContainer`'s 100-unit
+conservative bounding box would enter the playfield, so they scroll in from
+above its top. `test/judgementGolden.ts` also plays a second synthetic skin
+with particles (`JUDGEMENT_SKIN_NEW`); a pooled judgement piece's first use
+restarts its particles on load in lazer, so the golden allows that
+difference.
 
 Replay-input elements (`src/gameplay.ts`, the motion-35 profiles 19-27 in
 `src/shader.ts`, `taikoMascot`/`taikoKiaiGlow` in `src/taiko.ts`, the plate

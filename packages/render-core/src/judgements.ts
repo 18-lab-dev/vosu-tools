@@ -17,7 +17,12 @@
  * autoplay look.
  */
 import { circleRadius, type Beatmap } from "@vosu-tools/osu-parse";
-import { regionInstances, type AtlasRegion, type Skin } from "./skin";
+import {
+  hasFrames,
+  regionInstances,
+  type AtlasRegion,
+  type Skin,
+} from "./skin";
 
 /** One result of a replay's judgement simulation (`@vosu-tools/replay` events). */
 export interface JudgementEvent {
@@ -156,8 +161,15 @@ export class Marks {
     const until = mark.until ?? mark.time + LIFETIME[mark.profile];
     if (!(until > mark.time)) return;
     const fps = mark.fps ?? DEFAULT_FPS,
-      animated = fps > 0 && (region.count ?? 0) > 1,
+      // An animation lookup uses the frames when there are any (a single
+      // frame wins over the plain image).
+      animated = fps > 0 && hasFrames(region),
       tint = mark.tint ?? [1, 1, 1, 1];
+    // The frames replace the plain image, so their size does too (frames
+    // share the first frame's size); callers size marks by the plain image.
+    const frame = animated ? this.regions.get(`${mark.asset}-0`) : undefined,
+      fx = frame?.width && region.width ? frame.width / region.width : 1,
+      fy = frame?.height && region.height ? frame.height / region.height : 1;
     const crop = mark.crop;
     for (const { entry, uv: strip } of regionInstances(region, !animated)) {
       const uv = crop
@@ -171,8 +183,8 @@ export class Marks {
       this.values.push(
         mark.x,
         mark.y,
-        mark.w,
-        mark.h,
+        mark.w * fx,
+        mark.h * fy,
         mark.time,
         mark.time,
         mark.time,
@@ -192,7 +204,7 @@ export class Marks {
         // 40: mirrored when mania scrolls up (normal blending only).
         mark.maniaMirror ? 40 : mark.additive ? 13 : 10,
         entry,
-        animated ? (region.count ?? 0) : 0,
+        animated ? (region.count ?? 1) : 0,
         animated ? fps : 0,
       );
     }
@@ -584,9 +596,13 @@ export function taikoJudgements(options: TaikoJudgementOptions): {
         const asset = LEGACY_IMAGE[e.result];
         if (!asset || !marks.has(asset)) continue;
         if (style === "default") defaultPiece(marks, e, asset, x, y, scale);
-        // A legacy skin's own hit image, when it brings no explosions.
-        else if (!ownExplosions && !skin?.fallback?.has(asset))
+        // A legacy skin's own hit image, when it brings no explosions: the
+        // whole piece (LegacyJudgementPieceNew's particles and main piece,
+        // then its old-style flash) sits in taiko's judgement layer.
+        else if (!ownExplosions && !skin?.fallback?.has(asset)) {
+          legacyPiece(marks, skin, e, asset, x, y, scale, "below");
           legacyPiece(marks, skin, e, asset, x, y, scale, "above");
+        }
       }
     },
   };
