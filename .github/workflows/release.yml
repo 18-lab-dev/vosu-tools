@@ -4,6 +4,8 @@ on:
     tags: ['v*']
 permissions:
   contents: read
+env:
+  RELEASE_BASE_URL: https://github.com/18-lab-dev/vosu-tools/releases/download/${{ github.ref_name }}
 jobs:
   package:
     strategy:
@@ -47,7 +49,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: python -m unittest discover -s scripts -p 'test*.py'
       - name: Build packages and target catalog
-        run: python scripts/package.py --target ${{ matrix.target }} ${{ matrix.flags }} --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+        run: python scripts/package.py --target ${{ matrix.target }} ${{ matrix.flags }} --base-url "$RELEASE_BASE_URL"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-${{ matrix.artifact }}
@@ -68,7 +70,7 @@ jobs:
           pattern: release-*
           path: incoming
       - name: Merge target catalogs
-        run: python scripts/package.py --merge-catalogs incoming/release-linux/catalog.json incoming/release-windows/catalog.json --base-url "${{ github.server_url }}/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+        run: python scripts/package.py --merge-catalogs incoming/release-linux/catalog.json incoming/release-windows/catalog.json --base-url "$RELEASE_BASE_URL"
       - uses: softprops/action-gh-release@c12583777ecdfd3be55c69cf75464299dc01057e
         with:
           fail_on_unmatched_files: true

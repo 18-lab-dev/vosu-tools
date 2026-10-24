@@ -54,7 +54,7 @@ Each section records third-party code, data, or assets included in this reposito
 ## Beatmap downloader / osu-db
 
 `crates/osu-db` ports the read-only stable database parser from
-`shiruviaa/vosu` commit `4c06922`,
+`shiruviaa/vosu` commit `4c06922` (historical repository identity retained for provenance; now [`18-lab-dev/vosu`](https://github.com/18-lab-dev/vosu)),
 `crates/vosu-tool-skill-tracker/src/stable.rs` (MIT OR Apache-2.0),
 extended with collection metadata and ownership identifiers.
 No code from mirror implementations or osu-web is included.
