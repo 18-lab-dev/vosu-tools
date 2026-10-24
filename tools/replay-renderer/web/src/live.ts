@@ -42,12 +42,28 @@ export class LivePages {
   private placements: Placement[] = [];
   private zoom = 1;
   private layers: OverlayLayer[] = [];
+  /** Overlays (by layer index) whose pages created a WebGPU canvas. */
+  readonly webgpu = new Set<number>();
+  /** Called when `webgpu` changes. */
+  onWebGpu: () => void = () => {};
   constructor(
     private fetcher: Fetcher,
     private report: (error: unknown) => void,
   ) {
     this.root.className = "live-pages";
     this.root.setAttribute("aria-hidden", "true");
+    // Preview pages report their first WebGPU canvas (see the overlay server).
+    addEventListener("message", (event) => {
+      if (!(event.data as { vosuWebGpu?: unknown } | null)?.vosuWebGpu) return;
+      for (const frame of this.frames.values()) {
+        if (frame.contentWindow !== event.source) continue;
+        const overlay = Number(frame.dataset.overlay);
+        if (this.webgpu.has(overlay)) return;
+        this.webgpu.add(overlay);
+        this.onWebGpu();
+        return;
+      }
+    });
   }
   /**
    * Starts a preview for `tracks` and `layers` (null: no valid overlay setup)
@@ -75,6 +91,10 @@ export class LivePages {
     this.session = null;
     this.frames.clear();
     this.root.replaceChildren();
+    if (this.webgpu.size) {
+      this.webgpu.clear();
+      this.onWebGpu();
+    }
   }
   private async begin(tracks: Track[], layers: OverlayLayer[], start: number) {
     const generation = this.generation;
