@@ -267,11 +267,18 @@ impl Driver {
             .map_err(|e| e.to_string())?
             .origin()
             .ascii_serialization();
+        // Each page gets a window of its own. Full Chrome (a custom
+        // `VOSU_RENDER_CHROMIUM`) opens a background target as a hidden tab of
+        // the first window: hidden tabs produce no compositor frames, so a
+        // screenshot of one whose picture stopped changing waits for a frame
+        // that never comes (every other capture hangs). A page alone in its
+        // window is visible and draws every frame it is asked for, as every
+        // target is in the managed headless shell.
         let target = self
             .command(
                 None,
                 "Target.createTarget",
-                json!({"url":"about:blank","background":true}),
+                json!({"url":"about:blank","background":true,"newWindow":true}),
             )
             .await?;
         let target = target["targetId"].as_str().ok_or("No overlay target")?;

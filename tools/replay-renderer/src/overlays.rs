@@ -1243,11 +1243,39 @@ mod tests {
     /// Starts headless Chromium on a throwaway profile; its DevTools endpoint.
     async fn chromium(root: &std::path::Path) -> Option<(tokio::process::Child, String)> {
         let chromium = std::env::var_os("VOSU_RENDER_CHROMIUM").filter(|p| !p.is_empty())?;
+        Some(launch(chromium.as_ref(), root).await)
+    }
+    /// A full (non-shell) Chrome: `VOSU_TEST_FULL_CHROME`, else a system
+    /// Chrome or Chromium.
+    fn full_chrome() -> Option<PathBuf> {
+        std::env::var_os("VOSU_TEST_FULL_CHROME")
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| {
+                [
+                    "/usr/bin/google-chrome-stable",
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chromium",
+                    "/usr/bin/chromium-browser",
+                ]
+                .into_iter()
+                .map(PathBuf::from)
+                .find(|path| path.is_file())
+            })
+    }
+    /// Starts `executable` headless, with the renderer's compositor flags, on
+    /// a throwaway profile under `root`; its DevTools endpoint.
+    async fn launch(
+        executable: &std::path::Path,
+        root: &std::path::Path,
+    ) -> (tokio::process::Child, String) {
         let profile = root.join("chromium");
-        let child = tokio::process::Command::new(chromium)
+        let child = tokio::process::Command::new(executable)
             .args([
                 "--headless=new",
                 "--no-first-run",
+                "--run-all-compositor-stages-before-draw",
+                "--disable-gpu-vsync",
                 "--remote-debugging-address=127.0.0.1",
                 "--remote-debugging-port=0",
             ])
@@ -1271,7 +1299,7 @@ mod tests {
         })
         .await
         .unwrap();
-        Some((child, endpoint))
+        (child, endpoint)
     }
 
     /// Regression: sockets a page opens while a frame settles (the timing
@@ -1388,6 +1416,91 @@ mod tests {
             task.abort();
             // Chrome's helper processes may still be leaving the profile: best effort.
             let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    /// Regression: a page whose picture stops changing (a judgement counter
+    /// once the counts settle) is captured every frame, in the managed
+    /// headless shell and in full Chrome (a custom `VOSU_RENDER_CHROMIUM`),
+    /// and both capture the same pixels for the same frame. (The counter is
+    /// a bar: generic font families resolve to each browser's own defaults.)
+    #[tokio::test]
+    async fn still_pages_capture_in_shell_and_full_chrome() {
+        let page = r#"<!doctype html><html><head><style>html,body{margin:0;background:transparent}</style></head>
+            <body><div id="n" style="height:40px;width:0;background:#fff;border-radius:6px"></div><script type="module">
+            const counter = document.getElementById("n");
+            let shown = 0, target = 0, from = 0, start = null;
+            const ease = (time) => {
+              start ??= time;
+              const progress = Math.min(1, (time - start) / 100);
+              shown = Math.round(from + (target - from) * progress);
+              counter.style.width = `${shown * 9}px`;
+              if (progress < 1) requestAnimationFrame(ease);
+            };
+            const socket = new WebSocket(`ws://${location.host}/websocket/v2/subscribe`);
+            socket.onopen = () => socket.send(JSON.stringify(["/play/hits/300"]));
+            socket.onmessage = (event) => {
+              const value = JSON.parse(event.data)[2][0]?.[1];
+              if (typeof value !== "number" || value === target) return;
+              from = shown; target = value; start = null;
+              requestAnimationFrame(ease);
+            };
+        </script></body></html>"#;
+        let shell = std::env::var_os("VOSU_RENDER_CHROMIUM")
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from);
+        let (Some(shell), Some(full)) = (shell, full_chrome()) else {
+            eprintln!(
+                "skipped: needs VOSU_RENDER_CHROMIUM (the headless shell) and full Chrome \
+                 (VOSU_TEST_FULL_CHROME, /usr/bin/google-chrome-stable or /usr/bin/chromium)"
+            );
+            return;
+        };
+        let mut captures = Vec::new();
+        for browser in [shell, full] {
+            let (runtime, _origin, root, task) = stand_in(page, true).await;
+            let (mut child, endpoint) = launch(&browser, &root).await;
+            runtime.debug(endpoint).await;
+            let mut frames = Vec::new();
+            for frame in 0..90u32 {
+                // The count settles at frame 20; the picture is still from frame 24 on.
+                let state = json!({"client": "stable", "play": {"mode": {"number": 3},
+                    "hits": {"300": frame.min(20)}},
+                    "__render": {"wallMs": f64::from(frame) * 1000.0 / 30.0, "epochMs": 0.0}});
+                let started = std::time::Instant::now();
+                let images = runtime.frame(state).await.unwrap_or_else(|error| {
+                    panic!("{}: frame {frame}: {error:?}", browser.display())
+                });
+                assert!(
+                    started.elapsed() < Duration::from_secs(5),
+                    "{}: frame {frame} took {:?}",
+                    browser.display(),
+                    started.elapsed()
+                );
+                frames.push(images.into_iter().next().unwrap().png);
+            }
+            assert!(
+                frames[24..].iter().all(|png| *png == frames[24]),
+                "{}: the still picture changed",
+                browser.display()
+            );
+            assert_ne!(
+                frames[0],
+                frames[24],
+                "{}: the counter drew",
+                browser.display()
+            );
+            captures.push(frames);
+            let _ = child.kill().await;
+            task.abort();
+            // Chrome's helper processes may still be leaving the profile: best effort.
+            let _ = std::fs::remove_dir_all(root);
+        }
+        for (frame, (shell, full)) in captures[0].iter().zip(&captures[1]).enumerate() {
+            assert!(
+                shell == full,
+                "frame {frame}: the browsers captured different pictures"
+            );
         }
     }
 
