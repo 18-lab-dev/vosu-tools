@@ -41,7 +41,9 @@ def distance(a: bytes, b: bytes) -> float:
     return ImageStat.Stat(ImageChops.difference(small(a), small(b))).mean[0]
 
 
-# Live GPU texture memory and when skin atlases (array textures) are built.
+# Live GPU texture memory and when skin atlases are built: the atlas is the
+# sampled rgba8unorm array texture; render-core's frame table (rgba32float,
+# 16 bytes a texel) is sampled too but is not an atlas.
 TRACKING = '''{
   const live = new Map();
   window.__atlases = [];
@@ -50,8 +52,9 @@ TRACKING = '''{
   GPUDevice.prototype.createTexture = function (descriptor) {
     const texture = create.call(this, descriptor);
     const size = [...descriptor.size];
-    live.set(texture, size[0] * (size[1] ?? 1) * (size[2] ?? 1) * 4);
-    if (descriptor.usage & GPUTextureUsage.TEXTURE_BINDING)
+    const texel = descriptor.format === "rgba32float" ? 16 : 4;
+    live.set(texture, size[0] * (size[1] ?? 1) * (size[2] ?? 1) * texel);
+    if (descriptor.usage & GPUTextureUsage.TEXTURE_BINDING && descriptor.format === "rgba8unorm")
       window.__atlases.push({ at: performance.now(), layers: size[2] ?? 1, size });
     return texture;
   };

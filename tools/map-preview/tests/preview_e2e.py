@@ -3,8 +3,9 @@
 
 The stand-in serves the built UI under /tools/map-preview/, a minimal bridge
 (with the round-3 `settings()` helper), `/tools/map-preview/_settings`, the
-selected beatmap at `/files/beatmap/file`, and the skin contract
-(`GET /files/skin/` report + `/files/skin/<path>` by filename). The
+selected beatmap at `/files/beatmap/file`, the skin contract (`GET
+/files/skin/` report with the skin's file list + `/files/skin/<path>` by
+filename) and vosu's theme (see `vosu_assets`). The
 `/websocket/v2/subscribe` stream is played by the test through Playwright, so
 it can move the game between song select, gameplay and replays, change maps
 and skins, and drive the clock.
@@ -12,7 +13,9 @@ and skins, and drive the clock.
 Run after `bun run build` in tools/map-preview/web:
   uv run --with playwright python tools/map-preview/tests/preview_e2e.py SONGS SKINS [EVIDENCE_DIR]
 SONGS/SKINS are osu! stable folders (read-only; files are copied to a temp
-dir first). Needs hardware WebGPU in headless Chromium (Vulkan).
+dir first). Needs hardware WebGPU in headless Chromium (Vulkan). Set
+VOSU_ASSETS to vosu's assets/server when no vosu checkout sits beside this
+repository; PLAYWRIGHT_BROWSERS_PATH is honoured for Chromium.
 """
 import asyncio
 import hashlib
@@ -36,7 +39,10 @@ ORIGIN = f'http://127.0.0.1:{PORT}'
 # suite that opens the UI through QUERY; the default is the automatic choice.
 BACKEND = os.environ.get('MAP_PREVIEW_BACKEND', '')
 QUERY = 'presentation=bitmap' + (f'&backend={BACKEND}' if BACKEND else '')
-CHROME = Path.home() / '.cache/ms-playwright/chromium-1248/chrome-linux64/chrome'
+# Playwright's browser cache, found the way Playwright finds it, so a harness
+# with a temporary HOME can point at the real one.
+BROWSERS = Path(os.environ.get('PLAYWRIGHT_BROWSERS_PATH') or Path.home() / '.cache/ms-playwright')
+CHROME = BROWSERS / 'chromium-1248/chrome-linux64/chrome'
 MAPS = {
     'osu': ('1230019 Hikiray - Zero Two (prod by Gotze)', 'Hikiray - Zero Two (prod. by Gotze) (Flexo123) [Insane].osu', 38000),
     'mania': ('2342790 Noma Nadeshiko - Sanzu no Kawa Ninngyou Gekijyou', 'Noma Nadeshiko - Sanzu no Kawa Ninngyou Gekijyou (ndglol) [Rice Fusion].osu', 52000),
@@ -44,8 +50,33 @@ MAPS = {
     'catch': ('1314361 Jack Stauber (feat Sarah) - Doctor', 'Jack Stauber (feat. Sarah) - Doctor (MaryJane) [Cup].osu', 30000),
 }
 SKINS = {'ralsei': '- # {center} RALSEI 『ラルセイ』- FULL # - v2', 'staircase': '- Staircase!mania'}
-# vosu's own design system (read-only), served like /tools/_host/v1/theme.css.
-VOSU_ASSETS = Path(os.environ.get('VOSU_ASSETS', Path.home() / 'gh/vosu-ecosystem/vosu-wt/dev-1.2.0/assets/server'))
+
+
+def vosu_assets() -> Path:
+    """vosu's own design system (assets/server of vosu 1.2.0+, read-only), which
+    the stand-in host serves as /tools/_host/v1/theme.css and /assets/*.woff2.
+
+    VOSU_ASSETS names the folder; otherwise a vosu checkout beside this
+    repository is used (a vosu-wt/dev-1.2.0 worktree, then vosu itself). Found
+    relative to this file, not HOME, so isolated runs with a temporary HOME
+    work. Without it the page would load unstyled, so the suites stop here.
+    """
+    named = os.environ.get('VOSU_ASSETS')
+    candidates = [Path(named)] if named else [
+        folder
+        for parent in ROOT.parents
+        for folder in (parent / 'vosu-wt/dev-1.2.0/assets/server', parent / 'vosu/assets/server')
+    ]
+    for folder in candidates:
+        if (folder / 'tokens.css').is_file() and (folder / 'system.css').is_file():
+            return folder
+    raise SystemExit(
+        'vosu theme assets not found (tokens.css and system.css) in '
+        + (named or 'a vosu checkout beside this repository')
+        + ': set VOSU_ASSETS to the assets/server folder of vosu 1.2.0 or later'
+    )
+
+
 CHECKSUMS: dict[str, str] = {}
 CONTROLS_KEY = 'vosu-tools:map-preview:controls-open'
 
@@ -99,7 +130,12 @@ export const vosu = Object.freeze({
 class Host:
     def __init__(self, maps: dict, skins: dict):
         self.maps = maps
+        self.skin_dirs = skins
         self.skins = {name: {p.relative_to(d).as_posix().lower(): p for p in d.rglob('*') if p.is_file()} for name, d in skins.items()}
+        # vosu 1.2.0+ lists the current skin's files in the report (`entries`),
+        # and render-core requests only those; False plays an older vosu,
+        # whose skin files are probed by name.
+        self.listing = True
         self.beatmap = 'osu'
         # The game stream carries real MD5 checksums (the page verifies the
         # served file against them); tests name maps by key.
@@ -114,7 +150,19 @@ class Host:
         self.requests: list[str] = []
 
 
+def unlisted(host: Host, since: int) -> list[str]:
+    """Skin file requests since `since` for files the current skin lacks."""
+    files = host.skins.get(host.skin) or {}
+    return [
+        path for path in host.requests[since:]
+        if path.startswith('/files/skin/') and path != '/files/skin/'
+        and unquote(path.removeprefix('/files/skin/')).lower() not in files
+    ]
+
+
 def handler(host: Host):
+    assets = vosu_assets()
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -133,10 +181,10 @@ def handler(host: Host):
             if path == '/tools/_host/v1/bridge.js':
                 return self.send(200, BRIDGE.encode(), 'text/javascript')
             if path == '/tools/_host/v1/theme.css':
-                css = (VOSU_ASSETS / 'tokens.css').read_bytes() + b'\n' + (VOSU_ASSETS / 'system.css').read_bytes()
+                css = (assets / 'tokens.css').read_bytes() + b'\n' + (assets / 'system.css').read_bytes()
                 return self.send(200, css, 'text/css')
             if path.startswith('/assets/') and path.endswith('.woff2'):
-                font = VOSU_ASSETS / path.removeprefix('/assets/')
+                font = assets / path.removeprefix('/assets/')
                 if font.is_file():
                     return self.send(200, font.read_bytes(), 'font/woff2')
             if path == '/tools/map-preview/_settings':
@@ -156,7 +204,16 @@ def handler(host: Host):
                     host.last_served = key
                 return self.send(200, host.maps[key].read_bytes(), 'text/plain; charset=utf-8')
             if path == '/files/skin/':
-                return self.send(200, json.dumps(host.report).encode(), 'application/json')
+                report = dict(host.report)
+                if host.listing:
+                    files = host.skins.get(host.skin) if report.get('files') else None
+                    report['entries'] = [
+                        {'path': file.relative_to(host.skin_dirs[host.skin]).as_posix(), 'size': file.stat().st_size,
+                         'modified': int(file.stat().st_mtime * 1000)}
+                        for file in (files or {}).values()
+                    ]
+                    report['truncated'] = False
+                return self.send(200, json.dumps(report).encode(), 'application/json')
             if path.startswith('/files/skin/'):
                 name = unquote(path.removeprefix('/files/skin/')).lower()
                 files = host.skins.get(host.skin) if host.report.get('files') else None
@@ -274,9 +331,12 @@ async def checks(host: Host, osk: Path, evidence: Path):
         # A legacy user skin served by filename, missing elements from the classic look.
         host.report = {'client': 'lazer', 'name': 'Ralsei', 'files': True, 'builtin': None, 'base': 'legacy'}
         host.skin = 'ralsei'
+        before = len(host.requests)
         game.set('/folders/skin', 'Ralsei')
         await shows(page, '#skin-source', 'lazer · current skin')
         await settle(page)
+        # With vosu's file list, only files the skin has are requested.
+        assert not unlisted(host, before), unlisted(host, before)[:5]
         await page.screenshot(path=str(evidence / 'osu-ralsei-1920x1080.png'))
         shots['osu-ralsei'] = await playfield(page)
         # Argon Pro differs from Argon only in slider body opacity and spinners.
@@ -306,9 +366,14 @@ async def checks(host: Host, osk: Path, evidence: Path):
             if ruleset == 'mania':
                 host.report = {'client': 'stable', 'name': 'Staircase', 'files': True, 'builtin': None, 'base': None}
                 host.skin = 'staircase'
+                # An older vosu without the file list: files are probed by name.
+                host.listing = False
+                before = len(host.requests)
                 game.set('/folders/skin', 'Staircase')
                 await shows(page, '#skin-source', 'stable · current skin')
                 await settle(page)
+                assert unlisted(host, before), 'without a file list, missing files are probed'
+                host.listing = True
                 await page.screenshot(path=str(evidence / 'mania-staircase-1920x1080.png'))
                 # Scroll direction up from the client.
                 game.set('/settings/mania', {'scrollSpeed': 24, 'scrollSpeedValue': 24.0, 'scrollDirection': {'number': 0, 'name': 'up'}})
