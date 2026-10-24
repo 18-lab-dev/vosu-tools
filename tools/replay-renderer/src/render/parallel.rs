@@ -118,9 +118,9 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
                     .find_map(|s| jobs[&s.id]["encoder"].as_str())
                     .unwrap_or("probing")
                     .to_owned();
-                let warning = segments
-                    .iter()
-                    .find_map(|s| jobs[&s.id]["warning"].as_str().map(str::to_owned));
+                let warning = crate::render::join_warnings(
+                    segments.iter().map(|s| jobs[&s.id]["warning"].as_str()),
+                );
                 let job = jobs.get_mut(&worker.id).unwrap();
                 job["warning"] = json!(warning);
                 job["state"] = json!("running");
@@ -182,7 +182,10 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         let seconds = worker.start.elapsed().as_secs_f64();
         let encoder = results[0]["encoder"].clone();
         let gpu = worker.gpu.as_ref().map(|g| g.describe());
-        let warning = jobs[&worker.id]["warning"].clone();
+        let warning = crate::render::join_warnings(
+            std::iter::once(jobs[&worker.id]["warning"].as_str())
+                .chain(results.iter().map(|r| r["warning"].as_str())),
+        );
         let (width, height, fps) = plan.delivered(&fit);
         let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
         jobs.insert(worker.id.clone(), json!({"state":"done","progress":1.0,"message":"Render complete","encoder":encoder,"parallel_jobs":count,"gpu":gpu,"result":result}));

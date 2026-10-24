@@ -377,6 +377,13 @@
 .job-message {
   overflow-wrap: anywhere;
 }
+.job-warning {
+  grid-column: 2 / -1;
+  margin: 0;
+  font-size: var(--step--2);
+  color: var(--caution);
+  overflow-wrap: anywhere;
+}
 .imported li {
   display: flex;
   gap: var(--space-2);

@@ -399,6 +399,16 @@ impl Overlays {
     pub async fn debug(&self, url: String) {
         *self.debug.lock().await = Some(url);
     }
+    /// Overlays that draw with WebGPU in a browser that leaves WebGPU canvases
+    /// out of its captures (full Chrome): their exported pictures miss them.
+    pub async fn blank_webgpu(&self) -> Vec<String> {
+        self.driver
+            .lock()
+            .await
+            .as_ref()
+            .map(crate::cdp::Driver::blank_webgpu)
+            .unwrap_or_default()
+    }
     pub async fn configure(
         &self,
         files: crate::library::MapFiles,
@@ -1276,6 +1286,7 @@ mod tests {
                 "--no-first-run",
                 "--run-all-compositor-stages-before-draw",
                 "--disable-gpu-vsync",
+                "--enable-unsafe-webgpu",
                 "--remote-debugging-address=127.0.0.1",
                 "--remote-debugging-port=0",
             ])
@@ -1502,6 +1513,79 @@ mod tests {
                 "frame {frame}: the browsers captured different pictures"
             );
         }
+    }
+
+    /// Regression: a page that draws with WebGPU is named for the job warning
+    /// in full Chrome (whose captures leave WebGPU canvases blank), not in the
+    /// headless shell (which captures them).
+    #[tokio::test]
+    async fn webgpu_pages_are_named_only_in_full_chrome() {
+        let page = r#"<!doctype html><html><body><canvas width="64" height="64"></canvas><script type="module">
+            window.context = document.querySelector("canvas").getContext("webgpu");
+        </script></body></html>"#;
+        let shell = std::env::var_os("VOSU_RENDER_CHROMIUM")
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from);
+        let (Some(shell), Some(full)) = (shell, full_chrome()) else {
+            eprintln!(
+                "skipped: needs VOSU_RENDER_CHROMIUM (the headless shell) and full Chrome \
+                 (VOSU_TEST_FULL_CHROME, /usr/bin/google-chrome-stable or /usr/bin/chromium)"
+            );
+            return;
+        };
+        for (browser, named) in [(shell, false), (full, true)] {
+            let (runtime, _origin, root, task) = stand_in(page, true).await;
+            let (mut child, endpoint) = launch(&browser, &root).await;
+            runtime.debug(endpoint).await;
+            let state = json!({"client": "stable", "play": {"mode": {"number": 3}},
+                "__render": {"wallMs": 0.0, "epochMs": 0.0}});
+            runtime.frame(state).await.unwrap();
+            let created = runtime.evaluate("!!window.context").await.remove(0);
+            assert_eq!(
+                created,
+                true,
+                "{}: WebGPU canvas context",
+                browser.display()
+            );
+            let expected = if named {
+                vec![runtime.layers[0].name.clone()]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(
+                runtime.blank_webgpu().await,
+                expected,
+                "{}",
+                browser.display()
+            );
+            let _ = child.kill().await;
+            task.abort();
+            // Chrome's helper processes may still be leaving the profile: best effort.
+            let _ = std::fs::remove_dir_all(root);
+        }
+    }
+
+    #[test]
+    fn preview_pages_report_webgpu_before_their_own_scripts() {
+        let report =
+            |html: &str| String::from_utf8(server::with_webgpu_report(html.into())).unwrap();
+        let script = r#"<script>(()=>{for(const C of"#;
+        let page =
+            report("<!DOCTYPE html><HTML lang=en><Head><script>own()</script></head></html>");
+        assert!(
+            page.starts_with(&format!("<!DOCTYPE html><HTML lang=en><Head>{script}")),
+            "{page}"
+        );
+        assert!(page.ends_with("</script><script>own()</script></head></html>"));
+        // `<header>` is not `<head>`; without a head the script follows `<html>`.
+        let page = report("<html><body><header>x</header></body></html>");
+        assert!(page.starts_with(&format!("<html>{script}")), "{page}");
+        let page = report("<!doctype html><p>bare</p>");
+        assert!(
+            page.starts_with(&format!("<!doctype html>{script}")),
+            "{page}"
+        );
+        assert!(report("<p>fragment</p>").starts_with(script));
     }
 
     #[test]
