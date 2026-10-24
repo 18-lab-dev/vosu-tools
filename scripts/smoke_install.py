@@ -139,11 +139,10 @@ ALLOWED_IPS = "127.0.0.1,localhost,absolute"
                     report['tools'].append({'id': identity, 'version': tool['version'], 'package_size': next(iter(tool['packages'].values()))['size'], 'installation': installation})
                 for tool, item in zip(catalogs['tools']['tools'], report['tools']):
                     identity = tool['id']
-                    if 'service' in tool['interfaces']:
-                        post('/api/tools/' + identity + '/start')
-                        view = json.loads(http('/api/tools/' + identity)[1])
-                        assert view['status'] == 'running' and view['process']['pid']
-                        item['service_pid'] = view['process']['pid']
+                    view = json.loads(http('/api/tools/' + identity)[1])
+                    if view.get('service_role') is not None or 'service' in tool['interfaces']:
+                        if 'service' in tool['interfaces']:
+                            post('/api/tools/' + identity + '/start')
                         route = READ_ROUTES.get(identity)
                         if route is None:
                             # New services must nominate a real read route rather
@@ -161,6 +160,9 @@ ALLOWED_IPS = "127.0.0.1,localhost,absolute"
                         item['read_route'] = route
                         item['read_status'] = status
                         item['read_response'] = json.loads(body)
+                        view = json.loads(http('/api/tools/' + identity)[1])
+                        assert view['status'] == 'running' and view['process']['pid']
+                        item['service_pid'] = view['process']['pid']
                     if 'cli' in tool['interfaces']:
                         help_text = cli(identity, '--help')
                         assert help_text.strip()

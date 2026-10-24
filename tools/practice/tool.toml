@@ -9,6 +9,7 @@ banner = "art/banner.svg"
 [ui]
 root = "web/dist"
 [service]
+role = "backend"
 command = ["bin/vosu-practice"]
 startup = "on-demand"
 [api]

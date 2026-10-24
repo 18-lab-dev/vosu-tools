@@ -1,5 +1,7 @@
 # Replay renderer
 
+Interfaces: **UI + CLI**. The native rendering backend starts on demand and stops when idle; it has no separate service controls or startup toggle.
+
 `vosux replay-renderer render /absolute/play.osr --set mania.scroll_speed=27 --set background_dim=0.9 --resolution 2560x1440 --out /absolute/play.mp4`
 
 `--out`, `--fps` and `--resolution` are optional; the last two default to the tool's settings. Without `--out`, the video is named after the replay and goes into the output folder. A relative `--out` is resolved against the current directory.

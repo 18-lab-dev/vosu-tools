@@ -1,6 +1,6 @@
 # Beatmap downloader
 
-18-LAB's UI + service for vosu 1.2.0. Build with `cargo build -p vosu-downloader` and `bun run --cwd tools/downloader/web build`, then launch `vosu --tool tools/downloader` in an isolated development environment. The manifest uses Cargo's development binary fallback; release packages place the executable in `bin/`.
+18-LAB's UI-only tool for vosu 1.2.0, with a native backend started on demand and stopped when idle (not a standalone background service). Build with `cargo build -p vosu-downloader` and `bun run --cwd tools/downloader/web build`, then launch `vosu --tool tools/downloader` in an isolated development environment. The manifest uses Cargo's development binary fallback; release packages place the executable in `bin/`.
 
 ## Discovery
 

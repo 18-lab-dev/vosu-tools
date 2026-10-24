@@ -95,6 +95,24 @@ command=["bin/vosu-example", "cli"]
             self.assertEqual(manifest['cli']['command'][0], 'bin/vosu-example.exe')
             self.assertIn('bin/vosu-example.exe', archive.namelist())
 
+    def test_background_service_is_default_interface(self):
+        self.assertEqual(self.assemble()['tools'][0]['interfaces'], ['ui', 'service', 'cli'])
+
+    def test_backend_interface_and_native_package(self):
+        (self.tool / 'tool.toml').write_text(self.manifest.replace(
+            '[service]\n', '[service]\nrole="backend"\nstartup="on-demand"\n'))
+        entry = self.assemble()['tools'][0]
+        self.assertEqual(entry['interfaces'], ['ui', 'cli'])
+        self.assertEqual(list(entry['packages']), [package.TARGETS[0]])
+
+    def test_invalid_service_roles_and_backend_startup(self):
+        for fields in ('role="worker"', 'role="backend"\nstartup="always"'):
+            with self.subTest(fields=fields):
+                (self.tool / 'tool.toml').write_text(self.manifest.replace(
+                    '[service]\n', '[service]\n' + fields + '\n'))
+                with self.assertRaises(ValueError):
+                    package.discover(self.root)
+
     def test_ui_only_uses_any_target(self):
         (self.tool / 'tool.toml').write_text(self.manifest.split('[service]')[0])
         (self.tool / 'Cargo.toml').unlink()

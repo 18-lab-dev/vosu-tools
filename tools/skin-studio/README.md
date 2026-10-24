@@ -2,6 +2,8 @@
 
 Browse osu! skins, preview their elements, mix element groups from several skins into a new skin, and edit skin.ini with wiki-backed completion and checks.
 
+Interface: **UI only**. Its native backend starts on demand for the studio and stops when idle; it is not a standalone background service.
+
 ## Sources
 
 - **Stable**: folders in the stable `Skins` folder (setting `stable_skins_dir`, else `<osu_dir>/Skins` of the attached stable client). Read and written.
@@ -38,7 +40,7 @@ The UI composes the mix into a build plan:
 
 `skin` is a library key from `GET /v1/library` (an absolute folder, or `lazer:<id>`). `POST /v1/build` (write route) creates a stable skin: output is staged in a hidden folder inside `Skins` and renamed into place; an existing skin of the same name is replaced only with `overwrite: true` (the UI asks first) and is swapped atomically. `POST /v1/exports` (write route) accepts the same plan for an `.osk` (a zip lazer imports) and answers `{"url":"v1/exports/<id>","filename":"<name>.osk"}`; `GET` on that URL streams the archive once as a download, within a few minutes. Nothing is written outside `Skins`; the browser saves the `.osk` where the user chooses. With `credits`, `skin-studio-credits.txt` lists the source skins.
 
-**Download plan** in the studio saves this JSON; `vosux skin-studio build plan.json [--osk out.osk] [--overwrite]` builds it later.
+**Download plan** in the studio saves the mix recipe as JSON for inspection.
 
 ## Explorer
 
@@ -49,16 +51,6 @@ The **Explorer** tab is an in-page browser (no native file dialog) for any libra
 `GET /v1/asset?skin=&name=` serves images and audio; `GET /v1/animation?skin=&element=` assembles an element's frames into a looping APNG at the skin's `AnimationFramerate` (or the whole sequence over one second when unset), cached by content hash in the tool cache folder (`animations/`).
 
 The **Preview** tab plays a short looping demo map per ruleset (`packages/demo-maps`: osu!, taiko, catch, and mania 1K–10K) through the shared WebGPU renderer (`packages/render-core`) with the selected skin, including unsaved skin.ini edits, or the mix draft with its overrides. Mania offers exactly the key counts that have a `[Mania]` block with `Keys: N` in the previewed skin.ini, in order (lazer's default 4K and 7K when it defines none); dual-stage counts above 10K are listed but not previewed. Only the shown key count's stage is decoded. It is muted and draws nothing while hidden.
-
-## CLI
-
-```sh
-vosux skin-studio list [--json]
-vosux skin-studio export "<skin name or key>" [--name NAME] [--stable | --out FILE.osk] [--overwrite]
-vosux skin-studio build plan.json [--osk FILE.osk] [--overwrite]
-```
-
-`export` copies one whole skin (for example a stable skin into a lazer `.osk`).
 
 ## Settings
 

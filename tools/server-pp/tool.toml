@@ -11,6 +11,7 @@ banner = "art/banner.svg"
 root = "web/dist"
 
 [service]
+role = "background"
 command = ["bin/vosu-server-pp"]
 startup = "on-demand"
 

@@ -2749,7 +2749,6 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "chrono",
- "clap",
  "md-5 0.10.6",
  "notify",
  "realm-reader",

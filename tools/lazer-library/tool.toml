@@ -8,12 +8,10 @@ icon = "art/icon.svg"
 banner = "art/banner.svg"
 
 [service]
+role = "background"
 command = ["bin/vosu-lazer-library"]
 startup = "on-demand"
 
-[cli]
-command = ["bin/vosu-lazer-library", "cli"]
-summary = "Query lazer maps, owned sets, skins and scores"
 
 [api]
 read = ["/v1/status", "/v1/beatmaps", "/v1/beatmapsets", "/v1/skins", "/v1/scores"]

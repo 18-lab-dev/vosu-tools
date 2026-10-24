@@ -1,6 +1,5 @@
 mod anim;
 mod build;
-mod cli;
 mod library;
 
 use axum::{
@@ -420,10 +419,6 @@ pub fn router(app: App) -> Router {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("cli") {
-        return cli::run(&ToolEnv::from_env()?, args).await;
-    }
     let env = ToolEnv::from_env()?;
     let added_file = env.data_dir.join("folders.json");
     let added: Vec<PathBuf> = match fs::read(&added_file) {
