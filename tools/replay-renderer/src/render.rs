@@ -75,13 +75,17 @@ pub(super) async fn start(
     }
     let (width, height) = crate::output::parse_size(&request.resolution)?;
     let settings: Value = app.env.client().settings().await.map_err(error)?;
-    let gpu = crate::gpu::resolve(
-        &std::env::var("VOSU_RENDER_GPU")
-            .unwrap_or_else(|_| settings["render_gpu"].as_str().unwrap_or("").to_owned()),
-    )
-    .await
-    .map_err(error)?
-    .map(Arc::new);
+    let gpu_id = match std::env::var("VOSU_RENDER_GPU") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => {
+            settings["render_gpu"].as_str().unwrap_or("").to_owned()
+        }
+        Err(message) => return Err(error(message)),
+    };
+    let gpu = crate::gpu::resolve(&gpu_id)
+        .await
+        .map_err(error)?
+        .map(Arc::new);
     let defaults = crate::output::defaults(&settings);
     let preference = request
         .encoder
@@ -91,9 +95,9 @@ pub(super) async fn start(
         return Err(error("Encoder must be auto, hardware or software"));
     }
     request.encoder = Some(preference.to_owned());
-    let jobs = request
-        .parallel_jobs
-        .unwrap_or_else(|| settings["parallel_jobs"].as_u64().unwrap_or(0) as u32);
+    let jobs = request.parallel_jobs.unwrap_or_else(|| {
+        u32::try_from(settings["parallel_jobs"].as_u64().unwrap_or(0)).unwrap_or(u32::MAX)
+    });
     if jobs > 8 {
         return Err(error("Parallel jobs must be 0 (auto) or 1–8"));
     }
