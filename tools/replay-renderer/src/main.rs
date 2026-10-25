@@ -542,7 +542,7 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                     vosu_tool_sdk::send_json(client.own(Method::POST, "v1/replays").body(bytes))
                         .await?;
                 let mut settings = settings.clone();
-                // Overlap hears the focus player's hitsounds only, unless `--set audio.mute=…`.
+                // Overlap hears the focus player's hitsounds only, unless `--set audio.mute=…` or `--no-hitsounds`.
                 if layout == "overlap" && !settings.contains_key("audio.mute") {
                     let muted = index + 1 != focus as usize;
                     settings.insert("audio.mute".into(), f64::from(u8::from(muted)));
