@@ -259,6 +259,8 @@
    "largeTickHits": 0
   },
   "hitErrorArray": [],
+  "pressHitErrors": [],
+  "releaseHitErrors": [],
   "combo": {
    "current": 0,
    "max": 0

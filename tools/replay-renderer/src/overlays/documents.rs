@@ -43,7 +43,7 @@ impl Documents {
         }
         let render = &state["__render"];
         let wall = render["wallMs"].as_f64().unwrap_or(0.0);
-        let precise = precise(&v2, render);
+        let precise = precise(&v2);
         let v1 = v1(&v2);
         let sc = sc(&v2, render);
         Self {
@@ -86,18 +86,20 @@ fn number(value: &Value) -> f64 {
 }
 
 /// `/websocket/v2/precise`: keys and hit errors.
-fn precise(v2: &Value, render: &Value) -> Value {
+fn precise(v2: &Value) -> Value {
     let mut out = PRECISE.clone();
     set(&mut out, "/keys", v2["keys"].clone());
     set(&mut out, "/hitErrors", v2["play"]["hitErrorArray"].clone());
-    for (key, field) in [
-        ("pressHitErrors", "/pressHitErrors"),
-        ("releaseHitErrors", "/releaseHitErrors"),
-    ] {
-        if render["precise"][key].is_array() {
-            set(&mut out, field, render["precise"][key].clone());
-        }
-    }
+    set(
+        &mut out,
+        "/pressHitErrors",
+        v2["play"]["pressHitErrors"].clone(),
+    );
+    set(
+        &mut out,
+        "/releaseHitErrors",
+        v2["play"]["releaseHitErrors"].clone(),
+    );
     out
 }
 
@@ -229,11 +231,13 @@ fn v1(v2: &Value) -> Value {
         "/gameplay/hits/unstableRate",
         play["unstableRate"].clone(),
     );
-    set(
-        &mut out,
-        "/gameplay/hits/hitErrorArray",
-        play["hitErrorArray"].clone(),
-    );
+    for field in ["hitErrorArray", "pressHitErrors", "releaseHitErrors"] {
+        set(
+            &mut out,
+            &format!("/gameplay/hits/{field}"),
+            play[field].clone(),
+        );
+    }
     set(
         &mut out,
         "/gameplay/pp/current",
@@ -392,6 +396,12 @@ fn sc(v2: &Value, render: &Value) -> Value {
     put(&mut out, "acc", play["accuracy"].clone());
     put(&mut out, "unstableRate", play["unstableRate"].clone());
     put(&mut out, "hitErrors", play["hitErrorArray"].clone());
+    put(&mut out, "pressHitErrors", play["pressHitErrors"].clone());
+    put(
+        &mut out,
+        "releaseHitErrors",
+        play["releaseHitErrors"].clone(),
+    );
     put(&mut out, "mods", play["mods"]["name"].clone());
     put(&mut out, "modsEnum", play["mods"]["number"].clone());
     put(&mut out, "ppIfMapEndsNow", play["pp"]["current"].clone());
@@ -542,9 +552,9 @@ mod tests {
             "beatmap": {"artist": "A", "title": "T", "version": "V", "time": {"live": 61500.0, "lastObject": 90000.0},
                 "stats": {"hitWindow": {"great": 40.5}, "objects": {"holds": 3}}},
             "play": {"playerName": "p", "accuracy": 98.5, "healthBar": {"normal": 50.0, "smooth": 50.0},
-                "hits": {"300": 7, "geki": 2}, "hitErrorArray": [1.0, -2.0], "mods": {"number": 64, "name": "DT"}},
+                "hits": {"300": 7, "geki": 2}, "hitErrorArray": [1.0, -2.0], "pressHitErrors": [1.0],
+                "releaseHitErrors": [-2.0], "mods": {"number": 64, "name": "DT"}},
             "keys": {"k1": {"isPressed": true, "count": 3}, "all": [{"name": "K1", "isPressed": true, "count": 3, "pressedAt": 1.0, "releasedAt": null}]},
-            "__render": {"precise": {"pressHitErrors": [1.0], "releaseHitErrors": [-2.0]}},
         });
         let documents = Documents::new(&state, 4);
         // Template fields survive a partial merge; merged ones replace them.
@@ -575,6 +585,68 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("\"K1Count\":3")
+        );
+    }
+
+    /// Regression: overlays read hit errors from any of vosu's fields
+    /// (`/play/pressHitErrors` and `/play/releaseHitErrors` were missing, so a
+    /// hit error bar subscribing to them drew no ticks), and every field holds
+    /// all errors since the play began, in order, as vosu sends them.
+    #[test]
+    fn hit_errors_are_cumulative_in_every_document() {
+        let state = |all: &[f64], press: &[f64], release: &[f64]| json!({"play": {"hitErrorArray": all, "pressHitErrors": press, "releaseHitErrors": release}});
+        let mut previous = 0;
+        for (sequence, (all, press, release)) in [
+            (vec![], vec![], vec![]),
+            (vec![-12.0], vec![-12.0], vec![]),
+            (vec![-12.0, 3.0, 40.5], vec![-12.0, 3.0], vec![40.5]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let documents = Documents::new(&state(&all, &press, &release), sequence as u64);
+            let play = &documents.v2["play"];
+            assert_eq!(play["hitErrorArray"], json!(all));
+            assert_eq!(play["pressHitErrors"], json!(press));
+            assert_eq!(play["releaseHitErrors"], json!(release));
+            assert!(all.len() >= previous, "the arrays only grow during a play");
+            previous = all.len();
+            for (document, prefix, all_field) in [
+                (&documents.precise, "", "hitErrors"),
+                (&documents.v1, "/gameplay/hits", "hitErrorArray"),
+                (&documents.sc, "", "hitErrors"),
+            ] {
+                assert_eq!(
+                    document.pointer(&format!("{prefix}/{all_field}")),
+                    Some(&json!(all))
+                );
+                assert_eq!(
+                    document.pointer(&format!("{prefix}/pressHitErrors")),
+                    Some(&json!(press))
+                );
+                assert_eq!(
+                    document.pointer(&format!("{prefix}/releaseHitErrors")),
+                    Some(&json!(release))
+                );
+            }
+        }
+        // A selected-field subscription reads them, whole or one index at a time.
+        let documents = Documents::new(&state(&[-12.0, 3.0, 40.5], &[-12.0, 3.0], &[40.5]), 3);
+        let pointers = compile_pointers(vec![
+            "/play/pressHitErrors".into(),
+            "/play/releaseHitErrors".into(),
+            "/play/hitErrorArray/2".into(),
+            "/play/hitErrorArray/3".into(),
+        ])
+        .unwrap();
+        assert_eq!(
+            select(&documents.v2, &pointers),
+            vec![
+                Some(json!([-12.0, 3.0])),
+                Some(json!([40.5])),
+                Some(json!(40.5)),
+                None
+            ]
         );
     }
 

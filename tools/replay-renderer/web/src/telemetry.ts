@@ -144,7 +144,8 @@ export function telemetry(
   const { replay, map, simulation } = track;
   const state = simulation ? stateAt(replay, simulation, time) : null;
   const events = simulation ? simulation.events.filter((event) => event.time <= time) : [];
-  // Hit errors come from timed hits only (not ticks, catches or spinners), in gameplay milliseconds.
+  // Hit errors come from timed hits only (not ticks, catches or spinners), in map milliseconds (as
+  // vosu reports them: not divided by the clock rate), early negative, every one since the play began.
   const timed = events.filter((event) => event.timed !== false && event.result !== "miss");
   // Releases: hold tails under lazer's rules, else stable's whole-hold judgements.
   const released = (event: (typeof timed)[number]) =>
@@ -238,6 +239,8 @@ export function telemetry(
         largeTickHits: statistics?.large_tick_hit ?? 0,
       },
       hitErrorArray: all,
+      pressHitErrors: press,
+      releaseHitErrors: release,
       combo: {
         current: events.at(-1)?.combo ?? 0,
         max: events.reduce((max, event) => Math.max(max, event.combo), 0),
@@ -265,7 +268,6 @@ export function telemetry(
       // osu!/catch: whose rules judged the replay, and lazer's result counts so far (pp needs ticks).
       client: simulation?.client ?? client,
       statistics,
-      precise: { pressHitErrors: press, releaseHitErrors: release },
       skin: track.skin ?? "",
       wallMs: (time - start) / replay.rate,
       time,
