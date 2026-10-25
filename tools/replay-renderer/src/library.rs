@@ -45,15 +45,27 @@ impl MapFiles {
     }
     /// Resolves a file named by the beatmap (audio, background, …).
     pub(super) fn asset(&self, name: &str) -> Result<PathBuf, Error> {
+        let relative = name.replace('\\', "/");
+        if relative.is_empty()
+            || FsPath::new(&relative)
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            return Err(error("Invalid relative asset path"));
+        }
         match self {
-            Self::Stable(osu) => confined(
+            Self::Stable(osu) => skin_file(
                 osu.parent().ok_or_else(|| error("Map has no folder"))?,
-                &name.replace('\\', "/"),
+                &relative,
             ),
-            Self::Lazer { files, .. } => files
-                .get(&lazer_name(name))
-                .cloned()
-                .ok_or_else(|| error(format!("{name} is not part of this lazer beatmap"))),
+            Self::Lazer { files, .. } => {
+                files.get(&relative.to_lowercase()).cloned().ok_or_else(|| {
+                    (
+                        StatusCode::NOT_FOUND,
+                        Json(json!({"error":format!("{name} is not part of this lazer beatmap")})),
+                    )
+                })
+            }
         }
     }
 }
@@ -667,7 +679,44 @@ mod tests {
             map.asset("BG\\Back.JPG").unwrap(),
             PathBuf::from("/store/b")
         );
-        assert!(map.asset("audio.mp3").is_err());
+        assert_eq!(map.asset("audio.mp3").unwrap_err().0, StatusCode::NOT_FOUND);
+        assert_eq!(
+            map.asset("../audio.mp3").unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            map.asset("/audio.mp3").unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    #[test]
+    fn stable_samples_match_case_and_missing_samples_are_not_found() {
+        let root = std::env::temp_dir().join(format!("rr-map-samples-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("map.osu"), "osu file format v14").unwrap();
+        std::fs::write(root.join("Normal-HitNormal.WAV"), "sample").unwrap();
+        let map = MapFiles::Stable(root.join("map.osu"));
+        assert_eq!(
+            map.asset("normal-hitnormal.wav").unwrap(),
+            root.join("Normal-HitNormal.WAV").canonicalize().unwrap()
+        );
+        assert_eq!(
+            map.asset("spinnerspin.wav").unwrap_err().0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            map.asset("soft-hitnormal2.wav").unwrap_err().0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            map.asset("../outside.wav").unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            map.asset("/outside.wav").unwrap_err().0,
+            StatusCode::BAD_REQUEST
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn missing_map_names_md5_and_sources() {
