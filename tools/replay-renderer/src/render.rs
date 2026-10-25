@@ -274,6 +274,7 @@ async fn run_single(worker: Worker) -> Result<(), String> {
         .route("/assets", get(private_asset))
         .route("/replay/{id}", get(private_replay))
         .route("/begin", post(begin))
+        .route("/audio", post(audio_chunk))
         .route("/frame", post(frame))
         .route("/finish", post(finish))
         .route("/frame-state", post(frame_state))
@@ -419,6 +420,9 @@ async fn run_single(worker: Worker) -> Result<(), String> {
     let _ = child.kill().await;
     servers.iter().for_each(|server| server.abort());
     let _ = tokio::fs::remove_dir_all(profile).await;
+    if worker.request.segment.is_none() {
+        let _ = tokio::fs::remove_file(worker.staged.with_extension("wav")).await;
+    }
     result
 }
 async fn spec(State(worker): State<Worker>) -> Result<Json<Value>, Error> {
@@ -463,12 +467,7 @@ async fn web(Path(path): Path<String>) -> Result<Response, Error> {
 }
 #[derive(Deserialize)]
 struct Begin {
-    /// The first track's map: its song is the soundtrack.
-    hash: String,
     rate: f64,
-    /// The song's pitch follows the rate (Nightcore, Daycore, DT/HT "adjust pitch").
-    #[serde(default)]
-    pitch: bool,
     frames: u64,
     #[serde(default)]
     full_frames: u64,
@@ -478,6 +477,9 @@ struct Begin {
     /// Every track's map, mods and initial state, for its overlay runtime.
     #[serde(default)]
     tracks: Vec<TrackBegin>,
+    /// Deterministically premixed WAV uploaded before the encoder starts.
+    audio_bytes: u64,
+    audio_report: Value,
 }
 #[derive(Deserialize)]
 struct TrackBegin {
@@ -508,8 +510,12 @@ async fn begin(
     {
         return Err(error("Invalid export clock"));
     }
-    let map = crate::library::find_map(&worker.app, &input.hash).await?;
-    let text = tokio::fs::read_to_string(map.osu()).await.map_err(error)?;
+    let audio = worker.staged.with_extension("wav");
+    if input.audio_bytes < 44
+        || tokio::fs::metadata(&audio).await.map_err(error)?.len() != input.audio_bytes
+    {
+        return Err(error("Incomplete audio mix"));
+    }
     for instance in worker.overlays.iter() {
         let track = input
             .tracks
@@ -541,20 +547,9 @@ async fn begin(
             )
             .await?;
     }
-    let audio = text
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("AudioFilename:"))
-        .map(str::trim)
-        .ok_or_else(|| error("Beatmap has no audio"))?;
-    let audio = map.asset(audio)?;
-    let filter = audio_filter(
-        input.rate,
-        input.pitch,
-        input.start_ms,
-        input.full_frames.max(input.frames) as f64 / f64::from(worker.request.fps),
-        worker.request.fade_ms.unwrap_or(0),
-    );
-    *worker.audio.lock().await = json!({"path": audio, "filter": filter});
+    let filter = "anull".to_owned();
+    *worker.audio.lock().await =
+        json!({"path": audio, "filter": filter, "report": input.audio_report});
     let settings: Value = worker.app.env.client().settings().await.map_err(error)?;
     let executable = crate::output::ffmpeg(&settings);
     let plan = worker.plan();
@@ -647,49 +642,30 @@ async fn begin(
 pub(crate) fn video_seconds(frames: u64, fps: u32) -> String {
     format!("{:.6}", frames as f64 / f64::from(fps.max(1)))
 }
-/// The song on the video clock: tempo for the replay rate (pitch-shifted when
-/// `pitch`, as Nightcore does), silence during a lead-in (or the map start
-/// skipped), lazer's entry fade in and the outro fade out.
-fn audio_filter(rate: f64, pitch: bool, start_ms: f64, seconds: f64, fade_ms: u32) -> String {
-    let mut filters = Vec::new();
-    if start_ms > 0.0 {
-        filters.push(format!(
-            "atrim=start={:.3},asetpts=PTS-STARTPTS",
-            start_ms / 1000.0
-        ));
+async fn audio_chunk(
+    State(worker): State<Worker>,
+    Query(query): Query<BTreeMap<String, String>>,
+    body: Bytes,
+) -> Result<Json<Value>, Error> {
+    let offset = query
+        .get("offset")
+        .and_then(|s| s.parse::<u64>().ok())
+        .ok_or_else(|| error("Missing audio offset"))?;
+    if body.is_empty() || body.len() > 8192 || offset > u64::from(u32::MAX) - body.len() as u64 {
+        return Err(error("Invalid audio chunk"));
     }
-    if pitch {
-        // Resample at a fixed rate, then play it back faster or slower.
-        filters.push(format!(
-            "aresample=48000,asetrate={},aresample=48000",
-            (48000.0 * rate).round()
-        ));
-    } else {
-        filters.push(format!("atempo={rate}"));
+    let _guard = worker.audio.lock().await;
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(worker.staged.with_extension("wav"))
+        .await
+        .map_err(error)?;
+    if file.metadata().await.map_err(error)?.len() != offset {
+        return Err(error("Audio chunk out of order"));
     }
-    if start_ms < 0.0 {
-        // adelay passes the song's frames on with their own timestamps after
-        // the silence; with apad and a slowly fed video (the export pipe) the
-        // AAC encoder then sees broken timestamps, and FFmpeg's interleaving
-        // queue grows until it fails ("No space left on device", gigabytes in
-        // a second). Timestamps from the sample count keep the stream whole.
-        filters.push(format!(
-            "adelay={:.0}:all=1,asetpts=N/SR/TB",
-            -start_ms / rate
-        ));
-    }
-    filters.push("apad".to_owned());
-    let hold = f64::from(crate::output::ENTRY_HOLD_MS) / 1000.0;
-    let entry = f64::from(crate::output::ENTRY_FADE_MS) / 1000.0;
-    filters.push(format!("afade=t=in:st={hold:.3}:d={entry:.3}"));
-    if fade_ms > 0 {
-        let fade = f64::from(fade_ms) / 1000.0;
-        filters.push(format!(
-            "afade=t=out:st={:.3}:d={fade:.3}",
-            (seconds - fade).max(0.0)
-        ));
-    }
-    filters.join(",")
+    file.write_all(&body).await.map_err(error)?;
+    Ok(Json(json!({"received":offset + body.len() as u64})))
 }
 async fn frame(State(worker): State<Worker>, body: Bytes) -> Result<Json<Value>, Error> {
     if body.len() != worker.width as usize * worker.height as usize * 4 {
@@ -760,6 +736,8 @@ async fn finish(
     };
     let (width, height, fps) = plan.delivered(&fit);
     let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":1,"workers":worker.workers(),"gpu":worker.gpu.as_ref().map(|g| g.describe()),"timings_ms":profile["timings_ms"],"startup_ms":profile["startup_ms"],"adapter":profile["adapter"],"encoder_drain_ms":drain_started.elapsed().as_secs_f64()*1000.0});
+    let mut result = result;
+    result["audio"] = worker.audio.lock().await["report"].clone();
     worker.app.jobs.lock().await.insert(
         worker.id.clone(),
         json!({"state":"done","progress":1.0,"message":"Render complete","workers":worker.workers(),"encoder":encoder,"parallel_jobs":1,"gpu":worker.gpu.as_ref().map(|g| g.describe()),"result":result}),
@@ -852,26 +830,4 @@ pub(crate) fn join_warnings<'a>(
         }
     }
     (!parts.is_empty()).then(|| parts.join("; "))
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn audio_follows_lead_in_rate_and_fades() {
-        // Lead-in two seconds before the song at 1.5×: 1333 ms of silence first.
-        assert_eq!(
-            audio_filter(1.5, false, -2000.0, 60.0, 250),
-            "atempo=1.5,adelay=1333:all=1,asetpts=N/SR/TB,apad,afade=t=in:st=0.250:d=0.250,afade=t=out:st=59.750:d=0.250"
-        );
-        // A render starting after the song begins skips into it; no fade out requested.
-        assert_eq!(
-            audio_filter(1.0, false, 1500.0, 10.0, 0),
-            "atrim=start=1.500,asetpts=PTS-STARTPTS,atempo=1,apad,afade=t=in:st=0.250:d=0.250"
-        );
-        // Nightcore at a custom 1.25×: the pitch rises with the tempo.
-        assert_eq!(
-            audio_filter(1.25, true, 0.0, 10.0, 0),
-            "aresample=48000,asetrate=60000,aresample=48000,apad,afade=t=in:st=0.250:d=0.250"
-        );
-    }
 }

@@ -422,6 +422,18 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
     now = -Infinity;
   const active: Top[] = [];
   let nextTop = 0;
+  const audio: NonNullable<Simulation["audio"]> = [];
+  const loops = new Map<number, { note: number; time: number; endTime?: number; name: string }>();
+  function loop(top: Top, enabled: boolean, name: string) {
+    const current = loops.get(top.index);
+    if (current && (!enabled || now >= top.end)) {
+      current.endTime = Math.min(now, top.end);
+      loops.delete(top.index);
+    } else if (!current && enabled && now < top.end) {
+      const sound = { note: top.index, time: Math.max(now, top.start), endTime: top.end, name };
+      loops.set(top.index, sound); audio.push(sound);
+    }
+  }
 
   const resultFor = (offset: number): HitResult | null => {
     const o = Math.abs(offset);
@@ -503,6 +515,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
     const restricted = hitAction !== null && (s.acceptAnyAfter === null || now <= s.acceptAnyAfter);
     const validAction = actions.some((a) => !restricted || a === hitAction);
     s.tracking = (!s.judged || now <= s.end) && validPosition && validAction;
+    loop(s, s.tracking, "sliderslide");
   }
   function judgeNested(s: Slider, n: Nested, hit: boolean): void {
     n.judged = true;
@@ -588,6 +601,7 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   function updateSpinner(s: Spinner): void {
     const spinnable = s.start <= now && now < s.end;
     const tracking = spinnable && !s.judged && actions.length > 0;
+    loop(s, tracking, "spinnerspin");
     const angle = f32(-((Math.atan2(cursor.x - CENTRE.x, cursor.y - CENTRE.y) * 180) / Math.PI));
     if (s.lastAngle !== null) {
       let delta = f32(angle - s.lastAngle);
@@ -701,5 +715,6 @@ export function simulateOsu(replay: Replay, map: Beatmap, options: OsuSimulation
   if (unjudged) warnings.push(`${unjudged} objects were never judged (replay ends early)`);
   const simulation = judgeWithHealth(replay, { mode: 0, map, mods, classic }, perfect, outcomes, rules, warnings);
   simulation.hitWindow = realWindows({ great, ok, meh, miss: MISS_WINDOW }, rate);
+  simulation.audio = audio;
   return simulation;
 }

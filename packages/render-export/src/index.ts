@@ -55,6 +55,8 @@ export interface ExportOptions {
   rate?: number;
   startMs?: number;
   audio?: ArrayBuffer;
+  /** Already mixed on the wall-clock timeline; do not retime or fade again. */
+  audioIsMix?: boolean;
   volume?: number;
   /** Audio fades, wall-clock ms: silent for `inDelayMs`, then in over `inMs`;
    *  out over the last `outMs`. The picture's fade is the renderer's. */
@@ -122,11 +124,11 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
     );
     const source = context.createBufferSource();
     source.buffer = await context.decodeAudioData(options.audio.slice(0));
-    source.playbackRate.value = rate;
+    source.playbackRate.value = options.audioIsMix ? 1 : rate;
     const gain = context.createGain();
     const volume = options.volume ?? 1;
     gain.gain.value = volume;
-    const fade = options.fade;
+    const fade = options.audioIsMix ? undefined : options.fade;
     if (fade) {
       const at = (ms: number) => Math.min(wallDuration, Math.max(0, ms / 1000));
       gain.gain.setValueAtTime(0, 0);
@@ -137,7 +139,7 @@ export async function exportWebM(options: ExportOptions): Promise<Blob> {
     }
     source.connect(gain).connect(context.destination);
     // A negative start is a lead-in: the song begins that much (wall time) later.
-    const startMs = options.startMs ?? 0;
+    const startMs = options.audioIsMix ? 0 : (options.startMs ?? 0);
     source.start(Math.max(0, -startMs / rate / 1000), Math.max(0, startMs) / 1000);
     audio = await context.startRendering();
   }

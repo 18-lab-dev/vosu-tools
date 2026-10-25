@@ -1,13 +1,11 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parseReplay, replayPitched } from "@vosu-tools/replay";
+import { parseReplay } from "@vosu-tools/replay";
 import { exportWebM } from "@vosu-tools/render-export";
 import { describeBackend } from "@vosu-tools/render-core";
 import {
   Composition,
   DEFAULT_FADE_MS,
   DEFAULT_OUTRO_MS,
-  ENTRY_FADE_MS,
-  ENTRY_HOLD_MS,
   loadTrack,
   checked,
   ApiError,
@@ -23,6 +21,8 @@ import { SkinLibrary, type SkinContext } from "./skins";
 import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
 import { SizePicker, parseSize, type SizeStore } from "./sizes";
 import { LAYOUTS, type Layout } from "./layout";
+import { compositionAudio } from "./audio-mix";
+import { MixScheduler } from "./audio";
 
 const el = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -194,10 +194,9 @@ async function betweenFrames(change: () => void) {
 // Preview audio: the first track's song, muted by default; the choice persists.
 const MUTE_KEY = "vosu-tools.replay-renderer.preview-muted";
 let muted = localStorage.getItem(MUTE_KEY) !== "false";
-const audio = new Audio();
-audio.preload = "auto";
-let audioTrack: Track | undefined,
-  audioUrl = "";
+let audioContext: AudioContext | undefined;
+let audioScheduler: MixScheduler | undefined;
+let audioKey = "", audioGeneration = 0;
 function renderMute() {
   const button = el("mute");
   button.setAttribute("aria-pressed", String(muted));
@@ -215,42 +214,24 @@ el("mute").onclick = () => {
 renderMute();
 /** Keeps the song on the preview clock; the picture is the master. */
 function syncAudio(force = false) {
-  audio.muted = muted;
-  if (!audio.src || !playing || muted) {
-    if (!audio.paused) audio.pause();
-    return;
-  }
-  // Before the song starts (lead-in) there is nothing to play yet.
-  if (time < 0) {
-    if (!audio.paused) audio.pause();
-    return;
-  }
-  audio.volume = 1 - (composition?.dimAt(time) ?? 0);
-  const target = time / 1000;
-  if (force || audio.paused || Math.abs(audio.currentTime - target) > 0.08)
-    audio.currentTime = target;
-  if (audio.paused) void audio.play().catch(() => undefined);
+  if (!composition || !audioScheduler) return;
+  const offset = (time - composition.start) / tracks[0].replay.rate / 1000;
+  audioScheduler.sync(offset, playing && !muted, force);
 }
 async function loadAudio() {
-  const first = tracks[0];
-  if (first === audioTrack) return;
-  audioTrack = first;
-  audio.pause();
-  audio.removeAttribute("src");
-  if (audioUrl) URL.revokeObjectURL(audioUrl);
-  audioUrl = "";
-  if (!first) return;
-  const blob = await (
-    await fetcher(
-      `v1/assets?${new URLSearchParams({ kind: "map-asset", hash: first.replay.beatmapHash, path: first.map.general.AudioFilename })}`,
-    )
-  ).blob();
-  if (audioTrack !== first) return;
-  audioUrl = URL.createObjectURL(blob);
-  audio.src = audioUrl;
-  audio.playbackRate = first.replay.rate;
-  // Nightcore/Daycore (or DT/HT with "adjust pitch") shift the pitch; DT and HT keep it.
-  audio.preservesPitch = !replayPitched(first.replay);
+  if (!composition || !tracks.length) { audioScheduler?.stop(); audioScheduler = undefined; audioGeneration++; audioKey = ""; return; }
+  const key = JSON.stringify([tracks.map((track) => [track.id, track.skin, track.settings]), composition.start, composition.duration, composition.timing]);
+  if (key === audioKey) return;
+  audioKey = key;
+  const generation = ++audioGeneration;
+  audioScheduler?.stop();
+  audioScheduler = undefined;
+  const mix = await compositionAudio(tracks, composition.start, composition.duration, composition.timing.fadeMs, fetcher);
+  if (generation !== audioGeneration) return;
+  audioContext ??= new AudioContext({ sampleRate: 48000 });
+  const buffer = await audioContext.decodeAudioData(mix.wav);
+  if (generation !== audioGeneration) return;
+  audioScheduler = new MixScheduler(audioContext, buffer);
   syncAudio(true);
 }
 
@@ -992,11 +973,7 @@ el("webm").onclick = async () => {
     for (const [control] of controls) control.disabled = true;
     await previewFrame;
     const first = tracks[0];
-    const song = await (
-      await fetcher(
-        `v1/assets?${new URLSearchParams({ kind: "map-asset", hash: first.replay.beatmapHash, path: first.map.general.AudioFilename })}`,
-      )
-    ).arrayBuffer();
+    const song = await compositionAudio(tracks, composition.start, composition.duration, composition.timing.fadeMs, fetcher);
     // Export at the full output size; the preview runs at a capped size.
     composition.releaseTargets();
     const { width, height } = sizes.size;
@@ -1010,8 +987,8 @@ el("webm").onclick = async () => {
         startMs: full.start,
         durationMs: full.duration,
         rate: first.replay.rate,
-        audio: song,
-        fade: { inDelayMs: ENTRY_HOLD_MS, inMs: ENTRY_FADE_MS, outMs: full.timing.fadeMs },
+        audio: song.wav,
+        audioIsMix: true,
         render: (t) => full.renderOffline(t),
         progress: (p) => {
           inform(`Encoding WebM ${(p * 100).toFixed(0)}%`);
