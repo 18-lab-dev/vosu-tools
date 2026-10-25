@@ -606,6 +606,8 @@ export class Composition {
   timings = { scene: 0, readback: 0, composite: 0, gpu: null as number | null };
   private frameContext: CanvasRenderingContext2D;
   private readbacks: Readback[] = [];
+  /** Overlap's last drawn legend (and health bar) box, frame pixels. */
+  legendBox: Rect | null = null;
   /** Overlap options (used while `layout` is `overlap`). */
   overlap: OverlapOptions = { ...DEFAULT_OVERLAP };
   /** Overlap's one playfield: the focus player's skin, every player's cursor. */
@@ -864,6 +866,8 @@ export class Composition {
     }
     const legend = drawLegend(context, this.tracks, labels, time, { x: Math.round(24 * unit), y: top }, unit, this.overlap.focus);
     layers.push({ name: "Legend", kind: "hud", box: legend, ms: took() });
+    // The legend and the health bar above it, for the editor's free spots.
+    this.legendBox = { x: legend.x, y: Math.round(24 * unit), width: legend.width, height: legend.y + legend.height - Math.round(24 * unit) };
     this.inspected = layers;
   }
   /** Side by side, stacked, grid: every track's playfield in its own cell. */

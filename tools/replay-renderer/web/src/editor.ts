@@ -71,6 +71,8 @@ export class LayoutEditor {
       /** Overlap's focus track (whose playfield placement and overlays the
        *  overlap shows), or null in the other layouts. */
       overlapFocus(): Track | null;
+      /** Overlap's legend (and focus health bar) box in output pixels, when drawn. */
+      overlapLegend(): Rect | null;
       /** `commit` false while dragging: redraw only; true when an edit ends. */
       changed(item: Item, commit: boolean): void;
       selected(item: Item | null): void;
@@ -107,9 +109,13 @@ export class LayoutEditor {
     const scene = (avoidPlayfields: boolean) =>
       tracks.map((track, i) => ({
         cell: cells[i],
-        obstacles: items
-          .filter((item) => item.track === track && (avoidPlayfields || item.kind !== "playfield"))
-          .map((item) => this.boxOf(item)),
+        obstacles: [
+          ...items
+            .filter((item) => item.track === track && (avoidPlayfields || item.kind !== "playfield"))
+            .map((item) => this.boxOf(item)),
+          // Overlap's legend is not an item, but new overlays keep clear of it too.
+          ...(track === this.host.overlapFocus() ? [this.host.overlapLegend()].filter((box) => !!box) : []),
+        ],
       }));
     const spot = freeSpot(scene(true), width, height, options) ?? freeSpot(scene(false), width, height, options);
     if (spot) return spot;

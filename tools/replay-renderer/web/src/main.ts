@@ -769,6 +769,13 @@ const editor: LayoutEditor = new LayoutEditor(
     tracks: () => tracks,
     layers: () => overlayEditor.layers,
     overlapFocus: () => (composition?.layout === "overlap" ? composition.focus : null),
+    overlapLegend: () => {
+      const box = composition?.layout === "overlap" ? composition.legendBox : null;
+      if (!box || !composition) return null;
+      // The preview may run smaller than the output.
+      const k = sizes.size.width / composition.width;
+      return { x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k };
+    },
     changed(item, commit) {
       if (!commit) return;
       if (item.kind === "playfield") {
