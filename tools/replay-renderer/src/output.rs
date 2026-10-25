@@ -400,9 +400,6 @@ pub(super) fn defaults(settings: &Value) -> Value {
             .unwrap_or(crate::share::DISCORD_MB[0]),
     })
 }
-/// lazer's player entry: hidden for 250 ms, then faded in over 250 ms.
-pub(super) const ENTRY_HOLD_MS: u32 = 250;
-pub(super) const ENTRY_FADE_MS: u32 = 250;
 /// Longest outro (and fade) a render accepts, milliseconds.
 pub(super) const MAX_OUTRO_MS: u32 = 60_000;
 

@@ -71,6 +71,8 @@ export interface Track extends Preset {
   canvas: HTMLCanvasElement;
   warning: string;
   background: ImageBitmap | null;
+  /** Drawn built-ins expose no skin files (including the current lazer skin). */
+  builtinSamples?: boolean;
   /** Visible playfield extent in world units (see `probeContent`). */
   content: Rect;
   /** Running score, when the judgements verified (see `scoreCurve`). */
@@ -340,6 +342,7 @@ export async function loadTrack(
     renderer,
     canvas,
     skin: preset.skin,
+    builtinSamples: !!drawn,
     settings,
     background,
     content,

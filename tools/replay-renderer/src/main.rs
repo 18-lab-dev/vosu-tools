@@ -77,6 +77,16 @@ enum Cli {
         skin: Option<String>,
         #[arg(long="set", value_parser=parse_setting)]
         settings: Vec<(String, f64)>,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        volume_master: Option<u8>,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        volume_music: Option<u8>,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=100))]
+        volume_hitsounds: Option<u8>,
+        #[arg(long)]
+        no_hitsounds: bool,
+        #[arg(long)]
+        no_fallback_samples: bool,
         /// Defaults to the replay's name in the output folder setting (or Videos)
         #[arg(long)]
         out: Option<PathBuf>,
@@ -459,7 +469,12 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
         Cli::Render {
             file,
             skin,
-            settings,
+            mut settings,
+            volume_master,
+            volume_music,
+            volume_hitsounds,
+            no_hitsounds,
+            no_fallback_samples,
             out,
             fps,
             resolution,
@@ -468,6 +483,21 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             discord_mb,
             json: as_json,
         } => {
+            for (key, volume) in [
+                ("audio.master", volume_master),
+                ("audio.music", volume_music),
+                ("audio.hitsounds", volume_hitsounds),
+            ] {
+                if let Some(value) = volume {
+                    settings.push((key.to_owned(), f64::from(value)));
+                }
+            }
+            if no_hitsounds {
+                settings.push(("audio.mute".to_owned(), 1.0));
+            }
+            if no_fallback_samples {
+                settings.push(("audio.fallback".to_owned(), 0.0));
+            }
             let defaults: Value = client.own_json("v1/context").await?;
             let defaults = &defaults["defaults"];
             let out = match out {
@@ -589,7 +619,20 @@ async fn host_context(app: &App) -> Result<Value, Error> {
         context["skin"] = json!({"name":skin,"folder":folder});
     }
     context["stable_songs_dir"] = context["songs_dir"].clone();
-    context["default_settings"] = json!({"mania.scroll_speed":settings["mania.scroll_speed"].as_f64().or_else(||settings["mania.scroll_speed"].as_str().and_then(|s|s.parse::<f64>().ok())).unwrap_or(20.0)});
+    context["default_settings"] = json!(
+        RENDER_SETTINGS
+            .iter()
+            .filter_map(|rule| {
+                let value = settings[&rule.key].as_f64().or_else(|| {
+                    settings[&rule.key]
+                        .as_str()
+                        .and_then(|s| s.parse::<f64>().ok())
+                })?;
+                (value.is_finite() && (rule.min..=rule.max).contains(&value))
+                    .then(|| (rule.key.clone(), value))
+            })
+            .collect::<BTreeMap<_, _>>()
+    );
     context["defaults"] = output::defaults(&settings);
     Ok(context)
 }
@@ -694,7 +737,12 @@ fn skin_file(root: &FsPath, relative: &str) -> Result<PathBuf, Error> {
             .map_err(error)?
             .flatten()
             .find(|entry| entry.file_name().to_string_lossy().to_lowercase() == wanted)
-            .ok_or_else(|| error(format!("{relative} is not in this skin")))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({"error":format!("{relative} is not in this asset folder")})),
+                )
+            })?
             .path();
     }
     let path = current.canonicalize().map_err(error)?;
@@ -760,6 +808,48 @@ async fn asset(
                 .ok_or_else(|| error("Missing asset path"))?,
         )?
     };
+    if kind == "music" {
+        let rate = query
+            .get("rate")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.0);
+        if !(0.5..=2.0).contains(&rate) {
+            return Err(error("Invalid audio rate"));
+        }
+        let pitch = query.get("pitch").is_some_and(|s| s == "1");
+        let filter = if pitch {
+            format!(
+                "aresample=48000,asetrate={},aresample=48000",
+                (48000.0 * rate).round()
+            )
+        } else {
+            format!("atempo={rate},aresample=48000")
+        };
+        let settings: Value = app.env.client().settings().await.map_err(error)?;
+        let result = tokio::process::Command::new(output::ffmpeg(&settings))
+            .args(["-nostdin", "-hide_banner", "-loglevel", "error", "-i"])
+            .arg(path)
+            .args([
+                "-vn",
+                "-af",
+                &filter,
+                "-ac",
+                "2",
+                "-c:a",
+                "pcm_s16le",
+                "-f",
+                "wav",
+                "pipe:1",
+            ])
+            .kill_on_drop(true)
+            .output()
+            .await
+            .map_err(error)?;
+        if !result.status.success() {
+            return Err(error(String::from_utf8_lossy(&result.stderr)));
+        }
+        return Ok(result.stdout.into());
+    }
     Ok(tokio::fs::read(path).await.map_err(error)?.into())
 }
 /// One file of a preset's skin (`""` or `None` the client's current skin).

@@ -58,6 +58,8 @@ export interface HitObject extends Point {
   span: number;
   ticks: number[];
   edgeSounds: number[];
+  /** Slider node normal/addition sample-set overrides, in file order. */
+  edgeSets?: [number, number][];
   sample: string;
 }
 export interface Beatmap {
@@ -687,7 +689,7 @@ export function parseOsu(text: string): Beatmap {
         span: 0,
         ticks: [],
         edgeSounds: [],
-        sample: p[p.length - 1] ?? "",
+        sample: type & 128 ? (p[5]?.split(":").slice(1).join(":") ?? "") : (p[(type & 2) ? 10 : (type & 8) ? 6 : 5] ?? ""),
       };
       if (type & 2) {
         const controls = curveControlPoints(p[5], { x, y }, map.format);
@@ -700,6 +702,10 @@ export function parseOsu(text: string): Beatmap {
         o.repeats = Math.max(1, Number(p[6]) || 1);
         // An empty field means "no per-node sounds" (the clients fall back to the object's own).
         o.edgeSounds = p[8] ? p[8].split("|").map(Number) : [];
+        o.edgeSets = p[9] ? p[9].split("|").map((pair) => {
+          const [normal, addition] = pair.split(":").map(Number);
+          return [normal || 0, addition || 0];
+        }) : [];
       } else if (type & 8) o.endTime = Number(p[5]) || time;
       else if (type & 128) o.endTime = Number(p[5]?.split(":")[0]) || time;
       map.objects.push(o);
