@@ -328,6 +328,7 @@ async fn run_single(worker: Worker) -> Result<(), String> {
             "--disable-dev-shm-usage",
             "--run-all-compositor-stages-before-draw",
             "--disable-gpu-vsync",
+            crate::overlays::MAIN_THREAD_ANIMATIONS,
             // The export page collects each frame's dead pixel buffers itself
             // (see web/src/export.ts); left to V8 they pile up to gigabytes.
             "--js-flags=--expose-gc",

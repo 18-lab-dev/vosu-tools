@@ -81,6 +81,8 @@
  "unstableRate": 0,
  "convertedUnstableRate": 0,
  "hitErrors": [],
+ "pressHitErrors": [],
+ "releaseHitErrors": [],
  "mods": "",
  "modsEnum": 0,
  "ppIfMapEndsNow": 0,

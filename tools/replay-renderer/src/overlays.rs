@@ -215,6 +215,14 @@ fn default_settings(folder: &std::path::Path) -> Map<String, Value> {
 }
 /// Overlay pages one render may run (overlays × tracks showing them).
 const MAX_PAGES: usize = 32;
+/// Chrome switch for every browser that renders overlay pages offline. CSS
+/// transitions and Web Animations (opacity, transform) otherwise run on the
+/// compositor, whose clock is not the virtual time that paces the export: an
+/// animation's start time lands far behind the document timeline, so it is
+/// already over when it starts (a hit tick that should fade over seconds is
+/// never drawn, an arrow's glide snaps). On the main thread they follow the
+/// document timeline, which advances exactly one frame per export frame.
+pub(crate) const MAIN_THREAD_ANIMATIONS: &str = "--disable-threaded-animation";
 fn one() -> f64 {
     1.0
 }
@@ -1286,6 +1294,7 @@ mod tests {
                 "--no-first-run",
                 "--run-all-compositor-stages-before-draw",
                 "--disable-gpu-vsync",
+                MAIN_THREAD_ANIMATIONS,
                 "--enable-unsafe-webgpu",
                 "--remote-debugging-address=127.0.0.1",
                 "--remote-debugging-port=0",
@@ -1428,6 +1437,63 @@ mod tests {
             // Chrome's helper processes may still be leaving the profile: best effort.
             let _ = std::fs::remove_dir_all(root);
         }
+    }
+
+    /// Regression: CSS transitions and Web Animations follow the export's
+    /// clock. On the compositor they started far behind the document timeline
+    /// and were over at once, so a hit error tick fading out over a second was
+    /// never drawn and an arrow's glide snapped to its end.
+    #[tokio::test]
+    async fn css_animations_follow_export_frames_in_headless_chromium() {
+        let page = r#"<!doctype html><html><body>
+            <i id="animated" style="display:block;width:8px;height:8px;background:#fff"></i>
+            <i id="transitioned" style="display:block;width:8px;height:8px;background:#fff;transition:opacity 1s linear"></i>
+            <script type="module">
+            const animated = document.getElementById("animated"), transitioned = document.getElementById("transitioned");
+            const samples = [];
+            let started = null;
+            const loop = (time) => {
+              if (time > 0 && started === null) {
+                started = time;
+                animated.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 1000, fill: "forwards" });
+                transitioned.style.opacity = "0";
+              } else if (started !== null) {
+                samples.push([time - started, Number(getComputedStyle(animated).opacity), Number(getComputedStyle(transitioned).opacity)]);
+              }
+              requestAnimationFrame(loop);
+            };
+            requestAnimationFrame(loop);
+            window.samples = samples;
+        </script></body></html>"#;
+        let (runtime, _origin, root, task) = stand_in(page, true).await;
+        let Some((mut child, endpoint)) = chromium(&root).await else {
+            eprintln!("skipped: VOSU_RENDER_CHROMIUM is not set");
+            task.abort();
+            return;
+        };
+        runtime.debug(endpoint).await;
+        let step = 1000.0 / 30.0;
+        for frame in 0..=45 {
+            let state = json!({"client": "stable", "play": {"mode": {"number": 3}},
+                "__render": {"wallMs": f64::from(frame) * step, "epochMs": 0.0, "capture": true}});
+            runtime.frame(state).await.unwrap();
+        }
+        let samples: Vec<[f64; 3]> =
+            serde_json::from_value(runtime.evaluate("window.samples").await.remove(0)).unwrap();
+        assert!(samples.len() >= 40, "{samples:?}");
+        for [elapsed, animated, transitioned] in samples {
+            // Linear over 1000 ms from the frame that started them (one frame of slack).
+            let expected = (1.0 - elapsed / 1000.0).clamp(0.0, 1.0);
+            for (what, opacity) in [("animation", animated), ("transition", transitioned)] {
+                assert!(
+                    (opacity - expected).abs() <= step / 1000.0 + 1e-3,
+                    "{what} at {elapsed} ms: opacity {opacity}, expected {expected}"
+                );
+            }
+        }
+        let _ = child.kill().await;
+        task.abort();
+        let _ = std::fs::remove_dir_all(root);
     }
 
     /// Regression: a page whose picture stops changing (a judgement counter

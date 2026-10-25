@@ -117,7 +117,9 @@
     "maxThisPlay": ""
    },
    "unstableRate": 0,
-   "hitErrorArray": []
+   "hitErrorArray": [],
+   "pressHitErrors": [],
+   "releaseHitErrors": []
   },
   "pp": {
    "current": 0,
