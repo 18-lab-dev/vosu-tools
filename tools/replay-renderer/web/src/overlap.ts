@@ -170,3 +170,44 @@ export function focusLayers<T extends { tracks: number[] | null }>(layers: reado
     .filter((layer) => !layer.tracks || layer.tracks.includes(focus))
     .map((layer) => ({ ...layer, tracks: [focus] }));
 }
+
+/**
+ * Overlap's audio rule on the per-track `audio.mute` setting (the hitsound
+ * mixer's own switch): the focus player's hitsounds only, by default. A track
+ * entering the overlap is set (focus heard, the others muted) and its own
+ * value kept; a new focus player sets every track again; the player's own
+ * toggles in between stay. Leaving the overlap restores the kept values.
+ */
+export class OverlapAudio {
+  private saved = new Map<string, number>();
+  private focusId: string | null = null;
+  /** `focus`: the overlap's focus track index, or null outside the overlap.
+   *  Returns whether any track's setting changed. */
+  apply(tracks: readonly { id: string; settings: Record<string, number> }[], focus: number | null): boolean {
+    let changed = false;
+    const set = (settings: Record<string, number>, value: number) => {
+      if ((settings["audio.mute"] ?? 0) !== value) changed = true;
+      settings["audio.mute"] = value;
+    };
+    if (focus === null || !tracks[focus]) {
+      for (const track of tracks) {
+        const value = this.saved.get(track.id);
+        if (value !== undefined) set(track.settings, value);
+      }
+      this.saved.clear();
+      this.focusId = null;
+      return changed;
+    }
+    const focusId = tracks[focus].id,
+      refocus = focusId !== this.focusId;
+    for (const track of tracks) {
+      const fresh = !this.saved.has(track.id);
+      if (fresh) this.saved.set(track.id, track.settings["audio.mute"] ?? 0);
+      if (fresh || refocus) set(track.settings, track.id === focusId ? 0 : 1);
+    }
+    const present = new Set(tracks.map((track) => track.id));
+    for (const id of this.saved.keys()) if (!present.has(id)) this.saved.delete(id);
+    this.focusId = focusId;
+    return changed;
+  }
+}

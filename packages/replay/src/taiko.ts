@@ -250,6 +250,7 @@ export function simulateTaiko(replay: Replay, map: Beatmap, options: { source?: 
     return false;
   };
 
+  const audio: NonNullable<Simulation["audio"]> = [];
   /** Objects still able to take input or be judged, in start order. */
   let first = 0;
   const done = (o: TaikoHitObject) =>
@@ -295,6 +296,7 @@ export function simulateTaiko(replay: Replay, map: Beatmap, options: { source?: 
       if (o.lastPress === time) return;
       o.lastWasCentre = centre;
       o.lastPress = time;
+      audio.push({ note: o.index, time, name: centre ? "taiko-hitnormal" : "taiko-hitclap" });
       if (o.hits < o.required) o.hits++;
       if (o.hits === o.required) judgeSwell(o, time, true);
       return;
@@ -351,5 +353,6 @@ export function simulateTaiko(replay: Replay, map: Beatmap, options: { source?: 
   const judged = order.map(({ o }) => o);
   const simulation = judgeWithHealth(replay, { mode: 1, map, mods, classic: false }, perfect, judged, rules, warnings);
   simulation.hitWindow = realWindows({ great, ok, miss }, replayRate(replay));
+  simulation.audio = audio;
   return simulation;
 }

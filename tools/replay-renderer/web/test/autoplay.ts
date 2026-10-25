@@ -240,4 +240,6 @@ if (import.meta.main) {
     writeFileSync(join(outDir, `${player}.osr`), bytes);
     console.log(player, JSON.stringify(replay.counts), `max combo ${replay.maxCombo}`, `verified ${simulation.verified}`);
   }
+  // The LZMA decoder keeps the event loop alive.
+  process.exit(0);
 }

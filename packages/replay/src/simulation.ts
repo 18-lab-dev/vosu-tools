@@ -26,6 +26,8 @@ export interface Judgement {
 }
 export interface Simulation {
   events: Judgement[];
+  /** Audible input/loop intervals that do not themselves award a judgement. */
+  audio?: { note: number; time: number; endTime?: number; name: string }[];
   counts: Counts;
   verified: boolean;
   comboVerified: boolean;

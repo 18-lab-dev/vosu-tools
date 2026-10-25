@@ -189,6 +189,8 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         );
         let (width, height, fps) = plan.delivered(&fit);
         let result = json!({"out":worker.request.out,"export_for":plan.target.name(),"width":width,"height":height,"fps":fps,"warning":warning,"fit":fit,"frames":frames,"seconds":seconds,"render_fps":frames as f64/seconds,"encoder":encoder,"parallel_jobs":count,"workers":worker.workers(),"gpu":gpu,"segments":results,"mux_ms":mux_started.elapsed().as_secs_f64()*1000.0});
+        let mut result = result;
+        result["audio"] = audio["report"].clone();
         jobs.insert(worker.id.clone(), json!({"state":"done","progress":1.0,"message":"Render complete","workers":worker.workers(),"encoder":encoder,"parallel_jobs":count,"gpu":gpu,"result":result}));
         Ok(())
     }.await;
@@ -196,6 +198,7 @@ pub(super) async fn run(worker: Worker, count: u32) -> Result<(), String> {
         if let Some(mut encoder) = segment.encoder.lock().await.take() {
             let _ = encoder.kill().await;
         }
+        let _ = tokio::fs::remove_file(segment.staged.with_extension("wav")).await;
         let _ = tokio::fs::remove_file(segment.staged).await;
         let _ = tokio::fs::remove_file(segment.request.out).await;
         worker.app.jobs.lock().await.remove(&segment.id);

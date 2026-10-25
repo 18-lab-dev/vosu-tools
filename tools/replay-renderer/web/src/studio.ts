@@ -90,6 +90,8 @@ export interface Track extends Preset {
   canvas: HTMLCanvasElement;
   warning: string;
   background: ImageBitmap | null;
+  /** Drawn built-ins expose no skin files (including the current lazer skin). */
+  builtinSamples?: boolean;
   /** Visible playfield extent in world units (see `probeContent`). */
   content: Rect;
   /** Running score, when the judgements verified (see `scoreCurve`). */
@@ -370,6 +372,7 @@ export async function loadTrack(
     renderer,
     canvas,
     skin: preset.skin,
+    builtinSamples: !!drawn,
     settings,
     background,
     content,
@@ -572,6 +575,10 @@ function cursorTrail(track: Track, time: number) {
     }
   return trail;
 }
+const overlaps = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+/** Name tags tried below each other before one may cover another. */
+const MAX_OVERLAP_TAGS = 8;
 /** osu! gameplay draws the playfield this much lower (render-core's `playfieldShift`). */
 const PLAYFIELD_SHIFT = 8;
 /** The legend's values for one overlapping player at `time`; null when the
@@ -816,14 +823,26 @@ export class Composition {
       context.lineJoin = "round";
       context.lineWidth = Math.max(2, 5 * unit);
       context.strokeStyle = "rgba(0, 0, 0, 0.85)";
+      const placed: Rect[] = [],
+        height = Math.round(24 * unit) * 1.15;
       cursors.forEach((cursor, i) => {
         const at = worldToOutput(cell, focus.content, transform, cursor.x, cursor.y, PLAYFIELD_SHIFT);
-        // Beside the cursor, clear of its image (about 20 world units across).
-        const x = at.x + 16 * at.scale * (cursor.scale ?? 1),
-          y = at.y - 16 * at.scale * (cursor.scale ?? 1);
+        // Beside the cursor, clear of its image (about 20 world units across);
+        // a tag that would cover an earlier one moves down below it.
+        // The box keeps a gap of a third of a line around the text.
+        const gap = height / 3;
+        const box = {
+          x: at.x + 16 * at.scale * (cursor.scale ?? 1) - gap,
+          y: at.y - 16 * at.scale * (cursor.scale ?? 1) - height / 2,
+          width: context.measureText(labels[i]).width + 2 * gap,
+          height,
+        };
+        for (let tries = 0; tries < MAX_OVERLAP_TAGS && placed.some((other) => overlaps(box, other)); tries++)
+          box.y = Math.max(...placed.filter((other) => overlaps(box, other)).map((other) => other.y + other.height));
+        placed.push(box);
         context.fillStyle = overlapColour(i);
-        context.strokeText(labels[i], x, y);
-        context.fillText(labels[i], x, y);
+        context.strokeText(labels[i], box.x + gap, box.y + height / 2);
+        context.fillText(labels[i], box.x + gap, box.y + height / 2);
       });
       context.restore();
       layers.push({ name: "Name tags", kind: "hud", box: cell, ms: took() });

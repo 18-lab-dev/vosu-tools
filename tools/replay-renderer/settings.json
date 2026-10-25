@@ -1,4 +1,11 @@
 [
+  { "uniqueID": "audio.master", "type": "number", "title": "Master volume (0–100)", "description": "Composition master volume; the first track's preset may override it.", "value": 100 },
+  { "uniqueID": "audio.master_mute", "type": "number", "title": "Master mute (0/1)", "description": "Mute the composition without changing its volume settings.", "value": 0 },
+  { "uniqueID": "audio.music", "type": "number", "title": "Music volume (0–100)", "description": "First track's music gain, independent of player effects.", "value": 100 },
+  { "uniqueID": "audio.hitsounds", "type": "number", "title": "Hitsound volume (0–100)", "description": "Default effects gain per player; presets and track controls override it.", "value": 80 },
+  { "uniqueID": "audio.mute", "type": "number", "title": "Mute effects (0/1)", "description": "Disable player effects without muting the map music.", "value": 0 },
+  { "uniqueID": "audio.fallback", "type": "number", "title": "Fallback samples (0/1)", "description": "Use original synthesized percussion when beatmap and skin samples are missing.", "value": 1 },
+  { "uniqueID": "audio.limiter", "type": "number", "title": "Master safety limiter (0/1)", "description": "Prevent overload with stereo-linked immediate attack and 50 ms release.", "value": 1 },
   {
     "uniqueID": "osu_dir",
     "type": "text",

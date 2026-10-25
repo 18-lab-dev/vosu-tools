@@ -11,6 +11,7 @@ import { ratingMods, telemetry } from "./telemetry";
 import type { InspectedLayer } from "./inspector";
 import { frameRange } from "./partition";
 import { overlapOptions } from "./overlap";
+import { compositionAudio } from "./audio-mix";
 const request = async (path: string, init?: RequestInit) =>
   checked(await fetch(new URL(path, location.href), init));
 let composition: Composition | undefined;
@@ -77,6 +78,10 @@ try {
     : tracks.map(() => false);
   const [segment, jobs] = spec.segment ?? [0, 1];
   const [first, end] = frameRange(frames, segment, jobs, overlaid.some(Boolean));
+  const audio = await compositionAudio(tracks, start, composition.duration, spec.fade_ms, request, "assets");
+  const audioBytes = new Uint8Array(audio.wav);
+  for (let offset = 0; offset < audioBytes.length; offset += 8192)
+    await request(`audio?offset=${offset}`, { method: "POST", body: audioBytes.slice(offset, offset + 8192) });
   await request("begin", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -87,6 +92,8 @@ try {
       frames: end - first,
       full_frames: frames,
       start_ms: start,
+      audio_bytes: audioBytes.length,
+      audio_report: { ...audio.report, samples: audio.samples, undecodable: audio.undecodable },
       tracks: tracks.map((track) => ({
         hash: track.replay.beatmapHash,
         mods: track.replay.mods,

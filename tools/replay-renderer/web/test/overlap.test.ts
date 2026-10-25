@@ -6,6 +6,7 @@ import {
   DEFAULT_OVERLAP,
   MAX_OVERLAP,
   OVERLAP_COLOURS,
+  OverlapAudio,
   focusLayers,
   overlapColour,
   overlapEligibility,
@@ -257,5 +258,36 @@ describe("overlap legend", () => {
   test("an unverified simulation shows no values", () => {
     const unverified = { ...clean, simulation: { ...clean.simulation!, verified: false } } as Track;
     expect(legendRow(unverified, 4000)).toEqual({ name: "Clean", accuracy: null, combo: null, score: null, misses: null });
+  });
+});
+
+describe("overlap audio", () => {
+  const tracks = () => ["a", "b", "c"].map((id) => ({ id, settings: {} as Record<string, number> }));
+  const mutes = (list: { settings: Record<string, number> }[]) => list.map((t) => t.settings["audio.mute"]);
+  test("the focus player's hitsounds only, by default", () => {
+    const audio = new OverlapAudio(),
+      list = tracks();
+    expect(audio.apply(list, 0)).toBe(true);
+    expect(mutes(list)).toEqual([0, 1, 1]);
+    expect(audio.apply(list, 0)).toBe(false);
+  });
+  test("a player's own toggle stays until the focus changes; leaving restores", () => {
+    const audio = new OverlapAudio(),
+      list = tracks();
+    list[1].settings["audio.mute"] = 1;
+    list[2].settings["audio.mute"] = 0;
+    audio.apply(list, 0);
+    list[2].settings["audio.mute"] = 0; // heard on request
+    audio.apply(list, 0);
+    expect(mutes(list)).toEqual([0, 1, 0]);
+    audio.apply(list, 1);
+    expect(mutes(list)).toEqual([1, 0, 1]);
+    // A track added during the overlap starts muted.
+    const added = [...list, { id: "d", settings: {} as Record<string, number> }];
+    audio.apply(added, 1);
+    expect(mutes(added)).toEqual([1, 0, 1, 1]);
+    expect(audio.apply(added, null)).toBe(true);
+    // Every track gets its own value back (unset ones: heard).
+    expect(mutes(added)).toEqual([0, 1, 0, 0]);
   });
 });

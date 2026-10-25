@@ -356,6 +356,15 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-3);
 }
+.player-swatch {
+  display: inline-block;
+  width: 0.7em;
+  height: 0.7em;
+  margin-inline-end: 0.35em;
+  background: var(--player);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 35%, transparent);
+}
 .folder {
   font-size: var(--step--2);
   overflow-wrap: anywhere;

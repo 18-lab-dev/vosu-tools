@@ -1,4 +1,11 @@
 [
+  { "key": "audio.master", "label": "Master volume", "modes": [0, 1, 2, 3], "min": 0, "max": 100, "step": 1, "default": 100, "control": "number" },
+  { "key": "audio.master_mute", "label": "Mute all audio", "modes": [0, 1, 2, 3], "min": 0, "max": 1, "step": 1, "default": 0, "control": "toggle" },
+  { "key": "audio.music", "label": "Music volume", "modes": [0, 1, 2, 3], "min": 0, "max": 100, "step": 1, "default": 100, "control": "number" },
+  { "key": "audio.hitsounds", "label": "Hitsound volume", "modes": [0, 1, 2, 3], "min": 0, "max": 100, "step": 1, "default": 80, "control": "number" },
+  { "key": "audio.mute", "label": "Mute player effects", "modes": [0, 1, 2, 3], "min": 0, "max": 1, "step": 1, "default": 0, "control": "toggle" },
+  { "key": "audio.fallback", "label": "Synthesized fallback samples", "modes": [0, 1, 2, 3], "min": 0, "max": 1, "step": 1, "default": 1, "control": "toggle" },
+  { "key": "audio.limiter", "label": "Master safety limiter", "modes": [0, 1, 2, 3], "min": 0, "max": 1, "step": 1, "default": 1, "control": "toggle" },
   {
     "key": "mania.scroll_speed",
     "label": "Mania scroll speed",
