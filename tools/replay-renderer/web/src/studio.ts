@@ -455,62 +455,103 @@ function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, ti
   }
 }
 const LEGEND_INK = "#f6f3ee";
+/** A 2D canvas of `width`×`height` (at least 1×1), kept in memory like the
+ *  frame canvas: drawing a GPU-backed canvas into it would read the source
+ *  back from the GPU on every frame. */
+function canvas2d(width: number, height: number) {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.ceil(width));
+  canvas.height = Math.max(1, Math.ceil(height));
+  return { canvas, context: canvas.getContext("2d", { willReadFrequently: true })! };
+}
 /**
- * Overlap's legend at `at` (output px): per player a colour swatch, name,
- * accuracy, combo, score and misses, the focus player marked. Values the
- * simulation does not back show as a dash. Returns the legend's box.
+ * Overlap's legend: per player a colour swatch, name, accuracy, combo, score
+ * and misses, the focus player marked. Values the simulation does not back
+ * show as a dash. Text is drawn once into a cached image and redrawn only when
+ * a value changes, so a frame costs one image draw (text on the frame canvas
+ * is slow to rasterise every frame).
  */
-function drawLegend(
-  context: CanvasRenderingContext2D,
-  tracks: readonly Track[],
-  labels: readonly string[],
-  time: number,
-  at: { x: number; y: number },
-  unit: number,
-  focus: number,
-): Rect {
-  const size = Math.max(9, Math.round(22 * unit)),
-    row = Math.round(size * 1.45),
-    pad = Math.round(size * 0.55),
-    gap = Math.round(size * 1.1),
-    swatch = Math.round(size * 0.8);
-  const rows = tracks.map((track, i) => {
-    const v = legendRow(track, time),
-      dash = "–";
-    return [
-      `${labels[i]}${i === focus ? " ●" : ""}`,
-      v.accuracy === null ? dash : `${(v.accuracy * 100).toFixed(2)}%`,
-      v.combo === null ? dash : `${v.combo}x`,
-      v.score === null ? dash : String(v.score).padStart(7, "0"),
-      v.misses === null ? dash : `${v.misses} miss`,
-    ];
-  });
-  context.save();
-  context.font = `700 ${size}px monospace`;
-  context.textBaseline = "middle";
-  const widths = rows[0].map((_, column) =>
-    Math.max(...rows.map((cells) => context.measureText(cells[column]).width)),
-  );
-  const width = pad * 2 + swatch + pad + widths.reduce((sum, w) => sum + w, 0) + gap * (widths.length - 1),
-    height = pad * 2 + row * rows.length;
-  const box = { x: at.x, y: at.y, width, height };
-  context.fillStyle = "rgba(0, 0, 0, 0.55)";
-  context.fillRect(box.x, box.y, box.width, box.height);
-  rows.forEach((cells, i) => {
-    const y = box.y + pad + row * i + row / 2;
-    context.fillStyle = overlapColour(i);
-    context.fillRect(box.x + pad, y - swatch / 2, swatch, swatch);
-    let x = box.x + pad + swatch + pad;
-    cells.forEach((text, column) => {
-      context.fillStyle = column === 0 ? overlapColour(i) : LEGEND_INK;
-      // Numbers line up on the right of their column, names on the left.
-      context.textAlign = column === 0 ? "left" : "right";
-      context.fillText(text, column === 0 ? x : x + widths[column], y);
-      x += widths[column] + gap;
+class Legend {
+  private cached: { key: string; canvas: HTMLCanvasElement } | null = null;
+  /** Draws the legend at `at` (output px); returns its box. */
+  draw(
+    context: CanvasRenderingContext2D,
+    tracks: readonly Track[],
+    labels: readonly string[],
+    time: number,
+    at: { x: number; y: number },
+    unit: number,
+    focus: number,
+  ): Rect {
+    const size = Math.max(9, Math.round(22 * unit));
+    const rows = tracks.map((track, i) => {
+      const v = legendRow(track, time),
+        dash = "–";
+      return [
+        `${labels[i]}${i === focus ? " ●" : ""}`,
+        v.accuracy === null ? dash : `${(v.accuracy * 100).toFixed(2)}%`,
+        v.combo === null ? dash : `${v.combo}x`,
+        v.score === null ? dash : String(v.score).padStart(7, "0"),
+        v.misses === null ? dash : `${v.misses} miss`,
+      ];
     });
-  });
-  context.restore();
-  return box;
+    const key = JSON.stringify([size, rows]);
+    if (this.cached?.key !== key) this.cached = { key, canvas: Legend.render(rows, size) };
+    const image = this.cached.canvas;
+    context.drawImage(image, at.x, at.y);
+    return { x: at.x, y: at.y, width: image.width, height: image.height };
+  }
+  private static render(rows: readonly string[][], size: number): HTMLCanvasElement {
+    const row = Math.round(size * 1.45),
+      pad = Math.round(size * 0.55),
+      gap = Math.round(size * 1.1),
+      swatch = Math.round(size * 0.8);
+    const font = `700 ${size}px monospace`;
+    const measure = canvas2d(1, 1).context;
+    measure.font = font;
+    const widths = rows[0].map((_, column) =>
+      Math.max(...rows.map((cells) => measure.measureText(cells[column]).width)),
+    );
+    const { canvas, context } = canvas2d(
+      pad * 2 + swatch + pad + widths.reduce((sum, w) => sum + w, 0) + gap * (widths.length - 1),
+      pad * 2 + row * rows.length,
+    );
+    context.fillStyle = "rgba(0, 0, 0, 0.55)";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.font = font;
+    context.textBaseline = "middle";
+    rows.forEach((cells, i) => {
+      const y = pad + row * i + row / 2;
+      context.fillStyle = overlapColour(i);
+      context.fillRect(pad, y - swatch / 2, swatch, swatch);
+      let x = pad + swatch + pad;
+      cells.forEach((text, column) => {
+        context.fillStyle = column === 0 ? overlapColour(i) : LEGEND_INK;
+        // Numbers line up on the right of their column, names on the left.
+        context.textAlign = column === 0 ? "left" : "right";
+        context.fillText(text, column === 0 ? x : x + widths[column], y);
+        x += widths[column] + gap;
+      });
+    });
+    return canvas;
+  }
+}
+/** A name tag in the player's colour with a dark outline, drawn once per size. */
+function nameTag(label: string, colour: string, size: number): HTMLCanvasElement {
+  const font = `700 ${size}px monospace`,
+    stroke = Math.max(2, Math.round(size / 5));
+  const measure = canvas2d(1, 1).context;
+  measure.font = font;
+  const { canvas, context } = canvas2d(measure.measureText(label).width + stroke * 2, size * 1.15 + stroke * 2);
+  context.font = font;
+  context.textBaseline = "middle";
+  context.lineJoin = "round";
+  context.lineWidth = stroke;
+  context.strokeStyle = "rgba(0, 0, 0, 0.85)";
+  context.fillStyle = colour;
+  context.strokeText(label, stroke, canvas.height / 2);
+  context.fillText(label, stroke, canvas.height / 2);
+  return canvas;
 }
 /** lazer: gameplay starts two seconds before the first object. */
 const LEAD_IN_MS = 2000;
@@ -606,6 +647,9 @@ export class Composition {
   timings = { scene: 0, readback: 0, composite: 0, gpu: null as number | null };
   private frameContext: CanvasRenderingContext2D;
   private readbacks: Readback[] = [];
+  /** Overlap's legend and name tag images (see `Legend`, `nameTag`). */
+  private legend = new Legend();
+  private tags = new Map<string, HTMLCanvasElement>();
   /** Overlap's last drawn legend (and health bar) box, frame pixels. */
   legendBox: Rect | null = null;
   /** Overlap options (used while `layout` is `overlap`). */
@@ -819,34 +863,28 @@ export class Composition {
     this.timings.composite += performance.now() - compositeStarted;
     const unit = hudUnit(cell);
     if (this.overlap.names) {
-      context.save();
-      context.font = `700 ${Math.round(24 * unit)}px monospace`;
-      context.textBaseline = "middle";
-      context.lineJoin = "round";
-      context.lineWidth = Math.max(2, 5 * unit);
-      context.strokeStyle = "rgba(0, 0, 0, 0.85)";
-      const placed: Rect[] = [],
-        height = Math.round(24 * unit) * 1.15;
+      const size = Math.round(24 * unit),
+        placed: Rect[] = [];
       cursors.forEach((cursor, i) => {
+        const key = `${size}\n${overlapColour(i)}\n${labels[i]}`;
+        let tag = this.tags.get(key);
+        if (!tag) this.tags.set(key, (tag = nameTag(labels[i], overlapColour(i), size)));
         const at = worldToOutput(cell, focus.content, transform, cursor.x, cursor.y, PLAYFIELD_SHIFT);
         // Beside the cursor, clear of its image (about 20 world units across);
-        // a tag that would cover an earlier one moves down below it.
-        // The box keeps a gap of a third of a line around the text.
-        const gap = height / 3;
+        // a tag that would cover an earlier one moves down below it. The box
+        // keeps a gap of a third of a line around the tag.
+        const gap = size / 3;
         const box = {
           x: at.x + 16 * at.scale * (cursor.scale ?? 1) - gap,
-          y: at.y - 16 * at.scale * (cursor.scale ?? 1) - height / 2,
-          width: context.measureText(labels[i]).width + 2 * gap,
-          height,
+          y: at.y - 16 * at.scale * (cursor.scale ?? 1) - tag.height / 2,
+          width: tag.width + 2 * gap,
+          height: tag.height,
         };
         for (let tries = 0; tries < MAX_OVERLAP_TAGS && placed.some((other) => overlaps(box, other)); tries++)
           box.y = Math.max(...placed.filter((other) => overlaps(box, other)).map((other) => other.y + other.height));
         placed.push(box);
-        context.fillStyle = overlapColour(i);
-        context.strokeText(labels[i], box.x + gap, box.y + height / 2);
-        context.fillText(labels[i], box.x + gap, box.y + height / 2);
+        context.drawImage(tag, box.x + gap, box.y);
       });
-      context.restore();
       layers.push({ name: "Name tags", kind: "hud", box: cell, ms: took() });
     }
     let top = Math.round(24 * unit);
@@ -864,7 +902,7 @@ export class Composition {
       top = Math.round(healthBox.y + healthBox.height + 16 * unit);
       layers.push({ name: `V${this.overlap.focus + 1} health`, kind: "hud", box: healthBox, ms: took() });
     }
-    const legend = drawLegend(context, this.tracks, labels, time, { x: Math.round(24 * unit), y: top }, unit, this.overlap.focus);
+    const legend = this.legend.draw(context, this.tracks, labels, time, { x: Math.round(24 * unit), y: top }, unit, this.overlap.focus);
     layers.push({ name: "Legend", kind: "hud", box: legend, ms: took() });
     // The legend and the health bar above it, for the editor's free spots.
     this.legendBox = { x: legend.x, y: Math.round(24 * unit), width: legend.width, height: legend.y + legend.height - Math.round(24 * unit) };
