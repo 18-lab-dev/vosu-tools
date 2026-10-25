@@ -655,17 +655,60 @@ async fn audio_chunk(
         return Err(error("Invalid audio chunk"));
     }
     let _guard = worker.audio.lock().await;
+    append_audio_chunk(&worker.staged.with_extension("wav"), offset, &body).await?;
+    Ok(Json(json!({"received":offset + body.len() as u64})))
+}
+async fn append_audio_chunk(path: &FsPath, offset: u64, body: &[u8]) -> Result<(), Error> {
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(worker.staged.with_extension("wav"))
+        .open(path)
         .await
         .map_err(error)?;
     if file.metadata().await.map_err(error)?.len() != offset {
         return Err(error("Audio chunk out of order"));
     }
-    file.write_all(&body).await.map_err(error)?;
-    Ok(Json(json!({"received":offset + body.len() as u64})))
+    file.write_all(body).await.map_err(error)?;
+    // Tokio queues file writes on its blocking pool. Complete this write before
+    // the next request reopens the file and validates its observed length.
+    file.flush().await.map_err(error)?;
+    Ok(())
+}
+#[cfg(test)]
+mod audio_upload_tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn acknowledged_chunks_are_visible_before_the_next_upload() {
+        let root = std::env::temp_dir().join(format!("rr-audio-chunks-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let mut uploads = tokio::task::JoinSet::new();
+        for worker in 0..8 {
+            let path = root.join(format!("{worker}.wav"));
+            uploads.spawn(async move {
+                let body = vec![worker as u8; 8192];
+                for chunk in 0..128 {
+                    let offset = chunk * body.len() as u64;
+                    append_audio_chunk(&path, offset, &body).await.unwrap();
+                    assert_eq!(
+                        std::fs::metadata(&path).unwrap().len(),
+                        offset + body.len() as u64,
+                        "Acknowledgement preceded the completed file write"
+                    );
+                }
+                let before = std::fs::read(&path).unwrap();
+                assert_eq!(
+                    append_audio_chunk(&path, 0, &body).await.unwrap_err().1.0["error"],
+                    "Audio chunk out of order"
+                );
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+            });
+        }
+        while let Some(upload) = uploads.join_next().await {
+            upload.unwrap();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 async fn frame(State(worker): State<Worker>, body: Bytes) -> Result<Json<Value>, Error> {
     if body.len() != worker.width as usize * worker.height as usize * 4 {
