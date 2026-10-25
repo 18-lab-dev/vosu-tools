@@ -68,6 +68,9 @@ export class LayoutEditor {
       layout(): Layout;
       tracks(): readonly Track[];
       layers(): readonly Layer[];
+      /** Overlap's focus track (whose playfield placement and overlays the
+       *  overlap shows), or null in the other layouts. */
+      overlapFocus(): Track | null;
       /** `commit` false while dragging: redraw only; true when an edit ends. */
       changed(item: Item, commit: boolean): void;
       selected(item: Item | null): void;
@@ -149,6 +152,17 @@ export class LayoutEditor {
     return place(cell, item.track.content, transformOf(item.track)).box;
   }
   private items(): Item[] {
+    const focus = this.host.overlapFocus();
+    // Overlap: one playfield (the focus track's placement), the legend instead
+    // of HUD layers, and overlays as the focus player's.
+    if (focus)
+      return [
+        { kind: "playfield", track: focus },
+        ...this.host
+          .layers()
+          .filter((layer) => !layer.hidden.has(focus.id))
+          .map((layer) => ({ kind: "overlay", layer, track: focus }) as Item),
+      ];
     const tracks = this.host.tracks();
     return [
       ...tracks.map((track) => ({ kind: "playfield", track }) as Item),

@@ -21,9 +21,10 @@ export const VIEW: Rect = { x: -64, y: -48, width: 640, height: 480 };
 /** Largest render target side; WebGPU's guaranteed `maxTextureDimension2D`. */
 export const MAX_TARGET = 8192;
 
-/** How tracks share the frame. `auto` follows the output's aspect ratio. */
-export type Layout = "auto" | "side-by-side" | "stacked" | "grid";
-export const LAYOUTS: readonly Layout[] = ["auto", "side-by-side", "stacked", "grid"];
+/** How tracks share the frame. `auto` follows the output's aspect ratio;
+ *  `overlap` draws osu! replays of one map on a single playfield (overlap.ts). */
+export type Layout = "auto" | "side-by-side" | "stacked" | "grid" | "overlap";
+export const LAYOUTS: readonly Layout[] = ["auto", "side-by-side", "stacked", "grid", "overlap"];
 /** Space between cells, output pixels. */
 export const CELL_GAP = 8;
 
@@ -73,7 +74,8 @@ export function gridFor(
 }
 
 /** One cell per track, row by row, in whole output pixels. `contents` (the
- *  tracks' playfield extents) let `auto` fit the playfields. */
+ *  tracks' playfield extents) let `auto` fit the playfields. In `overlap`
+ *  every track's cell is the whole frame. */
 export function layoutCells(
   count: number,
   width: number,
@@ -83,6 +85,7 @@ export function layoutCells(
 ): Rect[] {
   if (!Number.isInteger(count) || count < 1 || count > 16 || !Number.isInteger(width) || !Number.isInteger(height) || width < 2 || height < 2)
     throw new Error("Invalid layout dimensions");
+  if (layout === "overlap") return Array.from({ length: count }, () => ({ x: 0, y: 0, width, height }));
   const { columns, rows } = gridFor(count, width, height, layout, contents);
   const cellWidth = (width - CELL_GAP * (columns - 1)) / columns,
     cellHeight = (height - CELL_GAP * (rows - 1)) / rows;
@@ -233,6 +236,25 @@ export function place(
       width: content.width * scale,
       height: content.height * scale,
     },
+  };
+}
+
+/** Where world point (`x`, `y`) of a playfield placed at `transform` in
+ *  `cell` lands, in output pixels; `shift` is render-core's playfield shift in
+ *  world units (osu! gameplay draws 8 lower). */
+export function worldToOutput(
+  cell: Rect,
+  content: Rect,
+  transform: Transform,
+  x: number,
+  y: number,
+  shift = 0,
+): { x: number; y: number; scale: number } {
+  const scale = fitScale(cell, content) * transform.scale;
+  return {
+    x: cell.x + cell.width * (0.5 + transform.x) + (x - (content.x + content.width / 2)) * scale,
+    y: cell.y + cell.height * (0.5 + transform.y) + (y + shift - (content.y + content.height / 2)) * scale,
+    scale,
   };
 }
 

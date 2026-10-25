@@ -70,8 +70,26 @@ enum Command {
 }
 #[derive(Subcommand)]
 enum Cli {
+    /// Render one or more replays (up to 16) to MP4
     Render {
-        file: PathBuf,
+        #[arg(required = true, num_args = 1..=16)]
+        files: Vec<PathBuf>,
+        /// How several replays share the frame; `overlap` draws osu! replays of
+        /// one map on a single playfield
+        #[arg(long, default_value = "auto", value_parser = ["auto", "side-by-side", "stacked", "grid", "overlap"])]
+        layout: String,
+        /// Overlap: the player (1 = the first file) whose state overlays follow
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
+        focus: u32,
+        /// Overlap: judgements drawn, each in its player's colour
+        #[arg(long, default_value = "misses", value_parser = ["misses", "all", "none"])]
+        judgements: String,
+        /// Overlap: no name tags beside the cursors
+        #[arg(long)]
+        no_names: bool,
+        /// Overlap: draw the focus player's health bar
+        #[arg(long)]
+        health: bool,
         /// Skin folder under osu!/Skins, or `imported/<name>`; default: current skin
         #[arg(long)]
         skin: Option<String>,
@@ -457,7 +475,12 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
             }
         },
         Cli::Render {
-            file,
+            files,
+            layout,
+            focus,
+            judgements,
+            no_names,
+            health,
             skin,
             settings,
             out,
@@ -475,15 +498,27 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                 Some(out) => std::env::current_dir()?.join(out),
                 None => PathBuf::from(format!(
                     "{}.mp4",
-                    file.file_stem()
+                    files[0]
+                        .file_stem()
                         .ok_or("Replay needs a file name")?
                         .to_string_lossy()
                 )),
             };
-            let bytes = tokio::fs::read(file).await?;
-            let imported: Value =
-                vosu_tool_sdk::send_json(client.own(Method::POST, "v1/replays").body(bytes))
-                    .await?;
+            let settings = settings.into_iter().collect::<BTreeMap<_, _>>();
+            let mut replays = Vec::with_capacity(files.len());
+            for file in &files {
+                let bytes = tokio::fs::read(file).await?;
+                let imported: Value =
+                    vosu_tool_sdk::send_json(client.own(Method::POST, "v1/replays").body(bytes))
+                        .await?;
+                replays.push(json!({"id": imported["id"], "skin": skin, "settings": settings}));
+            }
+            let overlap = json!({
+                "focus": focus - 1,
+                "judgements": judgements,
+                "names": !no_names,
+                "health": health,
+            });
             let fps = fps.unwrap_or(defaults["fps"].as_u64().unwrap_or(60) as u32);
             let resolution = resolution.unwrap_or_else(|| {
                 defaults["resolution"]
@@ -498,7 +533,7 @@ async fn cli(env: &ToolEnv, command: Cli) -> Result<(), Box<dyn std::error::Erro
                     .to_owned()
             })?;
             let overlays=overlays.into_iter().map(|folder|json!({"folder":folder,"width":width.min(4096),"height":height.min(4096),"x":0.0,"y":0.0,"scale":1.0,"opacity":1.0})).collect::<Vec<_>>();
-            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":[{"id":imported["id"],"skin":skin,"settings":settings.into_iter().collect::<BTreeMap<_,_>>()}],"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":"auto","export_for":export_for,"discord_mb":discord_mb.map(|mb| mb.parse::<u32>().unwrap_or(20))}))).await?;
+            let started:Value=vosu_tool_sdk::send_json(client.own(Method::POST,"v1/render").json(&json!({"replays":replays,"overlays":overlays,"out":out,"fps":fps,"resolution":resolution,"layout":layout,"overlap":overlap,"export_for":export_for,"discord_mb":discord_mb.map(|mb| mb.parse::<u32>().unwrap_or(20))}))).await?;
             let id = started["job"].as_str().ok_or("Missing job id")?;
             let mut warned = String::new();
             // The worker count and why, printed once as soon as it is known.

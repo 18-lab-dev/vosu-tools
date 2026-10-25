@@ -72,6 +72,11 @@ export interface RenderOptions {
    */
   input?: readonly InputFrame[];
   /**
+   * osu! overlap: several players' input over one playfield, one skinned
+   * cursor each (drawn from `FrameState.cursors` at the same index).
+   */
+  cursorInputs?: readonly (readonly InputFrame[])[];
+  /**
    * osu!: lazer's gameplay playfield sits 8 osu! pixels lower
    * (`OsuPlayfieldAdjustmentContainer.PlayfieldShift`); off by default, as in
    * lazer's editor and the map preview.

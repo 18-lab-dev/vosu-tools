@@ -6,6 +6,7 @@ import { rendererOn } from "./renderer";
 import { createWebGpu } from "./webgpu";
 import { createWebGl2 } from "./webgl2";
 export type { Backend, RenderTarget } from "./gpu";
+export { recoloured } from "./gpu";
 export {
   loadSkin,
   loadScope,
@@ -43,6 +44,20 @@ export interface FrameState {
     y: number;
     opacity: number;
     scale?: number;
+  }[];
+  /**
+   * osu! overlap: one cursor per player over a single playfield, drawn with
+   * the skin's images from `RenderOptions.cursorInputs[i]` (same index) and
+   * recoloured in `tint` (RGB, 0-1; see `recoloured`). Replaces `cursor`/`cursorTrail`.
+   */
+  cursors?: readonly {
+    x: number;
+    y: number;
+    pressed?: boolean;
+    scale?: number;
+    tint?: readonly number[];
+    /** The look-back trail for skins without a cursor trail image. */
+    trail?: readonly { x: number; y: number; opacity: number; scale?: number }[];
   }[];
   keys?: readonly boolean[];
   failed?: boolean;

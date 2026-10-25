@@ -12,8 +12,11 @@ import {
 } from "./skin";
 import { CursorModel, PLAYFIELD_SHIFT, pressIntervals } from "./gameplay";
 import { compileScene, type RenderOptions, type Scene } from "./scene";
-import { MAX_OVERLAYS, type Gpu } from "./gpu";
-import type { Renderer, RendererOptions } from "./index";
+import { CURSOR_OVERLAYS, MAX_OVERLAYS, recoloured, type Gpu } from "./gpu";
+import type { FrameState, Renderer, RendererOptions } from "./index";
+
+const PLAIN_CURSOR = [1, 0.8, 0.2] as const,
+  WHITE = [1, 1, 1] as const;
 
 export function rendererOn(
   gpu: Gpu,
@@ -98,6 +101,8 @@ export function rendererOn(
     });
   }
   installSkin(skin);
+  /** The plain cursor (and look-back trail) dot; the default tint is the
+   *  replay cursor's yellow. */
   function writeCursor(
     index: number,
     x: number,
@@ -105,6 +110,7 @@ export function rendererOn(
     size: number,
     alpha: number,
     time: number,
+    tint: readonly number[] = PLAIN_CURSOR,
   ): void {
     const b = index * 24;
     overlays.fill(0, b, b + 24);
@@ -116,9 +122,9 @@ export function rendererOn(
     overlays[b + 5] = time;
     overlays[b + 6] = -1e9;
     overlays[b + 7] = 1e9;
-    overlays[b + 8] = 1;
-    overlays[b + 9] = 0.8;
-    overlays[b + 10] = 0.2;
+    overlays[b + 8] = tint[0];
+    overlays[b + 9] = tint[1];
+    overlays[b + 10] = tint[2];
     overlays[b + 11] = alpha;
   }
   /** A textured per-frame sprite (kind 35, Profile.sprite); returns the next index. */
@@ -133,6 +139,7 @@ export function rendererOn(
     alpha: number,
     additive: boolean,
     time: number,
+    tint: readonly number[] = WHITE,
   ): number {
     const region = regions.get(asset);
     if (!region) return index;
@@ -148,9 +155,9 @@ export function rendererOn(
           time,
           -1e9,
           1e9,
-          1,
-          1,
-          1,
+          tint[0],
+          tint[1],
+          tint[2],
           alpha,
           35,
           27,
@@ -170,8 +177,72 @@ export function rendererOn(
     }
     return index;
   }
-  /** osu!: the replay's cursor with the skin's images (setBeatmap's `input`). */
+  /** osu!: the replay's cursor with the skin's images (setBeatmap's `input`),
+   *  or one per overlapping player (`cursorInputs`). */
   let cursorModel: CursorModel | undefined;
+  let cursorModels: CursorModel[] = [];
+  /**
+   * One osu! cursor: the caller's look-back trail when the skin has no trail
+   * image, then the skin's cursor sprites (or the plain dot). Returns the
+   * next overlay index; at most `limit` instances are written.
+   */
+  function drawCursor(
+    count: number,
+    model: CursorModel | undefined,
+    cursor: NonNullable<FrameState["cursor"]>,
+    trail: FrameState["cursorTrail"],
+    time: number,
+    limit: number,
+    tint?: readonly number[],
+  ): number {
+    const end = Math.min(MAX_OVERLAYS, count + limit),
+      // The skin's images in the player's colour; the plain dot takes it as is.
+      spriteTint = tint && recoloured(tint);
+    const skinned = model?.sprites(time, Math.max(0, cursor.scale ?? 1), end - count - 1);
+    // Skins without a cursor trail keep the caller's look-back trail.
+    if (trail && !(skinned && regions.has("cursortrail")))
+      for (let i = 0; i < trail.length && count < end - 1; i++) {
+        const sample = trail[i];
+        if (sample.opacity > 0)
+          writeCursor(
+            count++,
+            sample.x,
+            sample.y,
+            15 * Math.max(0, sample.scale ?? 1),
+            Math.min(1, sample.opacity),
+            time,
+            tint,
+          );
+      }
+    if (skinned) {
+      for (const sprite of skinned) {
+        if (count >= end) break;
+        count = writeSprite(
+          count,
+          sprite.asset,
+          sprite.x,
+          sprite.y,
+          sprite.w,
+          sprite.h,
+          sprite.angle,
+          sprite.alpha,
+          sprite.additive,
+          time,
+          spriteTint,
+        );
+      }
+    } else if (count < end)
+      writeCursor(
+        count++,
+        cursor.x,
+        cursor.y,
+        (cursor.pressed ? 20 : 15) * Math.max(0, cursor.scale ?? 1),
+        1,
+        time,
+        tint,
+      );
+    return count;
+  }
   let disposed = false;
   const renderer: Renderer = {
     backend: gpu.backend,
@@ -233,19 +304,22 @@ export function rendererOn(
         }
       const general = skin?.sections.get("General")?.[0] ?? {},
         flag = (key: string) => legacyBool(general[key]) ?? true;
+      const cursorSkin = {
+        size: (asset: string): [number, number] | undefined => {
+          const r = regions.get(asset);
+          return r ? [r.width ?? 0, r.height ?? 0] : undefined;
+        },
+        centre: flag("CursorCentre"),
+        rotate: flag("CursorRotate"),
+        expand: flag("CursorExpand"),
+        trailRotate: flag("CursorTrailRotate"),
+      };
+      const skinnedCursor = map.mode === 0 && regions.has("cursor");
       cursorModel =
-        map.mode === 0 && opts.input && regions.has("cursor")
-          ? new CursorModel(opts.input, {
-              size: (asset) => {
-                const r = regions.get(asset);
-                return r ? [r.width ?? 0, r.height ?? 0] : undefined;
-              },
-              centre: flag("CursorCentre"),
-              rotate: flag("CursorRotate"),
-              expand: flag("CursorExpand"),
-              trailRotate: flag("CursorTrailRotate"),
-            })
-          : undefined;
+        skinnedCursor && opts.input ? new CursorModel(opts.input, cursorSkin) : undefined;
+      cursorModels = skinnedCursor
+        ? (opts.cursorInputs ?? []).map((input) => new CursorModel(input, cursorSkin))
+        : [];
       keyImageIntervals = opts.input
         ? keyIntervals.map((column) =>
             column.map(({ start, end }) => ({ start, end: end + 80 })),
@@ -351,52 +425,19 @@ export function rendererOn(
         if (time >= chunk.from && time <= chunk.until) visible.push(chunk);
       }
       let count = 0;
-      const skinned = cursorModel?.sprites(
-        time,
-        Math.max(0, frame?.cursor?.scale ?? 1),
-        511,
-      );
-      // Skins without a cursor trail keep the caller's look-back trail.
-      if (
-        map.mode === 0 &&
-        frame?.cursorTrail &&
-        !(skinned && regions.has("cursortrail"))
-      )
-        for (let i = 0; i < frame.cursorTrail.length && count < 511; i++) {
-          const sample = frame.cursorTrail[i];
-          if (sample.opacity > 0)
-            writeCursor(
-              count++,
-              sample.x,
-              sample.y,
-              15 * Math.max(0, sample.scale ?? 1),
-              Math.min(1, sample.opacity),
-              time,
-            );
-        }
-      if (skinned)
-        for (const sprite of skinned)
-          count = writeSprite(
-            count,
-            sprite.asset,
-            sprite.x,
-            sprite.y,
-            sprite.w,
-            sprite.h,
-            sprite.angle,
-            sprite.alpha,
-            sprite.additive,
-            time,
-          );
-      else if (frame?.cursor && map.mode === 0)
-        writeCursor(
-          count++,
-          cursorX,
-          cursorY,
-          (frame.cursor.pressed ? 20 : 15) *
-            Math.max(0, frame.cursor.scale ?? 1),
-          1,
+      if (map.mode === 0 && frame?.cursors)
+        // Overlap: every player's cursor over one playfield, each in its tint.
+        frame.cursors.forEach((cursor, i) => {
+          count = drawCursor(count, cursorModels[i], cursor, cursor.trail, time, CURSOR_OVERLAYS, cursor.tint);
+        });
+      else if (map.mode === 0 && (cursorModel || frame?.cursor))
+        count = drawCursor(
+          count,
+          cursorModel,
+          { x: cursorX, y: cursorY, pressed: frame?.cursor?.pressed, scale: frame?.cursor?.scale },
+          frame?.cursorTrail,
           time,
+          CURSOR_OVERLAYS,
         );
       gpu.draw({
         uniforms,

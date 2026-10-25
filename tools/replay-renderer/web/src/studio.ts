@@ -8,6 +8,7 @@ import {
   replayHealth,
   type Result,
   type Replay,
+  type ReplayMod,
   type Simulation,
 } from "@vosu-tools/replay";
 import {
@@ -44,8 +45,10 @@ import {
   contentBounds,
   fitBounds,
   hudBox,
+  hudUnit,
   layoutCells,
   place,
+  worldToOutput,
   type HudKey,
   type Layout,
   type Rect,
@@ -53,6 +56,15 @@ import {
 } from "./layout";
 import { BUILTIN } from "./skins";
 import { drawInspector, type InspectedLayer } from "./inspector";
+import {
+  DEFAULT_OVERLAP,
+  overlapColour,
+  overlapEligibility,
+  overlapJudgements,
+  overlapMods,
+  overlapTint,
+  type OverlapOptions,
+} from "./overlap";
 import settingSchema from "../../render-settings.json";
 export interface Preset {
   skin?: string | null;
@@ -66,7 +78,14 @@ export interface Track extends Preset {
   original: Beatmap["difficulty"];
   /** Played converted from another ruleset. */
   convert: boolean;
+  /** The map as the renderer draws it (converted for converts, before mods),
+   *  the replay's mods and its playfield skin: an overlap draws from them. */
+  source: Beatmap;
+  mods: ReplayMod[];
+  look: Skin;
   simulation: Simulation | null;
+  /** The simulation's results in render-core's terms; null when not judged. */
+  events: JudgementEvent[] | null;
   renderer: Renderer;
   canvas: HTMLCanvasElement;
   warning: string;
@@ -143,6 +162,38 @@ export async function checked(response: Response): Promise<Response> {
 }
 /** One WebGPU device for every track, when WebGPU is available. */
 let sharedDevice: Promise<GPUDevice | undefined> | undefined;
+/**
+ * An offscreen playfield renderer (sized by Composition for its layout cell),
+ * cleared transparent for the background and dim beneath. Tracks share one
+ * WebGPU device; without WebGPU (or with `?backend=webgl2`) each draws with
+ * its own WebGL2 context instead.
+ */
+async function newPlayfield(skin: Skin): Promise<{ renderer: Renderer; canvas: HTMLCanvasElement }> {
+  sharedDevice ??= (async () => {
+    if (new URLSearchParams(location.search).get("backend") === "webgl2") return undefined;
+    try {
+      const adapter =
+        (await navigator.gpu?.requestAdapter()) ??
+        (await navigator.gpu?.requestAdapter());
+      return await adapter?.requestDevice({
+        requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
+      });
+    } catch {
+      return undefined;
+    }
+  })();
+  const canvas = document.createElement("canvas");
+  const renderer = await createPlayfield({
+    canvas,
+    device: await sharedDevice,
+    width: 960,
+    height: 540,
+    skin,
+    format: "rgba8unorm",
+    transparent: true,
+  });
+  return { renderer, canvas };
+}
 /**
  * The playfield's visible extent in world units. osu! and catch use the
  * whole 640×480 view; mania stages and the taiko strip are measured from a
@@ -264,33 +315,7 @@ export async function loadTrack(
     );
     background = await createImageBitmap(await response.blob());
   }
-  const canvas = document.createElement("canvas");
-  // Tracks share one WebGPU device; without WebGPU (or with `?backend=webgl2`)
-  // each track draws with its own WebGL2 context instead.
-  sharedDevice ??= (async () => {
-    if (new URLSearchParams(location.search).get("backend") === "webgl2") return undefined;
-    try {
-      const adapter =
-        (await navigator.gpu?.requestAdapter()) ??
-        (await navigator.gpu?.requestAdapter());
-      return await adapter?.requestDevice({
-        requiredFeatures: adapter.features.has("timestamp-query") ? ["timestamp-query"] : [],
-      });
-    } catch {
-      return undefined;
-    }
-  })();
-  // Product: an offscreen target per track (sized by Composition for its
-  // layout cell), cleared transparent for the background and dim beneath.
-  const renderer = await createPlayfield({
-    canvas,
-    device: await sharedDevice,
-    width: 960,
-    height: 540,
-    skin,
-    format: "rgba8unorm",
-    transparent: true,
-  });
+  const { renderer, canvas } = await newPlayfield(skin);
   let simulation: Simulation | null = null,
     warning = "";
   const simulationStarted = performance.now();
@@ -316,13 +341,14 @@ export async function loadTrack(
   const sceneStarted = performance.now();
   // Judgements are drawn from the simulation whether or not it verified;
   // only the HUD counters wait for verification.
+  const events = simulation ? judgementEvents(simulation) : null;
   renderer.setBeatmap(source, {
     mods,
     scrollSpeed: settings["mania.scroll_speed"],
     noteSpeed: settings.note_speed,
     hitLighting: settings.hit_lighting !== 0,
     taikoTopArea: settings["taiko.top_area"] !== 0,
-    judgements: simulation ? judgementEvents(simulation) : undefined,
+    judgements: events ?? undefined,
     // The replay's own input: drum hits, dash trails, key and light timing,
     // the skin's cursor; and lazer's gameplay playfield position.
     input: replay.frames,
@@ -335,7 +361,11 @@ export async function loadTrack(
     map,
     original: raw.difficulty,
     convert: isConvert(raw, replay.mode),
+    source,
+    mods,
+    look: skin,
     simulation,
+    events,
     timings: { simulation: simulationMs, sceneBuild: performance.now() - sceneStarted },
     renderer,
     canvas,
@@ -421,6 +451,64 @@ function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, ti
     context.restore();
   }
 }
+const LEGEND_INK = "#f6f3ee";
+/**
+ * Overlap's legend at `at` (output px): per player a colour swatch, name,
+ * accuracy, combo, score and misses, the focus player marked. Values the
+ * simulation does not back show as a dash. Returns the legend's box.
+ */
+function drawLegend(
+  context: CanvasRenderingContext2D,
+  tracks: readonly Track[],
+  labels: readonly string[],
+  time: number,
+  at: { x: number; y: number },
+  unit: number,
+  focus: number,
+): Rect {
+  const size = Math.max(9, Math.round(22 * unit)),
+    row = Math.round(size * 1.45),
+    pad = Math.round(size * 0.55),
+    gap = Math.round(size * 1.1),
+    swatch = Math.round(size * 0.8);
+  const rows = tracks.map((track, i) => {
+    const v = legendRow(track, time),
+      dash = "–";
+    return [
+      `${labels[i]}${i === focus ? " ●" : ""}`,
+      v.accuracy === null ? dash : `${(v.accuracy * 100).toFixed(2)}%`,
+      v.combo === null ? dash : `${v.combo}x`,
+      v.score === null ? dash : String(v.score).padStart(7, "0"),
+      v.misses === null ? dash : `${v.misses} miss`,
+    ];
+  });
+  context.save();
+  context.font = `700 ${size}px monospace`;
+  context.textBaseline = "middle";
+  const widths = rows[0].map((_, column) =>
+    Math.max(...rows.map((cells) => context.measureText(cells[column]).width)),
+  );
+  const width = pad * 2 + swatch + pad + widths.reduce((sum, w) => sum + w, 0) + gap * (widths.length - 1),
+    height = pad * 2 + row * rows.length;
+  const box = { x: at.x, y: at.y, width, height };
+  context.fillStyle = "rgba(0, 0, 0, 0.55)";
+  context.fillRect(box.x, box.y, box.width, box.height);
+  rows.forEach((cells, i) => {
+    const y = box.y + pad + row * i + row / 2;
+    context.fillStyle = overlapColour(i);
+    context.fillRect(box.x + pad, y - swatch / 2, swatch, swatch);
+    let x = box.x + pad + swatch + pad;
+    cells.forEach((text, column) => {
+      context.fillStyle = column === 0 ? overlapColour(i) : LEGEND_INK;
+      // Numbers line up on the right of their column, names on the left.
+      context.textAlign = column === 0 ? "left" : "right";
+      context.fillText(text, column === 0 ? x : x + widths[column], y);
+      x += widths[column] + gap;
+    });
+  });
+  context.restore();
+  return box;
+}
 /** lazer: gameplay starts two seconds before the first object. */
 const LEAD_IN_MS = 2000;
 /** lazer's Player entry: hidden for 250 ms, then a 250 ms fade in. */
@@ -429,6 +517,80 @@ export const ENTRY_HOLD_MS = 250,
 /** lazer: results 1000 ms after completion, the player fading out over 250 ms. */
 export const DEFAULT_OUTRO_MS = 1250,
   DEFAULT_FADE_MS = 250;
+/** A render target and the 2D canvas its pixels are composited from. */
+interface Readback {
+  target: RenderTarget;
+  width: number;
+  height: number;
+  pixels: ImageData;
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+  query?: GPUQuerySet;
+  queryResolve?: GPUBuffer;
+  queryRead?: GPUBuffer;
+}
+function readback(renderer: Renderer, width: number, height: number, profile = false): Readback {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  // GPU pass timings need WebGPU's timestamp queries; WebGL2 reports none.
+  const device = renderer.device;
+  const query = profile && device?.features.has("timestamp-query")
+    ? device.createQuerySet({ type: "timestamp", count: 2 }) : undefined;
+  return {
+    target: renderer.createTarget(width, height),
+    query,
+    queryResolve: query ? device!.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : undefined,
+    queryRead: query ? device!.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : undefined,
+    width,
+    height,
+    pixels: new ImageData(width, height),
+    canvas,
+    context: canvas.getContext("2d", { willReadFrequently: true })!,
+  };
+}
+function releaseReadback(resource: Readback) {
+  resource.target.destroy();
+  resource.query?.destroy();
+  resource.queryRead?.destroy();
+  resource.queryResolve?.destroy();
+}
+/** The cursor's look-back trail (skins without a trail image) at `time`. */
+function cursorTrail(track: Track, time: number) {
+  const settings = track.settings;
+  const trailDuration = settings["cursor.trail_ms"] ?? 0,
+    trail = [];
+  if (track.replay.mode === 0 || track.replay.mode === 2)
+    for (let ago = trailDuration; ago > 0; ago -= 16) {
+      const sample = frameAt(track.replay, time - ago);
+      trail.push({
+        x: sample.x,
+        y: sample.y,
+        opacity: (1 - ago / Math.max(1, trailDuration)) * 0.6,
+        scale: settings["cursor.size"] ?? 1,
+      });
+    }
+  return trail;
+}
+/** osu! gameplay draws the playfield this much lower (render-core's `playfieldShift`). */
+const PLAYFIELD_SHIFT = 8;
+/** The legend's values for one overlapping player at `time`; null when the
+ *  simulation does not back them (the same rule as the HUD counters). */
+export function legendRow(track: Track, time: number) {
+  const state = track.simulation?.verified ? stateAt(track.replay, track.simulation, time) : null;
+  return {
+    name: track.replay.player,
+    accuracy: state ? state.accuracy : null,
+    combo: state?.combo ?? null,
+    score: track.score && state ? scoreAt(track.score, time) : null,
+    misses: state ? state.counts.miss : null,
+  };
+}
+/** Legend and name tag labels: player names, numbered when two are the same. */
+export function playerLabels(tracks: readonly Pick<Track, "replay">[]): string[] {
+  const names = tracks.map((track) => track.replay.player || "Player");
+  return names.map((name, i) => (names.filter((other) => other === name).length > 1 ? `${name} (${i + 1})` : name));
+}
 export class Composition {
   canvas = document.createElement("canvas");
   context: CanvasRenderingContext2D;
@@ -436,17 +598,11 @@ export class Composition {
   /** Wall-clock stage timings for the most recently completed offline frame. */
   timings = { scene: 0, readback: 0, composite: 0, gpu: null as number | null };
   private frameContext: CanvasRenderingContext2D;
-  private readbacks: {
-    target: RenderTarget;
-    width: number;
-    height: number;
-    pixels: ImageData;
-    canvas: HTMLCanvasElement;
-    context: CanvasRenderingContext2D;
-    query?: GPUQuerySet;
-    queryResolve?: GPUBuffer;
-    queryRead?: GPUBuffer;
-  }[] = [];
+  private readbacks: Readback[] = [];
+  /** Overlap options (used while `layout` is `overlap`). */
+  overlap: OverlapOptions = { ...DEFAULT_OVERLAP };
+  /** Overlap's one playfield: the focus player's skin, every player's cursor. */
+  private shared?: { key: string; look: Skin; renderer: Renderer; resource?: Readback };
   constructor(
     public tracks: Track[],
     public width: number,
@@ -479,7 +635,8 @@ export class Composition {
       this.tracks.map((track) => track.content),
     );
   }
-  /** (Re)creates render targets sized for every playfield's current scale. */
+  /** (Re)creates render targets sized for every playfield's current scale.
+   *  Overlap's one target is made when its playfield is (see `sharedPlayfield`). */
   resize(width: number, height: number, layout: Layout) {
     this.width = width;
     this.height = height;
@@ -488,37 +645,75 @@ export class Composition {
     this.canvas.height = height;
     this.staging.width = width;
     this.staging.height = height;
-    this.releaseTargets();
+    this.releaseReadbacks();
+    if (layout === "overlap") return;
     this.cells().forEach((cell, i) => {
       const track = this.tracks[i],
         renderer = track.renderer,
         { width: w, height: h } = place(cell, track.content, transformOf(track)).target;
       renderer.resize(w, h);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      // GPU pass timings need WebGPU's timestamp queries; WebGL2 reports none.
-      const device = renderer.device;
-      const query = this.profile && device?.features.has("timestamp-query")
-        ? device.createQuerySet({ type: "timestamp", count: 2 }) : undefined;
-      this.readbacks.push({
-        target: renderer.createTarget(w, h),
-        query,
-        queryResolve: query ? device!.createBuffer({ size: 256, usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC }) : undefined,
-        queryRead: query ? device!.createBuffer({ size: 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ }) : undefined,
-        width: w,
-        height: h,
-        pixels: new ImageData(w, h),
-        canvas,
-        context: canvas.getContext("2d", { willReadFrequently: true })!,
-      });
+      this.readbacks.push(readback(renderer, w, h, this.profile));
     });
+  }
+  /** The overlap's focus track. */
+  get focus(): Track {
+    return this.tracks[this.overlap.focus] ?? this.tracks[0];
+  }
+  /**
+   * Overlap's playfield: drawn once from the focus player's map, skin and
+   * hit lighting setting, with every player's judgements (as `overlap`
+   * filters them) and cursor. Made on first use, re-made when the options or
+   * tracks change, and sized for the focus playfield's placement.
+   */
+  private async sharedPlayfield(): Promise<{ renderer: Renderer; resource: Readback }> {
+    const focus = this.focus;
+    const key = JSON.stringify([
+      this.tracks.map((track) => track.id),
+      this.overlap.focus,
+      this.overlap.judgements,
+      focus.settings.hit_lighting,
+    ]);
+    if (this.shared && this.shared.look !== focus.look) this.releaseShared();
+    if (!this.shared) {
+      const { renderer } = await newPlayfield(focus.look);
+      this.shared = { key: "", look: focus.look, renderer };
+    }
+    const shared = this.shared;
+    if (shared.key !== key) {
+      const replays = this.tracks.map((track) => track.replay);
+      shared.renderer.setBeatmap(focus.source, {
+        mods: overlapMods(replays, this.overlap.focus),
+        hitLighting: focus.settings.hit_lighting !== 0,
+        judgements: overlapJudgements(this.tracks.map((track) => track.events), this.overlap.judgements),
+        cursorInputs: replays.map((replay) => replay.frames),
+        playfieldShift: true,
+      });
+      shared.key = key;
+    }
+    const cell = this.cells()[0],
+      { width: w, height: h } = place(cell, focus.content, transformOf(focus)).target;
+    if (!shared.resource || shared.resource.width !== w || shared.resource.height !== h) {
+      if (shared.resource) releaseReadback(shared.resource);
+      shared.renderer.resize(w, h);
+      shared.resource = readback(shared.renderer, w, h);
+    }
+    return { renderer: shared.renderer, resource: shared.resource };
+  }
+  private releaseShared() {
+    if (!this.shared) return;
+    if (this.shared.resource) releaseReadback(this.shared.resource);
+    this.shared.renderer.destroy();
+    this.shared = undefined;
   }
   /** Re-renders targets at the playfields' current scales (after an edit). */
   retarget() {
     this.resize(this.width, this.height, this.layout);
   }
   validate() {
+    if (this.layout === "overlap") {
+      const eligibility = overlapEligibility(this.tracks.map((track) => track.replay));
+      if (!eligibility.ok) throw new Error(eligibility.reason);
+    }
     assertCompatible(
       this.tracks.map((t) => ({
         rate: t.replay.rate,
@@ -537,6 +732,123 @@ export class Composition {
     const context = this.frameContext;
     context.fillStyle = "#000";
     context.fillRect(0, 0, this.width, this.height);
+    if (this.layout === "overlap") await this.renderOverlap(context, time);
+    else await this.renderCells(context, time);
+    if (fade) {
+      this.fade(time, context);
+      if (this.inspect) this.drawInspector(time, this.overlayBoxes, context);
+    }
+    // Publish atomically: GPU readback must not blank the previous visible preview.
+    if (this.staging !== this.canvas) this.context.drawImage(this.staging, 0, 0);
+    return this.canvas;
+  }
+  /** Draws a track's background over `rect`, cropped to cover it, and its dim. */
+  private drawBackground(context: CanvasRenderingContext2D, track: Track, rect: Rect) {
+    const bg = track.background;
+    if (!bg) return false;
+    context.save();
+    context.beginPath();
+    context.rect(rect.x, rect.y, rect.width, rect.height);
+    context.clip();
+    // Cover the cell, cropping the image rather than stretching it.
+    const cover = Math.max(rect.width / bg.width, rect.height / bg.height);
+    context.drawImage(
+      bg,
+      rect.x + (rect.width - bg.width * cover) / 2,
+      rect.y + (rect.height - bg.height * cover) / 2,
+      bg.width * cover,
+      bg.height * cover,
+    );
+    context.fillStyle = `rgba(0,0,0,${track.settings.background_dim ?? 0.85})`;
+    context.fillRect(rect.x, rect.y, rect.width, rect.height);
+    context.restore();
+    return true;
+  }
+  /**
+   * Overlap: the focus player's background, one playfield with every
+   * player's cursor and (filtered) judgements, then name tags, the legend and
+   * optionally the focus player's health bar.
+   */
+  private async renderOverlap(context: CanvasRenderingContext2D, time: number) {
+    const layers: InspectedLayer[] = [];
+    let started = performance.now();
+    const took = () => {
+      const now = performance.now(),
+        ms = now - started;
+      started = now;
+      return ms;
+    };
+    const cell = this.cells()[0],
+      focus = this.focus;
+    if (this.drawBackground(context, focus, cell))
+      layers.push({ name: "Background", kind: "background", box: cell, ms: took() });
+    const sceneStarted = performance.now();
+    const { renderer, resource } = await this.sharedPlayfield();
+    const labels = playerLabels(this.tracks);
+    const cursors = this.tracks.map((track, i) => {
+      const frame = frameAt(track.replay, time);
+      return {
+        x: frame.x,
+        y: frame.y,
+        pressed: !!frame.keys,
+        scale: track.settings["cursor.size"] ?? 1,
+        tint: overlapTint(i),
+        trail: cursorTrail(track, time),
+      };
+    });
+    renderer.renderAt(time, { target: resource.target, cursors });
+    this.timings.scene += performance.now() - sceneStarted;
+    const readbackStarted = performance.now();
+    await resource.target.read(new Uint8Array(resource.pixels.data.buffer));
+    this.timings.readback += performance.now() - readbackStarted;
+    const compositeStarted = performance.now();
+    resource.context.putImageData(resource.pixels, 0, 0);
+    const transform = transformOf(focus);
+    const { draw, box } = place(cell, focus.content, transform, resource);
+    context.drawImage(resource.canvas, draw.x, draw.y, draw.width, draw.height);
+    layers.push({ name: "Overlap playfield", kind: "playfield", box, ms: took() });
+    this.timings.composite += performance.now() - compositeStarted;
+    const unit = hudUnit(cell);
+    if (this.overlap.names) {
+      context.save();
+      context.font = `700 ${Math.round(24 * unit)}px monospace`;
+      context.textBaseline = "middle";
+      context.lineJoin = "round";
+      context.lineWidth = Math.max(2, 5 * unit);
+      context.strokeStyle = "rgba(0, 0, 0, 0.85)";
+      cursors.forEach((cursor, i) => {
+        const at = worldToOutput(cell, focus.content, transform, cursor.x, cursor.y, PLAYFIELD_SHIFT);
+        // Beside the cursor, clear of its image (about 20 world units across).
+        const x = at.x + 16 * at.scale * (cursor.scale ?? 1),
+          y = at.y - 16 * at.scale * (cursor.scale ?? 1);
+        context.fillStyle = overlapColour(i);
+        context.strokeText(labels[i], x, y);
+        context.fillText(labels[i], x, y);
+      });
+      context.restore();
+      layers.push({ name: "Name tags", kind: "hud", box: cell, ms: took() });
+    }
+    let top = Math.round(24 * unit);
+    if (this.overlap.health) {
+      const healthBox = hudBox(cell, "health", hudTransform(focus, "health"));
+      const health = replayHealth(focus.replay, focus.simulation, time);
+      if (health !== null) {
+        context.save();
+        context.fillStyle = "rgba(0, 0, 0, 0.45)";
+        context.fillRect(healthBox.x, healthBox.y, healthBox.width, healthBox.height);
+        context.fillStyle = overlapColour(this.overlap.focus);
+        context.fillRect(healthBox.x, healthBox.y, healthBox.width * health, healthBox.height);
+        context.restore();
+      }
+      top = Math.round(healthBox.y + healthBox.height + 16 * unit);
+      layers.push({ name: `V${this.overlap.focus + 1} health`, kind: "hud", box: healthBox, ms: took() });
+    }
+    const legend = drawLegend(context, this.tracks, labels, time, { x: Math.round(24 * unit), y: top }, unit, this.overlap.focus);
+    layers.push({ name: "Legend", kind: "hud", box: legend, ms: took() });
+    this.inspected = layers;
+  }
+  /** Side by side, stacked, grid: every track's playfield in its own cell. */
+  private async renderCells(context: CanvasRenderingContext2D, time: number) {
     const rects = this.cells();
     const layers: InspectedLayer[] = [];
     let started = performance.now();
@@ -548,26 +860,8 @@ export class Composition {
     };
     // Backgrounds first: a playfield moved over a neighbouring cell stays on top.
     this.tracks.forEach((track, i) => {
-      const rect = rects[i],
-        bg = track.background;
-      if (!bg) return;
-      context.save();
-      context.beginPath();
-      context.rect(rect.x, rect.y, rect.width, rect.height);
-      context.clip();
-      // Cover the cell, cropping the image rather than stretching it.
-      const cover = Math.max(rect.width / bg.width, rect.height / bg.height);
-      context.drawImage(
-        bg,
-        rect.x + (rect.width - bg.width * cover) / 2,
-        rect.y + (rect.height - bg.height * cover) / 2,
-        bg.width * cover,
-        bg.height * cover,
-      );
-      context.fillStyle = `rgba(0,0,0,${track.settings.background_dim ?? 0.85})`;
-      context.fillRect(rect.x, rect.y, rect.width, rect.height);
-      context.restore();
-      layers.push({ name: `V${i + 1} background`, kind: "background", box: rect, ms: took() });
+      if (this.drawBackground(context, track, rects[i]))
+        layers.push({ name: `V${i + 1} background`, kind: "background", box: rects[i], ms: took() });
     });
     const mappings: Promise<unknown>[] = [];
     for (let i = 0; i < this.tracks.length; i++) {
@@ -577,18 +871,7 @@ export class Composition {
         resource = this.readbacks[i],
         rect = rects[i];
       const settings = track.settings;
-      const trailDuration = settings["cursor.trail_ms"] ?? 0,
-        trail = [];
-      if (track.replay.mode === 0 || track.replay.mode === 2)
-        for (let ago = trailDuration; ago > 0; ago -= 16) {
-          const sample = frameAt(track.replay, time - ago);
-          trail.push({
-            x: sample.x,
-            y: sample.y,
-            opacity: (1 - ago / Math.max(1, trailDuration)) * 0.6,
-            scale: settings["cursor.size"] ?? 1,
-          });
-        }
+      const trail = cursorTrail(track, time);
       track.renderer.renderAt(time, {
         target: resource.target,
         timestampWrites: resource.query ? {
@@ -651,13 +934,6 @@ export class Composition {
           layers.push({ name: `V${i + 1} ${key}`, kind: "hud", box: hudBox(rects[i], key, hudTransform(track, key)), ms: key === "score" ? ms : null });
     });
     this.inspected = layers;
-    if (fade) {
-      this.fade(time, context);
-      if (this.inspect) this.drawInspector(time, this.overlayBoxes, context);
-    }
-    // Publish atomically: GPU readback must not blank the previous visible preview.
-    if (this.staging !== this.canvas) this.context.drawImage(this.staging, 0, 0);
-    return this.canvas;
   }
   /** Outro after the last object and the fade at its end (wall-clock ms);
    *  lazer shows results 1000 ms after the last judgement, fading out over 250 ms. */
@@ -718,14 +994,16 @@ export class Composition {
     context.fillRect(0, 0, this.width, this.height);
     context.restore();
   }
-  releaseTargets() {
-    for (const resource of this.readbacks) {
-      resource.target.destroy();
-      resource.query?.destroy();
-      resource.queryRead?.destroy();
-      resource.queryResolve?.destroy();
-    }
+  private releaseReadbacks() {
+    for (const resource of this.readbacks) releaseReadback(resource);
     this.readbacks = [];
+    if (this.shared?.resource) releaseReadback(this.shared.resource);
+    if (this.shared) this.shared.resource = undefined;
+  }
+  /** Frees every render target, and the overlap playfield. */
+  releaseTargets() {
+    this.releaseReadbacks();
+    this.releaseShared();
   }
   destroy() {
     this.releaseTargets();

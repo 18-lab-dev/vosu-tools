@@ -12,6 +12,45 @@ pub(super) struct Entry {
     #[serde(flatten)]
     preset: Preset,
 }
+/// Overlap (osu! replays of one map on one playfield): the player whose
+/// state overlays follow, which judgements are drawn, name tags and the focus
+/// player's health bar. The studio (`web/src/overlap.ts`) checks that the
+/// replays can share a playfield.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub(super) struct Overlap {
+    pub focus: usize,
+    pub judgements: String,
+    pub names: bool,
+    pub health: bool,
+}
+impl Default for Overlap {
+    fn default() -> Self {
+        Self {
+            focus: 0,
+            judgements: "misses".into(),
+            names: true,
+            health: false,
+        }
+    }
+}
+/// Players one overlap shows at most.
+pub(super) const MAX_OVERLAP: usize = 8;
+/// Why `overlap` cannot draw `players` replays, if it cannot.
+pub(super) fn overlap_problem(overlap: &Overlap, players: usize) -> Option<String> {
+    if !(2..=MAX_OVERLAP).contains(&players) {
+        return Some(format!(
+            "Overlap draws 2 to {MAX_OVERLAP} replays, not {players}"
+        ));
+    }
+    if overlap.focus >= players {
+        return Some("Overlap focus player is not one of the replays".into());
+    }
+    if !["misses", "all", "none"].contains(&overlap.judgements.as_str()) {
+        return Some("Overlap judgements must be misses, all or none".into());
+    }
+    None
+}
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct Request {
     replays: Vec<Entry>,
@@ -19,6 +58,9 @@ pub(super) struct Request {
     fps: u32,
     resolution: String,
     layout: String,
+    /// Overlap's options; read only when `layout` is `overlap`.
+    #[serde(default)]
+    overlap: Option<Overlap>,
     #[serde(default)]
     encoder: Option<String>,
     #[serde(default)]
@@ -100,6 +142,20 @@ pub(super) async fn start(
         || !crate::output::LAYOUTS.contains(&request.layout.as_str())
     {
         return Err(error("Invalid render configuration"));
+    }
+    if request.layout == "overlap" {
+        let overlap = request.overlap.get_or_insert_with(Overlap::default);
+        if let Some(problem) = overlap_problem(overlap, request.replays.len()) {
+            return Err(error(problem));
+        }
+        // One playfield, so overlays show once, following the focus player.
+        let focus = overlap.focus;
+        request.overlays.retain(|layer| layer.shows(focus));
+        for layer in &mut request.overlays {
+            layer.tracks = Some(vec![focus]);
+        }
+    } else {
+        request.overlap = None;
     }
     let (width, height) = crate::output::parse_size(&request.resolution)?;
     let settings: Value = app.env.client().settings().await.map_err(error)?;
@@ -856,6 +912,46 @@ pub(crate) fn join_warnings<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overlap_options_default_and_validate() {
+        let partial: Overlap = serde_json::from_value(json!({"focus": 1})).unwrap();
+        assert_eq!(
+            partial,
+            Overlap {
+                focus: 1,
+                ..Overlap::default()
+            }
+        );
+        assert_eq!(Overlap::default().judgements, "misses");
+        assert!(Overlap::default().names && !Overlap::default().health);
+        assert_eq!(overlap_problem(&Overlap::default(), 2), None);
+        assert_eq!(overlap_problem(&Overlap::default(), MAX_OVERLAP), None);
+        assert!(
+            overlap_problem(&Overlap::default(), 1)
+                .unwrap()
+                .contains("2 to 8")
+        );
+        assert!(
+            overlap_problem(&Overlap::default(), 9)
+                .unwrap()
+                .contains("not 9")
+        );
+        assert!(
+            overlap_problem(
+                &Overlap {
+                    focus: 2,
+                    ..Overlap::default()
+                },
+                2
+            )
+            .is_some()
+        );
+        let unknown = Overlap {
+            judgements: "hits".into(),
+            ..Overlap::default()
+        };
+        assert!(overlap_problem(&unknown, 2).is_some());
+    }
     #[test]
     fn audio_follows_lead_in_rate_and_fades() {
         // Lead-in two seconds before the song at 1.5×: 1333 ms of silence first.

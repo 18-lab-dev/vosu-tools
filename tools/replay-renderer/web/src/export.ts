@@ -10,6 +10,7 @@ import type { Layout } from "./layout";
 import { ratingMods, telemetry } from "./telemetry";
 import type { InspectedLayer } from "./inspector";
 import { frameRange } from "./partition";
+import { overlapOptions } from "./overlap";
 const request = async (path: string, init?: RequestInit) =>
   checked(await fetch(new URL(path, location.href), init));
 let composition: Composition | undefined;
@@ -21,6 +22,8 @@ try {
     fps: number;
     resolution: string;
     layout: Layout;
+    /** Overlap's options (focus player, judgements, name tags, health bar). */
+    overlap?: unknown;
     presets: Record<string, Preset>;
     default_settings: Record<string, number>;
     /** The client's current skin as the service reads it (see `/v1/context`). */
@@ -56,6 +59,7 @@ try {
   }
   const [width, height] = spec.resolution.split("x").map(Number);
   composition = new Composition(tracks, width, height, spec.layout, false, true);
+  composition.overlap = overlapOptions(spec.overlap, tracks.length);
   composition.timing = { outroMs: spec.outro_ms, fadeMs: spec.fade_ms };
   composition.validate();
   // The export's diagnostics: which render-core backend drew, and the WebGPU adapter if any.
