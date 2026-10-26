@@ -11,8 +11,13 @@ use image::{
 };
 use std::io::Cursor;
 
-/// The largest image side read from a skin or written to an export.
+/// The largest image side written to an export (GPU texture limits; both
+/// games load whole images as textures).
 pub const MAX_SIDE: u32 = 8192;
+/// The largest image side read from a skin: osu! skins ship hold bodies tens
+/// of thousands of pixels tall (lazer stretches repeating bodies to 32800
+/// units); allocation stays capped.
+const MAX_READ_SIDE: u32 = 65535;
 
 /// An image and its pixel density: pixels per display unit (`2` for an
 /// osu! `@2x` file, whose display size is half its pixel size).
@@ -36,11 +41,17 @@ pub fn decode(bytes: &[u8]) -> Result<RgbaImage, String> {
         .with_guessed_format()
         .map_err(|e| e.to_string())?;
     let mut limits = Limits::default();
-    limits.max_image_width = Some(MAX_SIDE);
-    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_image_width = Some(MAX_READ_SIDE);
+    limits.max_image_height = Some(MAX_READ_SIDE);
     limits.max_alloc = Some(256 * 1024 * 1024);
     reader.limits(limits);
     Ok(reader.decode().map_err(|e| e.to_string())?.into_rgba8())
+}
+
+/// `image` with each side clamped to [`MAX_SIDE`] (resampled only when a
+/// side is longer).
+pub fn within(image: &RgbaImage) -> RgbaImage {
+    resize(image, image.width(), image.height())
 }
 
 /// Encodes RGBA as PNG.
@@ -152,7 +163,7 @@ pub fn sheet_layout(count: u32, width: u32, height: u32, max_side: u32) -> (u32,
         return (1, count);
     }
     (1..=count)
-        .filter(|rows| count % rows == 0)
+        .filter(|rows| count.is_multiple_of(*rows))
         .map(|rows| (rows, count / rows))
         .min_by_key(|&(rows, columns)| {
             (columns.saturating_mul(width)).max(rows.saturating_mul(height))
@@ -406,8 +417,8 @@ mod tests {
         let out = sheet(&frames, 1, 3);
         assert_eq!(out.dimensions(), (6, 1));
         assert_eq!(out.get_pixel(4, 0)[0], 160);
-        // No exact layout fits two 5000 px frames: they are scaled down.
-        let big: Vec<_> = (0..2).map(|_| solid(5000, 5000, [1, 2, 3, 255])).collect();
+        // No exact layout fits two 8200 px wide frames: they are scaled down.
+        let big: Vec<_> = (0..2).map(|_| solid(8200, 2, [1, 2, 3, 255])).collect();
         let (fitted, rows, columns) = fitted_sheet(&big);
         assert_eq!(rows * columns, 2);
         assert!(

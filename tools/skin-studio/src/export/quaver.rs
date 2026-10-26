@@ -70,8 +70,10 @@ pub fn sheet_name(element: &str, rows: u32, columns: u32) -> String {
     }
 }
 
+/// Writes a PNG, longer sides scaled to [`raster::MAX_SIDE`] (osu! hold
+/// bodies can be 40000 px tall; Quaver stretches bodies to the hold anyway).
 fn png(out: &mut Vec<(String, Vec<u8>)>, path: String, image: &RgbaImage) -> Result<(), String> {
-    out.push((path, raster::encode(image)?));
+    out.push((path, raster::encode(&raster::within(image))?));
     Ok(())
 }
 /// Frames as one image or a sheet; returns the frame count.

@@ -396,7 +396,7 @@ pub fn disposition(file: &str) -> String {
         .collect();
     format!(
         "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
-        library::segment(&file)
+        library::segment(file)
     )
 }
 
