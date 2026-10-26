@@ -13,7 +13,9 @@ and skins, and drive the clock.
 Run after `bun run build` in tools/map-preview/web:
   uv run --with playwright python tools/map-preview/tests/preview_e2e.py SONGS SKINS [EVIDENCE_DIR]
 SONGS/SKINS are osu! stable folders (read-only; files are copied to a temp
-dir first). Needs hardware WebGPU in headless Chromium (Vulkan). Set
+dir first). Needs hardware WebGPU in headless Chromium (Vulkan), or set
+MAP_PREVIEW_RASTERISER=swiftshader to render with SwiftShader (no GPU), as
+machines without one do; every suite here follows it. Set
 VOSU_ASSETS to vosu's assets/server when no vosu checkout sits beside this
 repository; PLAYWRIGHT_BROWSERS_PATH is honoured for Chromium.
 """
@@ -43,6 +45,14 @@ QUERY = 'presentation=bitmap' + (f'&backend={BACKEND}' if BACKEND else '')
 # with a temporary HOME can point at the real one.
 BROWSERS = Path(os.environ.get('PLAYWRIGHT_BROWSERS_PATH') or Path.home() / '.cache/ms-playwright')
 CHROME = BROWSERS / 'chromium-1248/chrome-linux64/chrome'
+# Chromium's flags for the hardware GPU (Vulkan), or for SwiftShader with
+# MAP_PREVIEW_RASTERISER=swiftshader: WebGPU and WebGL2 both on the CPU.
+SWIFTSHADER = os.environ.get('MAP_PREVIEW_RASTERISER') == 'swiftshader'
+CHROME_ARGS = (['--enable-unsafe-webgpu', '--use-webgpu-adapter=swiftshader', '--enable-features=Vulkan',
+                '--use-vulkan=swiftshader', '--use-angle=swiftshader', '--enable-unsafe-swiftshader']
+               if SWIFTSHADER else
+               ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
+                '--enable-features=Vulkan', '--disable-vulkan-surface'])
 MAPS = {
     'osu': ('1230019 Hikiray - Zero Two (prod by Gotze)', 'Hikiray - Zero Two (prod. by Gotze) (Flexo123) [Insane].osu', 38000),
     'mania': ('2342790 Noma Nadeshiko - Sanzu no Kawa Ninngyou Gekijyou', 'Noma Nadeshiko - Sanzu no Kawa Ninngyou Gekijyou (ndglol) [Rice Fusion].osu', 52000),
@@ -269,8 +279,7 @@ async def checks(host: Host, osk: Path, evidence: Path):
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path=str(CHROME), headless=True,
-            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
-                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
+            args=CHROME_ARGS)
 
         async def open_page(game: Game, theme='dark', width=1920, height=1080):
             page = await browser.new_page(viewport={'width': width, 'height': height}, device_scale_factor=1)

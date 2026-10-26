@@ -8,7 +8,11 @@ struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:v
 @group(0) @binding(3) var frameTable:texture_2d<f32>;
 // The frame table (skin.ts buildAtlas): two texels per entry, FRAME_TABLE_WIDTH texels per row.
 fn frameUV(i:u32)->vec4f{return textureLoad(frameTable,vec2u(i%${FRAME_TABLE_WIDTH}u,i/${FRAME_TABLE_WIDTH}u),0);}
-struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32, @location(7) @interpolate(flat) band:vec2f }
+// Per-instance values are flat: the fragment stage turns shape.x and shape.w
+// into integers (u32) and region.w into the body profile (floor), and an
+// interpolated constant can land just below the integer (SwiftShader does),
+// which turned slider-body pixels into another shape.
+struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) @interpolate(flat) shape:vec4f, @location(4) world:vec2f, @location(5) @interpolate(flat) region:vec4f, @location(6) @interpolate(flat) layer:u32, @location(7) @interpolate(flat) band:vec2f }
 // A slider body's colour (straight RGBA) at \`p\` from the edge (0) to the
 // centre (1), as the clients' ColourAt: LegacySliderBody (shadow, border, then
 // darkened to lightened accent mixed in sRGB), DrawableSliderPath (border,

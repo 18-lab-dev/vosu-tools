@@ -6,7 +6,8 @@ files available) is shown while the game moves from a 4K mania map to a 7K
 one and back. Reports the GPU texture memory the page holds at each key
 count and how long a switch takes from the map change to the new key
 count's skin being installed (unthrottled), then repeats each switch with
-skin files served 250 ms late and screenshots the canvas throughout: while
+skin files served late (250 ms, or twice a canvas capture on a slow
+rasteriser) and screenshots the canvas throughout: while
 the new key count loads the previous scene stays drawn, so every frame must
 be the old scene or the finished new one (no built-in fallback flash).
 
@@ -29,7 +30,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from preview_e2e import CHROME, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
+from preview_e2e import CHROME, CHROME_ARGS, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
 
 def distance(a: bytes, b: bytes) -> float:
     """Mean absolute difference (0-255) of two screenshots, on a 192 px wide greyscale copy."""
@@ -78,8 +79,7 @@ async def run(host: Host, time: float, skin: str, evidence: Path):
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path=str(CHROME), headless=True,
-            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
-                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
+            args=CHROME_ARGS)
         page = await browser.new_page(viewport={'width': 1920, 'height': 1080}, device_scale_factor=1)
         await page.add_init_script(TRACKING)
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -133,8 +133,14 @@ async def run(host: Host, time: float, skin: str, evidence: Path):
             await settle()
             return built[0]['at'] - start, len(built), frames
 
+        # Each skin file is held long enough for several canvas captures to
+        # land inside the switch, also on a slow rasteriser (SwiftShader).
+        began = asyncio.get_running_loop().time()
+        await page.locator('canvas').screenshot()
+        hold = max(0.25, 2 * (asyncio.get_running_loop().time() - began))
+
         async def slow(route):
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(hold)
             await route.continue_()
 
         for key, other in [('7k', '4k'), ('4k', '7k'), ('7k', '4k'), ('4k', '7k')]:

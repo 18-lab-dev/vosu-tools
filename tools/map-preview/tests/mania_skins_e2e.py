@@ -22,7 +22,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from preview_e2e import CHROME, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
+from preview_e2e import CHROME, CHROME_ARGS, DIST, ORIGIN, PORT, QUERY, Game, Host, handler  # noqa: E402
 
 
 async def capture(host: Host, maps: dict, skins: list[str], evidence: Path):
@@ -32,8 +32,7 @@ async def capture(host: Host, maps: dict, skins: list[str], evidence: Path):
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path=str(CHROME), headless=True,
-            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
-                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
+            args=CHROME_ARGS)
         page = await browser.new_page(viewport={'width': 1920, 'height': 1080}, device_scale_factor=1)
         await page.add_init_script(
             '{ const request = GPU.prototype.requestAdapter;'
