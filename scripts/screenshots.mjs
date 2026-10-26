@@ -18,10 +18,16 @@ const { values: options } = parseArgs({
     work: { type: 'string' },
     only: { type: 'string' },
     keep: { type: 'boolean', default: false },
+    // Opt-in, needs network: installs the latest published release from the
+    // official catalog (18-lab-dev/vosu-tools) and captures only tools.webp.
+    'official-tools-page': { type: 'boolean', default: false },
   },
 });
-if (!options.vosu || !options.packages || !options['playwright-module'] || !options.work)
-  throw new Error('Usage: bun scripts/screenshots.mjs --vosu <test-harness vosu> --packages <package.py --out dir> --playwright-module <playwright/index.mjs> --work <scratch dir> [--out dir] [--only id,...] [--keep]');
+const official = options['official-tools-page'];
+if (!options.vosu || !options['playwright-module'] || !options.work || (!official && !options.packages))
+  throw new Error('Usage: bun scripts/screenshots.mjs --vosu <test-harness vosu> --playwright-module <playwright/index.mjs> --work <scratch dir> (--packages <package.py --out dir> | --official-tools-page) [--out dir] [--only id,...] [--keep]');
+/** The catalog source identity vosu shows as official. */
+const OFFICIAL = '18-lab-dev/vosu-tools';
 
 // Everything below runs in a bubblewrap sandbox: a private network namespace
 // (vosu and the browser can reach only each other on loopback), a minimal /dev
@@ -33,13 +39,15 @@ const PLAYER = '/home/player';
 if (process.env.VOSU_SCREENSHOTS_SANDBOX !== '1') {
   mkdirSync(resolve(options.work), { recursive: true });
   const run = mkdtempSync(join(resolve(options.work), 'run-'));
-  const visible = [homedir(), ROOT, dirname(resolve(options.vosu)), resolve(options.packages),
+  const visible = [homedir(), ROOT, dirname(resolve(options.vosu)), ...(official ? [] : [resolve(options.packages)]),
     dirname(resolve(options['playwright-module'])), resolve(options.out)];
   mkdirSync(resolve(options.out), { recursive: true });
   const sandbox = spawnSync('bwrap', [
     '--dev-bind', '/', '/', '--dev', '/dev', '--tmpfs', '/tmp', '--tmpfs', '/run/user', '--tmpfs', '/home',
     ...visible.flatMap((path) => ['--bind', path, path]), '--bind', run, PLAYER,
-    '--unshare-net', '--unshare-ipc', '--unshare-pid', '--die-with-parent',
+    // The official-catalog mode alone keeps the network: vosu downloads the
+    // published release the way a user's install does.
+    ...(official ? [] : ['--unshare-net']), '--unshare-ipc', '--unshare-pid', '--die-with-parent',
     '--setenv', 'VOSU_SCREENSHOTS_SANDBOX', '1',
     '--setenv', 'PLAYWRIGHT_BROWSERS_PATH', process.env.PLAYWRIGHT_BROWSERS_PATH || join(homedir(), '.cache/ms-playwright'),
     process.execPath, ...process.argv.slice(1),
@@ -123,14 +131,15 @@ function tour(text, period, scales, metadata) {
     '[General]', ...values('General', {}), '',
     '[Metadata]', ...values('Metadata', { Title: metadata.title, TitleUnicode: metadata.title, Artist: '18-LAB', Creator: 'vosu tools', Version: metadata.version, Tags: '18-LAB demo' }),
     'BeatmapID:0', 'BeatmapSetID:-1', '',
-    '[Difficulty]', ...values('Difficulty', {}), '',
+    '[Difficulty]', ...values('Difficulty', metadata.difficulty ?? {}), '',
     '[TimingPoints]', ...timing, '',
     '[HitObjects]', ...objects, '',
   ].join('\r\n');
 }
 
 const MAPS = {
-  osu: tour(demo('osu').osu, 10000, [1, 1, 0.9, 0.9, 0.8, 0.8, 0.75, 0.75, 0.9, 1], { title: '18-LAB Demo · osu! tour', version: 'Showcase' }),
+  // AR 5 (1.2 s approach) keeps several objects on the playfield at once.
+  osu: tour(demo('osu').osu, 10000, [1, 1, 0.9, 0.9, 0.8, 0.8, 0.75, 0.75, 0.9, 1], { title: '18-LAB Demo · osu! tour', version: 'Showcase', difficulty: { ApproachRate: 5 } }),
   taiko: tour(demo('taiko').osu, 10000, [1, 1, 0.9, 0.9, 0.8, 0.8, 0.9, 1], { title: '18-LAB Demo · taiko tour', version: 'Showcase' }),
   fruits: tour(demo('fruits').osu, 10000, [1, 1, 0.9, 0.9, 0.8, 0.8, 0.9, 1], { title: '18-LAB Demo · catch tour', version: 'Showcase' }),
   mania: tour(maniaOsu(7), 8000, [1, 1, 0.9, 0.9, 0.8, 0.8, 0.7, 0.7, 0.65, 0.65, 0.8, 1], { title: '18-LAB Demo · 7K tour', version: '7K Showcase' }),
@@ -160,8 +169,8 @@ for (const aim of PLAYERS) {
 }
 
 // ── Catalog stand-in for the packaged tools (served only inside the sandbox) ─
-const packages = resolve(options.packages);
-const catalog = JSON.parse(readFileSync(join(packages, 'catalog.json'), 'utf8'));
+const packages = official ? null : resolve(options.packages);
+const catalog = official ? { tools: [] } : JSON.parse(readFileSync(join(packages, 'catalog.json'), 'utf8'));
 const served = new Map();
 const catalogServer = Bun.serve({
   hostname: '127.0.0.1', port: 0,
@@ -194,8 +203,10 @@ writeFileSync(join(config, 'vosu.toml'), [
   'ENABLE_AUTOUPDATE = false', 'OPEN_DASHBOARD_ON_STARTUP = false', 'START_AT_LOGIN = false',
   'SERVER_IP = "127.0.0.1"', 'SERVER_PORT = 26250', 'DASHBOARD_IP = "127.0.0.1"', 'DASHBOARD_PORT = 26251', '',
 ].join('\n'));
-writeFileSync(join(config, 'tools/catalog-sources.json'), JSON.stringify([{ source: `${base}/tools/catalog.json`, enabled: true }]));
-env.VOSU_TOOL_CATALOG_TEST_SOCKET = `127.0.0.1:${catalogServer.port}`;
+if (!official) {
+  writeFileSync(join(config, 'tools/catalog-sources.json'), JSON.stringify([{ source: `${base}/tools/catalog.json`, enabled: true }]));
+  env.VOSU_TOOL_CATALOG_TEST_SOCKET = `127.0.0.1:${catalogServer.port}`;
+}
 const vosuBinary = resolve(options.vosu);
 const vosux = join(work, 'vosux');
 symlinkSync(vosuBinary, vosux);
@@ -243,6 +254,7 @@ async function cli(...args) {
 // background are absent, as the demo maps have neither.
 const MODES = { osu: [0, 'osu'], taiko: [1, 'taiko'], fruits: [2, 'fruits'], mania: [3, 'mania'] };
 const ARGON = { client: 'lazer', name: 'Argon', files: false, builtin: 'argon', base: 'argon', entries: [], truncated: false };
+const TRIANGLES = { ...ARGON, name: 'Triangles', builtin: 'triangles', base: 'triangles' };
 function gameState(map, time) {
   const [number, name] = MODES[map.ruleset];
   return {
@@ -265,7 +277,7 @@ function gameState(map, time) {
 const pointer = (doc, path) => path.split('/').slice(1)
   .map((part) => part.replaceAll('~1', '/').replaceAll('~0', '~'))
   .reduce((value, key) => (value != null && typeof value === 'object' ? value[key] : undefined), doc);
-async function selectMap(page, map, time = 0) {
+async function selectMap(page, map, time = 0, skin = ARGON) {
   const doc = gameState(map, time);
   await page.routeWebSocket(/\/websocket\/v2\/subscribe$/, (ws) => {
     ws.onMessage((message) => {
@@ -280,7 +292,7 @@ async function selectMap(page, map, time = 0) {
   await page.route(/\/json\/v2$/, (route) => route.fulfill({ json: doc }));
   await page.route(/\/files\/beatmap\/file(\?.*)?$/, (route) => route.fulfill({ body: map.text, contentType: 'text/plain; charset=utf-8' }));
   await page.route(/\/files\/beatmap\/(audio|background)(\?.*)?$/, (route) => route.fulfill({ status: 404, body: '' }));
-  await page.route(/\/files\/skin\/$/, (route) => route.fulfill({ json: ARGON }));
+  await page.route(/\/files\/skin\/$/, (route) => route.fulfill({ json: skin }));
 }
 
 /** A tool backend outside vosu, given the selected demo map as its host
@@ -460,12 +472,13 @@ const SHOTS = {
     const page = await tab();
     await page.goto(DASHBOARD + '/tools', { waitUntil: 'networkidle' });
     await settle(page);
-    await save(page, 'tools', 'Dashboard Tools page with the eight packaged tools installed (isolated vosu, no game attached)');
+    await save(page, 'tools', `Dashboard Tools page after installing every tool from the official catalog (${catalog.tools.map((t) => `${t.id} ${t.version}`).join(', ')}); no game attached`);
   },
   async 'map-preview'() {
     const page = await tab();
-    // 11.75 s: the second period's opening circles, slider and approach circles.
-    await selectMap(page, maps.osu, 11750);
+    // 39.05 s (the 0.8× section): a fading circle, the next circle and a
+    // ticked slider with their approach circles, in lazer's Triangles look.
+    await selectMap(page, maps.osu, 39050, TRIANGLES);
     await page.goto(await launch('map-preview', '?presentation=bitmap'));
     await page.waitForFunction(() => {
       const follow = document.querySelector('#follow-status')?.textContent ?? '';
@@ -473,7 +486,7 @@ const SHOTS = {
     }, null, { timeout: 60000 });
     if ((await page.locator('#controls-toggle').getAttribute('aria-expanded')) !== 'true') await page.locator('#controls-toggle').click();
     await settle(page, 4000);
-    await save(page, 'map-preview', 'Map preview following a selected demo map (osu!) with the built-in Argon look');
+    await save(page, 'map-preview', 'Map preview following a selected demo map (osu!) with the built-in Triangles look');
   },
   async practice() {
     const backend = await standaloneBackend('practice', maps.osu);
@@ -481,8 +494,10 @@ const SHOTS = {
       const page = await tab();
       await selectMap(page, maps.osu);
       await backend.route(page);
+      const timeline = page.waitForResponse((response) => response.url().includes('/v1/timeline') && response.ok());
       await page.goto(await launch('practice'));
       await page.locator('#title').filter({ hasText: '18-LAB' }).waitFor({ timeout: 60000 });
+      const duration = (await (await timeline).json()).duration_ms;
       // A 1.25× rate, Mirror and one kept section, the preview inside it.
       await page.locator('input[name="rate"]').fill('1.25');
       await page.locator('input[name="rate"]').dispatchEvent('input');
@@ -490,13 +505,15 @@ const SHOTS = {
       await settle(page, 1500);
       const strip = await page.locator('#strip').boundingBox();
       const at = (fraction) => strip.x + strip.width * fraction;
+      // Keep 0:20.5–0:39.3 (source time).
       await page.keyboard.down('Shift');
-      await page.mouse.move(at(0.235), strip.y + strip.height / 2);
+      await page.mouse.move(at(20500 / duration), strip.y + strip.height / 2);
       await page.mouse.down();
-      await page.mouse.move(at(0.45), strip.y + strip.height / 2, { steps: 12 });
+      await page.mouse.move(at(39300 / duration), strip.y + strip.height / 2, { steps: 12 });
       await page.mouse.up();
       await page.keyboard.up('Shift');
-      await page.mouse.click(at(0.265), strip.y + strip.height / 2);
+      // 30.1 s (the 0.9× section): circles and a ticked slider on screen.
+      await page.mouse.click(at(30100 / duration), strip.y + strip.height / 2);
       await page.mouse.move(0, 0);
       await settle(page, 4000);
       await save(page, 'practice', 'osu! practice tool on a selected demo map (osu!): 1.25×, Mirror and one kept section');
@@ -550,7 +567,7 @@ const SHOTS = {
     await page.locator('#layout').selectOption('overlap');
     await settle(page, 1500);
     await page.locator('#seek').evaluate((seek) => {
-      seek.value = '11900';
+      seek.value = '39050';
       seek.dispatchEvent(new Event('input'));
     });
     await settle(page, 6000);
@@ -596,13 +613,30 @@ const SHOTS = {
 try {
   await until(async () => (await fetch(DASHBOARD + '/api/tools')).ok, 'vosu');
   csrf = JSON.parse(/<script[^>]*id="vosu-context"[^>]*>([\s\S]*?)<\/script>/.exec(await dashboard('/tools'))[1]).csrf;
-  await until(async () => {
-    const view = await dashboard('/api/tools/catalog');
-    return view.tools.length === catalog.tools.length && view.sources.every((source) => source.status === 'ok');
-  }, 'the tool catalog');
+  if (!official)
+    await until(async () => {
+      const view = await dashboard('/api/tools/catalog');
+      return view.tools.length === catalog.tools.length && view.sources.every((source) => source.status === 'ok');
+    }, 'the tool catalog');
   for (const tool of catalog.tools) {
     if (!(await fetch(`${DASHBOARD}/api/tools/${tool.id}`)).ok) await cli('--install', tool.id);
     await post(`/api/tools/${tool.id}/trust`);
+  }
+  if (official) {
+    // vosu's default sources, as on a fresh install: every tool of the
+    // official catalog, installed through the normal catalog flow.
+    const view = await until(async () => {
+      const view = await dashboard('/api/tools/catalog');
+      return view.tools.some((tool) => tool.source === OFFICIAL) && view;
+    }, 'the official catalog', 120000);
+    for (const tool of view.tools.filter((tool) => tool.source === OFFICIAL))
+      if (!(await fetch(`${DASHBOARD}/api/tools/${tool.id}`)).ok) await cli('--install', tool.id);
+    for (const tool of view.tools.filter((tool) => tool.source === OFFICIAL)) {
+      const installed = await dashboard(`/api/tools/${tool.id}`);
+      if (installed.source !== 'official' || !installed.trusted)
+        throw new Error(`${tool.id}: installed as ${installed.source}, trusted ${installed.trusted}`);
+      catalog.tools.push(tool);
+    }
   }
   log('installed', catalog.tools.map((t) => `${t.id} ${t.version}`).join(', '));
   browser = await chromium.launch({
@@ -613,7 +647,9 @@ try {
   context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, colorScheme: 'dark' });
   await exportSkins(context);
   for (const [name, shoot] of Object.entries(SHOTS)) {
-    if (only && !only.has(name)) continue;
+    // tools.webp must show what a real install shows (official, trusted), so
+    // only the official-catalog mode captures it; that mode captures nothing else.
+    if ((name === 'tools') !== official || (only && !only.has(name))) continue;
     log('capturing', name);
     try {
       await shoot();

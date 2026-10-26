@@ -52,7 +52,7 @@ Watch the map selected in osu! play out in any of the four rulesets with your sk
 
 ![Map preview](docs/screenshots/map-preview.webp)
 
-*A generated demo map drawn with the built-in Argon look.*
+*A generated demo map drawn with the built-in Triangles look.*
 
 [Details](tools/map-preview/README.md)
 
