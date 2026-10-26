@@ -3,7 +3,7 @@ mod schema;
 
 use axum::{
     Json, Router,
-    extract::{Path as RoutePath, State},
+    extract::{Path as RoutePath, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
@@ -52,6 +52,7 @@ pub fn router(state: Shared) -> Router {
         .route("/v1/skins/{id}/files", get(skin_files))
         .route("/v1/skins/{id}/file/{*name}", get(skin_file))
         .route("/v1/scores/by-beatmap/{md5}", get(scores))
+        .route("/v1/scores/recent", get(recent_scores))
         .with_state(state)
 }
 async fn status(State(s): State<Shared>) -> Json<Status> {
@@ -81,6 +82,19 @@ async fn scores(State(s): State<Shared>, RoutePath(md5): RoutePath<String>) -> R
         return unavailable();
     };
     Json(i.score_list(&md5)).into_response()
+}
+#[derive(serde::Deserialize)]
+struct Recent {
+    ruleset: Option<String>,
+    limit: Option<usize>,
+}
+/// `GET /v1/scores/recent[?ruleset=mania&limit=N]`: the newest local scores
+/// with replays (at most 50).
+async fn recent_scores(State(s): State<Shared>, Query(q): Query<Recent>) -> Response {
+    let Some(i) = current(&s) else {
+        return unavailable();
+    };
+    Json(i.recent_scores(q.ruleset.as_deref(), q.limit.unwrap_or(1).min(50))).into_response()
 }
 async fn skin_files(State(s): State<Shared>, RoutePath(id): RoutePath<String>) -> Response {
     let Some(i) = current(&s) else {
@@ -225,6 +239,13 @@ mod tests {
                 .ends_with(Path::new("a").join("aa").join("a".repeat(64)))
         );
         assert!(!i.contains_md5("../secret"));
+        // The fixture's score has no replay file: not a recent play.
+        assert!(
+            i.recent_scores(None, 5)["scores"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
     #[tokio::test]
     async fn http_contract() {

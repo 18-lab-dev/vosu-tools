@@ -322,7 +322,7 @@ fn lazer_id(id: &serde_json::Value) -> String {
 /// `[[requires]]` (a missing dependency would block Skin studio). Its routes
 /// are open read routes, which vosu refuses for undeclared tool tokens, so
 /// they are requested like an overlay would: without this tool's token.
-fn lazer_get(app: &App, path: &str) -> reqwest::RequestBuilder {
+pub fn lazer_get(app: &App, path: &str) -> reqwest::RequestBuilder {
     app.http
         .get(app.client.url(&format!("/tools/{LAZER_TOOL}/api/{path}")))
 }

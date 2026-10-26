@@ -39,6 +39,7 @@ import {
 } from "./keymodes";
 import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
+import { HitPanel, type HitHost } from "./hit-panel";
 import type { Preview, PreviewSource } from "./preview";
 
 /** Key counts render-core draws (dual stages above 10K are not previewed). */
@@ -80,6 +81,10 @@ export interface KeymodesHost {
     onState: (text: string) => void,
   ): Promise<Preview>;
   previewSource(): PreviewSource;
+  derive: HitHost["derive"];
+  rows: HitHost["rows"];
+  lastPlay: HitHost["lastPlay"];
+  speed: HitHost["speed"];
 }
 
 /** An image the picker offers. */
@@ -169,9 +174,26 @@ export class KeymodesView {
   #visible = false;
   #resolved: ManiaImageResolution[] = [];
   #mixIndex = new Map<string, string[]>();
+  #hit: HitPanel;
 
   constructor(host: KeymodesHost) {
     this.#host = host;
+    this.#hit = new HitPanel({
+      keys: () => this.#keys,
+      mixText: () => host.mixText(),
+      mixFiles: () => host.mixFiles(),
+      mixIndex: () => this.#mixIndex,
+      resolved: () => this.#resolved,
+      draft: () => this.#draft(),
+      change: (label, mutate) => this.#change(label, mutate),
+      derive: host.derive,
+      rows: host.rows,
+      lastPlay: host.lastPlay,
+      speed: host.speed,
+      canWrite: () => host.canWrite(),
+      state: (text) => this.#state(text),
+      error: (text) => this.#error(text),
+    });
     $("#km-undo").onclick = () => this.undo();
     $("#km-redo").onclick = () => this.redo();
     $("#km-all").onclick = () => this.#applyToAll();
@@ -219,7 +241,10 @@ export class KeymodesView {
     );
     $("#km-grid").onkeydown = (event) => this.#gridKey(event);
     $("#km-shared-grid").onkeydown = (event) => this.#gridKey(event);
-    $("#keymodes-view").addEventListener("keydown", (event) => {
+    // Undo and redo while the screen shows, wherever focus is (re-rendered
+    // controls hand focus back to the page), except in text fields.
+    document.addEventListener("keydown", (event) => {
+      if ($("#keymodes-view").hidden) return;
       const target = event.target as HTMLElement;
       if (target.closest("input, select, textarea")) return;
       const mod = event.ctrlKey || event.metaKey;
@@ -297,6 +322,8 @@ export class KeymodesView {
   #assign(key: string, slot: Slot, label: string) {
     this.#change(label, (draft) => {
       draft.images[key] = slot;
+      // A key image chosen by hand is not one HitPosition moved.
+      if (draft.hit) delete draft.hit.originals[key];
     });
   }
   #clear(key: string) {
@@ -374,6 +401,7 @@ export class KeymodesView {
     this.#renderToolbar();
     this.#renderGrid();
     this.#renderShared();
+    this.#hit.render();
     this.#renderColumns();
     this.#renderCopy();
     this.#syncPreview();

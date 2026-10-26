@@ -56,6 +56,7 @@ import {
   type UploadFile,
 } from "./uploads";
 import { touchedKeys, type KeymodeDraft } from "./keymodes";
+import type { Speed } from "./calibrate";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
@@ -2006,6 +2007,11 @@ const keymodes = new KeymodesView({
     import("./preview").then(
       ({ Preview }) => new Preview(canvas, stage, onState, { rulesets: [3] }),
     ),
+  derive: (skin, files) => post("v1/derive", { skin, files }),
+  rows: (skin, name) =>
+    request(`v1/rows?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`),
+  lastPlay: () => request("v1/plays/last"),
+  speed: () => maniaLive,
   previewSource: () => ({
     key: "mix",
     version: mixVersion,
@@ -2049,6 +2055,33 @@ explorer = new Explorer({
 }
 
 // ---- live game state -------------------------------------------------------
+/** The attached client's osu!mania scroll speed and direction, from vosu. */
+let maniaLive: (Speed & { upscroll: boolean }) | null = null;
+/**
+ * vosu's `/settings/mania` as the clients use it: lazer's `scrollSpeedValue`;
+ * stable's per-beatmap speed when "per beatmap" is on, else its global
+ * `scrollSpeed`, and its "scale scroll speed with BPM" (`speedBPMScale`).
+ * Direction 0 is up (lazer's ManiaScrollingDirection, vosu's numbering).
+ */
+function maniaSettings(client: unknown, raw: unknown): (Speed & { upscroll: boolean }) | null {
+  if ((client !== "stable" && client !== "lazer") || !raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, unknown>;
+  const num = (v: unknown) => (typeof v === "number" && v > 0 ? v : null);
+  const speed =
+    client === "lazer"
+      ? num(m.scrollSpeedValue)
+      : m.usePerBeatmapSpeedScale === true
+        ? (num(m.perBeatmapScrollSpeed) ?? num(m.scrollSpeed))
+        : num(m.scrollSpeed);
+  if (!speed) return null;
+  const direction = (m.scrollDirection as { number?: unknown } | undefined)?.number;
+  return {
+    client,
+    speed,
+    bpmScale: client === "stable" ? m.speedBPMScale !== false : undefined,
+    upscroll: direction === 0,
+  };
+}
 const rulesets: Record<string, Category> = {
   osu: "osu",
   taiko: "taiko",
@@ -2091,8 +2124,9 @@ function subscribe() {
       });
     }
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
+    maniaLive = maniaSettings(values[2], values[3]);
   };
-  vosu.subscribe(["/folders/skin", "/beatmap/mode/name"], onFrame, (state) => {
+  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
     // Older bridges never report a state; the indicator stays hidden for them.
     live.hidden = dot.hidden = false;
     dot.dataset.state =

@@ -1,6 +1,8 @@
 mod anim;
 mod build;
+mod images;
 mod library;
+mod plays;
 mod uploads;
 
 use axum::{
@@ -470,6 +472,108 @@ async fn remove_uploads(
     Ok(Json(Removed { files, bytes }))
 }
 
+/// `GET /v1/plays/last`: the newest completed local osu!mania play.
+async fn last_play(State(app): State<App>) -> Result<Json<plays::LastPlay>, Failure> {
+    Ok(Json(plays::last(&app).await?))
+}
+
+#[derive(Deserialize)]
+struct RowsQuery {
+    skin: String,
+    name: String,
+}
+/// `GET /v1/rows`: an image's size and transparent top/bottom rows.
+async fn image_rows(
+    State(app): State<App>,
+    Query(query): Query<RowsQuery>,
+) -> Result<Json<images::Rows>, Failure> {
+    let (source, _) = library::resolve(&app, &query.skin).await?;
+    let bytes = source.read(&app, &query.name).await?;
+    Ok(Json(
+        tokio::task::spawn_blocking(move || images::rows(&bytes))
+            .await
+            .map_err(failure)??,
+    ))
+}
+
+#[derive(Deserialize)]
+struct DeriveFile {
+    name: String,
+    op: images::Op,
+    /// A second image of the same skin the operation uses (a percy body's cap).
+    #[serde(default)]
+    cap: Option<String>,
+}
+#[derive(Deserialize)]
+struct Derive {
+    skin: String,
+    files: Vec<DeriveFile>,
+}
+#[derive(Serialize)]
+struct DerivedFile {
+    from: String,
+    /// The new file under `uploads::KEY`.
+    stored: String,
+    /// Non-transparent rows the operation dropped.
+    lost: usize,
+}
+/// `POST /v1/derive`: new images made from skin files by exact row
+/// operations ([`images::Op`]), kept with the dropped files (sources are
+/// never written). The same input and operation always give the same file.
+async fn derive(
+    State(app): State<App>,
+    Json(request): Json<Derive>,
+) -> Result<Json<Vec<DerivedFile>>, Failure> {
+    if request.files.len() > 64 {
+        return Err(failure("At most 64 images at once."));
+    }
+    let (source, _) = library::resolve(&app, &request.skin).await?;
+    let mut out = Vec::with_capacity(request.files.len());
+    for file in request.files {
+        if !file.name.to_ascii_lowercase().ends_with(".png") {
+            return Err(failure(format!(
+                "{}: only PNG images can be adjusted",
+                file.name
+            )));
+        }
+        let bytes = source.read(&app, &file.name).await?;
+        let cap = match &file.cap {
+            Some(name) => Some(source.read(&app, name).await?),
+            None => None,
+        };
+        let base = file
+            .name
+            .rsplit('/')
+            .next()
+            .unwrap_or("image.png")
+            .to_owned();
+        let name = uploads::name(&base)
+            .map(str::to_owned)
+            .unwrap_or_else(|_| "image.png".into());
+        let dir = app.uploads.clone();
+        let op = file.op;
+        let (stored, lost) = tokio::task::spawn_blocking(move || {
+            let derived = images::apply(&bytes, op, cap.as_deref())?;
+            let mut key = Sha256::new();
+            key.update(serde_json::to_vec(&op).map_err(failure)?);
+            key.update(&bytes);
+            if let Some(cap) = &cap {
+                key.update(cap);
+            }
+            let group = format!("{:x}", key.finalize())[..16].to_owned();
+            uploads::store(&dir, &group, &name, &derived.bytes).map(|s| (s, derived.lost))
+        })
+        .await
+        .map_err(failure)??;
+        out.push(DerivedFile {
+            from: file.name,
+            stored,
+            lost,
+        });
+    }
+    Ok(Json(out))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -487,6 +591,9 @@ pub fn router(app: App) -> Router {
             post(upload).layer(DefaultBodyLimit::max(uploads::MAX_BYTES as usize + 1)),
         )
         .route("/v1/uploads/remove", post(remove_uploads))
+        .route("/v1/plays/last", get(last_play))
+        .route("/v1/rows", get(image_rows))
+        .route("/v1/derive", post(derive))
         .with_state(app)
 }
 

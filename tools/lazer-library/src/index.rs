@@ -425,12 +425,45 @@ impl Index {
             .find(|f| unicase::UniCase::new(f.name.as_ref()) == unicase::UniCase::new(name))
             .map(|f| f.describe(&self.base))
     }
+    fn score_json(&self, key: &Md5, score: &Score) -> Value {
+        let replay_hash = score.replay.map(|h| hex_text(&h));
+        json!({"id":score.id.as_deref(),"beatmap_md5":hex_text(key),"username":score.username.as_deref(),"ruleset":score.ruleset.as_deref(),"mods":score.mods.as_deref(),"total_score":score.total_score,"date":score.date.as_deref(),"replay_hash":replay_hash,"replay_path":replay_hash.as_ref().map(|h|store_path(&self.base,h))})
+    }
     pub fn score_list(&self, md5: &str) -> Value {
         let key = hex::<16>(md5);
-        let scores:Vec<_> = key.as_ref().and_then(|k|self.scores.get(k)).into_iter().flatten().map(|score| {
-            let replay_hash = score.replay.map(|h|hex_text(&h));
-            json!({"id":score.id.as_deref(),"beatmap_md5":key.map(|k|hex_text(&k)),"username":score.username.as_deref(),"ruleset":score.ruleset.as_deref(),"mods":score.mods.as_deref(),"total_score":score.total_score,"date":score.date.as_deref(),"replay_hash":replay_hash,"replay_path":replay_hash.as_ref().map(|h|store_path(&self.base,h))})
-        }).collect();
+        let scores: Vec<_> = key
+            .as_ref()
+            .and_then(|k| self.scores.get(k).map(|list| (k, list)))
+            .into_iter()
+            .flat_map(|(k, list)| list.iter().map(move |score| self.score_json(k, score)))
+            .collect();
+        json!({"scores":scores})
+    }
+    /// The newest local scores with a replay file, newest first, optionally of
+    /// one ruleset (lazer's short name, e.g. `mania`). Dates are lazer's UTC
+    /// ISO-8601 strings, which order as text.
+    pub fn recent_scores(&self, ruleset: Option<&str>, limit: usize) -> Value {
+        let mut all: Vec<_> = self
+            .scores
+            .iter()
+            .flat_map(|(k, list)| list.iter().map(move |score| (k, score)))
+            .filter(|(_, s)| s.replay.is_some() && s.date.is_some())
+            // A score without its own ruleset played the map's.
+            .filter(|(k, s)| {
+                ruleset.is_none_or(|r| {
+                    s.ruleset.as_deref().map_or_else(
+                        || self.beatmaps.get(*k).is_some_and(|b| b.ruleset.name() == r),
+                        |own| own == r,
+                    )
+                })
+            })
+            .collect();
+        all.sort_by(|a, b| b.1.date.cmp(&a.1.date));
+        let scores: Vec<_> = all
+            .into_iter()
+            .take(limit)
+            .map(|(k, s)| self.score_json(k, s))
+            .collect();
         json!({"scores":scores})
     }
 }
@@ -456,5 +489,55 @@ mod tests {
         assert_eq!(hex::<2>("../a"), None);
         assert_eq!(hex::<2>("abc"), None);
         assert_eq!(hex_text(&[0xab, 1]), "ab01");
+    }
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+    fn score(date: &str, ruleset: &str, replay: bool) -> Score {
+        Score {
+            id: Some(date.into()),
+            username: None,
+            ruleset: Some(ruleset.into()),
+            mods: None,
+            total_score: None,
+            date: Some(date.into()),
+            replay: replay.then_some([7; 32]),
+        }
+    }
+    #[test]
+    fn recent_scores_are_newest_first_with_replays_only() {
+        let mut index = Index::default();
+        index.scores.insert(
+            [1; 16],
+            vec![
+                score("2026-01-02T00:00:00Z", "mania", true),
+                score("2026-03-01T00:00:00Z", "osu", true),
+            ],
+        );
+        index.scores.insert(
+            [2; 16],
+            vec![
+                score("2026-02-01T00:00:00Z", "mania", true),
+                score("2026-04-01T00:00:00Z", "mania", false),
+            ],
+        );
+        let recent = index.recent_scores(Some("mania"), 5);
+        let dates: Vec<_> = recent["scores"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["date"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(dates, ["2026-02-01T00:00:00Z", "2026-01-02T00:00:00Z"]);
+        assert_eq!(recent["scores"][0]["beatmap_md5"], hex_text(&[2u8; 16]));
+        assert_eq!(
+            index.recent_scores(None, 1)["scores"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

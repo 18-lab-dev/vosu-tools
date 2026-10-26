@@ -1399,3 +1399,47 @@
   gap: var(--space-2);
   font-size: var(--step--1);
 }
+
+/* ---- hit position ---------------------------------------------------------- */
+.km-hit {
+  margin-top: var(--space-3);
+}
+.km-hit > summary {
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.km-hit__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--step--1);
+}
+.km-hit__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.km-hit__label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+}
+.km-hit__value {
+  width: 5rem;
+  height: var(--control-h-sm);
+  font-family: var(--font-mono);
+}
+.km-hit__note {
+  min-width: 0;
+}
+.km-hit__play {
+  margin: 0;
+  font-weight: 600;
+}
+.km-hit__warn {
+  margin: 0;
+  color: var(--caution);
+}

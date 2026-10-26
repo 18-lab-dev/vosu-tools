@@ -34,6 +34,23 @@ export interface KeymodeDraft {
   images: Record<string, Slot>;
   /** Other `[Mania]` values by key (`ColumnWidth`, `Colour1`, …); `null` removes it. */
   values: Record<string, string | null>;
+  /**
+   * Key images as they were before HitPosition first moved them, with the
+   * HitPosition they were made for: every later move starts from these, so
+   * shifts never stack (or lose rows twice).
+   */
+  hit?: {
+    originals: Record<
+      string,
+      {
+        at: number;
+        slot: SlotImage;
+        /** The draft's own slot for the key before the first move (absent: none). */
+        prior?: Slot;
+        had: boolean;
+      }
+    >;
+  };
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
