@@ -136,8 +136,9 @@ def retained_license(root, dependency):
 
 
 def rust_licenses(root, metadata, package, target):
-    tree = run(['cargo', 'tree', '--locked', '-e', 'normal', '--target', target, '-p', package,
-                '--prefix', 'none', '--format', '{p}'], root)
+    # CI sets CARGO_TERM_COLOR=always, which would wrap the parsed identities in ANSI escapes.
+    tree = run(['cargo', 'tree', '--locked', '--color', 'never', '-e', 'normal', '--target', target,
+                '-p', package, '--prefix', 'none', '--format', '{p}'], root)
     identities = set()
     for line in tree.splitlines():
         match = re.fullmatch(r'(\S+) v(\S+)(?: \((.*)\))?', line.removesuffix(' (*)').removesuffix(' (proc-macro)'))
