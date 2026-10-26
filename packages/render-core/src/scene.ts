@@ -48,6 +48,8 @@ export interface RenderOptions {
   maniaScrollUp?: boolean;
   /** Slider bodies grow along their path while approaching (clients' snaking sliders); default true. */
   snakingIn?: boolean;
+  /** Slider bodies shrink behind the ball on their last span (lazer's "snaking out sliders"); default true. */
+  snakingOut?: boolean;
   /**
    * osu!lazer's combo colour normalisation (0-1, lazer's default 0.2): combo
    * colours move towards one perceived brightness. Omit for stable (none).
@@ -109,7 +111,10 @@ export function maniaKeysFor(
 }
 
 /** The skin images a scene of this map draws: its ruleset and mania stage (`loadScope`). */
-export function sceneScope(map: Beatmap, options: RenderOptions = {}): SkinScope {
+export function sceneScope(
+  map: Beatmap,
+  options: RenderOptions = {},
+): SkinScope {
   return { rulesets: [map.mode], maniaKeys: maniaKeysFor(map, options) };
 }
 
@@ -156,11 +161,69 @@ const defaultComboColours: readonly (readonly number[])[] = [
   [242 / 255, 24 / 255, 57 / 255],
 ];
 /** Packed 6xvec4 instance ABI: geometry, lifetime, tint, motion, UV, shape parameters. */
+/** Motion kind of slider body segments (shader.ts): the body's fade and snaking. */
+export const SLIDER_BODY = 42;
+
+/**
+ * What lazer shows of a slider body at `time`: the visible part of its path
+ * as progress from `lo` to `hi` (0-1 of its length), and the body's alpha.
+ * shader.ts computes the same for every body segment (kind SLIDER_BODY).
+ *
+ * osu!lazer 2026.1005.0 (MIT): `DrawableSlider.UpdateInitialTransforms` fades
+ * the body in from zero over `TimeFadeIn` (400 ms × min(1, preempt / 450),
+ * `OsuHitObject`) from start − preempt; `UpdateHitStateTransforms` fades the
+ * whole slider out over 240 ms when it is hit (its end, under autoplay) and
+ * the body over 40 ms when snaking out. `SnakingSliderBody.UpdateProgress`
+ * draws the path from 0 to clamp((time − (start − preempt)) / (preempt / 3))
+ * when snaking in; on the last span, when snaking out, from the ball's
+ * position to the end the ball is heading for (`GetPathToProgress` cuts the
+ * path there, mid-segment). The head is taken as hit at the start, as in
+ * gameplay under autoplay: before that the progress is 0.
+ */
+export function sliderBodyRange(
+  start: number,
+  end: number,
+  spans: number,
+  preempt: number,
+  time: number,
+  snakingIn = true,
+  snakingOut = true,
+): { lo: number; hi: number; alpha: number } {
+  const fadeIn = 400 * Math.min(1, preempt / 450),
+    appear = start - preempt;
+  let alpha = Math.max(0, Math.min(1, (time - appear) / fadeIn));
+  if (time > end) {
+    alpha *= Math.max(0, 1 - (time - end) / 240);
+    if (snakingOut) alpha *= Math.max(0, 1 - (time - end) / 40);
+  }
+  const progress = Math.max(
+      0,
+      Math.min(1, (time - start) / Math.max(1e-3, end - start)),
+    ),
+    span = Math.floor(progress * spans);
+  let p = (progress * spans) % 1;
+  if (span % 2 === 1) p = 1 - p;
+  let lo = 0,
+    hi = snakingIn
+      ? Math.max(0, Math.min(1, (time - appear) / (preempt / 3)))
+      : 1;
+  if (span >= spans - 1) {
+    if (Math.min(span, spans - 1) % 2 === 1) {
+      lo = 0;
+      hi = snakingOut ? p : 1;
+    } else lo = snakingOut ? p : 0;
+  }
+  return { lo: Math.min(lo, hi), hi: Math.max(lo, hi), alpha };
+}
+
 /** A slider body segment and how far its quad reaches past each end. */
 export interface BodySegment {
   a: Point;
   b: Point;
   length: number;
+  /** The segment's ends as progress along the path (0-1 of its length). */
+  from: number;
+  to: number;
   angle: number;
   before: number;
   after: number;
@@ -190,9 +253,18 @@ export function bodySegments(
       b,
       length: Math.hypot(b.x - a.x, b.y - a.y),
       angle: Math.atan2(b.y - a.y, b.x - a.x),
+      from: 0,
+      to: 0,
       before: radius,
       after: radius,
     });
+  }
+  const total = out.reduce((sum, segment) => sum + segment.length, 0);
+  let travelled = 0;
+  for (const segment of out) {
+    segment.from = total > 0 ? travelled / total : 0;
+    travelled += segment.length;
+    segment.to = total > 0 ? travelled / total : 1;
   }
   for (let i = 1; i < out.length; i++) {
     const p = out[i - 1],
@@ -337,25 +409,25 @@ export function compileScene(
           crop && animated
             ? { u: 0, v: 0, w: -crop[0], h: -crop[1] }
             : crop && !region.strips
-            ? {
-                u: strip.u + (strip.w * (1 - crop[0])) / 2,
-                v: strip.v + (strip.h * (1 - crop[1])) / 2,
-                w: strip.w * crop[0],
-                h: strip.h * crop[1],
-              }
-            : crop
               ? {
-                  ...strip,
                   u: strip.u + (strip.w * (1 - crop[0])) / 2,
+                  v: strip.v + (strip.h * (1 - crop[1])) / 2,
                   w: strip.w * crop[0],
+                  h: strip.h * crop[1],
                 }
-              : rows && !region.strips
+              : crop
                 ? {
                     ...strip,
-                    v: strip.v + strip.h * rows[0],
-                    h: strip.h * (rows[1] - rows[0]),
+                    u: strip.u + (strip.w * (1 - crop[0])) / 2,
+                    w: strip.w * crop[0],
                   }
-                : strip;
+                : rows && !region.strips
+                  ? {
+                      ...strip,
+                      v: strip.v + strip.h * rows[0],
+                      h: strip.h * (rows[1] - rows[0]),
+                    }
+                  : strip;
         values.push(
           x,
           y,
@@ -576,101 +648,73 @@ export function compileScene(
               sliderStyle.profile === "argon" ? colour : border.slice(0, 3),
             custom = [edge[0], edge[1], edge[2], profileCode] as const;
           bodies[0] = Math.min(bodies[0], values.length / 24);
-          const segments = bodySegments(o.path, outer);
-          let cumulative = 0;
-          const revealAt = (length: number) =>
-            o.time -
-            preempt +
-            (options.snakingIn === false
-              ? 0
-              : Math.min(1, length / Math.max(1, o.length)) * preempt * 0.4);
-          for (const [i, segment] of segments.entries()) {
-            const { a, b, length } = segment;
-            cumulative += length;
-            const next = segments[i + 1];
+          for (const segment of bodySegments(o.path, outer)) {
+            const { a, b } = segment;
             // Shape parameter: the border's portion of the radius. The quad
-            // reaches `before` / `after` past the segment's ends (the full
-            // radius at the path's ends, and at the snaking head until the
-            // next segment shows: q is when it does).
+            // reaches `before` / `after` past the segment's interior joints;
+            // the shader clips it to the part of the path lazer shows
+            // (`sliderBodyRange`). The span count rides in the tint's alpha.
             add(
               (a.x + b.x) / 2 - offset,
               (a.y + b.y) / 2 - offset,
-              length + outer * 2,
+              segment.length + outer * 2,
               outer * 2,
               o.time,
               o.endTime,
-              revealAt(cumulative),
-              o.endTime + 180,
-              accent,
+              o.time - preempt,
+              o.endTime + 240,
+              [accent[0], accent[1], accent[2], o.repeats],
               12,
-              0,
+              SLIDER_BODY,
               segment.angle,
               segment.before,
               segment.after,
               "",
               sliderStyle.border,
-              next ? revealAt(cumulative + next.length) : -1e9,
-              0,
+              segment.from,
+              segment.to,
               custom,
             );
           }
           bodies[1] = values.length / 24;
           continue;
         }
-        let cumulative = 0;
-        for (let i = 1; i < o.path.length; i++) {
-          const a = o.path[i - 1],
-            b = o.path[i],
-            len = Math.hypot(b.x - a.x, b.y - a.y);
-          cumulative += len;
-          const reveal =
-            o.time -
-            preempt +
-            (options.snakingIn === false
-              ? 0
-              : Math.min(1, cumulative / Math.max(1, o.length)) *
-                preempt *
-                0.4);
-          add(
-            (a.x + b.x) / 2 - offset,
-            (a.y + b.y) / 2 - offset,
-            len + radius * 2,
-            radius * 2,
-            o.time,
-            o.endTime,
-            reveal,
-            o.endTime + 180,
-            border,
-            2,
-            0,
-            Math.atan2(b.y - a.y, b.x - a.x),
-            0,
-            0,
-            "",
-            radius,
-          );
-          add(
-            (a.x + b.x) / 2 - offset,
-            (a.y + b.y) / 2 - offset,
-            len + radius * 1.75,
-            radius * 1.75,
-            o.time,
-            o.endTime,
-            reveal,
-            o.endTime + 180,
-            trackOverride ?? [
-              colour[0] * 0.3,
-              colour[1] * 0.3,
-              colour[2] * 0.3,
+        // The flat look: a border capsule, then a body capsule, per segment,
+        // blended in order; clipped and faded like the skinned bodies.
+        for (const segment of bodySegments(o.path, radius)) {
+          const { a, b } = segment;
+          for (const [size, tint, p] of [
+            [radius * 2, border, radius],
+            [
+              radius * 1.75,
+              trackOverride ?? [
+                colour[0] * 0.3,
+                colour[1] * 0.3,
+                colour[2] * 0.3,
+              ],
+              radius * 0.875,
             ],
-            2,
-            0,
-            Math.atan2(b.y - a.y, b.x - a.x),
-            0,
-            0,
-            "",
-            radius * 0.875,
-          );
+          ] as const)
+            add(
+              (a.x + b.x) / 2 - offset,
+              (a.y + b.y) / 2 - offset,
+              segment.length + size,
+              size,
+              o.time,
+              o.endTime,
+              o.time - preempt,
+              o.endTime + 240,
+              [tint[0], tint[1], tint[2], o.repeats],
+              2,
+              SLIDER_BODY,
+              segment.angle,
+              size / 2,
+              size / 2,
+              "",
+              p,
+              segment.from,
+              segment.to,
+            );
         }
       }
     for (let index = map.objects.length - 1; index >= 0; index--) {
@@ -756,7 +800,8 @@ export function compileScene(
       circle(o, x, y, radius, colour);
       digits(o, x, y);
       // DrawableSlider: the ball and follow circle sit above the head circle.
-      if (o.type & 2) sliderBall(add, o, offset, colour, regions, skin, radius, preempt);
+      if (o.type & 2)
+        sliderBall(add, o, offset, colour, regions, skin, radius, preempt);
       add(
         x,
         y,
@@ -905,10 +950,13 @@ export function compileScene(
     // replay's input each press lights it until the release, then it fades and
     // shrinks to its bottom over 250 ms.
     const lights = new Marks(values, regions);
-    const pressed = options.input ? pressIntervals(options.input, keys) : undefined;
+    const pressed = options.input
+      ? pressIntervals(options.input, keys)
+      : undefined;
     for (const [lane, column] of columns.entries())
       if (column.light && pressed) {
-        if (options.hitLighting === false || column.light.colour[3] <= 0) continue;
+        if (options.hitLighting === false || column.light.colour[3] <= 0)
+          continue;
         const light = column.light;
         for (const { start, end } of pressed[lane])
           lights.put({
@@ -1140,7 +1188,9 @@ export function compileScene(
         until = Math.max(until, data[i * 24 + 7]);
       }
       chunks.push(
-        body ? { first, count: n, from, until, bodies: true } : { first, count: n, from, until },
+        body
+          ? { first, count: n, from, until, bodies: true }
+          : { first, count: n, from, until },
       );
     }
   return {

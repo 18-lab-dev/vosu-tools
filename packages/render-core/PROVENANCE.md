@@ -170,9 +170,17 @@ pass and samples the same RGBA8 profile in the shader, so stacked capsules no
 longer blend into bands. Each quad covers only the pixels its segment can be
 nearest to (`bodySegments` in `src/scene.ts`: the segment's rectangle, reaching
 radius · sin(θ / 2) past a joint turning by θ and the full radius past the
-path's ends and the snaking head), so a pixel is drawn by a few quads rather
-than by every capsule within a radius of it; `test/body-segments.test.ts`
-checks the coverage.
+path's ends), so a pixel is drawn by a few quads rather than by every capsule
+within a radius of it; `test/body-segments.test.ts` checks the coverage.
+
+What part of the body shows, and its alpha, follow osu!lazer 2026.1005.0's
+`SnakingSliderBody.UpdateProgress` and `DrawableSlider`'s transforms
+(`sliderBodyRange` in `src/scene.ts`, the same in the shader for kind
+`SLIDER_BODY`): the whole body fades in once over `TimeFadeIn`, the path is
+cut where it snakes in to and, on the last span, where the ball is when
+snaking out, and each segment's quad is clipped to that cut with a round cap
+there, as `GetPathToProgress` shortens lazer's path. The golden slider bodies
+include snaking-in and snaking-out times.
 
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never

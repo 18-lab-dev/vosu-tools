@@ -48,6 +48,24 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  let corners=array<vec2f,6>(vec2f(-0.5,-0.5),vec2f(0.5,-0.5),vec2f(-0.5,0.5),vec2f(-0.5,0.5),vec2f(0.5,-0.5),vec2f(0.5,0.5));
  let now=g.viewport.x;let kind=u32(motion.x);let mode=u32(g.viewport.w);var centre=geometry.xy;var size=geometry.zw;var alpha=tint.a;var angle=0.0;var bodyV=1.0;
  if(now<life.z||now>life.w){alpha=0.0;}
+ // Slider body segments (scene.ts sliderBodyRange, lazer's DrawableSlider and
+ // SnakingSliderBody): the body's fade, and the part of the path [lo, hi] it
+ // shows; each segment is clipped to it. shape.zw: the segment's ends as path
+ // progress; tint.a: the span count; motion.zw: reach past interior joints.
+ var bodyA=0.0;var bodyB=0.0;var bodyBefore=0.0;var bodyAfter=0.0;
+ if(kind==42u){let start=life.x;let end=life.y;let preempt=g.timing.z;let appear=start-preempt;let flags=u32(g.extra.z);let snakeIn=(flags&1u)!=0u;let snakeOut=(flags&2u)!=0u;
+  alpha=clamp((now-appear)/(400.0*min(1.0,preempt/450.0)),0.0,1.0);
+  if(now>end){alpha*=clamp(1.0-(now-end)/240.0,0.0,1.0);if(snakeOut){alpha*=clamp(1.0-(now-end)/40.0,0.0,1.0);}}
+  let spans=max(1.0,tint.a);let progress=clamp((now-start)/max(0.001,end-start),0.0,1.0);let span=floor(progress*spans);
+  var p=fract(progress*spans);if(u32(span)%2u==1u){p=1.0-p;}
+  var lo=0.0;var hi=select(1.0,clamp((now-appear)/(preempt/3.0),0.0,1.0),snakeIn);
+  if(span>=spans-1.0){if(u32(min(span,spans-1.0))%2u==1u){lo=0.0;hi=select(1.0,p,snakeOut);}else{lo=select(0.0,p,snakeOut);}}
+  let first=min(lo,hi);let last=max(lo,hi);let s0=shape.z;let s1=shape.w;let a=max(s0,first);let b=min(s1,last);
+  if(a>b){alpha=0.0;}
+  let half=(geometry.z-geometry.w)*0.5;let span01=max(s1-s0,0.000001);
+  bodyA=-half+2.0*half*clamp((a-s0)/span01,0.0,1.0);bodyB=-half+2.0*half*clamp((b-s0)/span01,0.0,1.0);
+  // The path's own ends (and the snaking cut) get a round cap of the radius.
+  bodyBefore=select(motion.z,geometry.w*0.5,first>=s0);bodyAfter=select(motion.w,geometry.w*0.5,last<=s1);}
  if(kind==1u){centre.y=motion.w-(motion.y-g.timing.y)*g.timing.x-size.y*0.5;if(life.y>life.x){centre.y=min(centre.y,motion.w-size.y*0.5);}else if(now>life.x){alpha=0.0;} }
  if(kind==2u || kind==14u){let tailLine=motion.w-(motion.z-g.timing.y)*g.timing.x;let headLine=motion.w-(motion.y-g.timing.y)*g.timing.x;let top=tailLine-geometry.w;let bottom=min(headLine,motion.w)-geometry.y;let full=headLine-geometry.y-top;let span=select(full,max(full,20500.0),kind==14u);centre.y=(top+bottom)*0.5;size.y=max(0.0,bottom-top);bodyV=size.y/max(0.0001,span);}
  if(kind==22u){centre.y=motion.w-(motion.y-g.timing.y)*g.timing.x-geometry.y;if(now>life.x){alpha*=clamp(1.0-(now-life.x)/150.0,0.0,1.0);}}
@@ -179,12 +197,12 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(kind==10u){size*=clamp((life.y-now)/max(1.0,life.y-life.x),0.0,1.0);}
  if(kind>=11u && kind<=13u){let pressed=(u32(select(g.keys.x,g.extra.y,kind!=13u))&(1u<<u32(motion.y)))!=0u;if((kind==11u && pressed) || (kind!=11u && !pressed)){alpha=0.0;}}
  if(kind==18u || kind==19u){let bit=1u<<u32(motion.y);let pressed=(u32(g.keys.x)&bit)!=0u;let held=(u32(g.keys.y)&bit)!=0u;if(!pressed || (kind==18u && held) || (kind==19u && !held)){alpha=0.0;}}
- if(mode==0u && life.z > -1e8 && kind!=5u && kind!=35u && kind!=37u && kind!=40u && kind!=41u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
+ if(mode==0u && life.z > -1e8 && kind!=5u && kind!=42u && kind!=35u && kind!=37u && kind!=40u && kind!=41u){alpha*=clamp((now-life.z)/min(400.0,g.timing.z*0.4),0.0,1.0);if(now>life.y){alpha*=clamp(1.0-(now-life.y)/180.0,0.0,1.0);}}
  if(mode!=0u && life.z > -1e8 && now>life.y && kind!=35u){alpha*=clamp(1.0-(now-life.y)/120.0,0.0,1.0);}
  if(g.flags.x>0.0 && life.z > -1e8 && kind!=35u && kind!=37u && kind!=40u && kind!=41u){if(mode==0u){alpha*=clamp((life.x-now-g.timing.z*0.3)/(g.timing.z*0.3),0.0,1.0);}else if(mode==3u){alpha*=clamp((motion.w-centre.y-motion.w*0.15)/(motion.w*0.25),0.0,1.0);}else if(kind==3u || kind==4u || kind==24u){alpha*=clamp((life.x-now)/400.0,0.0,1.0);}}
  if(g.flags.y>0.0 && mode==3u && life.z > -1e8 && kind!=35u){alpha*=clamp((centre.y-motion.w*0.3)/(motion.w*0.3),0.0,1.0);}
  if(g.flags.z>0.0 && mode==3u){centre.y=384.0-centre.y;}
- if((kind==0u && (shape.x==2.0 || shape.x==12.0)) || shape.x==3.0){angle=motion.y;}
+ if(kind==42u || shape.x==3.0){angle=motion.y;}
  var code=shape.x;var flipV=false;let up=g.flags.z>0.0 && mode==3u;if(shape.x>=40.0){flipV=(shape.x==40.0 && up) || (shape.x==41.0 && !up);code=select(10.0,13.0,shape.x==42.0);}
  // Frame table: (uv) then (a, b, layer, stride) per entry; [a, b] are the image rows an entry (one strip of a tall image) holds.
  // An animated instance's uv slot carries a centred crop as (_, _, -w, -h) fractions (strips crop horizontally only).
@@ -193,10 +211,10 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);
  var local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);var corner=corners[index]*2.0;
- // Slider body segments (scene.ts bodySegments): the quad reaches motion.z
- // before the segment and motion.w after it (the radius until shape.z, while
- // the next segment is hidden); \`local\` keeps the capsule's own units.
- if(kind==0u && shape.x==12.0){let half=size.x*0.5;let reach=half-size.y*0.5;let after=select(motion.w,size.y*0.5,now<shape.z);local.x=mix(-reach-motion.z,reach+after,corners[index].x+0.5);corner.x=local.x/half;}
+ // Slider body segments (scene.ts bodySegments): the quad covers the shown
+ // part [bodyA, bodyB] of the segment, reaching bodyBefore / bodyAfter past
+ // it; \`local\` keeps the clipped capsule's own units (centre, length).
+ if(kind==42u){let r=size.y*0.5;let mid=(bodyA+bodyB)*0.5;let reach=(bodyB-bodyA)*0.5;local.x=mix(bodyA-bodyBefore,bodyB+bodyAfter,corners[index].x+0.5);corner.x=(local.x-mid)/(reach+r);size.x=2.0*(reach+r);}
  let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
  let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point+vec2f(0.0,select(0.0,g.extra.x,mode==0u))-vec2f(256.0,192.0))*scale;
  let row=select(t,1.0-t,flipV)*bodyV;let stripV=(row-rows.x)/max(0.000001,rows.y-rows.x);

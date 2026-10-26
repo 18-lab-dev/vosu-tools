@@ -13,7 +13,7 @@
  * from the fixture (`lazerPixel`), for tests/slider_bodies_e2e.py: the GPU
  * rasteriser's own output, which the CPU golden test cannot see.
  */
-import { parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
+import { parseOsu, pathPosition, type Beatmap } from "@vosu-tools/osu-parse";
 import { demo, type DemoId } from "@vosu-tools/demo-maps";
 import {
   builtinLook,
@@ -157,7 +157,7 @@ const bytesToBase64 = (bytes: Uint8Array) => {
 
 interface BodyResult {
   name: string;
-  /** Body pixels compared (head and tail circles and tick dots left out). */
+  /** Pixels of lazer's body compared. */
   pixels: number;
   /** Largest channel error per pixel, 0-255: mean, 99th percentile, max. */
   mean: number;
@@ -165,11 +165,31 @@ interface BodyResult {
   max: number;
 }
 
+/** A 1×1 transparent PNG. */
+const blank = (() => {
+  const canvas = new OffscreenCanvas(1, 1);
+  canvas.getContext("2d");
+  return canvas.convertToBlob({ type: "image/png" });
+})();
+
+/**
+ * Every skin image the loader asks for, but no animation frames, comes back
+ * blank: hit circles, approach circles, the slider ball and follow circle,
+ * reverse arrows, ticks and the circles' digits all draw nothing, so only
+ * the slider body is left, as in the golden (lazer's paths alone).
+ */
+function blankImage(name: string): Promise<Blob> | null {
+  const file = name.toLowerCase();
+  if (!file.endsWith(".png")) return null;
+  const frame = /(-\d+|^sliderb\d+)(@2x)?\.png$/.test(file);
+  return frame && !/^default-\d(@2x)?\.png$/.test(file) ? null : blank;
+}
+
 /**
  * One golden case drawn by this backend, against lazer: premultiplied RGB
- * over black on both sides, over the body's pixels away from the head and
- * tail circles (render-core draws them, the golden does not) and from tick
- * dots (pixels this side draws near white).
+ * over black on both sides, over every pixel of lazer's body, with the skin's
+ * images blank so nothing but the body is drawn (`blankImage`) except the
+ * untextured ring render-core puts on the slider's end, which is left out.
  */
 async function bodyCase(c: SliderBodyCase): Promise<BodyResult> {
   const width = 1920,
@@ -178,7 +198,11 @@ async function bodyCase(c: SliderBodyCase): Promise<BodyResult> {
     ini = (fixture.skins as Record<string, string | null>)[c.skin];
   const { skin } = await loadPlayfieldSkin(
     async (name) =>
-      name.toLowerCase() === "skin.ini" && ini ? new Blob([ini]) : null,
+      name.toLowerCase() === "skin.ini"
+        ? ini
+          ? new Blob([ini])
+          : null
+        : blankImage(name),
     c.skin,
   );
   const map = parseOsu((fixture.maps as Record<string, string>)[c.map]);
@@ -191,11 +215,18 @@ async function bodyCase(c: SliderBodyCase): Promise<BodyResult> {
   target.destroy();
   const path = c.paths[0],
     v = path.vertices,
-    ends = [
-      [v[0], v[1]],
-      [v[v.length - 2], v[v.length - 1]],
-    ],
     reach = path.radius + 2;
+  // The case's slider (on screen from 600 ms before it, AR 9) and its end in
+  // lazer's game space.
+  const slider = map.objects.find(
+      (o) => c.time >= o.time - 600 && c.time <= o.endTime,
+    )!,
+    end = pathPosition(slider.path, slider.repeats % 2 ? 1 : 0),
+    [x0, y0, x1, , , y2] = c.playfield,
+    tail = [
+      x0 + (end.x / 512) * (x1 - x0),
+      y0 + (end.y / 384) * (y2 - y0),
+    ] as const;
   let left = Infinity,
     top = Infinity,
     right = -Infinity,
@@ -220,12 +251,10 @@ async function bodyCase(c: SliderBodyCase): Promise<BodyResult> {
     ) {
       const gx = (px + 0.5) / scale,
         gy = (py + 0.5) / scale;
-      if (ends.some(([x, y]) => Math.hypot(gx - x, gy - y) < path.radius * 1.6))
-        continue;
+      if (Math.hypot(gx - tail[0], gy - tail[1]) < path.radius * 1.15) continue;
       lazerPixel(c.paths, gx, gy, lazer);
       if (Math.max(...lazer) <= 0) continue;
       const at = (py * width + px) * 4;
-      if (Math.max(pixels[at], pixels[at + 1], pixels[at + 2]) >= 230) continue;
       errors.push(
         Math.max(
           ...[0, 1, 2].map((k) =>

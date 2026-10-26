@@ -242,6 +242,7 @@ function renderOptions(): RenderOptions {
     hitLighting: game.visual.hitLighting ?? undefined,
     beatmapColours: game.visual.beatmapColours ?? undefined,
     snakingIn: game.visual.snakingIn ?? undefined,
+    snakingOut: game.visual.snakingOut ?? undefined,
     // lazer normalises combo colours (the shared default, 0.2); stable does not.
     comboColourNormalisation:
       game.visual.comboColourNormalisation ??

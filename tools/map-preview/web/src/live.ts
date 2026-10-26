@@ -32,6 +32,7 @@ export interface GameState {
     hitLighting: boolean | null;
     beatmapColours: boolean | null;
     snakingIn: boolean | null;
+    snakingOut: boolean | null;
     /** lazer's combo colour normalisation (0-1); null on stable or when unknown. */
     comboColourNormalisation: number | null;
   };
@@ -87,6 +88,7 @@ export function emptyState(): GameState {
       hitLighting: null,
       beatmapColours: null,
       snakingIn: null,
+      snakingOut: null,
       comboColourNormalisation: null,
     },
     skinFolder: null,
@@ -144,6 +146,7 @@ export function applyField(
       const visual = record(value);
       state.visual.hitLighting = bool(visual.hitLighting);
       state.visual.snakingIn = bool(visual.snakingInSliders);
+      state.visual.snakingOut = bool(visual.snakingOutSliders);
       const amount = visual.comboColourNormalisation;
       state.visual.comboColourNormalisation =
         typeof amount === "number" && Number.isFinite(amount)

@@ -7,8 +7,9 @@ backend parity page, then run:
   (cd tools/map-preview/web && bunx vite build --config ../tests/parity/vite.config.ts --outDir /tmp/mp-parity-dist)
   uv run --with playwright python tools/map-preview/tests/slider_bodies_e2e.py /tmp/mp-parity-dist EVIDENCE_DIR
 
-Each of the 24 golden slider bodies (tight S curves, loops, repeats; CS 4 and
-6; a skin's slider colours and the classic skin) is drawn by both backends at
+Each of the 72 golden slider bodies (tight S curves, loops, repeats; CS 4 and
+6; a skin's slider colours and the classic skin; fully shown, snaking in while
+fading in, and snaking out) is drawn by both backends at
 1920x1080 and compared per pixel with lazer's, rebuilt from the fixture: the
 body's mean error must stay under 2/255 and its 99th percentile under 16/255.
 MAP_PREVIEW_RASTERISER=swiftshader runs Chromium on SwiftShader (no GPU), as
@@ -89,7 +90,7 @@ def main():
     (evidence / 'slider-bodies.json').write_text(json.dumps(results, indent=2) + '\n')
     failed = []
     for backend, cases in results.items():
-        assert len(cases) == 24, f'{backend}: {len(cases)} cases'
+        assert len(cases) == 72, f'{backend}: {len(cases)} cases'
         for c in cases:
             print(f"{backend:7} {c['name']:30} {c['pixels']:7} px  mean {c['mean']:5.2f}  p99 {c['p99']:3}  max {c['max']:3}")
             if c['pixels'] < 2000 or c['mean'] >= MEAN or c['p99'] >= P99:
@@ -97,7 +98,7 @@ def main():
     if failed:
         raise SystemExit(f'slider bodies differ from lazer: {", ".join(failed)}')
     rasteriser = 'SwiftShader' if SWIFTSHADER else 'the GPU'
-    print(f'slider bodies e2e passed on {rasteriser}: 24 cases x 2 backends; evidence in {evidence}')
+    print(f'slider bodies e2e passed on {rasteriser}: 72 cases x 2 backends; evidence in {evidence}')
 
 
 if __name__ == '__main__':
