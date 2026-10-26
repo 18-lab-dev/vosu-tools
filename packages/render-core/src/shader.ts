@@ -8,7 +8,24 @@ struct Globals { viewport:vec4f, timing:vec4f, cursor:vec4f, keys:vec4f, flags:v
 @group(0) @binding(3) var frameTable:texture_2d<f32>;
 // The frame table (skin.ts buildAtlas): two texels per entry, FRAME_TABLE_WIDTH texels per row.
 fn frameUV(i:u32)->vec4f{return textureLoad(frameTable,vec2u(i%${FRAME_TABLE_WIDTH}u,i/${FRAME_TABLE_WIDTH}u),0);}
-struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32 }
+struct Vertex { @builtin(position) position:vec4f, @location(0) local:vec2f, @location(1) colour:vec4f, @location(2) uv:vec2f, @location(3) shape:vec4f, @location(4) world:vec2f, @location(5) region:vec4f, @location(6) @interpolate(flat) layer:u32, @location(7) @interpolate(flat) band:vec2f }
+// A slider body's colour (straight RGBA) at \`p\` from the edge (0) to the
+// centre (1), as the clients' ColourAt: LegacySliderBody (shadow, border, then
+// darkened to lightened accent mixed in sRGB), DrawableSliderPath (border,
+// fading accent; triangles) or Argon's (border, darkened accent).
+fn bodyColour(p:f32,profile:f32,border:f32,bodyAlpha:f32,accent:vec3f,edge:vec3f)->vec4f{
+ let f=clamp((p-border)/max(0.0001,1.0-border),0.0,1.0);
+ if(profile<1.5){if(p<=0.078125){return vec4f(0.0,0.0,0.0,0.25*p/0.078125);}if(p<=border){return vec4f(edge,1.0);}return vec4f(mix(accent/1.1,min(vec3f(1.0),accent*1.125+0.25),f),bodyAlpha);}
+ if(p<=border){return vec4f(edge,1.0);}
+ if(profile<2.5){return vec4f(accent,(0.8-0.5*f)*bodyAlpha);}
+ return vec4f(accent/5.0,bodyAlpha);}
+// SmoothPath's texture of that profile: \`width\` RGBA8 texels at i/(width-1),
+// the outermost 2% faded in, sampled linearly at \`t\` (sh_Path.fs).
+fn bodyTexel(i:f32,width:f32,profile:f32,border:f32,bodyAlpha:f32,accent:vec3f,edge:vec3f)->vec4f{
+ let p=i/(width-1.0);let c=bodyColour(p,profile,border,bodyAlpha,accent,edge);
+ return round(clamp(vec4f(c.rgb,c.a*min(p/0.02,1.0)),vec4f(0.0),vec4f(1.0))*255.0)/255.0;}
+// A slider body capsule (shape 12): distance from its segment, in body radii.
+fn capsuleR(v:Vertex)->f32{let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);return length(q);}
 fn easeOut(t:f32)->f32{return 1.0-(1.0-t)*(1.0-t);}
 fn easeOutQuint(t:f32)->f32{let u=1.0-t;return 1.0-u*u*u*u*u;}
 // SpinnerRotationTracker's damped rotation (half-life base 0.99 per ms) of
@@ -178,10 +195,10 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  // FadeColour / FlashColour mix in linear light.
  if(mixRgb>0.0){let a=select(pow((fromRgb+0.055)/1.055,vec3f(2.4)),fromRgb/12.92,fromRgb<=vec3f(0.04045));let b=select(pow((toRgb+0.055)/1.055,vec3f(2.4)),toRgb/12.92,toRgb<=vec3f(0.04045));let mixed=mix(a,b,mixRgb);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
  else if(kind==37u){rgb=fromRgb;}
- if(kind==40u){rgb=vec3f(1.0);}result.colour=vec4f(rgb,alpha);result.uv=vec2f(selected.x+(corners[index].x+0.5)*selected.z,selected.y+stripV*selected.w);result.layer=layer;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;return result;
+ if(kind==40u){rgb=vec3f(1.0);}result.colour=vec4f(rgb,alpha);result.uv=vec2f(selected.x+(corners[index].x+0.5)*selected.z,selected.y+stripV*selected.w);result.layer=layer;result.shape=vec4f(code,size.x/max(0.01,size.y),shape.y,f32(kind));result.world=point;result.region=selected;result.band=vec2f(life.x-now,max(2.0,floor(geometry.w*0.5)*2.0));return result;
 }
-@fragment fn fs(v:Vertex)->@location(0) vec4f{
- let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);
+fn shade(v:Vertex)->vec4f{
+ let shape=u32(v.shape.x);let d=length(v.local);var colour=v.colour;var coverage=1.0;let aa=max(fwidth(d),0.005);let capsuleT=1.0-capsuleR(v);
  if(u32(g.viewport.w)==3u && (v.world.y< -48.0 || v.world.y>432.0)){discard;}
  if(u32(g.viewport.w)==1u && (u32(v.shape.w)==3u || u32(v.shape.w)==4u || u32(v.shape.w)==32u || u32(v.shape.w)==36u) && v.world.x<g.timing.w){discard;}
  if(shape==0u){coverage=1.0-smoothstep(1.0-aa,1.0,d);colour=vec4f(colour.rgb*(0.75+0.25*clamp(1.0-v.local.y,0.0,1.0)),colour.a);}
@@ -193,15 +210,24 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(shape==8u){let outer=length(v.local-vec2f(-0.15,-0.3));let inner=length(v.local-vec2f(0.15,-0.5));coverage=(1.0-smoothstep(1.0-aa,1.0,outer))*smoothstep(0.74-aa,0.74,inner);}
  if(shape==9u){coverage=1.0-smoothstep(1.0-aa,1.0,d);let rim=smoothstep(0.72,0.78,d);colour=vec4f(mix(vec3f(0.86,0.65,0.5),vec3f(0.45,0.48,0.5),rim),colour.a);if(abs(v.local.x)<0.025){colour=vec4f(0.2,0.2,0.2,colour.a);}}
  if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,v.layer,0.0);let base=select(tex.rgb,vec3f(max(tex.r,max(tex.g,tex.b))),colour.r<0.0);colour=vec4f(base*abs(colour.rgb),tex.a*colour.a);}
- if(shape==12u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);let r=length(q);coverage=1.0-smoothstep(1.0-aa,1.0,r);
-  let shadowPass=v.shape.z>5.0;let border=select(abs(v.shape.z),v.shape.z-10.0,shadowPass);let profile=floor(v.region.w/10.0+0.0001);let bodyAlpha=v.region.w-profile*10.0;let accent=colour.rgb;var c=v.region.rgb;var a=1.0;let shadow=0.078125;
-  if(v.shape.z<0.0){let t=1.0-r*(1.0-border);let f=clamp((t-border)/max(0.0001,1.0-border),0.0,1.0);
-   if(profile<1.5){c=mix(accent/1.1,min(vec3f(1.0),accent*1.125+0.25),f)*bodyAlpha;}else if(profile<2.5){c=accent*(0.8-0.5*f)*bodyAlpha;}else{c=accent/5.0*bodyAlpha;}}
-  else if(shadowPass){let t=1.0-r;c=vec3f(0.0);a=0.25*clamp(t/shadow,0.0,1.0);coverage*=1.0-smoothstep(shadow,shadow+0.02,t);}
-  else{let t=1.0-r;if(profile<1.5){coverage*=smoothstep(shadow-0.005,shadow+0.005,t);}coverage*=1.0-smoothstep(border+0.01,border+0.03,t);}
-  colour=vec4f(c,colour.a*a);}
+ // Slider bodies (shape 12, one capsule per path segment): osu!framework's
+ // Path colours each pixel by its distance from the nearest segment (t = 1 -
+ // distance / radius), looked up in the path's texture; a capsule only shades
+ // the pixels it is nearest to (fs_slider's depth). band.y: texture width.
+ if(shape==12u){let t=clamp(capsuleT,0.0,1.0);let width=v.band.y;
+  let border=v.shape.z;let profile=floor(v.region.w/10.0+0.0001);let bodyAlpha=v.region.w-profile*10.0;
+  let x=clamp(t*width-0.5,0.0,width-1.0);let i=floor(x);
+  let c=mix(bodyTexel(i,width,profile,border,bodyAlpha,colour.rgb,v.region.rgb),bodyTexel(min(i+1.0,width-1.0),width,profile,border,bodyAlpha,colour.rgb,v.region.rgb),x-i);
+  colour=vec4f(c.rgb,colour.a*c.a*select(0.0,1.0,capsuleT>0.0));}
  if(shape==11u){let spoke=pow(max(0.0,cos(atan2(v.local.y,v.local.x)*6.0)),8.0);coverage=(1.0-smoothstep(1.0-aa,1.0,d))*max(smoothstep(0.83,0.88,d),spoke*smoothstep(0.25,0.35,d));}
  if(g.cursor.z>0.0){coverage*=1.0-smoothstep(90.0,125.0,distance(v.world,g.cursor.xy));}
  let alpha=colour.a*coverage;if(alpha<0.002){discard;}if(shape==13u){return vec4f(colour.rgb*alpha,0.0);}return vec4f(colour.rgb*alpha,alpha);
 }
+@fragment fn fs(v:Vertex)->@location(0) vec4f{return shade(v);}
+// Slider bodies are drawn twice: a depth-only pass keeps, per pixel, the
+// capsule nearest its segment (later sliders above earlier ones), then the
+// colour pass shades only where its depth is equal, so every pixel of a body
+// is painted once, by the segment it is nearest to.
+struct SliderFragment { @location(0) colour:vec4f, @builtin(frag_depth) depth:f32 }
+@fragment fn fs_slider(v:Vertex)->SliderFragment{var out:SliderFragment;out.colour=shade(v);out.depth=clamp(0.5-(v.band.x+0.5*clamp(1.0-capsuleR(v),0.0,1.0))/40000.0,0.0,1.0);return out;}
 `;

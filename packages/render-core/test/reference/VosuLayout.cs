@@ -17,7 +17,15 @@
 // with its texture (lookup name, display and pixel size, wrap modes, the
 // sprite's texture rectangle), draw colour, alpha, blending, the nearest
 // masking ancestor and the chain of parent types. test/layoutGolden.ts
-// compares render-core against that output.
+// compares render-core against that output. With `Paths`, every visible
+// osu!framework Path (slider bodies) is also written: its vertices and radius
+// in the same coordinates, the composite alpha, and its texture's texels as
+// SmoothPath builds them (RGBA bytes, from the edge to the centre).
+// osu!framework draws a path as the union of its segments' capsules: a
+// prepass keeps, per pixel, the largest `1 - distance / radius` over all
+// segments (MAX blending into an R16F buffer), and the composite samples the
+// path texture there (sh_PathPrepass.fs, sh_Path.fs), which
+// test/sliderBodyGolden.ts reproduces on the CPU.
 //
 // Cases with `From` seek there, then advance in 60 Hz frames to `Time`, so
 // input-driven drawables (the taiko drum, catcher trails, the cursor) see
@@ -38,6 +46,7 @@ using osu.Framework.Allocation;
 using osu.Framework.Audio;
 using osu.Framework.Graphics;
 using osu.Framework.Graphics.Containers;
+using SmoothPath = osu.Framework.Graphics.Lines.SmoothPath;
 using osu.Framework.Graphics.Primitives;
 using osu.Framework.Graphics.Rendering;
 using osu.Framework.Graphics.Shapes;
@@ -63,6 +72,7 @@ using osu.Game.Rulesets.UI;
 using osu.Game.Scoring;
 using osu.Game.Skinning;
 using osuTK;
+using osuTK.Graphics;
 
 namespace osu.Game.Tests.Visual
 {
@@ -83,6 +93,7 @@ namespace osu.Game.Tests.Visual
             public bool MapColours;
             public double? From;
             public bool Frames;
+            public bool Paths;
         }
 
         private class Spec
@@ -245,9 +256,40 @@ namespace osu.Game.Tests.Visual
                 });
             }
 
+            var paths = new List<object>();
+            var colourAt = typeof(SmoothPath).GetMethod("ColourAt", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+            foreach (var path in c.Paths ? drawableRuleset.ChildrenOfType<SmoothPath>() : Enumerable.Empty<SmoothPath>())
+            {
+                float alpha = path.FrameBufferDrawColour?.Colour.AverageColour.Linear.A ?? 0;
+                if (!path.IsPresent || alpha <= 0.001f || path.Vertices.Count == 0) continue;
+
+                Vector2 point(Vector2 v) => space.ToLocalSpace(path.ToScreenSpace(path.PositionInBoundingBox(v)));
+                var origin = point(path.Vertices[0]);
+                // SmoothPath.validateTexture: `width` texels, the edge's 2% faded in.
+                int width = (int)Math.Max(path.PathRadius, 1) * 2;
+                var texels = Enumerable.Range(0, width).Select(i =>
+                {
+                    float progress = (float)i / (width - 1);
+                    var colour = (Color4)colourAt.Invoke(path, new object[] { progress })!;
+                    var texel = new SixLabors.ImageSharp.PixelFormats.Rgba32(colour.R, colour.G, colour.B, colour.A * Math.Min(progress / 0.02f, 1));
+                    return new int[] { texel.R, texel.G, texel.B, texel.A };
+                }).ToArray();
+
+                paths.Add(new
+                {
+                    type = path.GetType().Name,
+                    alpha,
+                    radius = (point(path.Vertices[0] + new Vector2(path.PathRadius, 0)) - origin).Length,
+                    vertices = path.Vertices.Select(point).SelectMany(v => new[] { v.X, v.Y }).ToArray(),
+                    texels,
+                });
+            }
+
             return new
             {
                 name = c.Name,
+                paths,
                 size = new[] { c.Width, c.Height },
                 playfield = local(drawableRuleset.Playfield.ScreenSpaceDrawQuad),
                 items,

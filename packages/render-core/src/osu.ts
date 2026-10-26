@@ -473,6 +473,20 @@ interface Piece {
  * The ball's path over the slider (`DrawableSliderBall.UpdateProgress`),
  * one piece per path segment and span, in time order.
  */
+const float32 = new Float32Array(1),
+  float32Bits = new Uint32Array(float32.buffer);
+/**
+ * The float32 just below `time` as float32: the last moment a piece ending
+ * where the next begins is shown (the shader's lifetimes are inclusive).
+ */
+export function justBefore(time: number): number {
+  float32[0] = time;
+  if (float32[0] > 0) float32Bits[0]--;
+  else if (float32[0] < 0) float32Bits[0]++;
+  else return -Number.MIN_VALUE;
+  return float32[0];
+}
+
 function ballPieces(o: HitObject, offset: number): Piece[] {
   const pieces: Piece[] = [];
   for (let repeat = 0; repeat < o.repeats; repeat++) {
@@ -636,15 +650,15 @@ export function sliderBall(
         crop,
       );
     };
-    // Half-open pieces (0.5 ms survives float32 times), so neighbours never
-    // draw together.
+    // Half-open pieces, so neighbours never draw together and never leave a
+    // gap (instance lifetimes are float32).
     for (let k = 0; k < events.length - 1; k++) {
       const event = events[k],
         next = events[k + 1].time;
       for (const piece of pieces) {
         const from = Math.max(piece.start, event.time),
           until = Math.min(piece.end, next);
-        if (until > from) emit(piece, event, from, until, until - 0.5);
+        if (until > from) emit(piece, event, from, until, justBefore(until));
       }
     }
     // The end: in place, growing and fading while the slider fades (240 ms).
@@ -680,7 +694,7 @@ export function sliderBall(
         piece.start,
         piece.end,
         piece.start,
-        i < pieces.length - 1 ? piece.end - 0.5 : o.endTime - 0.5,
+        justBefore(i < pieces.length - 1 ? piece.end : o.endTime),
         colour,
         shape,
         kind,

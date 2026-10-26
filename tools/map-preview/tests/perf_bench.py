@@ -4,14 +4,15 @@
 Build the page, then run:
   (cd tools/map-preview/web && bunx vite build --config ../tests/perf/vite.config.ts --outDir /tmp/mp-perf-dist)
   uv run --with playwright python tools/map-preview/tests/perf_bench.py /tmp/mp-perf-dist SONGS SKINS [EVIDENCE_DIR] \
-    [--mania-only] [--mania-map=MAP.osu@START_MS] [NAME=SKIN_DIR ...]
+    [--mania-only] [--mania-map=MAP.osu@START_MS] [--osu-map=MAP.osu@START_MS] [NAME=SKIN_DIR ...]
 
 --query=css=1280x720 (or size=WxH) sizes the canvas like a stage of that CSS
 size (shared playfieldSize rule) or exactly; the default is 1920x1080.
 --query=backend=webgl2 (or webgpu) forces render-core's backend; joined with
 &, query parameters combine (--query=backend=webgl2&css=1280x720).
-NAME=SKIN_DIR adds a mania case with that skin folder; --mania-only skips the
-other rulesets; --mania-map replaces the mania map. Draw calls per frame and the renderer's texture memory are
+NAME=SKIN_DIR adds a mania and an osu! case with that skin folder;
+--mania-only skips the other rulesets; --mania-map and --osu-map
+(MAP.osu@START_MS) replace those maps. Draw calls per frame and the renderer's texture memory are
 reported too.
 
 Each case renders 600 measured frames at 1920x1080 (after 60 warm-up frames),
@@ -113,12 +114,13 @@ def main():
     extra = dict(a.split('=', 1) for a in sys.argv[1:] if '=' in a and not a.startswith('--'))
     dist, songs, skins = map(Path, args[:3])
     evidence = Path(args[3]) if len(args) > 3 else Path('/tmp/vosu-r3-evidence/ToolMapPreview')
-    override = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith('--mania-map=')), None)
-    if override:
-        path, _, start = override.rpartition('@')
-        MAPS['mania'] = (str(Path(path).parent), Path(path).name, int(start))
+    for ruleset in ('mania', 'osu'):
+        override = next((a.split('=', 1)[1] for a in sys.argv[1:] if a.startswith(f'--{ruleset}-map=')), None)
+        if override:
+            path, _, start = override.rpartition('@')
+            MAPS[ruleset] = (str(Path(path).parent), Path(path).name, int(start))
     cases = [c for c in CASES if c[0] == 'mania' or '--mania-only' not in sys.argv]
-    cases += [('mania', f'files:{name}') for name in extra]
+    cases += [(ruleset, f'files:{name}') for name in extra for ruleset in ('osu', 'mania') if ruleset == 'mania' or '--mania-only' not in sys.argv]
     evidence.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='map-preview-perf-') as directory:
         temp = Path(directory)
