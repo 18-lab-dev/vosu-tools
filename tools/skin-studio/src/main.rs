@@ -476,6 +476,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let uploads = env.data_dir.join("uploads");
     fs::create_dir_all(&uploads)?;
+    uploads::prune(&uploads, uploads::KEEP);
     let app = App {
         client: env.client(),
         http: reqwest::Client::new(),

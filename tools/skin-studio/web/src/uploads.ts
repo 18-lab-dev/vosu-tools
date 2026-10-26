@@ -73,6 +73,9 @@ export function checkDrop(files: readonly Dropped[]): {
       return errors.push(
         `${file.name} is ${(file.size / 1048576).toFixed(1)} MiB; at most 1 MiB`,
       );
+    const twin = named.find((f) => f.name.toLowerCase() === checked.name.toLowerCase());
+    if (twin)
+      return errors.push(`${file.name}: same name as ${twin.name} apart from case`);
     named.push({
       index,
       name: checked.name,

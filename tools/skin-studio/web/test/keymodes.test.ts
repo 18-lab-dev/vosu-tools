@@ -190,3 +190,12 @@ test("dropped files: names, types, sizes, @2x pairs and frame sequences", () => 
   expect(gap.images).toEqual([]);
   expect(gap.errors[0]).toContain("no -1");
 });
+
+test("names that differ only in case are one file: the second is refused", () => {
+  const { images, errors } = checkDrop([
+    { name: "Key.png", size: 1, head: PNG },
+    { name: "key.PNG", size: 1, head: PNG },
+  ]);
+  expect(images.map((i) => i.name)).toEqual(["Key"]);
+  expect(errors).toEqual(["key.PNG: same name as Key.png apart from case"]);
+});

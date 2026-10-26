@@ -397,7 +397,7 @@ export class KeymodesView {
       rail.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
     const add = $<HTMLSelectElement>("#km-add");
     add.replaceChildren(
-      h("option", { value: "" }, "Add key count…"),
+      h("option", { value: "" }, "+ Key count"),
       ...DRAWN.filter((k) => !counts.includes(k)).map((k) =>
         h("option", { value: String(k) }, `${k}K`),
       ),
@@ -958,8 +958,11 @@ export class KeymodesView {
       );
       return;
     }
+    // The files that failed stay reported after the valid one is assigned.
+    const rejected = $("#km-error").textContent ?? "";
     const [slot] = await this.#uploadImages(images, files);
     if (slot) this.#assign(key, slot, `Set ${this.#keyLabel(key)} from ${slot.name}`);
+    if (rejected) this.#error(rejected);
   }
 
   /** Sends dropped images to the service; the slots that name them. */

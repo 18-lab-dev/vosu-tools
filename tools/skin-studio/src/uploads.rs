@@ -108,10 +108,24 @@ fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
 
 /// Stores a checked image as `<group>/<name>` under `dir` and returns that
 /// name. The same bytes under the same name are kept; different bytes never
-/// replace a stored file.
+/// replace a stored file, and a name differing only in case from a stored
+/// one is refused (they would be one file on Windows and in osu!'s lookups).
+/// Every store marks the group as used now (see [`prune`]).
 pub fn store(dir: &Path, group: &str, name: &str, bytes: &[u8]) -> Result<String, Failure> {
     let folder = dir.join(group);
     fs::create_dir_all(&folder).map_err(failure)?;
+    // `.used` (no dropped name starts with a dot) records the last drop.
+    fs::write(folder.join(USED), []).map_err(failure)?;
+    for entry in fs::read_dir(&folder).map_err(failure)? {
+        let other = entry.map_err(failure)?.file_name();
+        let other = other.to_string_lossy();
+        if other != name && other.eq_ignore_ascii_case(name) && !other.starts_with(".tmp") {
+            return Err((
+                StatusCode::CONFLICT,
+                format!("{name} differs only in case from the dropped {other}."),
+            ));
+        }
+    }
     let path = folder.join(name);
     if let Ok(existing) = fs::read(&path) {
         return if existing == bytes {
@@ -129,6 +143,37 @@ pub fn store(dir: &Path, group: &str, name: &str, bytes: &[u8]) -> Result<String
     temp.persist_noclobber(&path)
         .map_err(|e| failure(e.error))?;
     Ok(format!("{group}/{name}"))
+}
+
+/// Marks when a drop group was last used.
+const USED: &str = ".used";
+/// How long dropped files are kept after their last drop. Mix drafts live in
+/// the page's storage, which the service cannot see; a draft naming a pruned
+/// file gets an error when it builds and the file can be dropped again.
+pub const KEEP: std::time::Duration = std::time::Duration::from_secs(90 * 24 * 60 * 60);
+
+/// Removes drop groups not used for `keep` (abandoned uploads); returns how
+/// many. Entries that are not groups are left alone.
+pub fn prune(dir: &Path, keep: std::time::Duration) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let stale = fs::metadata(entry.path().join(USED))
+            .or_else(|_| entry.metadata())
+            .and_then(|m| m.modified())
+            .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > keep));
+        if group(&name.to_string_lossy()).is_ok()
+            && entry.file_type().is_ok_and(|t| t.is_dir())
+            && stale
+            && fs::remove_dir_all(entry.path()).is_ok()
+        {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 #[cfg(test)]
@@ -207,5 +252,46 @@ mod tests {
                 .0,
             StatusCode::CONFLICT
         );
+    }
+
+    #[test]
+    fn case_collisions_and_size_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let group = "00000000000000aa";
+        store(dir.path(), group, "Note.png", &png(1, 1)).unwrap();
+        assert_eq!(
+            store(dir.path(), group, "note.PNG", &png(1, 1))
+                .unwrap_err()
+                .0,
+            StatusCode::CONFLICT
+        );
+        // @2x and frames are separate names in one group.
+        for name in ["Note@2x.png", "hold-0.png", "hold-1.png"] {
+            store(dir.path(), group, name, &png(1, 1)).unwrap();
+        }
+        assert_eq!(MAX_BYTES, 1024 * 1024);
+        for reserved in ["con.png", "Lpt9.JPG", "aux.jpeg"] {
+            assert!(name(reserved).is_err(), "{reserved}");
+        }
+    }
+
+    #[test]
+    fn abandoned_groups_are_pruned() {
+        let dir = tempfile::tempdir().unwrap();
+        store(dir.path(), "00000000000000aa", "old.png", &png(1, 1)).unwrap();
+        store(dir.path(), "00000000000000bb", "new.png", &png(1, 1)).unwrap();
+        fs::create_dir(dir.path().join("not-a-group")).unwrap();
+        let old = dir.path().join("00000000000000aa").join(USED);
+        let past = std::time::SystemTime::now() - KEEP - std::time::Duration::from_secs(60);
+        fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(past)
+            .unwrap();
+        assert_eq!(prune(dir.path(), KEEP), 1);
+        assert!(!dir.path().join("00000000000000aa").exists());
+        assert!(dir.path().join("00000000000000bb/new.png").exists());
+        assert!(dir.path().join("not-a-group").exists());
     }
 }
