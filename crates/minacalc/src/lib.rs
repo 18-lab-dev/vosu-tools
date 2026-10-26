@@ -30,17 +30,17 @@ unsafe extern "C" {
     ) -> i32;
 }
 
-/// Key counts with a dedicated MinaCalc 527 model and parameter set that this
-/// crate exposes (`TheGreatBazoinkazoinkInTheSky`, `TheSixEyedBazoinkazoink`,
-/// `TheSevenFootedBazoinkazoink`). Other counts fall back to the untuned generic
-/// `Bazoinkazoink` upstream and are refused here.
-pub const KEYS: [u32; 3] = [4, 6, 7];
+/// Key counts with a dedicated MinaCalc 527 model and parameter set
+/// (`TheGreatBazoinkazoinkInTheSky`, `TheFiveEaredBazoinkazoink`,
+/// `TheSixEyedBazoinkazoink`, `TheSevenFootedBazoinkazoink`). Other counts fall
+/// back to the untuned generic `Bazoinkazoink` upstream and are refused here.
+pub const KEYS: [u32; 4] = [4, 5, 6, 7];
 
-/// Whether MinaCalc 527 computes a technical base difficulty for `keys`. The 6K,
-/// 7K and generic models never fill `TechBase`, so their Technical output is a
-/// constant floor, not a rating.
+/// Whether MinaCalc 527 computes a technical base difficulty for `keys`. Only
+/// the 4K and 5K models fill `TechBase`; for 6K, 7K and the generic model the
+/// Technical output is a constant floor, not a rating.
 pub fn technical_modelled(keys: u32) -> bool {
-    keys == 4
+    keys == 4 || keys == 5
 }
 
 /// MinaCalc's names for its eight outputs at `keys`, in output order. Outside
@@ -230,18 +230,21 @@ mod tests {
     }
 
     #[test]
-    fn technical_is_not_modelled_outside_4k() {
+    fn technical_is_modelled_only_on_4k_and_5k() {
         let rows = dense(6, 6.0, 30.0);
         let out = calculate(&rows, 6, 1.0, None).unwrap();
         assert!(out[7] < 1.0, "6K technical is a floor value: {}", out[7]);
-        assert!(!technical_modelled(6) && !technical_modelled(7) && technical_modelled(4));
+        let five = calculate(&dense(5, 6.0, 30.0), 5, 1.0, None).unwrap();
+        assert!(five[7] > 1.0, "5K technical is rated: {}", five[7]);
+        assert!(!technical_modelled(6) && !technical_modelled(7));
+        assert!(technical_modelled(4) && technical_modelled(5));
         assert_eq!(skill_names(4)[2..4], ["jumpstream", "handstream"]);
         assert_eq!(skill_names(7)[2..4], ["chordstream", "bracketing"]);
     }
 
     #[test]
     fn unsupported_key_counts_are_refused() {
-        for keys in [1, 2, 3, 5, 8, 9, 10] {
+        for keys in [1, 2, 3, 8, 9, 10] {
             assert_eq!(
                 calculate(&dense(keys, 4.0, 10.0), keys, 1.0, None),
                 Err(Error::Invalid("key count"))

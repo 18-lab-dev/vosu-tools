@@ -33,15 +33,19 @@ Alternatives evaluated:
 `rosu-map =0.2.1` parses native mania with an integral CS of 1–18 (dual-stage
 included). Each calculator rates only the key counts its upstream supports and
 otherwise reports `unrated.<system> = {scope:"keys", reason}` instead of a value:
-MinaCalc 4K/6K/7K (this revision also contains 5K logic, not exposed), Quaver.API
+MinaCalc 4K–7K (one dedicated `Ulbu` model each; 5K is Etterna's pump/5K model), Quaver.API
 1K–10K (its `LaneToFinger`, including the 10K two-thumb layout), Interlude 3K–10K
 (`Layout.keys_on_left_hand`), osu!mania stars every key count, Reform 4K only.
 No calculator is ever run on another key count's model. See `KEYMODES.md`.
 
-MinaCalc 527 has no Technical model outside 4K (the 6K/7K/generic models never fill
-`TechBase`), so `msd.technical` is `null` there. Its `Chisel` search stops at 100
+MinaCalc 527 has a Technical model only on 4K and 5K (the 6K/7K/generic models
+never fill `TechBase`), so `msd.technical` is `null` elsewhere. Outside 4K the
+Jumpstream and Handstream slots hold its generic chordstream and bracketing
+models; upstream names them `Skill_Chordstream` and `Skill_Bracketing`
+(`GenericSkillset`), and so do the UI, CLI and timeline `skill_names`; the JSON
+keys stay `jumpstream`/`handstream`. Its `Chisel` search stops at 100
 and returns 0 for a skillset past that; non-4K outputs are then scaled by 4/keys,
-so 6K and 7K top out at 66.67 and 57.14 MSD. Past that, upstream returns 0 for the
+so 5K, 6K and 7K top out at 80, 66.67 and 57.14 MSD. Past that, upstream returns 0 for the
 skillset and NaN stamina (the cause of the old "MinaCalc failed (2)" rate-curve
 error on hard 7K charts). Such outputs are reported as `unrated.etterna =
 {scope:"rate"}` with the reason; rate curves and local-MSD timelines leave gaps.

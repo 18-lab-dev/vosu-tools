@@ -53,7 +53,7 @@ pub fn support(system: &str, keys: u32) -> Result<(), String> {
     let (ok, reason) = match system {
         "etterna" | "etterna-native" => (
             minacalc::KEYS.contains(&keys),
-            "MinaCalc 527 has dedicated models for 4K, 6K and 7K only",
+            "MinaCalc 527 has dedicated models for 4K–7K only",
         ),
         "quaver" => (
             (1..=10).contains(&keys),
@@ -160,7 +160,7 @@ impl Params {
     }
     pub fn key(self, checksum: &str) -> String {
         format!(
-            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:ratings3",
+            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:ratings4",
             self.rate_tick,
             self.score.map(f32::to_bits),
             quaver::REVISION,

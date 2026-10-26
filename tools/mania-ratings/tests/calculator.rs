@@ -102,7 +102,7 @@ fn demo_maps_rate_per_calculator_for_every_key_count() {
         expect("interlude", d.interlude.is_some());
         assert_eq!(
             d.msd.as_ref().map(|m| m.technical.is_some()),
-            d.msd.as_ref().map(|_| keys == 4),
+            d.msd.as_ref().map(|_| keys == 4 || keys == 5),
             "{keys}K technical"
         );
         if keys != 4 {
@@ -227,8 +227,8 @@ fn dan_interpolation_is_calibrated_and_not_extrapolated() {
 }
 
 #[test]
-fn nonempty_six_and_seven_key_calculation_and_score_endpoints() {
-    for keys in [4, 6, 7] {
+fn nonempty_five_six_and_seven_key_calculation_and_score_endpoints() {
+    for keys in [4, 5, 6, 7] {
         let source = include_str!("fixtures/cyclic.osu")
             .replace("CircleSize:4", &format!("CircleSize:{keys}"));
         for score in [0.0, 0.93, 1.0] {

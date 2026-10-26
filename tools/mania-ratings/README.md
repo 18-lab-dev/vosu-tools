@@ -8,11 +8,11 @@ Interfaces: **service + CLI + UI**. The background service computes and caches r
 
 ## What it shows
 
-- **Ratings per map**: MinaCalc 527 overall MSD with its seven skillsets (Stream, Jumpstream, Handstream, Stamina, Jack Speed, Chordjack, Technical), Quaver, Interlude and osu!mania stars. MinaCalc covers 4K, 6K and 7K.
-- **Rate curve**: MinaCalc MSD from 0.50× to 2.00× in the configured step, with the neighbouring rates of the current one.
+- **Ratings per map**: MinaCalc 527 overall MSD with its seven skillsets (Stream, Jumpstream, Handstream, Stamina, Jack Speed, Chordjack, Technical; on 5K–7K the second and third are MinaCalc's Chordstream and Bracketing), Quaver, Interlude and osu!mania stars. MinaCalc covers 4K–7K, Quaver 1K–10K, Interlude 3K–10K, osu!mania every key count; a calculator that cannot rate a key count says so instead of showing a value. See [KEYMODES.md](KEYMODES.md).
+- **Rate curve**: MinaCalc MSD from 0.50× to 2.00× in the configured step (or, for key counts MinaCalc does not rate, the first calculator that does), with the neighbouring rates of the current one. Rates past a calculator's range are gaps with its reason.
 - **Timeline**: local MSD from centred windows (Etterna) or each system's native strain, plus note density.
 - **Sections**: ratings for a chosen start and end time.
-- **Reform dan estimate** (experimental): an interpolation of overall MSD against the Reform v1 course charts. It describes similarity to those courses, not a course clear; 6K and 7K maps have none.
+- **Reform dan estimate** (experimental): an interpolation of overall MSD against the Reform v1 course charts. It describes similarity to those courses, not a course clear; only 4K maps have one.
 
 The page follows the beatmap selected in osu! at the game's actual rate (DT/HT/NC and lazer rate mods included). Turn **Follow game** off to set the rate yourself, or open an `.osu` file. Long notes count by their heads only, so MSD measures a chart's head patterns, not LN release or holding strain.
 
