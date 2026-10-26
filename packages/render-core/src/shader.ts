@@ -188,10 +188,15 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  // The quad shows image rows [0, bodyV] (upside down when flipped); a strip covers only its own rows of that.
  let visible=max(bodyV,0.000001);var t0=0.0;var t1=1.0;if(rows.x>0.0 || rows.y<1.0){let lo=clamp(rows.x,0.0,visible);let hi=clamp(rows.y,0.0,visible);if(hi<=lo){alpha=0.0;}t0=select(lo,visible-hi,flipV)/visible;t1=select(hi,visible-lo,flipV)/visible;}
  let t=mix(t0,t1,corners[index].y+0.5);
- let local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
+ var local=vec2f(corners[index].x*size.x,(t-0.5)*size.y);var corner=corners[index]*2.0;
+ // Slider body segments (scene.ts bodySegments): the quad reaches motion.z
+ // before the segment and motion.w after it (the radius until shape.z, while
+ // the next segment is hidden); \`local\` keeps the capsule's own units.
+ if(kind==0u && shape.x==12.0){let half=size.x*0.5;let reach=half-size.y*0.5;let after=select(motion.w,size.y*0.5,now<shape.z);local.x=mix(-reach-motion.z,reach+after,corners[index].x+0.5);corner.x=local.x/half;}
+ let rotated=vec2f(local.x*cos(angle)-local.y*sin(angle),local.x*sin(angle)+local.y*cos(angle));let point=centre+rotated;
  let scale=min(g.viewport.y/640.0,g.viewport.z/480.0);let screen=(point+vec2f(0.0,select(0.0,g.extra.x,mode==0u))-vec2f(256.0,192.0))*scale;
  let row=select(t,1.0-t,flipV)*bodyV;let stripV=(row-rows.x)/max(0.000001,rows.y-rows.x);
- var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corners[index]*2.0;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
+ var result:Vertex;result.position=vec4f(screen.x/g.viewport.y*2.0,-screen.y/g.viewport.z*2.0,0.0,1.0);if(alpha<=0.0){result.position=vec4f(2.0,2.0,0.0,1.0);}result.local=corner;var rgb=tint.rgb;if(kind>=15u && kind<=17u){let lin=select(pow((tint.rgb+0.055)/1.055,vec3f(2.4)),tint.rgb/12.92,tint.rgb<=vec3f(0.04045));let mixed=mix(vec3f(1.0),lin,g.keys.z);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
  // FadeColour / FlashColour mix in linear light.
  if(mixRgb>0.0){let a=select(pow((fromRgb+0.055)/1.055,vec3f(2.4)),fromRgb/12.92,fromRgb<=vec3f(0.04045));let b=select(pow((toRgb+0.055)/1.055,vec3f(2.4)),toRgb/12.92,toRgb<=vec3f(0.04045));let mixed=mix(a,b,mixRgb);rgb=select(1.055*pow(mixed,vec3f(1.0/2.4))-0.055,mixed*12.92,mixed<=vec3f(0.0031308));}
  else if(kind==37u){rgb=fromRgb;}
