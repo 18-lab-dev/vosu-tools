@@ -1,5 +1,4 @@
-import { parseSkinIni } from "@vosu-tools/osu-parse";
-import { resolve as resolveCommand } from "@vosu-tools/skin-spec";
+import { readSkinIni } from "./skin-ini";
 import {
   ATLAS_PADDING,
   planAtlas,
@@ -407,33 +406,15 @@ export async function loadSkin(
   name = "Client skin",
   options: LoadSkinOptions = {},
 ): Promise<Skin> {
+  const ini = await resolve("skin.ini");
   const skin: Skin = {
     name,
     assets: new Map(),
-    sections: new Map(),
     pixelScale: new Map(),
     animations: new Map(),
-    frameRate: 60,
-    version: 1,
     blank: new Set(),
+    ...readSkinIni(ini ? await ini.text() : null),
   };
-  const ini = await resolve("skin.ini");
-  if (ini) skin.sections = parseSkinIni(await ini.text());
-  const general = skin.sections.get("General")?.[0] ?? {};
-  skin.version =
-    !ini || general.Version?.toLowerCase() === "latest"
-      ? Infinity
-      : Number(general.Version ?? 1);
-  skin.frameRate =
-    Number(general.AnimationFramerate) > 0
-      ? Number(general.AnimationFramerate)
-      : -1;
-  for (const [section, blocks] of skin.sections)
-    for (const block of blocks)
-      for (const key of Object.keys(block)) {
-        const rule = resolveCommand(section, key);
-        if (rule?.since && skin.version < rule.since) delete block[key];
-      }
   const maniaNames = new Set(maniaDefaults);
   for (const section of skin.sections.get("Mania") ?? [])
     for (const [key, value] of Object.entries(section))

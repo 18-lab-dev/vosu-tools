@@ -4,7 +4,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./scene": "./src/scene.ts"
+    "./scene": "./src/scene.ts",
+    "./mania": "./src/mania.ts",
+    "./skin-ini": "./src/skin-ini.ts"
   },
   "scripts": {
     "check": "tsc --noEmit -p tsconfig.json",

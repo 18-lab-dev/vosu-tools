@@ -20,6 +20,7 @@
  * repeating NoteBodyStyles stretch the body image to 32800 units from the
  * tail instead of repeating it ("i dunno this looks about right??").
  */
+import { spec } from "@vosu-tools/skin-spec";
 import type { AtlasRegion, Skin } from "./skin";
 
 /** lazer's `LegacySkin.STABLE_MAGIC_SCALE_FACTOR`. */
@@ -137,7 +138,10 @@ const stripComment = (value: string) => {
  * The configuration lazer uses for `keys` columns: the first `[Mania]` block
  * declaring that key count, or lazer's defaults when the skin has none.
  */
-export function maniaConfig(skin: Skin | undefined, keys: number): ManiaConfig {
+export function maniaConfig(
+  skin: Pick<Skin, "sections" | "version"> | undefined,
+  keys: number,
+): ManiaConfig {
   const version = skin?.version ?? Infinity;
   const config: ManiaConfig = {
     keys,
@@ -363,6 +367,187 @@ export function fallbackColumnIndex(
   if (keys % 2 === 1 && column === Math.floor(keys / 2)) return "S";
   const distance = Math.min(column, keys - 1 - column);
   return distance % 2 === 0 ? "1" : "2";
+}
+
+/**
+ * One image a stage looks up through a `[Mania]` key, the way lazer's legacy
+ * mania pieces do (ppy/osu 2026.1005.0-lazer, osu.Game.Rulesets.Mania/
+ * Skinning/Legacy): the block's value for `key`, else `fallback`.
+ */
+export interface ManiaImageLookup {
+  /** The `[Mania]` key (`KeyImage0`, `NoteImage3H`, `StageLeft`, …). */
+  key: string;
+  /** The column, for per-column keys. */
+  column?: number;
+  /** The default element name the client looks up when the block leaves `key` out. */
+  fallback: string;
+  /**
+   * Looked up with `GetAnimation` (an animation's first frame `name-0` wins
+   * over `name`) rather than `GetTexture` (`name` only).
+   */
+  animated: boolean;
+  /**
+   * Keys whose image is drawn instead when this lookup finds nothing in any
+   * skin: hold heads fall back to the note, tails to the head, then the note
+   * (LegacyHoldNoteHeadPiece / LegacyHoldNoteTailPiece.GetAnimation).
+   */
+  instead: readonly string[];
+}
+/**
+ * Default element names of the `[Mania]` image keys without a column, and
+ * whether their pieces animate: LegacyStageBackground (`StageLeft`,
+ * `StageRight`: GetTexture), LegacyStageForeground (`StageBottom`:
+ * GetAnimation), LegacyHitTarget (`StageHint`: GetTexture),
+ * LegacyColumnBackground (`StageLight`), LegacyHitExplosion (`LightingN`),
+ * LegacyBodyPiece (`LightingL`) and ManiaLegacySkinTransformer's judgements
+ * (`Hit0` … `Hit300g`), all GetAnimation. `WarningArrow` is decoded
+ * (LegacyManiaSkinDecoder) but no lazer piece looks it up.
+ */
+const STAGE_IMAGES: Record<string, readonly [string, boolean]> = {
+  StageLeft: ["mania-stage-left", false],
+  StageRight: ["mania-stage-right", false],
+  StageBottom: ["mania-stage-bottom", true],
+  StageHint: ["mania-stage-hint", false],
+  StageLight: ["mania-stage-light", true],
+  LightingN: ["lightingN", true],
+  LightingL: ["lightingL", true],
+  ...Object.fromEntries(
+    Object.values(maniaJudgementKeys).map(([key, name]) => [key, [name, true]]),
+  ),
+};
+/**
+ * Every image a stage of `keys` columns looks up through a `[Mania]` key, in
+ * skin-spec's (the osu! wiki's) order: per column `KeyImage#`, `KeyImage#D`
+ * (LegacyKeyArea: GetTexture of `mania-key{F}`, `mania-key{F}D`), `NoteImage#`,
+ * `NoteImage#H`, `NoteImage#L`, `NoteImage#T` (LegacyNotePiece and its hold
+ * pieces, LegacyBodyPiece: GetAnimation of `mania-note{F}{suffix}`), with
+ * `F` the column's `fallbackColumnIndex`; then the stage's own images.
+ * `stageColumns` is the column count of one stage (dual stages repeat the
+ * pattern per stage, LegacyManiaColumnElement).
+ */
+export function maniaImageKeys(
+  keys: number,
+  stageColumns = keys,
+): ManiaImageLookup[] {
+  const images = spec.filter((s) => s.section === "Mania" && s.type === "image");
+  const out: ManiaImageLookup[] = [];
+  for (let column = 0; column < keys; column++) {
+    const F = fallbackColumnIndex(stageColumns, column % stageColumns);
+    for (const { key: pattern } of images) {
+      if (!pattern.includes("#")) continue;
+      const key = pattern.replace("#", String(column)),
+        suffix = pattern.slice(pattern.indexOf("#") + 1),
+        note = pattern.startsWith("NoteImage");
+      out.push({
+        key,
+        column,
+        fallback: `${note ? "mania-note" : "mania-key"}${F}${suffix}`,
+        animated: note,
+        instead:
+          suffix === "H"
+            ? [`NoteImage${column}`]
+            : suffix === "T"
+              ? [`NoteImage${column}H`, `NoteImage${column}`]
+              : [],
+      });
+    }
+  }
+  for (const { key } of images) {
+    const stage = STAGE_IMAGES[key];
+    if (stage)
+      out.push({ key, fallback: stage[0], animated: stage[1], instead: [] });
+  }
+  return out;
+}
+
+/**
+ * The mania images render-core's classic look provides (builtin.ts, the
+ * fallback behind every file skin): notes, hold pieces and keys for the
+ * three column kinds, and the judgements. Lookups that reach none of these
+ * and nothing in the skin draw nothing.
+ */
+export const CLASSIC_MANIA_IMAGES: ReadonlySet<string> = new Set([
+  ...["1", "2", "S"].flatMap((F) => [
+    `mania-note${F}`,
+    `mania-note${F}H`,
+    `mania-note${F}T`,
+    `mania-note${F}L`,
+    `mania-key${F}`,
+    `mania-key${F}D`,
+  ]),
+  ...Object.values(maniaJudgementKeys).map(([, name]) => name),
+]);
+
+/**
+ * Where a looked-up image comes from: the file a skin.ini value names, a
+ * file under the default element name, render-core's classic look (as lazer
+ * falls back to its classic skin), or nowhere.
+ */
+export type ManiaImageSource = "skin.ini" | "default" | "built-in" | "missing";
+export interface ManiaImageResolution extends ManiaImageLookup {
+  /** The block's value for `key`, normalised; undefined when it leaves it out. */
+  value?: string;
+  /** The name looked up: `value`, else `fallback`. */
+  name: string;
+  source: ManiaImageSource;
+  /**
+   * The image drawn: this lookup's, or for hold heads and tails the first of
+   * `instead` that resolves. Undefined when nothing is drawn.
+   */
+  drawn?: { key: string; name: string; builtin: boolean };
+}
+/**
+ * Whether a skin layer provides an image: for animated lookups `name-0` or
+ * `name`, for textures `name` (lazer's ISkinSource.FindProvider in
+ * LegacySkinExtensions.GetTextures).
+ */
+export type HasImage = (name: string, animated: boolean) => boolean;
+
+/**
+ * Resolves every image lookup of `config`'s stage against the skin's own
+ * images (`skin`) and then the classic look's, in the order `maniaLayout`
+ * draws them: the lookup's name in the skin, then in the built-in look, then
+ * (heads, tails) the keys it falls back to.
+ */
+export function resolveManiaImages(
+  config: Pick<ManiaConfig, "keys" | "images">,
+  skin: HasImage,
+  builtin: HasImage = (name) => CLASSIC_MANIA_IMAGES.has(name),
+): ManiaImageResolution[] {
+  const lookups = maniaImageKeys(config.keys);
+  const byKey = new Map(lookups.map((l) => [l.key, l]));
+  const find = (lookup: ManiaImageLookup) => {
+    const name = config.images.get(lookup.key) ?? lookup.fallback;
+    if (skin(name, lookup.animated)) return { name, builtin: false };
+    if (builtin(name, lookup.animated)) return { name, builtin: true };
+    return { name, builtin: undefined };
+  };
+  return lookups.map((lookup) => {
+    const value = config.images.get(lookup.key),
+      own = find(lookup);
+    let drawn: ManiaImageResolution["drawn"];
+    for (const key of [lookup.key, ...lookup.instead]) {
+      const found = key === lookup.key ? own : find(byKey.get(key)!);
+      if (found.builtin !== undefined) {
+        drawn = { key, name: found.name, builtin: found.builtin };
+        break;
+      }
+    }
+    return {
+      ...lookup,
+      value,
+      name: own.name,
+      source:
+        own.builtin === false
+          ? value === undefined
+            ? "default"
+            : "skin.ini"
+          : own.builtin
+            ? "built-in"
+            : "missing",
+      drawn,
+    };
+  });
 }
 
 /**

@@ -124,7 +124,7 @@ function fallbackLine(gid: string) {
     { class: "pick-fallback", title: lost.join("\n") },
     lost.length === 1
       ? `${lost[0]} falls back to osu!'s built-in look`
-      : `${lost.length} base elements fall back to osu!'s built-in look`,
+      : `${lost.length} elements fall back to osu!'s built-in look`,
   );
 }
 /** The last composed plan (skin.ini replaced by the draft text when built). */
