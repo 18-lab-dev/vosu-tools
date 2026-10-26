@@ -107,6 +107,8 @@ interface Snapshot {
   revision: string;
   files: { name: string; size: number }[];
   writable: boolean;
+  /** Files Skin studio generated (ownership manifests); absent from older services. */
+  owned?: string[];
 }
 interface Loaded {
   snapshot: Snapshot;
@@ -258,6 +260,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
       name: skinName(key),
       text: snapshot.text,
       files: snapshot.files.map((f) => f.name),
+      owned: snapshot.owned,
     },
   };
   loaded.set(key, entry);

@@ -1552,3 +1552,86 @@
   padding: var(--space-2) var(--space-3);
   border-top: var(--hair) solid var(--rule);
 }
+.km-hit__check {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* ---- all [Mania] settings ------------------------------------------------ */
+.km-settings__body {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.km-settings__columns .km-rowhead {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.km-settings__columns .km-value input[type="checkbox"] {
+  margin: 0 auto;
+}
+/* A gap entry sits between the column it follows and the next one. */
+.km-value--gap {
+  transform: translateX(50%);
+}
+.km-settings__select {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h-sm);
+  font-size: var(--step--1);
+}
+.km-settings__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  align-items: start;
+}
+.km-settings__group {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.km-settings__group > legend {
+  margin-bottom: var(--space-1);
+}
+.km-settings__field {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(4.5rem, 7rem) minmax(0, auto) 1.25rem;
+  gap: 2px var(--space-2);
+  align-items: center;
+  font-size: var(--step--1);
+}
+.km-settings__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-settings__default {
+  font-size: var(--step--2);
+  white-space: nowrap;
+}
+.km-settings__note {
+  grid-column: 1 / -1;
+  font-size: var(--step--2);
+}
+.km-settings__colour {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.25rem;
+  gap: 2px;
+}
+.km-reset[hidden] {
+  display: none;
+}
+.km-settings__field .km-reset,
+.km-settings__columns .km-reset {
+  position: static;
+  opacity: 1;
+}

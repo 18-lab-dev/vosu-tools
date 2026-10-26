@@ -196,7 +196,7 @@ try {
   await page.selectOption("#km-source", { label: opt.other! });
   await page.waitForTimeout(1500);
   await tile("mania-key1").click();
-  const set = async () => Promise.all(["KeyImage0", "KeyImage3", "NoteImage5"].map(async (k) => (await label(k)).includes("skin-studio/7k/mania-key1")));
+  const set = async () => Promise.all(["KeyImage0", "KeyImage3", "NoteImage5"].map(async (k) => (await label(k)).includes("mania/7k/mania-key1")));
   await until(async () => (await set()).every(Boolean), "multi-assign");
   const status = (await page.locator("#km-state").textContent()) ?? "";
   check("Picking an image sets all 3 slots; the status names the mixed roles", status.includes("Set 3 slots to mania-key1") && status.includes("different roles (key, note)"), status);
@@ -302,8 +302,8 @@ try {
   const [pre0, post0] = block(before), [pre1, post1] = block(text);
   check("skin.ini outside the 7K block is byte-identical (mixed line endings kept)", pre0 === pre1 && post0 === post1);
   const seven = text.slice(text.indexOf("Keys: 7"), text.indexOf("[", text.indexOf("Keys: 7")));
-  check("7K keys point at the applied copies", /KeyImage3: skin-studio\/7k\/mania-key1\r?\n/.test(seven) && /KeyImage4D: skin-studio\/7k\/mania-key1D\r?\n/.test(seven), seven.split(/\r?\n/).filter((l) => /KeyImage[034]D?:|NoteImage5:/.test(l)).join(" | "));
-  check("The images are in the skin folder", existsSync(join(EDITED, "skin-studio/7k/mania-key1.png")) && existsSync(join(EDITED, "skin-studio/7k/mania-key1@2x.png")));
+  check("7K keys point at the applied copies", /KeyImage3: mania\/7k\/mania-key1\r?\n/.test(seven) && /KeyImage4D: mania\/7k\/mania-key1D\r?\n/.test(seven), seven.split(/\r?\n/).filter((l) => /KeyImage[034]D?:|NoteImage5:/.test(l)).join(" | "));
+  check("The images are in the skin folder", existsSync(join(EDITED, "mania/7k/mania-key1.png")) && existsSync(join(EDITED, "mania/7k/mania-key1@2x.png")));
   const manifests = files(LAB).filter((f) => /backups\/[^/]+\/manifest\.json$/.test(f));
   const manifest = manifests.length === 1 ? JSON.parse(readFileSync(join(LAB, manifests[0]), "utf8")) : null;
   check("A backup holds every replaced file", !!manifest && manifest.changes.some((c: { path: string; action: string }) => c.path === "skin.ini" && c.action === "replace") && existsSync(join(LAB, manifests[0], "../files/skin.ini")), manifests.join(", "));

@@ -170,7 +170,7 @@ try {
   await page.locator('#km-hit button[aria-label^="Raise the hit line"]').click();
   await until(async () => (await hitValue()) === "450", "HitPosition 450");
   const after = await label("KeyImage0");
-  check("Stepper −5: HitPosition 455 → 450, receptors replaced by moved copies", after.includes("skin-studio/7k/kd_left1") && after !== before, after);
+  check("Stepper −5: HitPosition 455 → 450, receptors replaced by moved copies", after.includes("mania/7k/kd_left1") && after !== before, after);
   await page.keyboard.press("Control+z");
   await until(async () => (await hitValue()) === "455", "undo");
   check("Undo restores HitPosition and the original receptors", (await label("KeyImage0")) === before);
@@ -210,7 +210,7 @@ try {
   await until(async () => (await label("NoteImage0L")) !== before4, "hold ends applied");
   const state = (await page.locator("#km-state").textContent()) ?? "";
   check("Percy skin (blank tail): the body's end moves up 8 rows", state.includes("the body's end moves up 8 rows (late)"), state);
-  check("7K stays calibrated; only 4K hold ends change", (await label("NoteImage0L")).includes("skin-studio/4k/holdbody-50"));
+  check("7K stays calibrated; only 4K hold ends change", (await label("NoteImage0L")).includes("mania/4k/holdbody-50"));
   await pick(7);
   check("7K HitPosition unchanged by the 4K calibration", (await hitValue()) === "450");
 
@@ -243,15 +243,15 @@ try {
     return Object.fromEntries(rest.slice(0, end < 0 ? undefined : end).split(/\r?\n/).map((l) => l.trim().split(/:\s*/)).filter((p) => p.length === 2));
   };
   const seven = block(7), four = block(4);
-  check("Export: 7K HitPosition 450, receptors from skin-studio/7k", seven.HitPosition === "450" && seven.KeyImage0 === "skin-studio/7k/kd_left1" && seven.KeyImage0D === "skin-studio/7k/kd_left", JSON.stringify({ hp: seven.HitPosition, k: seven.KeyImage0, kd: seven.KeyImage0D }));
-  check("Export: 4K HitPosition untouched, body from skin-studio/4k", four.HitPosition === "457" && four.NoteImage0L === "skin-studio/4k/holdbody-50", JSON.stringify({ hp: four.HitPosition, l: four.NoteImage0L }));
+  check("Export: 7K HitPosition 450, receptors from mania/7k", seven.HitPosition === "450" && seven.KeyImage0 === "mania/7k/kd_left1" && seven.KeyImage0D === "mania/7k/kd_left", JSON.stringify({ hp: seven.HitPosition, k: seven.KeyImage0, kd: seven.KeyImage0D }));
+  check("Export: 4K HitPosition untouched, body from mania/4k", four.HitPosition === "457" && four.NoteImage0L === "mania/4k/holdbody-50", JSON.stringify({ hp: four.HitPosition, l: four.NoteImage0L }));
   // Pixel check: alpha rows of each exported receptor = the source's moved up
   // 8 rows (1x) / 16 (@2x), the vacated rows clamped to the last content row.
   const source = join(SKINS, opt.skin!, "mania/circles-7k");
   const pairs: [string, string, number][] = [
-    ["kd_left1.png", "skin-studio/7k/kd_left1.png", 8],
-    ["kd_left1@2x.png", "skin-studio/7k/kd_left1@2x.png", 16],
-    ["kd_left@2x.png", "skin-studio/7k/kd_left@2x.png", 16],
+    ["kd_left1.png", "mania/7k/kd_left1.png", 8],
+    ["kd_left1@2x.png", "mania/7k/kd_left1@2x.png", 16],
+    ["kd_left@2x.png", "mania/7k/kd_left@2x.png", 16],
   ];
   for (const [from, to, rows] of pairs) {
     const a = readFileSync(join(source, from)).toString("base64");
@@ -310,6 +310,49 @@ try {
     return changed / (x.data.length / 4);
   }, [mixStage.toString("base64"), exportStage.toString("base64")]);
   check("render-core draws the exported 7K like the calibrated draft", diff < 0.005, String(diff));
+
+  // ── Keep proportions when changing column width ─────────────────────────
+  const width = (c: number) => page.locator(`#km-grid input[aria-label="Column ${c} width"]`);
+  const kmState = async () => (await page.locator("#km-state").textContent()) ?? "";
+  const timings: number[] = [];
+  const setWidth = async (c: number, value: number) => {
+    await width(c).fill(String(value));
+    await width(c).press("Tab");
+    await until(async () => (await width(c).inputValue()) === String(value) && new RegExp(`^Set column ${c} width: kept proportions \\((\\d+) images in (\\d+) ms\\)`).test(await kmState()), `column ${c} width`, 60000);
+    timings.push(Number(/in (\d+) ms/.exec(await kmState())![1]));
+  };
+  const hp0 = Number(await hitValue());
+  const w0 = Number(await width(1).inputValue());
+  const key0 = await label("KeyImage0"), note0 = await label("NoteImage0"), note1 = await label("NoteImage1");
+  await setWidth(1, w0 * 1.25);
+  check("Keep proportions is on by default and says so the first time", (await page.locator("#km-keep").isChecked()) && (await kmState()).includes("Keep proportions when changing column width"), await kmState());
+  check("One wider column: HitPosition stays (most columns keep their scale)", Number(await hitValue()) === hp0, String(await hitValue()));
+  check("…its receptor and note are rescaled, the other columns' are not", (await label("KeyImage0")) !== key0 && (await label("NoteImage0")) !== note0 && (await label("NoteImage1")) === note1);
+  await page.keyboard.press("Control+z");
+  await until(async () => (await width(1).inputValue()) === String(w0), "width undo");
+  check("One undo step restores the width and the images", (await label("KeyImage0")) === key0 && (await label("NoteImage0")) === note0);
+  for (let c = 1; c <= 7; c++) await setWidth(c, w0 * 1.25);
+  const hp1 = Math.round(480 - (480 - hp0) * 1.25);
+  check(`Every column 1.25×: HitPosition = round(480 − (480 − ${hp0}) × 1.25) = ${hp1}`, Number(await hitValue()) === hp1, String(await hitValue()));
+  check("Uniform widths keep notes as they are (the note height follows the narrowest column)", (await label("NoteImage1")) === note1);
+  timings.sort((a, b) => a - b);
+  check("Time per width change (resample + store), ms", true, `median ${timings[timings.length >> 1]}, max ${timings.at(-1)} over ${timings.length}`);
+  await page.locator("#export-target").selectOption("osk");
+  const [download3] = await Promise.all([page.waitForEvent("download"), page.click("#export-run")]);
+  const osk3 = join(out, "proportions.osk");
+  await download3.saveAs(osk3);
+  const ini3 = spawnSync("unzip", ["-p", osk3, "skin.ini"], { encoding: "utf8" }).stdout;
+  writeFileSync(join(out, "proportions-skin.ini"), ini3);
+  const at7 = ini3.search(/Keys: 7\r?\n/);
+  const block7 = ini3.slice(at7, ini3.indexOf("[", at7));
+  const value = (key: string) => new RegExp(`^${key}: (.*)$`, "m").exec(block7)?.[1]?.trim() ?? "";
+  const size = (file: string) => {
+    const png = spawnSync("unzip", ["-p", osk3, file]).stdout;
+    return png.length > 24 ? [png.readUInt32BE(16), png.readUInt32BE(20)] : [0, 0];
+  };
+  const key2x = size(`${value("KeyImage0")}@2x.png`);
+  check("Exported receptor @2x is 1.25× in both axes (192×347 → 240×434)", key2x[0] === 240 && key2x[1] === 434, `${value("KeyImage0")}@2x.png ${key2x.join("×")}`);
+  check("Exported HitPosition and widths", value("HitPosition") === String(hp1) && value("ColumnWidth").split(",").every((w) => Number(w) === w0 * 1.25), `${value("HitPosition")} ${value("ColumnWidth")}`);
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));

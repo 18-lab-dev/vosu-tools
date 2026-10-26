@@ -183,7 +183,7 @@ try {
   // ── 4K after: copied from the keys skin ──────────────────────────────────
   await pick(4);
   await copyFrom(`${opt.keys} · Stable`, 4);
-  await waitLabel("KeyImage0", "skin-studio/4k/");
+  await waitLabel("KeyImage0", "mania/4k/");
   await page.waitForTimeout(2500);
   await shot("4k-after");
   check("Copy key count from another skin's 4K", true, await label("KeyImage0") ?? "");
@@ -191,20 +191,20 @@ try {
   // ── 7K: copy from this mix's 4K, keys from one skin, notes from the other ─
   await pick(7);
   await copyFrom("This mix", 4);
-  await waitLabel("KeyImage6", "skin-studio/7k/");
+  await waitLabel("KeyImage6", "mania/7k/");
   check("Copy key count from 4K remaps 4 → 7 columns", true, await label("KeyImage3") ?? "");
   await source(opt.keys!);
   await slot("KeyImage0").click();
   await tile("mania-key1").click();
-  await waitLabel("KeyImage0", "skin-studio/7k/mania-key1");
+  await waitLabel("KeyImage0", "mania/7k/mania-key1");
   check("Click assign (slot, then picker image)", true);
   await tile("mania-key2").dragTo(slot("KeyImage1"));
-  await waitLabel("KeyImage1", "skin-studio/7k/mania-key2");
+  await waitLabel("KeyImage1", "mania/7k/mania-key2");
   check("Picker drag onto a slot", true);
   for (const [key, name] of [["KeyImage0D", "mania-key1D"], ["KeyImage1D", "mania-key2D"]]) {
     await slot(key).click();
     await tile(name).click();
-    await waitLabel(key, `skin-studio/7k/${name}`);
+    await waitLabel(key, `mania/7k/${name}`);
   }
   // ── Explorer: "Use as <slot>" for the selected Keymodes slot, and a drag ──
   await slot("KeyImage3").click();
@@ -217,7 +217,7 @@ try {
   const use = await page.locator("#x-keymodes").textContent();
   await page.click("#x-keymodes");
   await page.waitForSelector("#keymodes-view:not([hidden])");
-  await waitLabel("KeyImage3", "skin-studio/7k/mania-keyS");
+  await waitLabel("KeyImage3", "mania/7k/mania-keyS");
   check("Explorer: Use as the selected Keymodes slot", use === "Use as 7K column 4 key", use ?? "");
   await page.click("#tab-explorer");
   await page.fill("#x-filter", "mania-keysd");
@@ -232,28 +232,28 @@ try {
     for (const type of ["dragenter", "dragover", "drop"])
       target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await waitLabel("KeyImage3D", "skin-studio/7k/mania-keySD");
+  await waitLabel("KeyImage3D", "mania/7k/mania-keySD");
   check("Explorer drag: the Keymodes tab opens on hover, the image drops on a slot", true);
   await source(opt.notes!);
   for (const [key, name] of [["NoteImage0", "mania/circles-7k/left"], ["NoteImage0H", "mania/circles-7k/left"], ["NoteImage3", "mania/circles-7k/cornflower"], ["NoteImage3H", "mania/circles-7k/cornflower"]]) {
     await slot(key).click();
     await tile(name).click();
-    await waitLabel(key, `skin-studio/7k/${name.split("/").pop()}`);
+    await waitLabel(key, `mania/7k/${name.split("/").pop()}`);
   }
   await slot("NoteImage0").click();
   await tile("mania/circles-7k/mauve").dragTo(page.locator('#km-columns .km-column[data-col="1"]'));
-  await waitLabel("NoteImage1", "skin-studio/7k/mauve");
+  await waitLabel("NoteImage1", "mania/7k/mauve");
   check("Picker drag onto a stage column", true);
   for (const [key, name] of [["NoteImage0L", "mania/circles-7k/holdbody-50"], ["NoteImage0T", "mania/circles-7k/holdcap"]]) {
     await slot(key).click();
     await tile(name).click();
-    await waitLabel(key, `skin-studio/7k/${name.split("/").pop()}`);
+    await waitLabel(key, `mania/7k/${name.split("/").pop()}`);
     await page.click("#km-all");
-    await waitLabel(key.replace("0", "6"), `skin-studio/7k/${name.split("/").pop()}`);
+    await waitLabel(key.replace("0", "6"), `mania/7k/${name.split("/").pop()}`);
   }
   check("Apply to all columns", true);
   await page.click("#km-pattern");
-  await waitLabel("KeyImage2", "skin-studio/7k/mania-key1");
+  await waitLabel("KeyImage2", "mania/7k/mania-key1");
   check("osu! 1/2/S pattern", (await label("KeyImage5"))?.includes("mania-key2") ?? false, await label("KeyImage5") ?? "");
 
   // ── OS-file drop: one valid PNG, one invalid file ─────────────────────────
@@ -274,7 +274,7 @@ try {
     for (const type of ["dragenter", "dragover", "drop"])
       target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await waitLabel("NoteImage6", "skin-studio/7k/drop-note");
+  await waitLabel("NoteImage6", "mania/7k/drop-note");
   const error = await page.locator("#km-error").textContent();
   check("OS drop adds the PNG and reports the invalid file inline", !!error?.includes("notes.txt: only PNG and JPEG images") && (await page.locator("#km-error").isVisible()), error ?? "");
   const thumbs = async () =>
@@ -300,14 +300,14 @@ try {
 
   // ── Mirror, undo/redo across it ──────────────────────────────────────────
   await page.click("#km-mirror");
-  await waitLabel("NoteImage6", "skin-studio/7k/left");
+  await waitLabel("NoteImage6", "mania/7k/left");
   check("Mirror: column 7 takes column 1", true);
   await slot("KeyImage0").focus();
   await page.keyboard.press("Control+z");
-  await waitLabel("NoteImage6", "skin-studio/7k/drop-note");
+  await waitLabel("NoteImage6", "mania/7k/drop-note");
   check("Undo restores the dropped image Mirror replaced", true);
   await page.keyboard.press("Control+Shift+z");
-  await waitLabel("NoteImage6", "skin-studio/7k/left");
+  await waitLabel("NoteImage6", "mania/7k/left");
   check("Redo applies Mirror again", true);
   // Keyboard: arrows to NoteImage3H, Delete clears it, undo restores it.
   await slot("NoteImage3").click();
@@ -322,7 +322,7 @@ try {
   await slot("StageHint").click();
   // Dropped files show by their file name (no upload folder).
   await page.locator("#km-images .km-tile").filter({ has: page.locator(".km-tile__name", { hasText: /^drop-note\.png$/ }) }).first().click();
-  await waitLabel("StageHint", "skin-studio/7k/drop-note");
+  await waitLabel("StageHint", "mania/7k/drop-note");
   check("Dropped files source assigns a stage image", true);
   const hashFree = (await page.locator("#km-state").textContent()) ?? "";
   check("Status after picking a dropped file has no upload hash", hashFree === "Set StageHint to drop-note.png" && !/[0-9a-f]{16}/.test(hashFree), hashFree);
@@ -367,7 +367,7 @@ try {
   await page.click("#editor .view-lines");
   await page.keyboard.press("Control+End");
   // 10K: a key count the base has no block for (a later duplicate block is ignored).
-  for (const line of ["", "[Mania", "Keys: 10", "ColumnWidth: 44,44,44,44,44,44,44,44,44,44"]) {
+  for (const line of ["", "[Mania", "Keys: 10", "ColumnWidth: 44,44,44,44,44,44,44,44,44,44", "ColumnStart: 222", "ColourHold: 10,20,30,40"]) {
     if (line) await page.keyboard.type(line);
     await page.keyboard.press("Escape");
     await page.keyboard.press("End");
@@ -377,6 +377,46 @@ try {
   await until(() => page.locator("#km-counts .km-count", { hasText: "10K" }).count(), "10K from the hand edit");
   await pick(10);
   check("Hand edit of skin.ini shows on the screen", (await page.locator("#km-grid .km-num").first().inputValue()) === "44");
+
+  // ── All [Mania] settings: the form from skin-spec's schema ────────────────
+  await page.locator(".km-settings > summary").click();
+  const setting = (label: string) => page.locator(`#km-settings [aria-label="${label}"]`).first();
+  check("Form shows hand-edited values", (await setting("Stage left edge").inputValue()) === "222" && (await setting("Hold combo alpha").inputValue()) === "40");
+  check("Unset keys show their default", (await setting("Light position").getAttribute("placeholder")) === "413" && (await page.locator("#km-settings .km-settings__field", { hasText: "Light position" }).textContent())!.includes("default 413"));
+  // Keyboard: a field, a select, a per-column gap, a switch.
+  await setting("Light position").focus();
+  await page.keyboard.type("420");
+  await page.keyboard.press("Tab");
+  await until(async () => (await setting("Light position").inputValue()) === "420", "light position set");
+  await setting("Special column").selectOption("1");
+  await setting("Gap after column 2").fill("5");
+  await setting("Gap after column 2").press("Tab");
+  await until(async () => (await setting("Gap after column 2").inputValue()) === "5", "gap set");
+  // A switch flips its key (this mix's block may already set it).
+  const wasOn = await setting("Keys under notes").isChecked();
+  await setting("Keys under notes").click();
+  check("A switch is one undo step and shows its new state at once", ((await page.locator("#km-undo").getAttribute("title")) ?? "").includes("keys under notes") && (await setting("Keys under notes").isChecked()) === !wasOn, `${wasOn} → ${await setting("Keys under notes").isChecked()}`);
+  check("Form edits land in the draft's [Mania] block", (await setting("Special column").inputValue()) === "1" && (await setting("Gap after column 1").inputValue()) === "0");
+  // One undo step per edit (the toolbar's Undo names it).
+  const undoLabel = (await page.locator("#km-undo").getAttribute("title")) ?? (await page.locator("#km-undo").textContent()) ?? "";
+  await page.click("#km-undo");
+  const undone = await until(async () => (await setting("Keys under notes").isChecked()) === wasOn, "switch undo", 8000).catch(() => false);
+  const after = `undo was "${undoLabel}"; now "${await page.locator("#km-undo").getAttribute("title")}" / redo "${await page.locator("#km-redo").getAttribute("title")}"; state "${await page.locator("#km-state").textContent()}"; checked ${await setting("Keys under notes").isChecked()}`;
+  check("Undo reverts the last form edit only", !!undone && (await setting("Gap after column 2").inputValue()) === "5", after);
+  await page.locator("#km-settings .km-settings__field", { hasText: "Light position" }).locator(".km-reset").click();
+  await until(async () => (await setting("Light position").inputValue()) === "", "light position reset");
+  check("Reset to default leaves the key out", true);
+  for (const [theme, w, h] of [["dark", 1920, 1080], ["light", 1280, 720]] as const) {
+    await page.evaluate((t: string) => (document.documentElement.dataset.theme = t), theme);
+    await page.setViewportSize({ width: w, height: h });
+    await page.locator("#km-settings").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: join(out, `mania-settings-${theme}-${w}x${h}.png`) });
+    const scroll = await page.evaluate(() => document.scrollingElement!.scrollHeight - innerHeight);
+    check(`Settings form: no page scroll at ${w}x${h}`, scroll <= 0, String(scroll));
+  }
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await pick(7);
   await source(opt.notes!);
   await slot("NoteImage2").click();
@@ -448,9 +488,9 @@ try {
   const block = /\[Mania\]\r?\nKeys: 7\r?\n([\s\S]*?)(\r?\n\r?\n|\r?\n\[|$)/.exec(ini)?.[1] ?? "";
   const keys = Object.fromEntries(block.split(/\r?\n/).map((l) => l.split(/:\s*/)).filter((p) => p.length === 2));
   const want: Record<string, string> = {
-    KeyImage0: "skin-studio/7k/mania-key1", KeyImage1: "skin-studio/7k/mania-key2", KeyImage3: "skin-studio/7k/mania-keyS",
-    KeyImage5: "skin-studio/7k/mania-key2", NoteImage1: "skin-studio/7k/mauve", NoteImage6: "skin-studio/7k/left",
-    NoteImage4L: "skin-studio/7k/holdbody-50", NoteImage2T: "skin-studio/7k/holdcap",
+    KeyImage0: "mania/7k/mania-key1", KeyImage1: "mania/7k/mania-key2", KeyImage3: "mania/7k/mania-keyS",
+    KeyImage5: "mania/7k/mania-key2", NoteImage1: "mania/7k/mauve", NoteImage6: "mania/7k/left",
+    NoteImage4L: "mania/7k/holdbody-50", NoteImage2T: "mania/7k/holdcap",
   };
   const wrong = Object.entries(want).filter(([k, v]) => keys[k] !== v);
   check("Exported skin.ini 7K keys", !wrong.length, wrong.map(([k, v]) => `${k}=${keys[k]} (want ${v})`).join("; "));
@@ -458,7 +498,7 @@ try {
     (v) => !listing.some((f) => f.toLowerCase().startsWith(String(v).toLowerCase())),
   );
   check("Exported .osk has every file the 7K keys name", !missing.length, missing.join(", ") || `${listing.length} entries`);
-  check("Dropped file carried", listing.includes("skin-studio/7k/drop-note.png") && keys.StageHint === "skin-studio/7k/drop-note");
+  check("Dropped file carried", listing.includes("mania/7k/drop-note.png") && keys.StageHint === "mania/7k/drop-note");
 
   // ── Render the export with render-core and compare with the screen ──────
   await page.click("#tab-elements");
@@ -524,7 +564,7 @@ try {
   const problems: string[] = [];
   for (const key of pieces) {
     const value = keys2[key];
-    if (!value?.startsWith("skin-studio/7k/")) {
+    if (!value?.startsWith("mania/7k/")) {
       problems.push(`${key}=${value}`);
       continue;
     }
@@ -532,7 +572,7 @@ try {
     if (!files.length) problems.push(`${key}: no file`);
     for (const file of files) {
       const copied = spawnSync("unzip", ["-p", osk2, file]).stdout;
-      const original = readFileSync(join(SKINS, opt.keys!, file.slice("skin-studio/7k/".length)));
+      const original = readFileSync(join(SKINS, opt.keys!, file.slice("mania/7k/".length)));
       if (!copied.equals(original)) problems.push(`${file} differs from ${opt.keys}`);
     }
   }

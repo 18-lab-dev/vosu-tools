@@ -485,6 +485,10 @@ async fn plan(
         let old = existing.read(app, &item.to).await?;
         c.put(&item.to, old, build::blank(item.kind))?;
     }
+    for item in &request.plan.texts {
+        let old = existing.read(app, &item.to).await?;
+        c.put(&item.to, old, item.text.clone().into_bytes())?;
+    }
     let old_ini = existing.read(app, "skin.ini").await?;
     let ini = preserve_ini(old_ini.as_deref().unwrap_or_default(), &request.plan.ini);
     c.put("skin.ini", old_ini, ini)?;

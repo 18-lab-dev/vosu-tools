@@ -1,6 +1,6 @@
 // The Keymodes screen's part of a mix recipe: per key count, which image
 // each `[Mania]` slot uses and the column values it sets. Composing writes
-// the block's keys and copies the images under skin-studio/<N>k/, so the
+// the block's keys and copies the images under mania/<N>k/, so the
 // skin.ini the mix builds names every slot the screen manages.
 
 import {
@@ -12,7 +12,8 @@ import {
 } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
 import { type Ini, maniaBlock, removeInSection, setInSection } from "./ini";
-import { frameNames, hasImage, imageIndex, stageFolder } from "./mania";
+import { frameNames, hasImage, imageIndex } from "./mania";
+import { occupied, stageFolder } from "./layout";
 import { imageExt } from "./groups";
 
 /** An image copied into the mix: a skin's image with its `@2x` and frames. */
@@ -43,7 +44,11 @@ export interface KeymodeDraft {
     originals: Record<
       string,
       {
+        /** HitPosition when captured. */
         at: number;
+        /** The column's width and the note height width when captured (lazer units). */
+        width?: number;
+        noteHeight?: number;
         slot: SlotImage;
         /** The draft's own slot for the key before the first move (absent: none). */
         prior?: Slot;
@@ -51,6 +56,11 @@ export interface KeymodeDraft {
       }
     >;
   };
+  /**
+   * Keep proportions when changing column width (proportions.ts): on unless
+   * turned off for this key count.
+   */
+  keepProportions?: boolean;
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
@@ -98,24 +108,11 @@ function copyName(name: string) {
     .replace(/^[.\s]+|[.\s]+$/g, "");
   return base || "image";
 }
-/** Lower-cased image names (no extension, `@2x`, frame) of output paths. */
-function occupied(paths: Iterable<string>, folder: string): Set<string> {
-  const out = new Set<string>();
-  const prefix = `${folder}/`.toLowerCase();
-  for (const path of paths) {
-    const lower = path.toLowerCase();
-    if (!lower.startsWith(prefix) || !imageExt.test(lower)) continue;
-    const name = lower.replace(/\.[^./]+$/, "").replace(/@2x$/, "");
-    out.add(name);
-    out.add(name.replace(/-\d+$/, ""));
-  }
-  return out;
-}
 
 /**
  * Applies the drafts to a mix being composed: each key count's block (made
  * when missing) gets the keys its slots and values set, and copied images
- * go to skin-studio/<N>k/<name> under names that stay the same while the
+ * go to mania/<N>k/<name> (see layout.ts) under names that stay the same while the
  * draft does (`name (2)` when two images share a name: a `-2` would read as
  * an animation frame).
  */

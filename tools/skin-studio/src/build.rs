@@ -66,6 +66,12 @@ pub struct Blank {
     pub to: String,
     pub kind: BlankKind,
 }
+/// A small text file the plan writes (an ownership manifest).
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct Text {
+    pub to: String,
+    pub text: String,
+}
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Plan {
     pub name: String,
@@ -76,6 +82,9 @@ pub struct Plan {
     pub sources: Vec<PlanSource>,
     #[serde(default)]
     pub blanks: Vec<Blank>,
+    /// Ownership manifests (`mania/<N>k/.skin-studio.json`), at most 64 KiB each.
+    #[serde(default)]
+    pub texts: Vec<Text>,
 }
 #[derive(Serialize, Debug)]
 pub struct Built {
@@ -115,7 +124,8 @@ pub fn targets(plan: &Plan) -> Result<usize, Failure> {
         .sources
         .iter()
         .flat_map(|s| s.files.iter().map(|f| f.parts().1))
-        .chain(plan.blanks.iter().map(|b| b.to.as_str()));
+        .chain(plan.blanks.iter().map(|b| b.to.as_str()))
+        .chain(plan.texts.iter().map(|t| t.to.as_str()));
     for to in outputs {
         relative(to)?;
         let lower = to.to_lowercase();
@@ -129,6 +139,9 @@ pub fn targets(plan: &Plan) -> Result<usize, Failure> {
     }
     if count > MAX_PLAN_FILES {
         return Err(failure("The plan has too many files."));
+    }
+    if plan.texts.iter().any(|t| t.text.len() > 64 * 1024) {
+        return Err(failure("A plan text file exceeds 64 KiB."));
     }
     if plan.ini.len() > 4 * 1024 * 1024 {
         return Err(failure("skin.ini exceeds 4 MiB."));
@@ -240,6 +253,10 @@ async fn fill(
     }
     for item in &plan.blanks {
         sink.put(&item.to, &blank(item.kind)).await?;
+        files += 1;
+    }
+    for item in &plan.texts {
+        sink.put(&item.to, item.text.as_bytes()).await?;
         files += 1;
     }
     sink.put("skin.ini", plan.ini.as_bytes()).await?;
@@ -439,6 +456,7 @@ mod tests {
                 files,
             }],
             blanks,
+            texts: Vec::new(),
         }
     }
 

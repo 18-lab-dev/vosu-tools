@@ -1,5 +1,7 @@
-//! Exact row operations on PNG images for hit-position and hold-tail
-//! calibration: rows move, appear (transparent) or go; no pixel is resampled.
+//! Operations on PNG images for hit-position and hold-tail calibration
+//! (exact: rows move, appear (transparent) or go; no pixel is resampled) and
+//! for keeping proportions when a column's width changes (`Resize`, filtered
+//! in linear light by `resample`; `Rows`, exact).
 //! Images are decoded with palette/gray expansion only, so 8- and 16-bit
 //! channels keep their values, and written back as RGBA of the same depth.
 
@@ -152,6 +154,22 @@ pub enum Op {
     /// nearest-row and nearest-column into the new size (lazer stretches a
     /// repeating body over 32800 units anyway: render-core's mania notes).
     Percy { height: u32, cap_bottom: u32 },
+    /// Keep proportions: the image resampled to `width × height`
+    /// (`resample::resize`): the whole source width across the output, the
+    /// content anchored to the bottom edge, scaled by `scale_y` (output
+    /// pixels per source pixel) and moved `up` output pixels. Rows uncovered
+    /// at the bottom repeat the edge (as `Shift`).
+    Resize {
+        width: u32,
+        height: u32,
+        scale_y: f64,
+        up: f64,
+    },
+    /// Keep proportions of a repeating hold body: the same pixels, `height`
+    /// rows tall: cut at the bottom, or continued by repeating the image from
+    /// its top (lazer stretches the body image over 32800 units whatever its
+    /// height, so its height sets the scale of its pattern).
+    Rows { height: u32 },
 }
 
 /// The result of an [`Op`]: the new PNG and what it lost.
@@ -169,6 +187,54 @@ pub fn apply(bytes: &[u8], op: Op, cap: Option<&[u8]>) -> Result<Derived, Failur
     let mut image = decode(bytes)?;
     let mut lost = 0;
     match op {
+        Op::Resize {
+            width,
+            height,
+            scale_y,
+            up,
+        } => {
+            if width == 0 || height == 0 || width > 8192 || height > MAX_HEIGHT {
+                return Err(failure("Resized images are 1–8192 × 1–65536 px."));
+            }
+            if !(scale_y.is_finite()
+                && scale_y > 0.0
+                && scale_y <= 16.0
+                && up.is_finite()
+                && up.abs() <= height as f64)
+            {
+                return Err(failure("Invalid resize."));
+            }
+            if image.rows.is_empty() || image.width == 0 {
+                return Err(failure("The image is empty."));
+            }
+            let linear =
+                crate::resample::Linear::from_rows(image.width as usize, image.depth, &image.rows);
+            let out =
+                crate::resample::resize(&linear, width as usize, height as usize, scale_y, up);
+            image.width = width;
+            image.rows = out.to_rows(image.depth);
+        }
+        Op::Rows { height } => {
+            if height == 0 || height > MAX_HEIGHT {
+                return Err(failure(format!("Images are at most {MAX_HEIGHT} rows.")));
+            }
+            let height = height as usize;
+            if image.rows.is_empty() {
+                return Err(failure("The image is empty."));
+            }
+            if height < image.rows.len() {
+                lost = image.rows[height..]
+                    .iter()
+                    .filter(|r| !image.clear(r))
+                    .count();
+                image.rows.truncate(height);
+            } else {
+                let source = image.rows.clone();
+                image
+                    .rows
+                    .extend((source.len()..height).map(|i| source[i % source.len()].clone()));
+            }
+        }
         Op::Shift { up } if up != 0 => {
             let height = image.rows.len();
             let moved = (up.unsigned_abs() as usize).min(height);
@@ -294,6 +360,264 @@ pub fn apply(bytes: &[u8], op: Op, cap: Option<&[u8]>) -> Result<Derived, Failur
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rows_cut_or_repeat_from_the_top() {
+        let src = png(&[&[1], &[2], &[3]]);
+        assert_eq!(
+            alpha(&apply(&src, Op::Rows { height: 2 }, None).unwrap().bytes),
+            [vec![1], vec![2]]
+        );
+        let longer = apply(&src, Op::Rows { height: 7 }, None).unwrap();
+        assert_eq!(
+            alpha(&longer.bytes),
+            [[1], [2], [3], [1], [2], [3], [1]].map(|r| r.to_vec())
+        );
+        assert_eq!(apply(&src, Op::Rows { height: 1 }, None).unwrap().lost, 2);
+    }
+
+    #[test]
+    fn resize_keeps_depth_size_and_transparency() {
+        // A 16-bit image: an opaque square on transparency.
+        let mut rows = Vec::new();
+        for y in 0..32u32 {
+            let mut row = Vec::new();
+            for x in 0..32u32 {
+                let a: u16 = if (8..24).contains(&x) && (8..24).contains(&y) {
+                    65535
+                } else {
+                    0
+                };
+                for v in [40000u16, 20000, 10000, a] {
+                    row.extend_from_slice(&v.to_be_bytes());
+                }
+            }
+            rows.push(row);
+        }
+        let src = encode(&Image {
+            width: 32,
+            depth: 2,
+            rows,
+        })
+        .unwrap();
+        let out = apply(
+            &src,
+            Op::Resize {
+                width: 24,
+                height: 24,
+                scale_y: 0.75,
+                up: 0.0,
+            },
+            None,
+        )
+        .unwrap();
+        let image = decode(&out.bytes).unwrap();
+        assert_eq!((image.width, image.rows.len(), image.depth), (24, 24, 2));
+        // Fully inside the square: the colour comes back exactly (no dark fringe
+        // from transparent neighbours), fully outside stays transparent.
+        let px = |x: usize, y: usize| -> [u16; 4] {
+            let p = &image.rows[y][x * 8..x * 8 + 8];
+            [0, 1, 2, 3].map(|i| u16::from_be_bytes([p[2 * i], p[2 * i + 1]]))
+        };
+        assert_eq!(px(12, 12), [40000, 20000, 10000, 65535]);
+        assert_eq!(px(1, 1)[3], 0);
+        // Edge pixels keep the square's colour at partial alpha.
+        let edge = px(6, 12);
+        assert!(edge[3] > 0 && edge[3] < 65535);
+        assert!((edge[0] as i32 - 40000).abs() < 300, "{edge:?}");
+        assert!(
+            apply(
+                &src,
+                Op::Resize {
+                    width: 0,
+                    height: 4,
+                    scale_y: 1.0,
+                    up: 0.0
+                },
+                None
+            )
+            .is_err()
+        );
+    }
+
+    /// Evidence for the proportions resampler (run with
+    /// `SKIN_STUDIO_EVIDENCE=<dir>` and optionally `SKIN_STUDIO_RECEPTOR=<@2x png>`):
+    /// crops at 1:1 and 4× (nearest) on dark and light backgrounds, of the
+    /// ideal, this resampler and plain Lanczos-3, at 0.7×, 0.9×, 1.1× and 1.5×,
+    /// plus metrics.json. Thresholds are asserted by `resample::tests`.
+    #[test]
+    fn proportions_evidence() {
+        use crate::resample::{
+            Linear, resize, resize_with,
+            tests::{halo, rings, ssim},
+        };
+        let Ok(dir) = std::env::var("SKIN_STUDIO_EVIDENCE") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // Composites over a background and zooms (nearest) into a sheet.
+        let sheet =
+            |tiles: &[&Linear], crop: (usize, usize, usize, usize), zoom: usize| -> Vec<u8> {
+                let (x0, y0, w, h) = crop;
+                let mut rows = Vec::new();
+                for bg in [0.02f32, 0.75] {
+                    for y in 0..h * zoom {
+                        let mut row = Vec::new();
+                        for (t, tile) in tiles.iter().enumerate() {
+                            for x in 0..w * zoom {
+                                let (sx, sy) = (x0 + x / zoom, y0 + y / zoom);
+                                let p = if sx < tile.width && sy < tile.height {
+                                    tile.px[sy * tile.width + sx]
+                                } else {
+                                    [0.0; 4]
+                                };
+                                for c in 0..3 {
+                                    let v = p[c] + bg * (1.0 - p[3]);
+                                    let srgb = if v <= 0.003_130_8 {
+                                        v * 12.92
+                                    } else {
+                                        1.055 * v.powf(1.0 / 2.4) - 0.055
+                                    };
+                                    row.push((srgb.clamp(0.0, 1.0) * 255.0).round() as u8);
+                                }
+                                row.push(255);
+                            }
+                            if t + 1 < tiles.len() {
+                                row.extend([255, 0, 255, 255].repeat(2));
+                            }
+                        }
+                        rows.push(row);
+                    }
+                }
+                let width = (rows[0].len() / 4) as u32;
+                encode(&Image {
+                    width,
+                    depth: 1,
+                    rows,
+                })
+                .unwrap()
+            };
+        let mut metrics = Vec::new();
+        // The hard test image: thin rings and an anti-aliased disc, @2x-sized source.
+        let src = rings(192, 192, 2.0, 96.0);
+        for scale in [0.7f64, 0.9, 1.1, 1.5] {
+            for base in [96.0, 192.0] {
+                let size = (base * scale).round() as usize;
+                let s = size as f64 / 192.0;
+                let ours = resize(&src, size, size, s, 0.0);
+                let plain = resize_with(&src, size, size, s, 0.0, false);
+                let ideal = rings(size, size, 2.0 * s, 96.0 * s);
+                // Alpha along the row through the centre, against the ideal's.
+                let mid = size - (96.0 * s) as usize;
+                let profile = (0..size)
+                    .map(|x| (ours.px[mid * size + x][3] - ideal.px[mid * size + x][3]).abs())
+                    .fold(0.0f32, f32::max);
+                metrics.push(format!(
+                    r#"{{"image":"rings","scale":{scale},"size":{size},"ssim":{:.4},"halo":{:.4},"alpha_profile_max_error":{profile:.4},"plain_lanczos_ssim":{:.4},"plain_lanczos_halo":{:.4}}}"#,
+                    ssim(&ours, &ideal), halo(&ours, &ideal), ssim(&plain, &ideal), halo(&plain, &ideal)
+                ));
+                // The right half of the rings, where the 1 px rings and the disc edge are.
+                // The right half: the disc edge and the three 1 px rings (radii × 2s px).
+                let r = |v: f64| ((v * 2.0 * s) as usize).min(size / 2);
+                let c = (size / 2 + r(14.0), size / 2 - r(20.0), r(26.0), 2 * r(20.0));
+                let label = if base == 96.0 { "1x" } else { "2x" };
+                std::fs::write(
+                    dir.join(format!("rings-{scale}-{label}-1to1.png")),
+                    sheet(&[&ideal, &ours, &plain], c, 1),
+                )
+                .unwrap();
+                std::fs::write(
+                    dir.join(format!("rings-{scale}-{label}-4x.png")),
+                    sheet(&[&ideal, &ours, &plain], c, 4),
+                )
+                .unwrap();
+            }
+        }
+        // The user's receptor (an @2x file), round trip: scaled by s then back.
+        if let Ok(path) = std::env::var("SKIN_STUDIO_RECEPTOR") {
+            let image = decode(&std::fs::read(&path).unwrap()).unwrap();
+            let src = Linear::from_rows(image.width as usize, image.depth, &image.rows);
+            for scale in [0.7f64, 0.9, 1.1, 1.5] {
+                let (w, h) = (
+                    ((src.width as f64) * scale).round() as usize,
+                    ((src.height as f64) * scale).round() as usize,
+                );
+                let started = std::time::Instant::now();
+                let ours = resize(&src, w, h, scale, 0.0);
+                let ms = started.elapsed().as_secs_f64() * 1000.0;
+                let back = resize(&ours, src.width, src.height, 1.0 / scale, 0.0);
+                let plain = resize_with(&src, w, h, scale, 0.0, false);
+                let plain_back =
+                    resize_with(&plain, src.width, src.height, 1.0 / scale, 0.0, false);
+                metrics.push(format!(
+                    r#"{{"image":"receptor","file":{path:?},"scale":{scale},"size":[{w},{h}],"ms":{ms:.2},"round_trip_ssim":{:.4},"round_trip_halo":{:.4},"plain_lanczos_round_trip_ssim":{:.4},"plain_lanczos_round_trip_halo":{:.4}}}"#,
+                    ssim(&back, &src), halo(&back, &src), ssim(&plain_back, &src), halo(&plain_back, &src)
+                ));
+                let crop = (0, h.saturating_sub(w.min(h)), w.min(160), w.min(h).min(160));
+                std::fs::write(
+                    dir.join(format!("receptor-{scale}-1to1.png")),
+                    sheet(&[&ours, &plain], crop, 1),
+                )
+                .unwrap();
+                let small = (
+                    crop.0 + crop.2 / 4,
+                    crop.1 + crop.3 / 4,
+                    crop.2 / 2,
+                    crop.3 / 2,
+                );
+                std::fs::write(
+                    dir.join(format!("receptor-{scale}-4x.png")),
+                    sheet(&[&ours, &plain], small, 4),
+                )
+                .unwrap();
+            }
+        }
+        // Timing of each operation on real files (SKIN_STUDIO_TIME=<png>[,<png>…]).
+        for path in std::env::var("SKIN_STUDIO_TIME")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|p| !p.is_empty())
+        {
+            let bytes = std::fs::read(path).unwrap();
+            let image = decode(&bytes).unwrap();
+            let (w, h) = (image.width, image.rows.len() as u32);
+            for (label, op) in [
+                (
+                    "resize 1.25",
+                    Op::Resize {
+                        width: (w as f64 * 1.25).round() as u32,
+                        height: (h as f64 * 1.25).round() as u32,
+                        scale_y: 1.25,
+                        up: 0.0,
+                    },
+                ),
+                (
+                    "rows 1/1.25",
+                    Op::Rows {
+                        height: (h as f64 / 1.25).round() as u32,
+                    },
+                ),
+                ("shift 8", Op::Shift { up: 8 }),
+            ] {
+                if label.starts_with("resize") && h > 4096 {
+                    continue;
+                }
+                let started = std::time::Instant::now();
+                let out = apply(&bytes, op, None).unwrap();
+                metrics.push(format!(
+                    r#"{{"time":{path:?},"size":[{w},{h}],"op":{label:?},"ms":{:.1},"bytes":{}}}"#,
+                    started.elapsed().as_secs_f64() * 1000.0,
+                    out.bytes.len()
+                ));
+            }
+        }
+        std::fs::write(
+            dir.join("metrics.json"),
+            format!("[\n{}\n]\n", metrics.join(",\n")),
+        )
+        .unwrap();
+    }
 
     /// An 8-bit RGBA image from rows of alpha values (colour = row index).
     fn png(alpha: &[&[u8]]) -> Vec<u8> {

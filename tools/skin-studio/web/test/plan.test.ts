@@ -234,23 +234,23 @@ test("a stage group carries the images its source finds under default names", ()
   const block = serializeIni([maniaBlocks(parseIni(plan.ini)).get(4)!]);
   // Default names per column (4K: 1 2 2 1), in the source's spelling.
   for (const line of [
-    "KeyImage0: skin-studio/4k/mania-key1",
-    "KeyImage1: skin-studio/4k/mania-key2",
-    "KeyImage2D: skin-studio/4k/mania-key2D",
-    "NoteImage0: skin-studio/4k/mania-note1",
-    "NoteImage1: skin-studio/4k/mania-note2",
-    "NoteImage3L: skin-studio/4k/mania-note1L",
-    "LightingN: skin-studio/4k/LightingN",
-    "Hit300: skin-studio/4k/mania-hit300",
+    "KeyImage0: mania/4k/mania-key1",
+    "KeyImage1: mania/4k/mania-key2",
+    "KeyImage2D: mania/4k/mania-key2D",
+    "NoteImage0: mania/4k/mania-note1",
+    "NoteImage1: mania/4k/mania-note2",
+    "NoteImage3L: mania/4k/mania-note1L",
+    "LightingN: mania/4k/LightingN",
+    "Hit300: mania/4k/mania-hit300",
   ])
     expect(block).toContain(line);
   // Nothing to carry: those keys stay out.
   expect(block).not.toContain("NoteImage0H");
   const fromPlain = plan.sources.find((s) => s.skin === plain.key)!.files;
-  expect(fromPlain).toContainEqual(["mania-key1@2x.png", "skin-studio/4k/mania-key1@2x.png"]);
+  expect(fromPlain).toContainEqual(["mania-key1@2x.png", "mania/4k/mania-key1@2x.png"]);
   // Notes animate: their frames, not the plain image, are what the stage reads.
-  expect(fromPlain).toContainEqual(["mania-note1-1@2x.png", "skin-studio/4k/mania-note1-1@2x.png"]);
-  expect(fromPlain).not.toContainEqual(["mania-note1.png", "skin-studio/4k/mania-note1.png"]);
+  expect(fromPlain).toContainEqual(["mania-note1-1@2x.png", "mania/4k/mania-note1-1@2x.png"]);
+  expect(fromPlain).not.toContainEqual(["mania-note1.png", "mania/4k/mania-note1.png"]);
   // The base's own default-named key stays for its 7K stage.
   expect(copied(plan, withKey.key)).toContain("mania-key1.png");
   // The base's replaced 4K note is not drawn by the built-in look: nothing falls back.

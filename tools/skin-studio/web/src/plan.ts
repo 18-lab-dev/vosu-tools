@@ -44,15 +44,17 @@ import {
   imageIndex,
   lookupFiles,
   lookupName,
-  stageFolder,
 } from "./mania";
 import { type Keymodes, applyKeymodes } from "./keymodes";
+import { finishStageFolders, freeName, occupied, stageFolder } from "./layout";
 
 export interface SkinData {
   key: string;
   name: string;
   text: string;
   files: string[];
+  /** Files Skin studio generated in this skin (its ownership manifests). */
+  owned?: string[];
 }
 export type Pick =
   { kind: "skin"; key: string } | { kind: "default" } | { kind: "blank" };
@@ -81,6 +83,8 @@ export interface Plan {
   ini: string;
   sources: { skin: string; files: FileMap[] }[];
   blanks: { to: string; kind: "png" | "wav" }[];
+  /** Ownership manifests (layout.ts). */
+  texts: { to: string; text: string }[];
 }
 
 const MANIA_PREFIX = "mania-keys-";
@@ -211,6 +215,7 @@ export function inPlaceRemovals(plan: Plan, base: SkinData): string[] {
     for (const file of source.files)
       kept.add((typeof file === "string" ? file : file[1]).toLowerCase());
   for (const blank of plan.blanks) kept.add(blank.to.toLowerCase());
+  for (const text of plan.texts) kept.add(text.to.toLowerCase());
   return base.files.filter((f) => !ignored(f) && !kept.has(f.toLowerCase()));
 }
 
@@ -289,16 +294,20 @@ export function compose(
       // its block, the way lazer would find them in the source.
       if (source && block) {
         const target = maniaBlock(ini, keys);
+        const folder = stageFolder(keys);
+        const taken = occupied(out.keys(), folder);
+        // Columns sharing a default image share its copy.
+        const named = new Map<string, string>();
         for (const lookup of stageDefaults(source.files, block, keys)) {
+          // A file the skin already has there is never replaced.
+          const name = lookupName(lookup.files, lookup.fallback);
+          const free = named.get(name.toLowerCase()) ?? freeName(taken, folder, name);
+          named.set(name.toLowerCase(), free);
           for (const from of lookup.files) {
-            const to = `${stageFolder(keys)}/${from}`;
+            const to = `${folder}/${free}${from.slice(from.lastIndexOf("/") + 1 + name.length)}`;
             out.set(to.toLowerCase(), { skin: source.key, from, to });
           }
-          setInSection(
-            target,
-            lookup.key,
-            `${stageFolder(keys)}/${lookupName(lookup.files, lookup.fallback)}`,
-          );
+          setInSection(target, lookup.key, `${folder}/${free}`);
         }
       }
     } else {
@@ -371,6 +380,12 @@ export function compose(
         if (files.length) have.add(target);
       }
   }
+  const texts = finishStageFolders(
+    ini,
+    out,
+    base?.key,
+    new Set((base?.owned ?? []).map((f) => f.toLowerCase())),
+  );
   const fallbacks = new Map<string, string[]>();
   const have = present(out);
   for (const [id, files] of removed) {
@@ -429,6 +444,7 @@ export function compose(
       ini: serializeIni(ini),
       sources: [...sources].map(([skin, files]) => ({ skin, files })),
       blanks,
+      texts,
     },
     counts,
     notes,

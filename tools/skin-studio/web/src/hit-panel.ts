@@ -6,7 +6,7 @@ import { parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
 import { maniaConfig, type ManiaImageResolution } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
 import { judgeReplay, parseReplay, replayRate } from "@vosu-tools/replay";
-import { maniaValue } from "@vosu-tools/skin-spec";
+import { maniaValue, setManiaValue } from "@vosu-tools/skin-spec";
 import {
   MIN_HITS,
   calibratedHitPosition,
@@ -19,6 +19,15 @@ import {
 import { $, h } from "./dom";
 import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
 import { lookupFiles } from "./mania";
+import {
+  type Dims,
+  type Geometry,
+  columnOf,
+  hitPositionFor,
+  pieceOf,
+  pieceOps,
+  referenceScale,
+} from "./proportions";
 import { UPLOADS } from "./uploads";
 
 /** One image operation of the service's `/v1/derive`. */
@@ -26,7 +35,9 @@ export type DeriveOp =
   | { shift: { up: number } }
   | { tail: { gap: number; at_top: boolean } }
   | { spacer: { rows: number } }
-  | { percy: { height: number; cap_bottom: number } };
+  | { percy: { height: number; cap_bottom: number } }
+  | { resize: { width: number; height: number; scale_y: number; up: number } }
+  | { rows: { height: number } };
 export interface LastPlay {
   client: "stable" | "lazer";
   source: string;
@@ -150,6 +161,7 @@ export class HitPanel {
         step(5, "Lower the hit line"),
         h("span", { class: "v-muted km-hit__note" }, note),
       ),
+      this.#keepRow(),
       h(
         "div",
         { class: "km-hit__row" },
@@ -168,6 +180,30 @@ export class HitPanel {
         speedLine,
       ),
       ...this.#proposal(),
+    );
+  }
+
+  /** "Keep proportions when changing column width", per key count (on by default). */
+  #keepRow() {
+    const keys = this.#host.keys();
+    const on = this.#host.draft()?.keepProportions !== false;
+    const box = h("input", { type: "checkbox", id: "km-keep", checked: on });
+    box.onchange = () =>
+      this.#host.change(`${box.checked ? "Keep" : "Stretch"} ${keys}K proportions when changing column width`, (draft) => {
+        if (box.checked) delete draft.keepProportions;
+        else draft.keepProportions = false;
+      });
+    return h(
+      "div",
+      { class: "km-hit__row" },
+      h("label", { class: "km-hit__check" }, box, " Keep proportions when changing column width"),
+      h(
+        "span",
+        { class: "v-muted km-hit__note" },
+        on
+          ? "Receptors, notes and hold pieces are rescaled so a wider or narrower column looks scaled, not stretched; HitPosition follows the receptors."
+          : "Off: osu! stretches receptors and notes across the column width.",
+      ),
     );
   }
 
@@ -215,60 +251,212 @@ export class HitPanel {
       this.#host.error("HitPosition is 240–480 (lazer clamps it there).");
       return;
     }
-    const current = this.#current();
-    if (target === current) return;
+    const keys = this.#host.keys();
+    await this.#serial("HitPosition", async () => {
+      if (target !== this.#current())
+        await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) });
+    });
+  }
+
+  /**
+   * Sets column widths (comma list). With "Keep proportions" on (the
+   * default), receptors, notes and hold pieces are rescaled as if each
+   * column were scaled uniformly (proportions.ts), and HitPosition follows
+   * the receptors: HitPosition' = 480 − (480 − HitPosition) × s, s being the
+   * scale most columns share. One undo step.
+   */
+  async setWidths(column: number, value: string, label: string) {
+    this.lastRegeometry = null;
+    await this.#serial(`ColumnWidth${column}`, () => {
+      // The widths as the skin.ini has them now, this column changed.
+      const keys = this.#host.keys();
+      const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+      const widths = config.columnWidth.map((w, i) => (i === column ? value : String(Math.round((w / 1.6) * 1e4) / 1e4)));
+      return this.#setWidths(widths, label);
+    });
+  }
+  async #setWidths(widths: string[], label: string) {
+    const keys = this.#host.keys();
+    const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
+    if (this.#host.draft()?.keepProportions === false) {
+      this.#host.change(label, (draft) => Object.assign(draft.values, values));
+      return;
+    }
+    const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+    // Scales against the widths the pieces had when first captured (the
+    // originals), so changing columns one by one ends where changing them
+    // all at once would: HitPosition follows the scale most columns have.
+    const originals = Object.entries(this.#host.draft()?.hit?.originals ?? {});
+    const base = config.columnWidth.map((w, i) => originals.find(([k, o]) => pieceOf(k) && columnOf(k) === i && o.width)?.[1].width ?? w);
+    const valid = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
+    const was = referenceScale(config.columnWidth.map((w, i) => valid(w / base[i])));
+    const scale = referenceScale(widths.map((w, i) => valid((Number(w) * 1.6) / base[i])));
+    // The HitPosition the current one means at the original widths.
+    const unscaled = 480 - (480 - this.#current()) / was;
+    const hitPosition = hitPositionFor(unscaled, scale);
+    if (hitPosition < 240 || hitPosition > 480)
+      return this.#host.error(`Keeping proportions would put HitPosition at ${hitPosition}, outside 240–480.`);
+    values.HitPosition = String(hitPosition);
+    const wfnhs = Number(maniaValue(this.#host.mixText(), keys, "WidthForNoteHeightScale"));
+    if (wfnhs > 0) values.WidthForNoteHeightScale = String(Math.round(((wfnhs * scale) / was) * 100) / 100);
+    await this.#regeometry(label, values);
+  }
+
+  #geometryTicket = 0;
+  #queue: Promise<void> = Promise.resolve();
+  #latest = new Map<string, number>();
+  /**
+   * Geometry changes run one after another, each from the skin.ini the one
+   * before left (two quick edits of different columns both count); an edit
+   * still waiting when a newer one of the same field arrives is skipped.
+   */
+  #serial(field: string, run: () => Promise<void>) {
+    const ticket = (this.#latest.get(field) ?? 0) + 1;
+    this.#latest.set(field, ticket);
+    const job = this.#queue.then(() => (this.#latest.get(field) === ticket ? run() : undefined));
+    this.#queue = job.catch(() => undefined);
+    return job;
+  }
+  #sizes = new Map<string, Promise<Dims>>();
+  #derived = new Map<string, Promise<{ stored: string; lost: number }>>();
+  /** Last re-derive: images made and time taken, for the screen and tests. */
+  lastRegeometry: { images: number; ms: number } | null = null;
+
+  #size(skin: string, name: string) {
+    const id = `${skin}\n${name}`;
+    let size = this.#sizes.get(id);
+    if (!size) {
+      size = this.#host.rows(skin, name).then((r) => ({ width: r.width, height: r.height }));
+      size.catch(() => this.#sizes.delete(id));
+      this.#sizes.set(id, size);
+    }
+    return size;
+  }
+
+  /**
+   * Re-derives every captured piece for the geometry `values` give (they
+   * win over the mix's skin.ini), from the images as they were before the
+   * first change (no resampling of a resample, no shift of a shift), and
+   * stores values and images as one undoable change. A newer call cancels
+   * an older one still deriving.
+   */
+  async #regeometry(label: string, values: Record<string, string | null>) {
+    const ticket = ++this.#geometryTicket;
+    const started = performance.now();
     this.#busy = true;
     this.render();
     try {
+      const keys = this.#host.keys();
+      const text = this.#host.mixText();
+      let next = text;
+      for (const [key, value] of Object.entries(values)) next = setManiaValue(next, keys, key, value ?? undefined);
+      const now = maniaConfig(readSkinIni(text), keys);
+      const then = maniaConfig(readSkinIni(next), keys);
+      const current = this.#current();
+      const target = Number(values.HitPosition ?? current);
+      const widthsChange = now.columnWidth.some((w, i) => w !== then.columnWidth[i]) || now.noteHeightWidth !== then.noteHeightWidth;
       const draft = this.#host.draft();
       const hit = structuredClone(draft?.hit) ?? { originals: {} };
-      // Images not moved yet are captured as they are now, with the draft's
-      // own slot so that going back restores exactly that.
-      for (const r of this.#host.resolved())
-        if (KEY.test(r.key) && !hit.originals[r.key]) {
-          const image = this.#mixImage(r);
-          const had = !!draft && r.key in draft.images;
-          if (image) hit.originals[r.key] = { at: current, slot: image, had, prior: had ? structuredClone(draft!.images[r.key]) : undefined };
-        }
+      // Pieces not changed yet are captured as they are now, with the draft's
+      // own slot so that going back restores exactly that. Keys always (the
+      // hit line moves them); notes and hold pieces once widths change.
+      for (const r of this.#host.resolved()) {
+        const piece = pieceOf(r.key);
+        if (!piece || hit.originals[r.key] || (piece !== "key" && !widthsChange)) continue;
+        const image = this.#mixImage(r);
+        const had = !!draft && r.key in draft.images;
+        if (image)
+          hit.originals[r.key] = {
+            at: current,
+            width: now.columnWidth[columnOf(r.key)],
+            noteHeight: now.noteHeightWidth,
+            slot: image,
+            had,
+            prior: had ? structuredClone(draft!.images[r.key]) : undefined,
+          };
+      }
+      const geometry = (config: typeof now, hitPosition: number, column: number): Geometry => ({
+        hitPosition,
+        width: config.columnWidth[column],
+        noteHeight: config.noteHeightWidth,
+        repeat: config.noteBodyStyle !== 0,
+      });
       const slots: Record<string, Slot | undefined> = {};
       const lost: string[] = [];
-      for (const [key, original] of Object.entries(hit.originals)) {
-        if (original.at === target) {
+      let images = 0;
+      // 1. Each piece's operations (sizes read in parallel, cached).
+      const planned = await Promise.all(
+        Object.entries(hit.originals).map(async ([key, original]) => {
+          const piece = pieceOf(key)!;
+          const column = columnOf(key);
+          const from: Geometry = {
+            ...geometry(now, original.at, column),
+            width: original.width ?? now.columnWidth[column],
+            noteHeight: original.noteHeight ?? now.noteHeightWidth,
+          };
+          const files = original.slot.files;
+          const dims = new Map<string, Dims>();
+          if (piece !== "key" || from.width !== then.columnWidth[column])
+            await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
+          return { key, original, ops: pieceOps(piece, from, geometry(then, target, column), files, dims) };
+        }),
+      );
+      // 2. One derive request per skin for what is not cached yet.
+      const id = (skin: string, o: { source: string; op: DeriveOp }) => JSON.stringify([skin, o.source, o.op]);
+      const wanted = new Map<string, Map<string, { source: string; op: DeriveOp }>>();
+      for (const { original, ops } of planned)
+        for (const o of ops ?? [])
+          if (!this.#derived.has(id(original.slot.skin, o)))
+            wanted.set(original.slot.skin, (wanted.get(original.slot.skin) ?? new Map()).set(id(original.slot.skin, o), o));
+      for (const [skin, requests] of wanted) {
+        const list = [...requests];
+        for (let i = 0; i < list.length; i += 64) {
+          const chunk = list.slice(i, i + 64);
+          const batch = this.#host.derive(skin, chunk.map(([, o]) => ({ name: o.source, op: o.op })));
+          batch.catch(() => chunk.forEach(([k]) => this.#derived.delete(k)));
+          chunk.forEach(([k], n) => this.#derived.set(k, batch.then((r) => r[n])));
+        }
+      }
+      // 3. The new slots.
+      for (const { key, original, ops } of planned) {
+        if (!ops) {
           slots[key] = original.had ? original.prior : undefined;
           continue;
         }
-        const derived = await this.#host.derive(
-          original.slot.skin,
-          original.slot.files.map((f) => ({
-            name: f.from,
-            op: { shift: { up: receptorShift(original.at, target, hd(f.from)).rows } },
-          })),
-        );
-        for (const d of derived) if (d.lost) lost.push(`${d.from}: ${d.lost} rows past the edge`);
+        const derived = await Promise.all(ops.map((o) => this.#derived.get(id(original.slot.skin, o))!));
+        images += derived.length;
+        const files = original.slot.files;
+        for (const [i, d] of derived.entries()) if (d.lost) lost.push(`${files[i].from}: ${d.lost} rows past the edge`);
         slots[key] = {
           skin: UPLOADS,
           name: original.slot.name.split("/").pop()!,
-          files: original.slot.files.map((f, i) => ({ from: derived[i].stored, suffix: f.suffix })),
+          files: files.map((f, i) => ({ from: derived[i].stored, suffix: f.suffix })),
         };
       }
-      const keys = this.#host.keys();
-      const light = Number(maniaValue(this.#host.mixText(), keys, "LightPosition"));
-      this.#host.change(`Set ${keys}K HitPosition to ${target}`, (draft) => {
+      // A newer change superseded this one.
+      if (ticket !== this.#geometryTicket) return;
+      const light = Number(maniaValue(text, keys, "LightPosition"));
+      if (values.HitPosition !== undefined && Number.isFinite(light) && light > 0 && target !== current)
+        values = { ...values, LightPosition: String(Math.round(light + target - current)) };
+      this.#host.change(label, (d) => {
         for (const [key, slot] of Object.entries(slots))
-          if (slot === undefined) delete draft.images[key];
-          else draft.images[key] = slot;
-        draft.values.HitPosition = String(target);
-        if (Number.isFinite(light) && light > 0) draft.values.LightPosition = String(Math.round(light + target - current));
-        // Back where every image was made: nothing is moved any more.
-        if (Object.values(hit.originals).every((o) => o.at === target)) delete draft.hit;
-        else draft.hit = hit;
+          if (slot === undefined) delete d.images[key];
+          else d.images[key] = slot;
+        Object.assign(d.values, values);
+        // Back where every image was made: nothing is changed any more.
+        if (Object.entries(hit.originals).every(([key, o]) => slots[key] === (o.had ? o.prior : undefined)))
+          delete d.hit;
+        else d.hit = hit;
       });
+      this.lastRegeometry = { images, ms: Math.round(performance.now() - started) };
       this.#host.error(lost.length ? `Moved past the image edge: ${lost.join("; ")}` : "");
     } catch (error) {
-      this.#host.error(error instanceof Error ? error.message : String(error));
+      if (ticket === this.#geometryTicket) this.#host.error(error instanceof Error ? error.message : String(error));
     } finally {
-      this.#busy = false;
-      this.render();
+      if (ticket === this.#geometryTicket) {
+        this.#busy = false;
+        this.render();
+      }
     }
   }
 
@@ -418,6 +606,9 @@ export class HitPanel {
       }
       this.#host.change(`Calibrate ${keys}K hold ends`, (draft) => {
         Object.assign(draft.images, images);
+        // The calibrated pieces are the new originals for later width changes
+        // (captured then, at that geometry): the calibration is kept.
+        if (draft.hit) for (const key of Object.keys(images)) delete draft.hit.originals[key];
         // A percy body is drawn from the tail end only by repeating styles.
         if (style) draft.values.NoteBodyStyle = "1";
       });

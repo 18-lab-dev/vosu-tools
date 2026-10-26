@@ -41,6 +41,7 @@ import {
 import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import { HitPanel, type HitHost } from "./hit-panel";
+import { MANIA_COLUMNS, MANIA_FIELDS, columnKey as formKey, setListEntry, type ColumnField, type Field } from "./mania-form";
 import type { Preview, PreviewSource } from "./preview";
 import {
   EMPTY,
@@ -299,10 +300,20 @@ export class KeymodesView {
   /** One undoable change of the shown key count's draft. */
   #change(label: string, mutate: (draft: KeymodeDraft) => void, keys = this.#keys) {
     if (!keys) return;
-    const before = clone(this.#host.drafts()[String(keys)]);
-    const after = clone(before) ?? emptyDraft();
+    let before = clone(this.#host.drafts()[String(keys)]);
+    let after = clone(before) ?? emptyDraft();
     mutate(after);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
+    // Values the draft did not hold yet come from skin.ini (perhaps edited by
+    // hand): the step before keeps them, so undo returns exactly to that text.
+    const text = this.#host.mixText();
+    const seeds = Object.keys(after.values).filter((k) => !(before && k in before.values) && maniaValue(text, keys, k) !== undefined);
+    if (seeds.length) {
+      before ??= emptyDraft();
+      for (const k of seeds) before.values[k] = maniaValue(text, keys, k)!;
+      after = clone(before)!;
+      mutate(after);
+    }
     this.#history.push({ keys, before, after, label });
     this.#host.apply(keys, after);
     this.#error("");
@@ -467,6 +478,7 @@ export class KeymodesView {
     this.#renderToolbar();
     this.#renderGrid();
     this.#renderShared();
+    this.#renderSettings();
     this.#hit.render();
     this.#renderColumns();
     this.#renderCopy();
@@ -778,6 +790,175 @@ export class KeymodesView {
     if (hadFocus) this.#focusCell(grid);
   }
 
+  /**
+   * Column widths through the hit panel, which keeps proportions (by
+   * default) in the same undo step; the first time, says so inline.
+   */
+  async #setWidths(column: number, value: string, label: string) {
+    // The widths as they are when this edit runs (after any edit before it).
+    await this.#hit.setWidths(column, value, label);
+    const done = this.#hit.lastRegeometry;
+    if (this.#draft()?.keepProportions === false || !done) return;
+    const first = localStorage.getItem("skin-studio:proportions-seen") === null;
+    localStorage.setItem("skin-studio:proportions-seen", "1");
+    this.#state(
+      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
+    );
+  }
+
+  /**
+   * Every other [Mania] key of the shown key count (mania-form.ts): per-column
+   * settings aligned under the columns, then typed fields by group. Values
+   * are read from the draft's skin.ini (hand edits show here) and set through
+   * the draft (one undo step each).
+   */
+  #renderSettings() {
+    const root = $("#km-settings");
+    const keys = this.#keys;
+    if (!keys) return root.replaceChildren();
+    const hadFocus = root.contains(document.activeElement) ? document.activeElement?.getAttribute("aria-label") : null;
+    const text = this.#host.mixText();
+    // The draft's own value first: the skin.ini text catches up a moment
+    // later (the mix recomposes), and the form must not show the old value.
+    const draft = this.#draft()?.values ?? {};
+    const value = (key: string) => (key in draft ? (draft[key] ?? undefined) : maniaValue(text, keys, key));
+    const set = (key: string, v: string | null, label: string) =>
+      this.#change(label, (draft) => {
+        draft.values[key] = v;
+      });
+    const reset = (label: string, onclick: () => void, shown: boolean) =>
+      h("button", { type: "button", class: "km-clear km-reset", ariaLabel: `Reset ${label} to its default`, title: "Reset to default (leave the key out)", hidden: !shown, onclick }, "×");
+    const control = (
+      f: { control: string; options?: { value: string; label: string }[]; min?: number; max?: number },
+      label: string,
+      current: string | undefined,
+      fallback: string | undefined,
+      onSet: (v: string | null) => void,
+      alpha = false,
+    ): HTMLElement => {
+      if (f.control === "switch") {
+        const box = h("input", { type: "checkbox", role: "switch", ariaLabel: label, checked: (current ?? fallback) === "1" });
+        box.indeterminate = current === undefined && fallback === undefined;
+        box.onchange = () => onSet(box.checked ? "1" : "0");
+        return box;
+      }
+      if (f.control === "select") {
+        const select = h(
+          "select",
+          { class: "v-select km-settings__select", ariaLabel: label },
+          h("option", { value: "" }, fallback !== undefined ? `Default (${f.options?.find((o) => o.value === fallback)?.label ?? fallback})` : "Default"),
+          ...(f.options ?? []).map((o) => h("option", { value: o.value }, o.label)),
+          // A value the list does not name (another spelling) stays selectable.
+          ...(current !== undefined && !f.options?.some((o) => o.value === current) ? [h("option", { value: current }, current)] : []),
+        );
+        select.value = current ?? "";
+        select.onchange = () => onSet(select.value === "" ? null : select.value);
+        return select;
+      }
+      if (f.control === "colour") {
+        const shown = current ?? fallback ?? "0,0,0";
+        const [r, g, b, a = "255"] = shown.split(",").map((v) => v.trim());
+        const picker = h("input", { type: "color", class: "km-colour", value: toHex(shown, "0,0,0"), ariaLabel: label });
+        picker.onchange = () => onSet(fromHex(picker.value, current ?? shown, alpha));
+        const swatch = h("span", { class: "km-swatch", title: `${shown}${current === undefined ? " (default)" : ""}` }, picker);
+        swatch.style.setProperty("--c", `rgb(${r} ${g} ${b} / ${alpha ? Number(a) / 255 : 1})`);
+        if (!alpha) return swatch;
+        const opacity = h("input", { type: "number", min: "0", max: "255", step: "1", class: "v-input km-num km-settings__alpha", value: a, ariaLabel: `${label} alpha` });
+        opacity.onchange = () => {
+          const n = Math.round(Number(opacity.value));
+          if (n >= 0 && n <= 255) onSet([r, g, b, String(n)].join(","));
+        };
+        return h("span", { class: "km-settings__colour" }, swatch, opacity);
+      }
+      const input = h("input", {
+        type: "number",
+        step: f.control === "integer" ? "1" : "any",
+        class: "v-input km-num",
+        value: current ?? "",
+        placeholder: fallback ?? "",
+        ariaLabel: label,
+        ...(f.min !== undefined ? { min: String(f.min) } : {}),
+        ...(f.max !== undefined ? { max: String(f.max) } : {}),
+      });
+      input.onchange = () => {
+        if (input.value === "") return onSet(null);
+        const n = Number(input.value);
+        const bad = !Number.isFinite(n) || (f.control === "integer" && !Number.isInteger(n)) || (f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max);
+        if (bad) {
+          this.#error(`${label}: ${f.control === "integer" ? "a whole number" : "a number"}${f.min !== undefined ? ` from ${f.min}` : ""}${f.max !== undefined ? ` to ${f.max}` : ""}`);
+          input.value = current ?? "";
+          return;
+        }
+        this.#error("");
+        onSet(String(n));
+      };
+      return input;
+    };
+    // Per-column settings, under the columns of the grid above.
+    const widths = (value("ColumnWidth") ?? "").split(",");
+    const columnRow = (f: ColumnField) => {
+      const length = f.length(keys);
+      const raw = f.list ? value(f.key)?.split(",").map((v) => v.trim()) : undefined;
+      const global = f.list ? undefined : value(f.key.replace(/#.*$/, ""));
+      const fill = (i: number) =>
+        f.key.startsWith("Lighting") ? (widths[i]?.trim() || "30") : (f.fallback ?? "0");
+      const cells = Array.from({ length }, (_, i) => {
+        const key = f.list ? f.key : formKey(f, i);
+        const current = f.list ? raw?.[i] || undefined : value(key);
+        const label = f.list && length < keys ? `${f.label} column ${i + 1}` : `Column ${i + 1} ${f.label.toLowerCase()}`;
+        const fallback = f.list ? (f.key.startsWith("Lighting") ? fill(i) : f.fallback) : (global ?? MANIA_FIELDS.find((g) => g.key === f.key.replace(/#.*$/, ""))?.fallback);
+        const el = control(f, label, current, fallback, (v) =>
+          f.list
+            ? set(f.key, setListEntry(value(f.key), length, i, v, fill), `Set ${label.toLowerCase()}`)
+            : set(key, v, `Set ${label.toLowerCase()}`),
+        );
+        return h("div", { class: `km-value${f.list && length < keys ? " km-value--gap" : ""}` }, el);
+      });
+      const set_ = f.list ? value(f.key) !== undefined : cells.some((_, i) => value(formKey(f, i)) !== undefined);
+      return h(
+        "div",
+        { class: "km-row", role: "row" },
+        h(
+          "span",
+          { class: "km-rowhead", role: "rowheader", title: `${f.key}${f.note ? `: ${f.note}` : ""}` },
+          f.label,
+          reset(f.label, () =>
+            this.#change(`Reset ${f.label.toLowerCase()}`, (draft) => {
+              if (f.list) draft.values[f.key] = null;
+              else for (let i = 0; i < length; i++) draft.values[formKey(f, i)] = null;
+            }), set_),
+        ),
+        ...cells,
+      );
+    };
+    const columns = h("div", { class: "km-grid km-settings__columns", role: "grid", ariaLabel: "Per-column settings" }, ...MANIA_COLUMNS.map(columnRow));
+    columns.style.setProperty("--km-cols", String(keys));
+    // Typed fields by group.
+    const groups = new Map<string, Field[]>();
+    for (const f of MANIA_FIELDS) groups.set(f.group, [...(groups.get(f.group) ?? []), f]);
+    const fieldsets = [...groups].map(([group, fields]) =>
+      h(
+        "fieldset",
+        { class: "km-settings__group" },
+        h("legend", { class: "v-label" }, group),
+        ...fields.map((f) => {
+          const current = value(f.key);
+          return h(
+            "div",
+            { class: "km-settings__field" },
+            h("span", { class: "km-settings__label", title: f.key }, f.label),
+            control(f, f.label, current, f.fallback, (v) => set(f.key, v, `Set ${f.label.toLowerCase()}`), f.alpha),
+            h("span", { class: "v-muted km-settings__default" }, current === undefined ? (f.fallback !== undefined ? `default ${f.fallback}` : "not set") : ""),
+            reset(f.label, () => set(f.key, null, `Reset ${f.label.toLowerCase()}`), current !== undefined),
+            f.note ? h("span", { class: "v-muted km-settings__note" }, f.note) : null,
+          );
+        }),
+      ),
+    );
+    root.replaceChildren(columns, h("div", { class: "km-settings__groups" }, ...fieldsets));
+    if (hadFocus) root.querySelector<HTMLElement>(`[aria-label="${CSS.escape(hadFocus)}"]`)?.focus();
+  }
+
   /** Width, line width, colour and light colour per column. */
   #valueRows(keys: number, first: number) {
     const text = this.#host.mixText();
@@ -854,7 +1035,7 @@ export class KeymodesView {
     return [
       row("Width", first, (c) =>
         number(widths[c], `Column ${c + 1} width`, first, c, (v) =>
-          setList("ColumnWidth", widths.map((w, i) => (i === c ? v : w)), `Set column ${c + 1} width`),
+          void this.#setWidths(c, v, `Set column ${c + 1} width`),
         ),
       ),
       row("Line", first + 1, (c) =>

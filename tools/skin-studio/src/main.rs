@@ -5,6 +5,7 @@ mod export;
 mod images;
 mod library;
 mod plays;
+mod resample;
 mod uploads;
 
 use axum::{
@@ -73,6 +74,10 @@ struct Snapshot {
     revision: String,
     files: Vec<FileEntry>,
     writable: bool,
+    /// Files Skin studio generated in this skin: listed by the ownership
+    /// manifests `mania/<N>k/.skin-studio.json`, plus the `skin-studio/`
+    /// folder earlier versions wrote.
+    owned: Vec<String>,
 }
 async fn read(
     State(app): State<App>,
@@ -86,12 +91,60 @@ async fn read(
     let revision = fingerprint(&bytes);
     // Saving lossily decoded text would corrupt non-UTF-8 files.
     let utf8 = std::str::from_utf8(&bytes).is_ok();
+    let files = source.files(&app).await?;
+    let owned = owned_files(&app, &source, &files).await;
     Ok(Json(Snapshot {
         text: String::from_utf8_lossy(&bytes).into_owned(),
         revision,
-        files: source.files(&app).await?,
+        files,
         writable: skin.writable && utf8,
+        owned,
     }))
+}
+
+/// The manifest Skin studio writes in each key count's folder.
+pub const MANIFEST: &str = ".skin-studio.json";
+
+/// Files a skin's ownership manifests list that exist, and `skin-studio/`
+/// files (the folder earlier versions wrote). A manifest naming a file
+/// outside its own folder is ignored for that file.
+async fn owned_files(app: &App, source: &Source, files: &[FileEntry]) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct Manifest {
+        files: Vec<String>,
+    }
+    let present: std::collections::HashSet<String> =
+        files.iter().map(|f| f.name.to_lowercase()).collect();
+    let mut owned: Vec<String> = files
+        .iter()
+        .filter(|f| f.name.to_lowercase().starts_with("skin-studio/"))
+        .map(|f| f.name.clone())
+        .collect();
+    for file in files {
+        let Some(folder) = file
+            .name
+            .strip_suffix(MANIFEST)
+            .and_then(|f| f.strip_suffix('/'))
+        else {
+            continue;
+        };
+        let Ok(bytes) = source.read(app, &file.name).await else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) else {
+            continue;
+        };
+        for name in manifest.files {
+            if name.contains('/') || name.contains('\\') || name.starts_with('.') {
+                continue;
+            }
+            let path = format!("{folder}/{name}");
+            if present.contains(&path.to_lowercase()) {
+                owned.push(path);
+            }
+        }
+    }
+    owned
 }
 
 fn content_type(name: &str) -> &'static str {
@@ -560,7 +613,8 @@ async fn derive(
         return Err(failure("At most 64 images at once."));
     }
     let (source, _) = library::resolve(&app, &request.skin).await?;
-    let mut out = Vec::with_capacity(request.files.len());
+    // Files are read in turn, then derived in parallel (one blocking task each).
+    let mut tasks = Vec::with_capacity(request.files.len());
     for file in request.files {
         if !file.name.to_ascii_lowercase().ends_with(".png") {
             return Err(failure(format!(
@@ -584,7 +638,8 @@ async fn derive(
             .unwrap_or_else(|_| "image.png".into());
         let dir = app.uploads.clone();
         let op = file.op;
-        let (stored, lost) = tokio::task::spawn_blocking(move || {
+        let from = file.name;
+        tasks.push(tokio::task::spawn_blocking(move || {
             let derived = images::apply(&bytes, op, cap.as_deref())?;
             let mut key = Sha256::new();
             key.update(serde_json::to_vec(&op).map_err(failure)?);
@@ -593,15 +648,16 @@ async fn derive(
                 key.update(cap);
             }
             let group = format!("{:x}", key.finalize())[..16].to_owned();
-            uploads::store(&dir, &group, &name, &derived.bytes).map(|s| (s, derived.lost))
-        })
-        .await
-        .map_err(failure)??;
-        out.push(DerivedFile {
-            from: file.name,
-            stored,
-            lost,
-        });
+            uploads::store(&dir, &group, &name, &derived.bytes).map(|stored| DerivedFile {
+                from,
+                stored,
+                lost: derived.lost,
+            })
+        }));
+    }
+    let mut out = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        out.push(task.await.map_err(failure)??);
     }
     Ok(Json(out))
 }
