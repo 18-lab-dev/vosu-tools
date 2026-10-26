@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tomllib
 
-from package_common import TARGETS, add_tree, atomic_json, published, release_url, valid_id, write_zip
+from package_common import TARGETS, add_tree, atomic_json, check_vosu_120_zip, published, release_url, valid_id, write_zip
 from package_art import artwork, art_urls, publish_art
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -382,17 +382,23 @@ def main():
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--out', type=Path, default=Path('dist'))
     parser.add_argument('--target', choices=TARGETS)
-    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.1.0')
+    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.2.0')
     parser.add_argument('--name', default='18-LAB official tools')
     parser.add_argument('--published')
     parser.add_argument('--skip-build', action='store_true', help='package already-built binaries and hidden-sourcemap UI outputs')
     parser.add_argument('--native-only', action='store_true', help='omit universal UI-only packages (release builds publish those once from Linux)')
     parser.add_argument('--dry-run', action='store_true', help='validate manifests and print the exact release build plan without building/writing')
     parser.add_argument('--merge-catalogs', type=Path, nargs='+')
+    parser.add_argument('--check-archives', type=Path, nargs='+', help='check existing tool or overlay ZIPs for vosu 1.2.0 compatibility')
     args = parser.parse_args()
     try:
         root, out = args.root.resolve(), args.out.resolve()
         release_url(args.base_url, 'catalog.json')
+        if args.check_archives:
+            for path in args.check_archives:
+                check_vosu_120_zip(path)
+                print(f'{path}: vosu 1.2.0 ZIP preflight passed')
+            return 0
         if args.merge_catalogs:
             if args.dry_run or args.target or args.skip_build:
                 raise ValueError('catalog merging cannot be combined with build options')

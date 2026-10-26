@@ -42,7 +42,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
     {
       "id": "practice",
       "name": "osu! practice tool",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "…",
       "author": "18-LAB",
       "homepage": "https://github.com/18-lab-dev/vosu-tools/tree/main/tools/practice",
@@ -52,7 +52,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "interfaces": ["ui", "cli"],
       "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
       "packages": {
-        "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.0-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
+        "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.1-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
         "x86_64-unknown-linux-gnu": {"url": "…", "sha256": "…", "size": 1234567}
       }
     }
@@ -84,13 +84,15 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
 
 `--out` selects the output directory, `--name` and `--published` set catalog metadata, and `SOURCE_DATE_EPOCH` supplies the default publication timestamp for reproducible runs. `--dry-run` validates manifests and prints commands without building/writing. `--skip-build` consumes already-built release binaries and hidden-sourcemap UI output. `--native-only` omits universal UI-only packages so release CI publishes those once, from Linux.
 
+Tool and overlay ZIP serialization also mirrors vosu 1.2.0's whole-file end-record preflight, including ZIP64 locators and its 10,000-entry limit. A false end-record signature in compressed data triggers a deterministic retry with DEFLATE levels 9 through 0, then stored entries; member contents, ordering and modes do not change. If no encoding passes, packaging fails before replacing the archive, naming its offset. Recheck existing archives with `python scripts/package.py --base-url https://example.invalid/x --check-archives dist/*.zip`.
+
 Catalog `interfaces` describes user-facing interfaces: `service` is present only for `[service] role = "background"` (also the default when omitted). `role = "backend"` is a native implementation detail for UI/CLI tools and requires `startup = "on-demand"`; its package still includes the service executable and uses a native target, not `any`. Skin studio and downloader are UI-only with backends, practice and replay renderer are UI + CLI with backends, map preview is UI-only without a backend, server pp and mania ratings are UI + service + CLI, and lazer library is service-only. Background services support the user's **Start with vosu** override; `startup` remains the author's default.
 
 Merge platform catalogs with:
 
 ```sh
 python scripts/package.py --merge-catalogs linux/catalog.json windows/catalog.json \
-  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.1.0
+  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.2.0
 ```
 
 Conflicting tool metadata or different packages for an already-present target fail the merge. No target package is silently replaced.

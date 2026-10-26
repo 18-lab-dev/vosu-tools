@@ -157,6 +157,71 @@ command=["bin/vosu-example", "cli"]
             write_zip(destination, {'../bad': b'x'}, 'overlay')
         self.assertEqual(destination.read_bytes(), b'previous release')
 
+    def test_vosu_120_fake_end_record(self):
+        fake = bytearray(22)
+        fake[:4] = b'PK\x05\x06'
+        fake[10:12] = (31_185).to_bytes(2, 'little')
+        path = self.root / 'fake.zip'
+        with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr('index.html', fake)
+        with self.assertRaisesRegex(ValueError, r'fake.zip.*offset 40:.*31185'):
+            package.check_vosu_120_zip(path)
+        # Re-encoding the same content removes the false signature.
+        write_zip(path, {'index.html': bytes(fake)}, 'overlay')
+        package.check_vosu_120_zip(path)
+        with zipfile.ZipFile(path) as archive:
+            self.assertEqual(archive.read('index.html'), fake)
+
+    def test_vosu_120_zip64_candidates(self):
+        for count, length, offset, expected in [
+                (31_185, 44, 0, '31185'), (1, 43, 0, 'ambiguous'),
+                (1, 44, 1, 'invalid'), (1, 44, 0, None)]:
+            with self.subTest(count=count, length=length, offset=offset):
+                record = bytearray(56)
+                record[:4] = b'PK\x06\x06'
+                record[4:12] = length.to_bytes(8, 'little')
+                record[32:40] = count.to_bytes(8, 'little')
+                locator = bytearray(20)
+                locator[:4] = b'PK\x06\x07'
+                locator[8:16] = offset.to_bytes(8, 'little')
+                end = bytearray(22)
+                end[:4] = b'PK\x05\x06'
+                path = self.root / 'zip64.zip'
+                path.write_bytes(record + locator + end)
+                if expected:
+                    with self.assertRaisesRegex(ValueError, f'offset 76:.*{expected}'):
+                        package.check_vosu_120_zip(path)
+                else:
+                    package.check_vosu_120_zip(path)
+
+    def test_vosu_120_truncated_comment_is_not_candidate(self):
+        path = self.root / 'comment.zip'
+        write_zip(path, {'index.html': b'hello'}, 'overlay')
+        fake = bytearray(22)
+        fake[:4] = b'PK\x05\x06'
+        fake[10:12] = (31_185).to_bytes(2, 'little')
+        fake[20:22] = (100).to_bytes(2, 'little')
+        path.write_bytes(path.read_bytes() + fake)
+        package.check_vosu_120_zip(path)
+
+    def test_vosu_120_encoding_retry_is_deterministic(self):
+        from package_common import check_vosu_120_zip
+        path = self.root / 'retry.zip'
+        results = []
+        for _ in range(2):
+            calls = 0
+            def check(candidate):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise ValueError(f'{candidate}: vosu 1.2.0 ZIP preflight at offset 42: entry limit exceeded')
+                check_vosu_120_zip(candidate)
+            with patch('package_common.check_vosu_120_zip', side_effect=check):
+                write_zip(path, {'index.html': b'hello' * 1000}, 'overlay')
+            self.assertEqual(calls, 2)
+            results.append(path.read_bytes())
+        self.assertEqual(*results)
+
     def test_spdx_selects_permissive_alternative_and_preserves_and(self):
         for expression in ['MIT/Apache-2.0', 'GPL-3.0-only OR MIT', 'Apache-2.0 WITH LLVM-exception OR MIT']:
             self.assertEqual(package.selected_license(expression), 'MIT')

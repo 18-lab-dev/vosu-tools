@@ -80,6 +80,44 @@ def validate_files(files, kind, identity=None):
         raise ValueError(f'unknown package kind: {kind}')
 
 
+def check_vosu_120_zip(path):
+    """Mirror vosu v1.2.0's whole-file EOCD preflight, including ZIP64."""
+    path = Path(path)
+    data = path.read_bytes()
+    found = False
+    candidates = 0
+    position = -1
+    def reject(reason):
+        raise ValueError(f'{path}: vosu 1.2.0 ZIP preflight at offset {position}: {reason}')
+    while True:
+        position = data.find(b'PK\x05\x06', position + 1)
+        if position < 0:
+            break
+        candidates += 1
+        if candidates > 100_000:
+            reject('too many ZIP end records')
+        if position + 22 > len(data):
+            continue
+        comment_length = int.from_bytes(data[position + 20:position + 22], 'little')
+        if position + 22 + comment_length > len(data):
+            continue
+        found = True
+        entries = int.from_bytes(data[position + 10:position + 12], 'little')
+        locator = position - 20
+        if locator >= 0 and data[locator:locator + 4] == b'PK\x06\x07':
+            offset = int.from_bytes(data[locator + 8:locator + 16], 'little')
+            if offset + 56 > locator or data[offset:offset + 4] != b'PK\x06\x06':
+                reject('invalid ZIP64 end record')
+            length = int.from_bytes(data[offset + 4:offset + 12], 'little')
+            if length < 44 or offset + 12 + length != locator:
+                reject('ambiguous ZIP64 end record offset')
+            entries = int.from_bytes(data[offset + 32:offset + 40], 'little')
+        if entries > MAX_ENTRIES:
+            reject(f'entry limit exceeded ({entries} > {MAX_ENTRIES})')
+    if not found:
+        raise ValueError(f'{path}: vosu 1.2.0 ZIP preflight at offset 0: no end record')
+
+
 def write_zip(path, files, kind, identity=None):
     validate_files(files, kind, identity)
     path = Path(path)
@@ -87,13 +125,26 @@ def write_zip(path, files, kind, identity=None):
     temporary = tempfile.NamedTemporaryFile(dir=path.parent, prefix='.' + path.name, delete=False)
     temporary.close()
     try:
-        with zipfile.ZipFile(temporary.name, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-            for name, data in sorted(files.items()):
-                info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
-                info.create_system = 3
-                info.compress_type = zipfile.ZIP_DEFLATED
-                info.external_attr = (stat.S_IFREG | (0o755 if name.startswith('bin/') else 0o644)) << 16
-                archive.writestr(info, data, compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+        # False EOCD signatures can occur in compressed bytes. Try a fixed,
+        # deterministic sequence of encodings without changing any member data.
+        encodings = [(zipfile.ZIP_DEFLATED, level) for level in range(9, -1, -1)]
+        encodings.append((zipfile.ZIP_STORED, None))
+        for index, (compression, level) in enumerate(encodings):
+            with zipfile.ZipFile(temporary.name, 'w', compression=compression, compresslevel=level) as archive:
+                for name, data in sorted(files.items()):
+                    info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
+                    info.create_system = 3
+                    info.compress_type = compression
+                    info.external_attr = (stat.S_IFREG | (0o755 if name.startswith('bin/') else 0o644)) << 16
+                    archive.writestr(info, data, compress_type=compression, compresslevel=level)
+            try:
+                check_vosu_120_zip(temporary.name)
+                break
+            except ValueError as error:
+                message = str(error).replace(temporary.name, str(path))
+                if index == len(encodings) - 1:
+                    raise ValueError(message) from error
+                print(f'{message}; retrying deterministic compression encoding {index + 1}')
         with zipfile.ZipFile(temporary.name) as archive:
             if archive.testzip() is not None:
                 raise ValueError('generated ZIP failed CRC validation')
