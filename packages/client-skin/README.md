@@ -100,7 +100,10 @@ that is render-core's `scrollSpeed`. Both keep that speed in real time at any
 rate: lazer scales its time range by the track's tempo × frequency. So
 `speed` is `setting / rate`, where `rate` is how fast the preview's clock runs
 (map milliseconds per real millisecond): Map preview passes the client's rate
-while following it, Practice passes 1, because the client plays a generated
-1.1x map at rate 1 too.
+while following it; Practice and Skin studio pass 1, because the client plays
+a generated 1.1x map at rate 1 too and the demo maps loop in real time.
+
+These live in `@vosu-tools/client-skin/scroll` too, which imports nothing, so
+a page can follow the speed before it loads the renderer.
 
 Tests: `bun test` (a stand-in vosu serving skins by filename).

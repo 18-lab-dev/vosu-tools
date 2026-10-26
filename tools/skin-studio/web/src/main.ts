@@ -45,6 +45,7 @@ import {
   unitFiles,
 } from "./assets";
 import type { Preview, Resolver } from "./preview";
+import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
 import { KeymodesView } from "./keymodes-view";
@@ -1692,17 +1693,33 @@ const previewPrefs: {
 const savePreview = () =>
   localStorage.setItem(PREVIEW_KEY, JSON.stringify(previewPrefs));
 const pvState = $("#pv-state");
+// Mania scroll speed for every preview: the Scroll field, else the client's
+// (followed live through the game subscription), else lazer's default.
+const pvScroll = $<HTMLInputElement>("#pv-scroll");
+const clientScroll = new ClientScroll((scroll) => {
+  pvScroll.placeholder = String(Math.round(scroll.setting * 10) / 10);
+  const help = $("#pv-scroll-help");
+  help.dataset.tip = scroll.note;
+  help.setAttribute("aria-label", `Scroll speed: ${scroll.note}`);
+});
+clientScroll.setClient(null, null);
+pvScroll.addEventListener("input", () =>
+  clientScroll.setOverride(Number(pvScroll.value) || null),
+);
 // The renderer (WebGPU, demo maps) loads with the Preview tab.
 let preview: Preview | undefined;
 let previewLoading: Promise<Preview> | undefined;
 const ensurePreview = () =>
   (previewLoading ??= import("./preview").then(
-    ({ Preview }) =>
-      (preview = new Preview(
+    ({ Preview }) => {
+      preview = new Preview(
         $<HTMLCanvasElement>("#pv-canvas"),
         $("#pv-stage"),
         (text) => (pvState.textContent = text),
-      )),
+      );
+      clientScroll.add(preview);
+      return preview;
+    },
     (error) => {
       previewLoading = undefined;
       pvState.textContent = message(error);
@@ -1782,6 +1799,8 @@ function renderPreviewControls() {
       String(b.dataset.demo === previewPrefs.ruleset),
     );
   $("#pv-keys").hidden = previewPrefs.ruleset !== "mania";
+  $("#pv-scroll-field").hidden = $("#pv-scroll-help").hidden =
+    previewPrefs.ruleset !== "mania";
   renderKeys();
   const play = $("#pv-play");
   play.setAttribute("aria-pressed", String(previewPrefs.playing));
@@ -2062,7 +2081,7 @@ const keymodes = new KeymodesView({
   preview: (canvas, stage, onState) =>
     import("./preview").then(
       ({ Preview }) => new Preview(canvas, stage, onState, { rulesets: [3] }),
-    ),
+    ).then((shown) => (clientScroll.add(shown), shown)),
   previewSource: () => ({
     key: "mix",
     version: mixVersion,
@@ -2148,8 +2167,9 @@ function subscribe() {
       });
     }
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
+    clientScroll.setClient(values[2], values[3]);
   };
-  vosu.subscribe(["/folders/skin", "/beatmap/mode/name"], onFrame, (state) => {
+  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
     // Older bridges never report a state; the indicator stays hidden for them.
     live.hidden = dot.hidden = false;
     dot.dataset.state =

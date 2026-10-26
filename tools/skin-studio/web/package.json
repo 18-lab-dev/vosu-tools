@@ -9,6 +9,7 @@
     "test": "bun test test"
   },
   "dependencies": {
+    "@vosu-tools/client-skin": "workspace:*",
     "@vosu-tools/skin-spec": "workspace:*",
     "@vosu-tools/tool-web": "workspace:*",
     "monaco-editor": "0.52.2",
