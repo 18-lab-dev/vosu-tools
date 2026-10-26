@@ -2,6 +2,8 @@
 
 Service, CLI and browser UI for **recorded public calculator snapshots**, not a promise of parity with a private server's current production deployment, plus **your own pp formulas** as sandboxed WebAssembly calculators. No account credentials, remote score submission, or map downloads are used.
 
+![Server pp calculator](../../docs/screenshots/server-pp.webp)
+
 ## Custom calculators
 
 Drop a `.wasm` calculator into the calculator folder (`<vosu data directory>/tool-data/server-pp/calculators` by default) and use its file name as `--server`/`server=`. Any language that compiles to WebAssembly works. server-pp hands the module rosu-pp 4.0.1 difficulty attributes and the score state, and the module returns pp plus an optional breakdown. The dashboard's tool settings choose the folder, extra files, enabled ids, display names and the fuel/memory limits. The ABI, the settings, Rust and AssemblyScript examples, the fidelity reference and the runtime benchmarks are in [CALCULATORS.md](CALCULATORS.md).

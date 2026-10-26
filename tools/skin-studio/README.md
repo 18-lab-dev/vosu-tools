@@ -4,6 +4,8 @@ Browse osu! skins, preview their elements, mix element groups from several skins
 
 Interface: **UI only**. Its native backend starts on demand for the studio and stops when idle; it is not a standalone background service.
 
+![Skin studio](../../docs/screenshots/skin-studio.webp)
+
 ## Sources
 
 - **Stable**: folders in the stable `Skins` folder (setting `stable_skins_dir`, else `<osu_dir>/Skins` of the attached stable client). Read and written.
@@ -74,6 +76,10 @@ The **Explorer** tab is an in-page browser (no native file dialog) for any libra
 `GET /v1/asset?skin=&name=` serves images and audio; `GET /v1/animation?skin=&element=` assembles an element's frames into a looping APNG at the skin's `AnimationFramerate` (or the whole sequence over one second when unset), cached by content hash in the tool cache folder (`animations/`).
 
 The **Preview** tab plays a short looping demo map per ruleset (`packages/demo-maps`: osu!, taiko, catch, and mania 1K–10K) through the shared renderer (`packages/render-core`: WebGPU, or WebGL2 without it; the preview status names the one drawing) with the selected skin, including unsaved skin.ini edits, or the mix draft with its overrides. Mania offers exactly the key counts that have a `[Mania]` block with `Keys: N` in the previewed skin.ini, in order (lazer's default 4K and 7K when it defines none); dual-stage counts above 10K are listed but not previewed. Only the shown key count's stage is decoded. It is muted and draws nothing while hidden.
+
+## skin.ini editor
+
+The **skin.ini** tab is a Monaco editor. Its completion, hover documentation and checks come from the osu! wiki's skin.ini reference at a recorded wiki revision (`packages/skin-spec`, which keeps only the interoperability facts). Saving replaces `skin.ini` atomically, keeps the previous file as a `skin.ini.backup-*.bak` copy in the skin folder, and refuses to overwrite a file that changed outside the editor.
 
 ## Loading
 
