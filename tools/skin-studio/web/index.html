@@ -429,6 +429,32 @@
               role="note"
               hidden
             ></span>
+            <label
+              id="pv-scroll-field"
+              class="v-field v-field--inline pv-scroll"
+              hidden
+            >
+              <span>Scroll</span>
+              <input
+                id="pv-scroll"
+                class="v-input v-input--mono"
+                type="number"
+                min="1"
+                max="40"
+                step="1"
+                inputmode="decimal"
+                placeholder="8"
+                aria-describedby="pv-scroll-help"
+              />
+            </label>
+            <span
+              id="pv-scroll-help"
+              class="v-help"
+              tabindex="0"
+              role="img"
+              aria-label="Scroll speed source"
+              hidden
+            ></span>
             <span class="v-bar__spacer"></span>
             <span id="pv-state" class="v-muted pv-state" role="status"></span>
             <button

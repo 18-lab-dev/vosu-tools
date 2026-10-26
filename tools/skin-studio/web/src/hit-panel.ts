@@ -59,8 +59,10 @@ export interface HitHost {
   derive(skin: string, files: { name: string; op: DeriveOp; cap?: string }[]): Promise<{ from: string; stored: string; lost: number }[]>;
   rows(skin: string, name: string): Promise<{ width: number; height: number; top: number; bottom: number }>;
   lastPlay(): Promise<LastPlay>;
-  /** vosu's live mania settings, when it reports them. */
-  speed(): (Speed & { upscroll: boolean }) | null;
+  /** The scroll speed the previews draw at, unless that is only lazer's default. */
+  speed(): (Speed & { upscroll: boolean; source?: string }) | null;
+  /** Sets the speed for calibration and the previews alike (null: follow the client). */
+  setSpeed(speed: number | null): void;
   canWrite(): boolean;
   state(text: string): void;
   error(text: string): void;
@@ -85,7 +87,6 @@ export class HitPanel {
   #calibration: Calibration | null = null;
   #busy = false;
   /** Scroll speed typed in when vosu reports none. */
-  #typedSpeed: number | null = null;
 
   constructor(host: HitHost) {
     this.#host = host;
@@ -149,9 +150,7 @@ export class HitPanel {
       : "1 unit = 1.6 px (3.2 px @2x); a lower HitPosition moves the receptors up.";
     const speed = this.#speed(),
       live = this.#host.speed();
-    const speedLine = live
-      ? h("span", { class: "v-muted" }, `Scroll speed ${live.speed} (${live.client}${live.client === "stable" ? `, BPM scaling ${live.bpmScale === false ? "off" : "on"}` : ""}) from vosu`)
-      : this.#speedInput();
+    const speedLine = this.#speedInput(live);
     root.replaceChildren(
       h(
         "div",
@@ -207,30 +206,44 @@ export class HitPanel {
     );
   }
 
-  #speedInput() {
+  /**
+   * The scroll speed offsets are converted with: the one the previews draw
+   * at (the client's, the Preview tab's Scroll field, or typed here, which
+   * sets that field too), so calibration and previews always agree.
+   */
+  #speedInput(live: ReturnType<HitHost["speed"]>) {
     const input = h("input", {
       type: "number",
       min: "1",
       max: "40",
-      step: "1",
+      step: "any",
       class: "v-input km-hit__value",
       ariaLabel: "Your osu!mania scroll speed",
       placeholder: "speed",
-      value: this.#typedSpeed ? String(this.#typedSpeed) : "",
+      value: live && live.source !== "client" ? String(live.speed) : "",
     });
     input.onchange = () => {
       const n = Number(input.value);
-      this.#typedSpeed = n >= 1 && n <= 40 ? n : null;
+      this.#host.setSpeed(input.value !== "" && n >= 1 && n <= 40 ? n : null);
       this.render();
     };
-    return h("span", { class: "v-muted" }, "vosu reports no scroll speed (open osu!); enter yours: ", input);
+    if (live?.source === "client")
+      return h(
+        "span",
+        { class: "v-muted" },
+        `Scroll speed ${live.speed} (${live.client}${live.client === "stable" ? `, BPM scaling ${live.bpmScale ? "on" : "off"}` : ""}) from vosu, as the previews; another: `,
+        input,
+      );
+    return h(
+      "span",
+      { class: "v-muted" },
+      live ? `Scroll speed ${live.speed}, as the previews: ` : "vosu reports no scroll speed (open osu!); enter yours: ",
+      input,
+    );
   }
 
   #speed(): Speed | null {
-    const live = this.#host.speed();
-    if (live) return live;
-    // A typed speed is read on lazer's scale with BPM scaling (stable's default).
-    return this.#typedSpeed ? { client: "lazer", speed: this.#typedSpeed } : null;
+    return this.#host.speed();
   }
 
   // ---- receptors -------------------------------------------------------------

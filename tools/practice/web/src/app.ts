@@ -4,7 +4,7 @@ import { Preview } from './preview';
 import { Timeline, type TimelineData } from './timeline';
 import { clock, nearestOutputTime, parseClock, sourceTime, type Range, type Window } from './time';
 import { Follow, SUBSCRIPTION } from './follow';
-import { ClientSkin } from '@vosu-tools/client-skin';
+import { ClientSkin, maniaScroll, type ClientManiaSettings } from '@vosu-tools/client-skin';
 import { sceneScope } from '@vosu-tools/render-core';
 
 // The look comes from vosu's shared theme.css; the bridge sets data-theme.
@@ -296,6 +296,26 @@ const skins = new ClientSkin({
 });
 preview.setSkin(skins.state.skin);
 
+// Mania scroll speed: the field's value, else the client's own setting (from
+// the game subscription below), else lazer's default; the hint says which.
+// The preview's clock is the generated map's own, which the client also
+// plays at rate 1, so the speed is passed as it is.
+let clientMania: ClientManiaSettings | null = null;
+function updateScroll() {
+  const input = $<HTMLInputElement>('scroll');
+  const scroll = maniaScroll({ override: Number(input.value) || null, client: clientMania });
+  preview.setScroll(scroll.speed, clientMania?.scrollUp ?? false);
+  input.placeholder = String(Math.round(scroll.setting * 10) / 10);
+  const help = $('scroll-help');
+  help.dataset.tip = scroll.note;
+  help.setAttribute('aria-label', `Scroll speed: ${scroll.note}`);
+  const shown = ruleset === 'mania';
+  $('scroll-field').hidden = !shown;
+  help.hidden = !shown;
+}
+$<HTMLInputElement>('scroll').addEventListener('input', updateScroll);
+updateScroll();
+
 function stageMessage(text: string | null, tone: 'info' | 'error' = 'info') {
   const el = $('preview-message');
   el.hidden = !text;
@@ -428,6 +448,7 @@ async function loadMap() {
   chip.hidden = !ruleset;
   chip.textContent = ruleset ? RULESET_NAME[ruleset] : '';
   chip.dataset.ruleset = ruleset ?? '';
+  updateScroll();
   const art = $<HTMLImageElement>('banner-art');
   if (b?.background) {
     art.hidden = false;
@@ -654,6 +675,10 @@ void (async () => {
       const game = event.game;
       if (event.map && game.checksum !== (current?.beatmap?.md5 ?? null)) void loadMap().catch(fail);
       if (event.skin) void skins.gameChanged(game.client, game.skinFolder);
+      if (event.scroll) {
+        clientMania = game.client ? game.mania : null;
+        updateScroll();
+      }
     },
     (state) => {
       // After a reconnect the selection or skin may have changed unseen.

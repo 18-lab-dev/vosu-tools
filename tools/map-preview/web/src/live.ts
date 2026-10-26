@@ -7,6 +7,8 @@
  * simply absent, so the fields added in vosu 1.2 (play source, clock rate and
  * running state, visual settings) are requested from every host.
  */
+import { readManiaSettings, type ClientManiaSettings } from "@vosu-tools/client-skin";
+
 export interface ModSelection {
   acronym: string;
   settings?: Record<string, unknown>;
@@ -27,7 +29,7 @@ export interface GameState {
   mods: ModSelection[];
   /** null outside gameplay; "player" for the user's own gameplay; undefined when unknown. */
   source: string | null | undefined;
-  mania: { scrollSpeed: number | null; scrollUp: boolean };
+  mania: ClientManiaSettings;
   visual: {
     hitLighting: boolean | null;
     beatmapColours: boolean | null;
@@ -83,7 +85,7 @@ export function emptyState(): GameState {
     running: null,
     mods: [],
     source: undefined,
-    mania: { scrollSpeed: null, scrollUp: false },
+    mania: readManiaSettings(null),
     visual: {
       hitLighting: null,
       beatmapColours: null,
@@ -124,21 +126,9 @@ export function applyField(
     case "/settings/mode/number":
       state.selectedMode = number(value);
       break;
-    case "/settings/mania": {
-      const mania = record(value),
-        legacy = number(mania.scrollSpeed),
-        perBeatmap = number(mania.perBeatmapScrollSpeed);
-      state.mania.scrollSpeed =
-        number(mania.scrollSpeedValue) ??
-        (mania.usePerBeatmapSpeedScale === true && perBeatmap
-          ? perBeatmap
-          : legacy && legacy > 0
-            ? legacy
-            : null);
-      // lazer's ManiaScrollingDirection (vosu's names): 0 = up, 1 = down.
-      state.mania.scrollUp = number(record(mania.scrollDirection).number) === 0;
+    case "/settings/mania":
+      state.mania = readManiaSettings(value);
       break;
-    }
     case "/settings/skin/ignoreBeatmapSkins":
       state.visual.beatmapColours = bool(value) === null ? null : !value;
       break;

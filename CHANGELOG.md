@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Skin studio
+
+- Scroll mania previews (the Preview tab and the Keymodes stage) at your osu! scroll speed and direction, following changes live, instead of a fixed speed of 16. A Scroll field in the Preview tab overrides it; its hint says where the speed comes from, and lazer's default (8) applies without a client or a reported speed.
+
+### Practice
+
+- Draw the mania preview with your osu! scroll speed and direction (stable or lazer, read from vosu) and follow changes live. A Scroll field in the preview overrides it; its hint says where the speed comes from, and lazer's default (8) applies without a client or a reported speed.
+
+### Map preview
+
+- Keep notes moving at the client's real-time speed when the client plays at another rate (DT, HT or a custom rate), and fall back to lazer's default scroll speed (8, was 20) when no speed is set or reported. The scroll speed's hint names its source.
+
 ## v0.2.0 - 2026-10-26
 
 ### Skin studio 0.2.0

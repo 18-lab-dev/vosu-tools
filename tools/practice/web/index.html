@@ -93,6 +93,11 @@
       <span id="version" class="v-muted v-mono version"></span>
       <span id="skin" class="v-badge skin" title="Skin">Classic</span>
       <span id="backend" class="v-badge" hidden></span>
+      <label class="v-field v-field--inline scroll-field" id="scroll-field" hidden>
+        <span>Scroll</span>
+        <input id="scroll" class="v-input v-input--mono" type="number" min="1" max="40" step="1" inputmode="decimal" placeholder="8" aria-describedby="scroll-help">
+      </label>
+      <span id="scroll-help" class="v-help" tabindex="0" role="img" data-tip-pos="left" hidden></span>
       <output id="clock" class="v-mono clock">0:00.0 / 0:00.0</output>
       <button type="button" id="play" class="v-btn v-btn--sm" disabled>Play</button>
       <button type="button" id="mute" class="v-btn v-btn--sm v-btn--icon" aria-pressed="true" aria-label="Mute preview audio" title="Mute preview audio">

@@ -1,7 +1,8 @@
 # @vosu-tools/client-skin
 
-The osu! client's current skin for tool previews drawn with
-[`@vosu-tools/render-core`](../render-core/README.md). MIT OR Apache-2.0.
+The osu! client's current skin, and its mania scroll speed, for tool previews
+drawn with [`@vosu-tools/render-core`](../render-core/README.md). MIT OR
+Apache-2.0.
 
 ```ts
 import { ClientSkin, SKIN_POINTERS } from "@vosu-tools/client-skin";
@@ -78,5 +79,31 @@ downloading them again.
 - `destroy()`: releases the loaded bitmaps (call after the renderer is gone).
 - `SKIN_POINTERS`, `builtinLabels`, and the lower-level `readCurrentSkin`,
   `hostSkinFiles` and `openOsk`.
+
+## Mania scroll speed
+
+`readManiaSettings(value)` reads vosu's `/settings/mania` (subscribe to
+`MANIA_SETTINGS_POINTER`): lazer's `scrollSpeedValue`, stable's per-beatmap
+speed when the client uses per-beatmap speeds, else the `scrollSpeed` integer;
+a missing or zero speed is unknown. `scrollUp` is lazer's upward scrolling,
+`bpmScale` stable's BPM-scaled mode.
+
+`maniaScroll({ override?, setting?, client, rate? })` picks the speed a preview
+draws with: the page's field, else the tool's dashboard setting, else the
+client's (`client` is null without a connected client), else lazer's default
+(8, `LAZER_DEFAULT_SCROLL_SPEED`), and returns `{ setting, source, speed,
+note }`. `note` is one line for the control's hint naming the source.
+
+Both clients draw the same 1-40 setting at the same on-screen speed, whatever
+the skin's hit position (lazer has matched stable since ppy/osu#26131), and
+that is render-core's `scrollSpeed`. Both keep that speed in real time at any
+rate: lazer scales its time range by the track's tempo × frequency. So
+`speed` is `setting / rate`, where `rate` is how fast the preview's clock runs
+(map milliseconds per real millisecond): Map preview passes the client's rate
+while following it; Practice and Skin studio pass 1, because the client plays
+a generated 1.1x map at rate 1 too and the demo maps loop in real time.
+
+These live in `@vosu-tools/client-skin/scroll` too, which imports nothing, so
+a page can follow the speed before it loads the renderer.
 
 Tests: `bun test` (a stand-in vosu serving skins by filename).

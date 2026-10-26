@@ -47,6 +47,7 @@ import {
   unitFiles,
 } from "./assets";
 import type { Preview, Resolver } from "./preview";
+import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
 import { KeymodesView } from "./keymodes-view";
@@ -2139,17 +2140,33 @@ const previewPrefs: {
 const savePreview = () =>
   localStorage.setItem(PREVIEW_KEY, JSON.stringify(previewPrefs));
 const pvState = $("#pv-state");
+// Mania scroll speed for every preview: the Scroll field, else the client's
+// (followed live through the game subscription), else lazer's default.
+const pvScroll = $<HTMLInputElement>("#pv-scroll");
+const clientScroll = new ClientScroll((scroll) => {
+  pvScroll.placeholder = String(Math.round(scroll.setting * 10) / 10);
+  const help = $("#pv-scroll-help");
+  help.dataset.tip = scroll.note;
+  help.setAttribute("aria-label", `Scroll speed: ${scroll.note}`);
+});
+clientScroll.setClient(null, null);
+pvScroll.addEventListener("input", () =>
+  clientScroll.setOverride(Number(pvScroll.value) || null),
+);
 // The renderer (WebGPU, demo maps) loads with the Preview tab.
 let preview: Preview | undefined;
 let previewLoading: Promise<Preview> | undefined;
 const ensurePreview = () =>
   (previewLoading ??= import("./preview").then(
-    ({ Preview }) =>
-      (preview = new Preview(
+    ({ Preview }) => {
+      preview = new Preview(
         $<HTMLCanvasElement>("#pv-canvas"),
         $("#pv-stage"),
         (text) => (pvState.textContent = text),
-      )),
+      );
+      clientScroll.add(preview);
+      return preview;
+    },
     (error) => {
       previewLoading = undefined;
       pvState.textContent = message(error);
@@ -2229,6 +2246,8 @@ function renderPreviewControls() {
       String(b.dataset.demo === previewPrefs.ruleset),
     );
   $("#pv-keys").hidden = previewPrefs.ruleset !== "mania";
+  $("#pv-scroll-field").hidden = $("#pv-scroll-help").hidden =
+    previewPrefs.ruleset !== "mania";
   renderKeys();
   const play = $("#pv-play");
   play.setAttribute("aria-pressed", String(previewPrefs.playing));
@@ -2520,12 +2539,17 @@ const keymodes = new KeymodesView({
   preview: (canvas, stage, onState) =>
     import("./preview").then(
       ({ Preview }) => new Preview(canvas, stage, onState, { rulesets: [3] }),
-    ),
+    ).then((shown) => (clientScroll.add(shown), shown)),
   derive: (skin, files) => post("v1/derive", { skin, files }),
   rows: (skin, name) =>
     request(`v1/rows?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`),
   lastPlay: () => request("v1/plays/last"),
-  speed: () => maniaLive,
+  speed: () => calibrationSpeed(),
+  setSpeed: (speed) => {
+    // The same speed for previews: the Preview tab's Scroll field.
+    pvScroll.value = speed ? String(speed) : "";
+    clientScroll.setOverride(speed);
+  },
   previewSource: () => ({
     key: "mix",
     version: mixVersion,
@@ -2569,31 +2593,26 @@ explorer = new Explorer({
 }
 
 // ---- live game state -------------------------------------------------------
-/** The attached client's osu!mania scroll speed and direction, from vosu. */
-let maniaLive: (Speed & { upscroll: boolean }) | null = null;
+/** The attached client ("stable" or "lazer"), from vosu's live subscription. */
+let liveClient: "stable" | "lazer" | null = null;
 /**
- * vosu's `/settings/mania` as the clients use it: lazer's `scrollSpeedValue`;
- * stable's per-beatmap speed when "per beatmap" is on, else its global
- * `scrollSpeed`, and its "scale scroll speed with BPM" (`speedBPMScale`).
- * Direction 0 is up (lazer's ManiaScrollingDirection, vosu's numbering).
+ * The scroll speed calibration converts offsets with: exactly the one the
+ * previews draw at (`clientScroll`: the Scroll field, the tool setting, else
+ * the client's own setting through the shared @vosu-tools/client-skin
+ * parser), with the client's BPM scaling. None while it would only be
+ * lazer's default (the page then asks for the speed).
  */
-function maniaSettings(client: unknown, raw: unknown): (Speed & { upscroll: boolean }) | null {
-  if ((client !== "stable" && client !== "lazer") || !raw || typeof raw !== "object") return null;
-  const m = raw as Record<string, unknown>;
-  const num = (v: unknown) => (typeof v === "number" && v > 0 ? v : null);
-  const speed =
-    client === "lazer"
-      ? num(m.scrollSpeedValue)
-      : m.usePerBeatmapSpeedScale === true
-        ? (num(m.perBeatmapScrollSpeed) ?? num(m.scrollSpeed))
-        : num(m.scrollSpeed);
-  if (!speed) return null;
-  const direction = (m.scrollDirection as { number?: unknown } | undefined)?.number;
+function calibrationSpeed(): (Speed & { upscroll: boolean; source: string }) | null {
+  const scroll = clientScroll.current;
+  if (scroll.source === "default") return null;
+  const settings = clientScroll.settings;
+  const client = liveClient ?? "lazer";
   return {
+    source: scroll.source,
     client,
-    speed,
-    bpmScale: client === "stable" ? m.speedBPMScale !== false : undefined,
-    upscroll: direction === 0,
+    speed: scroll.setting,
+    bpmScale: client === "stable" ? (settings?.bpmScale ?? false) : undefined,
+    upscroll: settings?.scrollUp ?? false,
   };
 }
 const rulesets: Record<string, Category> = {
@@ -2638,7 +2657,8 @@ function subscribe() {
       });
     }
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
-    maniaLive = maniaSettings(values[2], values[3]);
+    liveClient = values[2] === "stable" || values[2] === "lazer" ? values[2] : null;
+    clientScroll.setClient(values[2], values[3]);
   };
   vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
     // Older bridges never report a state; the indicator stays hidden for them.

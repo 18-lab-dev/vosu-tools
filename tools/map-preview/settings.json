@@ -11,7 +11,7 @@
     "uniqueID": "mania_scroll_speed",
     "type": "number",
     "title": "Mania scroll speed",
-    "description": "Scroll speed for the preview (1-40, the clients' scale). 0 follows the client's own setting.",
+    "description": "Scroll speed for the preview (1-40, the clients' scale). 0 follows the client's own setting, or lazer's default (8) when it is unavailable.",
     "options": "",
     "value": 0
   },

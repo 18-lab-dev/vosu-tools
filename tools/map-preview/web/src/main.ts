@@ -15,7 +15,7 @@ import {
   type Playfield,
   type RenderOptions,
 } from "@vosu-tools/render-core";
-import { ClientSkin } from "@vosu-tools/client-skin";
+import { ClientSkin, maniaScroll, type ManiaScroll } from "@vosu-tools/client-skin";
 import {
   LiveClock,
   emptyState,
@@ -222,11 +222,18 @@ function renderOptions(): RenderOptions {
         !(mod.acronym.toUpperCase() === "RD" && mod.settings?.seed == null),
     )
     .map((mod) => ({ acronym: mod.acronym, settings: mod.settings }));
-  const scroll =
-    Number(scrollInput.value) ||
-    settings.maniaScrollSpeed ||
-    game.mania.scrollSpeed ||
-    20;
+  // The clients keep the scroll speed constant in real time, whatever the
+  // rate; the preview's clock runs at the client's rate while following and
+  // at the audio's playback rate otherwise.
+  const scroll = maniaScroll({
+    override: Number(scrollInput.value) || null,
+    setting: settings.maniaScrollSpeed || null,
+    client: game.client ? game.mania : null,
+    rate: following
+      ? Math.round((game.rate ?? 1) * 100) / 100
+      : audio.playbackRate,
+  });
+  showScroll(scroll);
   const [, arInput, csInput] = overrideInputs;
   return {
     mods: following ? liveMods : manualMods,
@@ -236,7 +243,7 @@ function renderOptions(): RenderOptions {
       !following && csInput.value !== "" && !maniaConvert()
         ? Number(csInput.value)
         : undefined,
-    scrollSpeed: scroll,
+    scrollSpeed: scroll.speed,
     noteSpeed: Number(noteSpeedInput.value) || settings.noteSpeed,
     maniaScrollUp: game.mania.scrollUp,
     hitLighting: game.visual.hitLighting ?? undefined,
@@ -248,6 +255,16 @@ function renderOptions(): RenderOptions {
       game.visual.comboColourNormalisation ??
       (game.client === "stable" ? 0 : undefined),
   };
+}
+/** The field shows the speed in use and its hint where it came from. */
+function showScroll(scroll: ManiaScroll): void {
+  const placeholder = String(Math.round(scroll.setting * 10) / 10);
+  if (scrollInput.placeholder !== placeholder)
+    scrollInput.placeholder = placeholder;
+  const help = $("scroll-help");
+  if (help.dataset.tip === scroll.note) return;
+  help.dataset.tip = scroll.note;
+  help.setAttribute("aria-label", `Scroll speed: ${scroll.note}`);
 }
 /** Re-converts when the played ruleset or key mods change. */
 function updateConversion(): void {
@@ -562,9 +579,6 @@ async function loadSettings(initial: boolean): Promise<void> {
   settings = next;
   $("bar").hidden = !settings.showBar;
   progress.hidden = !following || !settings.showProgress;
-  scrollInput.placeholder = settings.maniaScrollSpeed
-    ? String(settings.maniaScrollSpeed)
-    : "Client";
   if (initial) {
     noteSpeedInput.value = String(settings.noteSpeed);
     // The user's last choice in this tool wins over the dashboard default.

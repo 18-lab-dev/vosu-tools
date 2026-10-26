@@ -100,6 +100,7 @@ export interface KeymodesHost {
   rows: HitHost["rows"];
   lastPlay: HitHost["lastPlay"];
   speed: HitHost["speed"];
+  setSpeed: HitHost["setSpeed"];
 }
 
 /** An image the picker offers. */
@@ -207,6 +208,7 @@ export class KeymodesView {
       rows: host.rows,
       lastPlay: host.lastPlay,
       speed: host.speed,
+      setSpeed: host.setSpeed,
       canWrite: () => host.canWrite(),
       state: (text) => this.#state(text),
       error: (text) => this.#error(text),

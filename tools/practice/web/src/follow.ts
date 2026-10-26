@@ -4,17 +4,26 @@
 //   [1, revision, [[id, value], …], [id, …]]      changed ids: present values, then absent ids
 //   [2, code, message]                            error; vosu closes the socket after it
 // where `id` is the pointer's index in the request.
-import { SKIN_POINTERS } from '@vosu-tools/client-skin';
+import { MANIA_SETTINGS_POINTER, SKIN_POINTERS, readManiaSettings, type ClientManiaSettings } from '@vosu-tools/client-skin';
 
-/** The selected map, then the pointers whose change means the client's skin may have changed. */
-export const SUBSCRIPTION: readonly `/${string}`[] = ['/beatmap/checksum', ...SKIN_POINTERS];
+/**
+ * The selected map, the pointers whose change means the client's skin may
+ * have changed, and the client's mania settings (scroll speed).
+ */
+export const SUBSCRIPTION: readonly `/${string}`[] = ['/beatmap/checksum', ...SKIN_POINTERS, MANIA_SETTINGS_POINTER];
 const CHECKSUM = 0;
 const CLIENT = 1;
 const SKIN_FOLDER = 2;
+const MANIA = 3;
 
-export type Game = { checksum: string | null; client: string | null; skinFolder: string | null };
+export type Game = {
+  checksum: string | null;
+  client: string | null;
+  skinFolder: string | null;
+  mania: ClientManiaSettings;
+};
 export type FollowEvent =
-  | { kind: 'state'; game: Game; map: boolean; skin: boolean }
+  | { kind: 'state'; game: Game; map: boolean; skin: boolean; scroll: boolean }
   | { kind: 'error'; message: string }
   | null;
 
@@ -64,9 +73,12 @@ export class Follow {
         checksum: text(this.#values[CHECKSUM]),
         client: this.#values[CLIENT] === 'stable' || this.#values[CLIENT] === 'lazer' ? String(this.#values[CLIENT]) : null,
         skinFolder: text(this.#values[SKIN_FOLDER]),
+        mania: readManiaSettings(this.#values[MANIA]),
       },
       map: changed.has(CHECKSUM),
       skin: changed.has(CLIENT) || changed.has(SKIN_FOLDER),
+      // Which client it is decides whether its speed applies at all.
+      scroll: changed.has(MANIA) || changed.has(CLIENT),
     };
   }
 }
