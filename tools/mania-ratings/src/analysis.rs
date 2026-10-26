@@ -235,7 +235,7 @@ fn local_msd(
         "aggregation":"MinaCalc CalcMain independently on each window at 0.93 goal; no averaging or strain-to-MSD conversion",
         "units":"local MSD","overall":overall.as_ref().ok().map(|s| s[0]),"overall_skills":overall.as_ref().ok(),
         "unrated":unrated_reason,
-        "skill_names":["overall","stream","jumpstream","handstream","stamina","jackspeed","chordjack","technical"],
+        "skill_names":minacalc::skill_names(keys),
         "duration":duration,"points":points
     }))
 }

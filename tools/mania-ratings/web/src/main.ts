@@ -105,13 +105,16 @@ function cards(r:Rating) {
   $('skills').append(empty);return;
  }
  // MinaCalc's own skillset names; Technical is null where it has no model (6K, 7K).
+ // Outside 4K its Jumpstream/Handstream slots are the generic chordstream and
+ // bracketing models (upstream GenericSkillset), so they carry those names.
+ const generic:Record<string,string>=r.keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
  const skills=Object.entries(r.msd).filter((e):e is [string,number]=>e[0]!=='overall'&&e[1]!=null);
  const top=skills.filter(([key])=>key!=='stamina').reduce<[string,number]|undefined>((best,entry)=>!best||entry[1]>best[1]?entry:best,undefined);
  const max=Math.max(30,...skills.map(e=>e[1]),r.msd.overall??0);
  for(const [name,value] of skills) {
   const row=document.createElement('div');row.className='skill';
   if(name===top?.[0])row.setAttribute('aria-current','true');
-  const label=document.createElement('span');label.textContent=name.replace('speed',' speed');
+  const label=document.createElement('span');label.textContent=(generic[name]??name).replace('speed',' speed');
   const bar=document.createElement('div');bar.className='v-meter';bar.style.setProperty('--v-value',String(value/max));
   bar.setAttribute('role','meter');bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax',String(max));bar.setAttribute('aria-valuenow',String(value));bar.setAttribute('aria-label',label.textContent);
   const number=document.createElement('span');number.className='v-num';number.textContent=fmt(value);

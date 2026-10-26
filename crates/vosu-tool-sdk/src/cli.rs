@@ -202,11 +202,14 @@ pub fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     }
     output.join("\n")
 }
-pub fn ratings(msd: &Value, ssr: Option<&Value>) -> String {
+/// Skillset table for an MSD object keyed by [`SKILLS`]; `labels` names each
+/// row in the same order (a calculator may name a slot differently per key count).
+pub fn ratings(msd: &Value, ssr: Option<&Value>, labels: &[&str; 8]) -> String {
     let rows = SKILLS
         .iter()
-        .map(|skill| {
-            let mut row = vec![skill.to_string(), number(&msd[skill])];
+        .zip(labels)
+        .map(|(skill, label)| {
+            let mut row = vec![label.to_string(), number(&msd[skill])];
             if let Some(ssr) = ssr {
                 row.push(number(&ssr[skill]));
             }
@@ -247,8 +250,9 @@ mod tests {
     #[test]
     fn formats_and_exit_codes() {
         let v = serde_json::json!({"overall":12.500002});
-        assert!(ratings(&v, None).contains("12.50"));
-        assert!(!ratings(&v, None).contains("12.500002"));
+        let table_text = ratings(&v, None, &SKILLS);
+        assert!(table_text.contains("12.50") && table_text.contains("overall"));
+        assert!(!table_text.contains("12.500002"));
         assert!(table(&["Map"], &[]).contains("(none)"));
         assert_eq!(CliError::Cancelled.exit_code(), 130);
         assert_eq!(CliError::Failed("bad".into()).exit_code(), 1);

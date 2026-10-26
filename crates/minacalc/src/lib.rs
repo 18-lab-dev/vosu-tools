@@ -43,6 +43,29 @@ pub fn technical_modelled(keys: u32) -> bool {
     keys == 4
 }
 
+/// MinaCalc's names for its eight outputs at `keys`, in output order. Outside
+/// 4K the Jumpstream and Handstream slots hold the generic chordstream and
+/// bracketing models (`GChordStream`, `GBracketing`); upstream names them
+/// `Skill_Chordstream` and `Skill_Bracketing` in `GenericSkillset`
+/// ("JS and HS dont really \"work\" for things like 7k").
+pub fn skill_names(keys: u32) -> [&'static str; 8] {
+    let (slot2, slot3) = if keys == 4 {
+        ("jumpstream", "handstream")
+    } else {
+        ("chordstream", "bracketing")
+    };
+    [
+        "overall",
+        "stream",
+        slot2,
+        slot3,
+        "stamina",
+        "jackspeed",
+        "chordjack",
+        "technical",
+    ]
+}
+
 /// Upper end of MinaCalc's displayed scale for a pattern skillset at `keys`.
 /// `Calc::Chisel` searches player skill up to `max_rating` (100) and returns 0
 /// past it; non-4K outputs are then scaled by 4/keys (Jackspeed and Technical
@@ -212,6 +235,8 @@ mod tests {
         let out = calculate(&rows, 6, 1.0, None).unwrap();
         assert!(out[7] < 1.0, "6K technical is a floor value: {}", out[7]);
         assert!(!technical_modelled(6) && !technical_modelled(7) && technical_modelled(4));
+        assert_eq!(skill_names(4)[2..4], ["jumpstream", "handstream"]);
+        assert_eq!(skill_names(7)[2..4], ["chordstream", "bracketing"]);
     }
 
     #[test]
