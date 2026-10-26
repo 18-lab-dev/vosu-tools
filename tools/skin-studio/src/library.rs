@@ -1,7 +1,7 @@
 //! Skin sources: stable `Skins/` folders, folders and `.osk` files added by
 //! path, and lazer skins read through the optional `lazer-library` tool.
 
-use crate::{App, Failure, failure};
+use crate::{App, Failure, failure, uploads};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -80,6 +80,8 @@ pub enum Origin {
     /// An `.osk` file added by path, read in place (never written).
     Osk,
     Lazer,
+    /// Images dropped from the desktop (`uploads:`); never listed, read-only.
+    Uploads,
 }
 #[derive(Serialize, Clone, Debug)]
 pub struct Skin {
@@ -491,6 +493,21 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
 /// Asset requests arrive in bursts, so the key list is reused for a few
 /// seconds instead of re-reading context, settings and lazer per file.
 pub async fn resolve(app: &App, key: &str) -> Result<(Source, Skin), Failure> {
+    if key == uploads::KEY {
+        return Ok((
+            Source::Folder(app.uploads.to_path_buf()),
+            Skin {
+                key: key.to_owned(),
+                name: "Dropped files".into(),
+                origin: Origin::Uploads,
+                current: false,
+                available: true,
+                writable: false,
+                creator: None,
+                builtin: None,
+            },
+        ));
+    }
     let cached = app.known.lock().await.as_ref().and_then(|(at, skins)| {
         (at.elapsed() < std::time::Duration::from_secs(5))
             .then(|| skins.iter().find(|s| s.key == key).cloned())

@@ -1,5 +1,13 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
-import { parse, resolve, validate } from "@vosu-tools/skin-spec";
+import {
+  addManiaBlock,
+  maniaKeyCounts as blockKeyCounts,
+  maniaValue,
+  parse,
+  resolve,
+  setManiaValue,
+  validate,
+} from "@vosu-tools/skin-spec";
 import "./style.css";
 import type { IniEditor } from "./editor";
 import { TextDoc, rgb } from "./text-doc";
@@ -39,6 +47,15 @@ import {
 import type { Preview, Resolver } from "./preview";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
+import { KeymodesView } from "./keymodes-view";
+import {
+  UPLOADS,
+  formatBytes,
+  removeQuestion,
+  uploadUsage,
+  type UploadFile,
+} from "./uploads";
+import { touchedKeys, type KeymodeDraft } from "./keymodes";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
@@ -101,7 +118,8 @@ const loaded = new Map<string, Loaded>();
 let focused: string | null = null;
 let category: Category = "osu";
 let categoryChosen = false;
-let view: "elements" | "explorer" | "ini" | "preview" = "elements";
+let view: "elements" | "explorer" | "keymodes" | "ini" | "preview" =
+  "elements";
 /** The Explorer tab (created once the rest of the page is wired). */
 let explorer: Explorer | undefined;
 let iniMode: "focus" | "mix" = "focus";
@@ -124,7 +142,7 @@ function fallbackLine(gid: string) {
     { class: "pick-fallback", title: lost.join("\n") },
     lost.length === 1
       ? `${lost[0]} falls back to osu!'s built-in look`
-      : `${lost.length} base elements fall back to osu!'s built-in look`,
+      : `${lost.length} elements fall back to osu!'s built-in look`,
   );
 }
 /** The last composed plan (skin.ini replaced by the draft text when built). */
@@ -178,7 +196,8 @@ const post = <T>(path: string, body: unknown) =>
 
 const skinByKey = (key: string | null) =>
   key ? library?.skins.find((s) => s.key === key) : undefined;
-const skinName = (key: string) => skinByKey(key)?.name ?? key;
+const skinName = (key: string) =>
+  key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? key);
 
 async function load(key: string, fresh = false): Promise<Loaded> {
   const cached = loaded.get(key);
@@ -601,6 +620,7 @@ function renderFocus() {
   $("#ini-view").hidden = view !== "ini";
   $("#preview-view").hidden = view !== "preview";
   $("#explorer-view").hidden = view !== "explorer";
+  $("#keymodes-view").hidden = view !== "keymodes";
   renderCats();
   renderGroups();
   renderIni();
@@ -1010,13 +1030,23 @@ $("#use-base").onclick = () => {
 // ---- views -----------------------------------------------------------------
 function showView(next: typeof view) {
   view = next;
-  for (const name of ["elements", "explorer", "ini", "preview"] as const)
+  for (const name of [
+    "elements",
+    "explorer",
+    "keymodes",
+    "ini",
+    "preview",
+  ] as const)
     $(`#tab-${name}`).setAttribute("aria-selected", String(view === name));
+  // The Keymodes screen has its own image picker: it takes the library's room.
+  $(".studio").dataset.view = view;
   $("#elements-view").hidden = view !== "elements" || !focused;
   $("#explorer-view").hidden = view !== "explorer";
+  $("#keymodes-view").hidden = view !== "keymodes";
   $("#ini-view").hidden = view !== "ini";
   $("#preview-view").hidden = view !== "preview";
   $("#guide").hidden = !!focused || view !== "elements";
+  $(".focus-head").hidden = view === "keymodes";
   if (view === "ini") {
     if (!focused) iniMode = "mix";
     renderIni();
@@ -1024,9 +1054,12 @@ function showView(next: typeof view) {
     else void ensureEditor();
   }
   void showPreview(view === "preview");
+  void keymodes.show(view === "keymodes");
+  if (view === "explorer") explorer?.refreshMix();
 }
 $("#tab-elements").onclick = () => showView("elements");
 $("#tab-explorer").onclick = () => showView("explorer");
+$("#tab-keymodes").onclick = () => showView("keymodes");
 $("#tab-ini").onclick = () => showView("ini");
 // Pointing at (or tabbing to) the tab starts the editor while the click lands.
 for (const type of ["pointerenter", "focus"])
@@ -1086,7 +1119,12 @@ async function planNow(fresh = false): Promise<Plan> {
   if (mixEdited() && mixDoc.getValue()) plan.ini = mixDoc.getValue();
   return plan;
 }
-async function recompose() {
+/**
+ * Composes the recipe into the mix draft. A draft skin.ini edited by hand
+ * is kept; the `[Mania]` keys a Keymodes change `touched` are written into
+ * it too, with the values the composed skin.ini has for them.
+ */
+async function recompose(touched?: { keys: number; names: string[] }) {
   try {
     const composed = await composeNow();
     const wasEdited = mixEdited();
@@ -1098,6 +1136,16 @@ async function recompose() {
     lastPlan = composed.plan;
     composeError = "";
     if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(composedIni);
+    else if (touched) {
+      const { keys, names } = touched;
+      let text = mixDoc.getValue();
+      // A key count added on the Keymodes screen has a block even without keys.
+      if (blockKeyCounts(parse(composedIni)).includes(keys))
+        text = addManiaBlock(text, keys);
+      for (const name of names)
+        text = setManiaValue(text, keys, name, maniaValue(composedIni, keys, name));
+      mixDoc.setValue(text);
+    }
   } catch (error) {
     composeError = message(error);
   }
@@ -1105,6 +1153,7 @@ async function recompose() {
   renderMix();
   renderIni();
   updatePreview();
+  keymodes.refresh();
 }
 
 const groupLabel = (id: string) =>
@@ -1285,6 +1334,39 @@ function renderMix() {
       ...ids.map(overrideRow),
     );
   }
+  // Key counts edited on the Keymodes screen.
+  for (const [count, draft] of Object.entries(recipe.keymodes ?? {})) {
+    const slots = Object.keys(draft.images).length,
+      values = Object.keys(draft.values).length;
+    rows.push(
+      h(
+        "li",
+        {},
+        h(
+          "div",
+          {},
+          h("span", {}, `${count}K columns `, h("span", { class: "v-muted" }, "Keymodes")),
+          h(
+            "span",
+            { class: "pick-source" },
+            [slots ? `${slots} images` : "", values ? `${values} values` : ""]
+              .filter(Boolean)
+              .join(" · ") || "block added",
+          ),
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "v-btn v-btn--sm v-btn--ghost",
+            ariaLabel: `Edit ${count}K columns`,
+            onclick: () => showView("keymodes"),
+          },
+          "Edit",
+        ),
+      ),
+    );
+  }
   $("#mix-picks").replaceChildren(
     ...(rows.length
       ? rows
@@ -1303,7 +1385,11 @@ function renderMix() {
           ]
         : []),
   );
-  const empty = !base && !Object.keys(recipe.picks).length && !overrides;
+  const empty =
+    !base &&
+    !Object.keys(recipe.picks).length &&
+    !overrides &&
+    !Object.keys(recipe.keymodes ?? {}).length;
   const reason = !vosu.canWrite
     ? "Read-only tab"
     : empty
@@ -1320,7 +1406,61 @@ function renderMix() {
       : "No Skins folder");
   osk.title = reason || `${recipe.name.trim()}.osk`;
   explorer?.refreshMix();
+  renderUploads();
 }
+
+// ---- dropped files: listed with their use; removed only by the user --------
+let uploadFiles: UploadFile[] = [];
+async function refreshUploads() {
+  try {
+    uploadFiles = (await load(UPLOADS, true)).snapshot.files;
+  } catch (error) {
+    $("#mix-uploads-note").textContent = message(error);
+  }
+  renderUploads();
+}
+function renderUploads() {
+  const { used, unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
+  const all = [...used, ...unused];
+  $("#mix-uploads").hidden = !all.length;
+  $("#mix-uploads-summary").textContent = `Dropped files: ${all.length} (${formatBytes(all.reduce((s, f) => s + f.size, 0))})`;
+  $("#mix-uploads-list").replaceChildren(
+    ...all.map((f) =>
+      h(
+        "li",
+        { title: f.name },
+        h("span", { class: "v-mono" }, f.name.split("/").pop() ?? f.name),
+        h("span", { class: "v-muted" }, formatBytes(f.size)),
+        used.includes(f)
+          ? h("span", { class: "v-badge v-badge--ok" }, "used by this draft")
+          : h("span", { class: "v-badge" }, "unused"),
+      ),
+    ),
+  );
+  const remove = $<HTMLButtonElement>("#mix-uploads-remove");
+  remove.disabled = !unused.length || !vosu.canWrite;
+  remove.title = !vosu.canWrite
+    ? "Read-only tab"
+    : unused.length
+      ? "Files this draft uses are kept"
+      : "This draft uses every dropped file";
+}
+$("#mix-uploads-remove").onclick = async () => {
+  // Recompute at click time: the draft may have changed since the list.
+  const { unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
+  const note = $("#mix-uploads-note");
+  if (!unused.length || !confirm(removeQuestion(unused))) return;
+  try {
+    const removed = await post<{ files: number; bytes: number }>(
+      "v1/uploads/remove",
+      { names: unused.map((f) => f.name) },
+    );
+    note.textContent = `Removed ${removed.files} ${removed.files === 1 ? "file" : "files"} (${formatBytes(removed.bytes)})`;
+  } catch (error) {
+    note.textContent = message(error);
+  }
+  await refreshUploads();
+};
 $("#mix-base-clear").onclick = () => {
   recipe.base = null;
   persist();
@@ -1665,7 +1805,13 @@ const afterEdit = (bump: () => void) => {
     }, 400);
   };
 };
-mixDoc.onDidChangeContent(afterEdit(() => mixVersion++));
+// Hand edits of the mix draft's [Mania] blocks show on the Keymodes screen.
+mixDoc.onDidChangeContent(
+  afterEdit(() => {
+    mixVersion++;
+    keymodes.refresh();
+  }),
+);
 focusDoc.onDidChangeContent(afterEdit(() => focusVersion++));
 
 /** Hands the preview the skin it should draw now (cheap when unchanged). */
@@ -1801,6 +1947,73 @@ async function showInElements(ref: AssetRef, skin: string) {
   setTimeout(() => target.classList.remove("found"), 1600);
 }
 
+/** Stores one key count's Keymodes draft and recomposes the mix at once. */
+function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
+  recipe.keymodes ??= {};
+  const before = recipe.keymodes[String(keys)];
+  if (draft) recipe.keymodes[String(keys)] = draft;
+  else delete recipe.keymodes[String(keys)];
+  persist();
+  renderMix();
+  clearTimeout(composeTimer);
+  void recompose({ keys, names: touchedKeys(before, draft) });
+}
+
+const keymodes = new KeymodesView({
+  drafts: () => (recipe.keymodes ??= {}),
+  apply: applyKeymode,
+  mixText: () => mixDoc.getValue() || lastPlan?.ini || "",
+  mixFiles: () => {
+    const files = new Map<string, { skin: string; from: string; to: string }>();
+    for (const source of lastPlan?.sources ?? [])
+      for (const file of source.files) {
+        const [from, to] = typeof file === "string" ? [file, file] : file;
+        files.set(to.toLowerCase(), { skin: source.skin, from, to });
+      }
+    return files;
+  },
+  sources: () =>
+    (library?.skins ?? [])
+      .filter((s) => s.available && !s.builtin)
+      .map((s) => ({
+        key: s.key,
+        name: s.name,
+        group: { stable: "Stable", added: "Added", osk: ".osk", lazer: "Lazer" }[
+          s.origin
+        ],
+      })),
+  load: async (key) => {
+    // Dropped files grow with every drop: always re-read them.
+    const { data } = await load(key, key === UPLOADS);
+    return { text: data.text, files: data.files };
+  },
+  assetUrl,
+  skinName,
+  upload: async (group, name, file) => {
+    const stored = await request<{ name: string }>(
+      `v1/uploads?group=${encodeURIComponent(group)}&name=${encodeURIComponent(name)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
+      },
+    );
+    void refreshUploads();
+    return stored.name;
+  },
+  canWrite: () => vosu.canWrite,
+  preview: (canvas, stage, onState) =>
+    import("./preview").then(
+      ({ Preview }) => new Preview(canvas, stage, onState, { rulesets: [3] }),
+    ),
+  previewSource: () => ({
+    key: "mix",
+    version: mixVersion,
+    name: recipe.name,
+    resolve: lastPlan ? mixResolver(lastPlan) : null,
+  }),
+});
+
 explorer = new Explorer({
   skins: () => library?.skins ?? [],
   load: async (key) => {
@@ -1815,7 +2028,25 @@ explorer = new Explorer({
   group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
   showInElements: (ref, skin) => void showInElements(ref, skin),
   status: (text) => (status.textContent = text),
+  keymodes: {
+    target: () => keymodes.target(),
+    // The assignment shows where it went: the Keymodes tab.
+    assign: (skin, name) =>
+      void keymodes.assign(skin, name).then(() => showView("keymodes")),
+    drag: (data, skin, name) => keymodes.drag(data, skin, name),
+  },
 });
+// A drag held over the Keymodes tab opens it, so Explorer images drop on slots.
+{
+  const tab = $("#tab-keymodes");
+  let timer = 0;
+  tab.addEventListener("dragenter", () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => showView("keymodes"), 450);
+  });
+  tab.addEventListener("dragover", (event) => event.preventDefault());
+  tab.addEventListener("dragleave", () => clearTimeout(timer));
+}
 
 // ---- live game state -------------------------------------------------------
 const rulesets: Record<string, Category> = {
@@ -1911,6 +2142,7 @@ if (initial) {
   else renderFocus();
 } else renderFocus();
 renderMix();
+void refreshUploads();
 scheduleCompose();
 subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.
