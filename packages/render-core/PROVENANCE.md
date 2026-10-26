@@ -156,6 +156,9 @@ objects, the cursor), with lazer's own autoplay replay as render-core's
 for `test/sliderBodyGolden.ts`; `test/sliderBodyCompare.ts` rebuilds them per
 pixel and compares render-core's slider capsules (fixture
 `test/fixtures/slider-bodies.json`, compared by `test/sliderBody.test.ts`).
+`tools/map-preview/tests/slider_bodies_e2e.py` compares what a rasteriser
+actually draws with the same rebuilt lazer bodies, on both backends, on the
+GPU and on SwiftShader.
 
 Slider bodies follow osu!framework 2026.921.1's `Path` drawing
 (`Graphics/Lines/Path.cs`, `SmoothPath.cs`, `Resources/Shaders/sh_Path.fs`,
