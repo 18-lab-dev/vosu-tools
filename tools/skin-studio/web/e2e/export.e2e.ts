@@ -131,7 +131,7 @@ try {
     (await until(() => api("/api/tools/skin-studio/launch", { theme }), "launch")).url as string;
   const launched = await chromium.launch({ headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
   browser = launched;
-  const context = await launched.newContext({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
+  const context = await launched.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark", acceptDownloads: true });
   const page = await context.newPage();
   const pageErrors: string[] = [];
   page.on("pageerror", (e: Error) => pageErrors.push(e.message));
@@ -202,17 +202,44 @@ try {
   check("Etterna report lists exported and skipped counts", etterna.report.includes("Exported 3K, 4K, 5K, 6K, 7K, 8K, 9K") && etterna.report.includes("Skipped 1K") && etterna.report.includes("Skipped 2K"), etterna.report);
   await page.screenshot({ path: join(out, "studio-dark.png") });
 
-  // Light theme: same page, the shared system's light tokens.
-  await page.goto(await launch("light"));
-  await page.waitForSelector("#skins .skin");
-  await until(async () => (await page.locator("#mix-summary").textContent())?.includes("files"), "mix restored");
-  await page.locator("#export-target").selectOption("etterna");
-  await page.waitForTimeout(300);
-  await page.locator(".mix").screenshot({ path: join(out, "export-etterna-light.png") });
-  await page.locator("#export-target").selectOption("quaver");
-  await page.waitForTimeout(300);
-  await page.locator(".mix").screenshot({ path: join(out, "export-quaver-light.png") });
-  await page.screenshot({ path: join(out, "studio-light.png") });
+  // Light theme: a fresh light context (the host theme follows the colour
+  // scheme; no earlier export result), checked by the shell's computed
+  // background before any screenshot.
+  const background = (p: typeof page) =>
+    p.evaluate(() => {
+      const [r, g, b] = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g)!.map(Number);
+      return { css: getComputedStyle(document.body).backgroundColor, luminance: (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 };
+    });
+  const dark = await background(page);
+  check("Dark shell background is the dark token", dark.luminance < 0.3, dark.css);
+  const lightContext = await launched.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: "light" });
+  const light = await lightContext.newPage();
+  light.on("pageerror", (e: Error) => pageErrors.push(e.message));
+  await light.goto(await launch("light"));
+  await light.waitForSelector("#skins .skin");
+  await light.locator("#skins .skin", { hasText: opt.skin! }).click();
+  await light.click("#use-base");
+  await light.fill("#mix-name", NAME);
+  await light.locator("#mix-name").press("Tab");
+  await until(async () => (await light.locator("#mix-summary").textContent())?.includes("files"), "light mix composed");
+  const lit = await background(light);
+  check("Light shell background is the light token", lit.luminance > 0.7 && lit.css !== dark.css, lit.css);
+  check("Light page shows no earlier export result", ((await light.locator("#mix-result").textContent()) ?? "").trim() === "");
+  for (const [width, height] of [[1920, 1080], [1280, 720]]) {
+    const size = `${width}x${height}`;
+    await light.setViewportSize({ width, height });
+    await page.setViewportSize({ width, height });
+    for (const target of ["quaver", "etterna"]) {
+      for (const [p, theme] of [[light, "light"], [page, "dark"]] as const) {
+        await p.locator("#export-target").selectOption(target);
+        await p.waitForTimeout(400);
+        await p.locator(".mix").screenshot({ path: join(out, `export-${target}-${theme}-${size}.png`) });
+      }
+    }
+    await light.screenshot({ path: join(out, `studio-light-${size}.png`) });
+    await page.screenshot({ path: join(out, `studio-dark-${size}.png`) });
+  }
+  await lightContext.close();
 
   // ── Archives ─────────────────────────────────────────────────────────────
   const qs = listing(quaver.path);
