@@ -228,7 +228,10 @@ try {
   await page.setViewportSize({ width: 1920, height: 1080 });
 
   // ── Export, read back ────────────────────────────────────────────────────
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#build-osk")]);
+  const [download] = await Promise.all([page.waitForEvent("download"), (async () => {
+    await page.selectOption("#export-target", "osk");
+    await page.click("#export-run");
+  })()]);
   const osk = join(out, "hit.osk");
   await download.saveAs(osk);
   const ini = spawnSync("unzip", ["-p", osk, "skin.ini"], { encoding: "utf8" }).stdout;

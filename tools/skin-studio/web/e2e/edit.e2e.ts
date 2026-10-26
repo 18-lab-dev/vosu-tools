@@ -268,7 +268,7 @@ try {
   const error = (await page.locator("#km-error").isVisible()) ? await page.locator("#km-error").textContent() : "";
   check("Read-only tab: Keymodes edits work (drafts need no session)", !error && ((await page.locator("#km-state").textContent()) ?? "").startsWith("Clear"), error ?? "");
   await page.keyboard.press("Control+z");
-  check("Read-only tab: Apply is disabled and says why", await page.locator("#apply").isDisabled() && ((await page.locator("#apply-count").textContent()) ?? "").includes("needs a session from the dashboard"));
+  check("Read-only tab: Apply is the export choice, disabled, and says why", (await page.locator("#export-target").inputValue()) === "apply" && (await page.locator("#export-run").isDisabled()) && ((await page.locator("#apply-count").textContent()) ?? "").includes("needs a session from the dashboard"));
   await shot("edit-readonly");
 
   // ── Apply with a session: the first apply shows what goes where ───────────
@@ -278,9 +278,10 @@ try {
   await page.waitForSelector("#skins .skin");
   await page.click("#tab-keymodes");
   await pick(7);
-  await until(async () => !(await page.locator("#apply").isDisabled()), "apply enabled", 30000);
+  check("Apply to current skin is the default export choice", (await page.locator("#export-target").inputValue()) === "apply");
+  await until(async () => !(await page.locator("#export-run").isDisabled()), "apply enabled", 30000);
   answer = true;
-  await page.click("#apply");
+  await page.click("#export-run");
   await page.waitForSelector("#apply-dialog[open]");
   const listed = await page.locator("#apply-list li").allTextContents();
   const where = (await page.locator("#apply-where").textContent()) ?? "";
@@ -324,7 +325,7 @@ try {
   daemon = startDaemon();
   await until(async () => (await fetch(`${dash}/tools`)).ok, "vosu again");
   await page.waitForTimeout(1500);
-  await page.click("#apply").catch(() => undefined);
+  await page.click("#export-run").catch(() => undefined);
   await until(async () => await page.locator("#mode").isVisible(), "session loss shown", 30000);
   const lost = `${await page.locator("#apply-count").textContent()} ${await page.locator("#mode").getAttribute("title")}`;
   check("After a vosu restart the tab turns read-only and says why", lost.includes("vosu restarted"), lost);

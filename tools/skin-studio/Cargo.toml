@@ -22,3 +22,4 @@ base64 = "0.22"
 md-5 = "0.10"
 osu-db = { path = "../../crates/osu-db" }
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }

@@ -67,6 +67,17 @@ import {
   sessionLost,
 } from "./session";
 import type { Speed } from "./calibrate";
+import {
+  type ExportReport,
+  type ExportTarget,
+  TARGETS,
+  convertRequest,
+  isTarget,
+  mixKeyCounts,
+  reportLines,
+  supports,
+  targetNote,
+} from "./export-targets";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
@@ -1202,6 +1213,11 @@ interface Applied {
   opened: boolean;
 }
 let review: Review | null = null;
+/** Choose "Apply to current skin" once it can be offered (unless the user picked another). */
+let applyDefault =
+  editMode === "current" && localStorage.getItem("skin-studio:export-target") !== "stable";
+/** Why exporting is unavailable now (renderMix's reason, for renderApply). */
+let exportReason = "";
 let reviewError = "";
 let reviewTimer = 0;
 let reviewTicket = 0;
@@ -1265,7 +1281,17 @@ function renderApply() {
   const current = editMode === "current";
   $("#edit-head").hidden = !current;
   $("#mix-head").hidden = current;
-  $("#apply-area").hidden = !current;
+  // "Apply to current skin" exists while a skin is edited in place (and is
+  // the default choice then); its state line sits under the button.
+  const exportTarget = $<HTMLSelectElement>("#export-target");
+  const option = exportTarget.querySelector<HTMLOptionElement>('option[value="apply"]')!;
+  option.hidden = option.disabled = !current || !recipe.base;
+  if (option.hidden && exportTarget.value === "apply") exportTarget.value = "stable";
+  if (!option.hidden && applyDefault) {
+    exportTarget.value = "apply";
+    applyDefault = false;
+  }
+  $("#apply-area").hidden = option.hidden || exportTarget.value !== "apply";
   $("#mode-current").setAttribute("aria-pressed", String(current));
   $("#mode-new").setAttribute("aria-pressed", String(!current));
   $("#mix-reset").textContent = current ? "Discard" : "Clear";
@@ -1301,6 +1327,7 @@ function renderApply() {
       ),
     );
   const edits = hasEdits(recipe);
+  renderExport(exportReason);
   const count = $("#apply-count");
   count.classList.toggle("error", !!reviewError);
   count.textContent = !target
@@ -1318,16 +1345,6 @@ function renderApply() {
           : edits
             ? "Checking changes…"
             : "No changes";
-  const apply = $<HTMLButtonElement>("#apply");
-  apply.disabled = applying || !canWrite() || !review?.changes.length;
-  apply.textContent = applying
-    ? "Applying…"
-    : review?.target.kind === "import"
-      ? "Import into osu!lazer"
-      : review?.target.kind === "mounted"
-        ? "Apply to lazer's edit folder"
-        : "Apply changes";
-  apply.title = !canWrite() ? `Read-only tab: ${readOnlyReason()}` : "";
   $<HTMLButtonElement>("#discard").disabled = applying || !edits;
   const restore = $<HTMLButtonElement>("#restore");
   restore.hidden = !lastApply;
@@ -1488,7 +1505,6 @@ async function applyNow() {
   }
 }
 
-$("#apply").onclick = () => void applyNow();
 $("#discard").onclick = () => discardDraft();
 $("#restore").onclick = async () => {
   const target = recipe.base;
@@ -1813,22 +1829,69 @@ function renderMix() {
     : empty
       ? "Pick a base, a group or an asset"
       : composeError;
-  const stable = $<HTMLButtonElement>("#build-stable");
-  const osk = $<HTMLButtonElement>("#build-osk");
-  stable.disabled = !!reason || !library?.stable_dir || building;
-  osk.disabled = !!reason || building;
-  stable.title =
-    reason ||
-    (library?.stable_dir
-      ? `${library.stable_dir}/${recipe.name.trim()}`
-      : "No Skins folder");
-  osk.title = reason || `${recipe.name.trim()}.osk`;
-  // Editing in place, exporting is the secondary action.
-  stable.classList.toggle("v-btn--primary", editMode === "new");
+  exportReason = reason;
+  renderExport(reason);
   explorer?.refreshMix();
   renderUploads();
   renderApply();
 }
+
+// ---- export: one target choice and its button ------------------------------
+const EXPORT_KEY = "skin-studio:export-target";
+const exportTarget = $<HTMLSelectElement>("#export-target");
+{
+  const saved = localStorage.getItem(EXPORT_KEY) ?? "";
+  if (isTarget(saved)) exportTarget.value = saved;
+}
+/** The chosen target, its button and its note (what it skips or approximates). */
+function renderExport(reason = "") {
+  const target = isTarget(exportTarget.value) ? exportTarget.value : "stable";
+  const run = $<HTMLButtonElement>("#export-run");
+  if (target === "apply") {
+    run.textContent = applying
+      ? "Applying…"
+      : review?.target.kind === "import"
+        ? "Import into osu!lazer"
+        : review?.target.kind === "mounted"
+          ? "Apply to lazer's edit folder"
+          : "Apply changes";
+    run.disabled = applying || !canWrite() || !review?.changes.length;
+    run.title = !canWrite() ? `Read-only tab: ${readOnlyReason()}` : "";
+    $("#export-note").textContent = review
+      ? describeTarget(review.target)
+      : targetNote("apply", []);
+    return;
+  }
+  const keys = mixKeyCounts(mixDoc.getValue() || lastPlan?.ini || "");
+  const playable =
+    target === "stable" ||
+    target === "osk" ||
+    keys.some((k) => supports(target, k));
+  run.textContent = TARGETS.find((t) => t.id === target)!.button;
+  run.disabled =
+    !!reason ||
+    building ||
+    !playable ||
+    (target === "stable" && !library?.stable_dir);
+  const name = recipe.name.trim();
+  run.title =
+    reason ||
+    (target === "stable"
+      ? library?.stable_dir
+        ? `${library.stable_dir}/${name}`
+        : "No Skins folder"
+      : target === "osk"
+        ? `${name}.osk`
+        : target === "quaver"
+          ? `${name}.qs`
+          : `${name} (Etterna).zip`);
+  $("#export-note").textContent = targetNote(target, keys);
+}
+exportTarget.onchange = () => {
+  localStorage.setItem(EXPORT_KEY, exportTarget.value);
+  applyDefault = false;
+  renderMix();
+};
 
 // ---- dropped files: listed with their use; removed only by the user --------
 let uploadFiles: UploadFile[] = [];
@@ -1924,14 +1987,17 @@ $("#mix-plan").onclick = async () => {
 };
 
 /**
- * Hands a plan to the browser as `<name>.osk`: the service accepts it, then
- * streams the archive from a one-time URL the page opens as a download.
+ * Hands an export to the browser: the service accepts it (an `.osk` plan,
+ * or a plan with stages it converts for Quaver or Etterna before
+ * answering), then sends the file once from a one-time URL the page opens
+ * as a download.
  */
-async function downloadOsk(plan: Plan) {
-  const exported = await post<{ url: string; filename: string }>(
-    "v1/exports",
-    plan,
-  );
+async function download(body: object) {
+  const exported = await post<{
+    url: string;
+    filename: string;
+    report?: ExportReport;
+  }>("v1/exports", body);
   const link = h("a", {
     href: toolBase + exported.url,
     download: exported.filename,
@@ -1939,7 +2005,7 @@ async function downloadOsk(plan: Plan) {
   document.body.append(link);
   link.click();
   link.remove();
-  return exported.filename;
+  return exported;
 }
 
 /** A skin's display name as a valid skin/archive name. */
@@ -1955,7 +2021,7 @@ $("#focus-osk").onclick = async () => {
   if (!entry) return;
   try {
     const name = fileSafe(skinName(focused));
-    const filename = await downloadOsk({
+    const { filename } = await download({
       name,
       overwrite: false,
       ini: entry.snapshot.text,
@@ -1979,7 +2045,7 @@ $("#focus-osk").onclick = async () => {
 };
 
 let building = false;
-async function buildMix(target: "stable" | "osk") {
+async function buildMix(target: Exclude<ExportTarget, "apply">) {
   building = true;
   renderMix();
   const result = $("#mix-result");
@@ -1987,16 +2053,25 @@ async function buildMix(target: "stable" | "osk") {
     h(
       "p",
       { class: "v-muted" },
-      target === "stable" ? "Creating…" : "Packing…",
+      target === "stable"
+        ? "Creating…"
+        : target === "osk"
+          ? "Packing…"
+          : "Converting…",
     ),
   );
   try {
     // Re-read every source so the plan matches the files on disk now.
     const plan = await planNow(true);
-    if (target === "osk") {
-      const filename = await downloadOsk(plan);
+    if (target !== "stable") {
+      const { filename, report } = await download(
+        target === "osk" ? plan : convertRequest(plan, target),
+      );
       result.replaceChildren(
         h("p", { class: "ok" }, `Downloading ${filename}`),
+        ...(report ? reportLines(report) : []).map((line) =>
+          h("p", { class: "v-muted" }, line),
+        ),
       );
       return;
     }
@@ -2028,8 +2103,12 @@ async function buildMix(target: "stable" | "osk") {
     renderMix();
   }
 }
-$("#build-stable").onclick = () => void buildMix("stable");
-$("#build-osk").onclick = () => void buildMix("osk");
+$("#export-run").onclick = () => {
+  const target = exportTarget.value;
+  if (!isTarget(target)) return;
+  if (target === "apply") void applyNow();
+  else void buildMix(target);
+};
 
 // ---- preview ----------------------------------------------------------------
 const PREVIEW_KEY = "skin-studio:preview";

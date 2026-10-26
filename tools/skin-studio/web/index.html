@@ -507,12 +507,34 @@
           </div>
         </details>
         <div class="mix-foot">
-          <div id="apply-area" class="mix-apply">
-            <p id="apply-count" class="mix-apply__count" aria-live="polite"></p>
-            <button id="apply" type="button" class="v-btn v-btn--primary" disabled>
-              Apply changes
+          <p id="mix-summary" class="v-muted v-mono mix-summary"></p>
+          <div class="mix-export">
+            <label class="v-field">
+              <span>Export as</span>
+              <select id="export-target" class="v-select">
+                <option value="apply">Apply to current skin</option>
+                <option value="stable">osu! stable folder</option>
+                <option value="osk">osu!lazer .osk</option>
+                <option value="quaver">Quaver</option>
+                <option value="etterna">Etterna</option>
+              </select>
+            </label>
+            <p
+              id="export-note"
+              class="v-muted mix-export__note"
+              aria-live="polite"
+            ></p>
+            <button
+              id="export-run"
+              type="button"
+              class="v-btn v-btn--primary"
+              aria-describedby="export-note"
+              disabled
+            >
+              Create stable skin
             </button>
-            <div class="v-row">
+            <div id="apply-area" class="v-row mix-apply">
+              <span id="apply-count" class="mix-apply__count" aria-live="polite"></span>
               <button id="discard" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
                 Discard
               </button>
@@ -521,18 +543,6 @@
               </button>
             </div>
           </div>
-          <p id="mix-summary" class="v-muted v-mono mix-summary"></p>
-          <button
-            id="build-stable"
-            type="button"
-            class="v-btn v-btn--primary"
-            disabled
-          >
-            Create stable skin
-          </button>
-          <button id="build-osk" type="button" class="v-btn" disabled>
-            Download .osk
-          </button>
           <div class="v-row">
             <button
               id="mix-ini"

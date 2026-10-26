@@ -353,10 +353,16 @@ async fn credits_for(app: &App, plan: &Plan) -> Result<Option<String>, Failure> 
     })
 }
 
-/// A plan accepted for download, waiting for its single GET.
+/// What an accepted export downloads: an .osk streamed from its plan, or a
+/// converted skin finished before the export was accepted.
+pub enum Payload {
+    Osk(Plan),
+    Archive(crate::export::Archive),
+}
+/// An export accepted for download, waiting for its single GET.
 pub struct Pending {
     pub created: Instant,
-    pub plan: Plan,
+    pub payload: Payload,
 }
 /// How long an accepted export waits for its download to start.
 pub const PENDING_FOR: Duration = Duration::from_secs(120);
@@ -374,10 +380,10 @@ pub async fn prepare(app: &App, plan: Plan) -> Result<Plan, Failure> {
     Ok(plan)
 }
 
-/// `name.osk` for Content-Disposition: an ASCII fallback plus the exact
-/// UTF-8 name (RFC 6266 / 5987).
-pub fn disposition(name: &str) -> String {
-    let file = format!("{}.osk", name.trim());
+/// A download's file name for Content-Disposition: an ASCII fallback plus
+/// the exact UTF-8 name (RFC 6266 / 5987).
+pub fn disposition(file: &str) -> String {
+    let file = file.trim();
     let ascii: String = file
         .chars()
         .map(|c| {
@@ -390,7 +396,7 @@ pub fn disposition(name: &str) -> String {
         .collect();
     format!(
         "attachment; filename=\"{ascii}\"; filename*=UTF-8''{}",
-        library::segment(&file)
+        library::segment(file)
     )
 }
 
@@ -501,10 +507,10 @@ mod tests {
     #[test]
     fn disposition_keeps_unicode_names() {
         assert_eq!(
-            disposition("My mix"),
+            disposition("My mix.osk"),
             "attachment; filename=\"My mix.osk\"; filename*=UTF-8''My%20mix.osk"
         );
-        let jp = disposition("「シルビア」 v1");
+        let jp = disposition("「シルビア」 v1.osk");
         assert!(
             jp.starts_with("attachment; filename=\"______ v1.osk\";"),
             "{jp}"
@@ -512,6 +518,10 @@ mod tests {
         assert!(
             jp.ends_with("%E3%80%8C%E3%82%B7%E3%83%AB%E3%83%93%E3%82%A2%E3%80%8D%20v1.osk"),
             "{jp}"
+        );
+        assert_eq!(
+            disposition("Mix (Etterna).zip"),
+            "attachment; filename=\"Mix (Etterna).zip\"; filename*=UTF-8''Mix%20%28Etterna%29.zip"
         );
     }
     #[tokio::test]
