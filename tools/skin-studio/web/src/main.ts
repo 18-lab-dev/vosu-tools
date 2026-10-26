@@ -56,6 +56,17 @@ import {
   type UploadFile,
 } from "./uploads";
 import { touchedKeys, type KeymodeDraft } from "./keymodes";
+import {
+  type ExportReport,
+  type ExportTarget,
+  TARGETS,
+  convertRequest,
+  isTarget,
+  mixKeyCounts,
+  reportLines,
+  supports,
+  targetNote,
+} from "./export-targets";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
 interface Skin {
@@ -1395,19 +1406,51 @@ function renderMix() {
     : empty
       ? "Pick a base, a group or an asset"
       : composeError;
-  const stable = $<HTMLButtonElement>("#build-stable");
-  const osk = $<HTMLButtonElement>("#build-osk");
-  stable.disabled = !!reason || !library?.stable_dir || building;
-  osk.disabled = !!reason || building;
-  stable.title =
-    reason ||
-    (library?.stable_dir
-      ? `${library.stable_dir}/${recipe.name.trim()}`
-      : "No Skins folder");
-  osk.title = reason || `${recipe.name.trim()}.osk`;
+  renderExport(reason);
   explorer?.refreshMix();
   renderUploads();
 }
+
+// ---- export: one target choice and its button ------------------------------
+const EXPORT_KEY = "skin-studio:export-target";
+const exportTarget = $<HTMLSelectElement>("#export-target");
+{
+  const saved = localStorage.getItem(EXPORT_KEY) ?? "";
+  if (isTarget(saved)) exportTarget.value = saved;
+}
+/** The chosen target, its button and its note (what it skips or approximates). */
+function renderExport(reason = "") {
+  const target = isTarget(exportTarget.value) ? exportTarget.value : "stable";
+  const run = $<HTMLButtonElement>("#export-run");
+  const keys = mixKeyCounts(mixDoc.getValue() || lastPlan?.ini || "");
+  const playable =
+    target === "stable" ||
+    target === "osk" ||
+    keys.some((k) => supports(target, k));
+  run.textContent = TARGETS.find((t) => t.id === target)!.button;
+  run.disabled =
+    !!reason ||
+    building ||
+    !playable ||
+    (target === "stable" && !library?.stable_dir);
+  const name = recipe.name.trim();
+  run.title =
+    reason ||
+    (target === "stable"
+      ? library?.stable_dir
+        ? `${library.stable_dir}/${name}`
+        : "No Skins folder"
+      : target === "osk"
+        ? `${name}.osk`
+        : target === "quaver"
+          ? `${name}.qs`
+          : `${name} (Etterna).zip`);
+  $("#export-note").textContent = targetNote(target, keys);
+}
+exportTarget.onchange = () => {
+  localStorage.setItem(EXPORT_KEY, exportTarget.value);
+  renderMix();
+};
 
 // ---- dropped files: listed with their use; removed only by the user --------
 let uploadFiles: UploadFile[] = [];
@@ -1502,14 +1545,17 @@ $("#mix-plan").onclick = async () => {
 };
 
 /**
- * Hands a plan to the browser as `<name>.osk`: the service accepts it, then
- * streams the archive from a one-time URL the page opens as a download.
+ * Hands an export to the browser: the service accepts it (an `.osk` plan,
+ * or a plan with stages it converts for Quaver or Etterna before
+ * answering), then sends the file once from a one-time URL the page opens
+ * as a download.
  */
-async function downloadOsk(plan: Plan) {
-  const exported = await post<{ url: string; filename: string }>(
-    "v1/exports",
-    plan,
-  );
+async function download(body: object) {
+  const exported = await post<{
+    url: string;
+    filename: string;
+    report?: ExportReport;
+  }>("v1/exports", body);
   const link = h("a", {
     href: toolBase + exported.url,
     download: exported.filename,
@@ -1517,7 +1563,7 @@ async function downloadOsk(plan: Plan) {
   document.body.append(link);
   link.click();
   link.remove();
-  return exported.filename;
+  return exported;
 }
 
 /** A skin's display name as a valid skin/archive name. */
@@ -1533,7 +1579,7 @@ $("#focus-osk").onclick = async () => {
   if (!entry) return;
   try {
     const name = fileSafe(skinName(focused));
-    const filename = await downloadOsk({
+    const { filename } = await download({
       name,
       overwrite: false,
       ini: entry.snapshot.text,
@@ -1557,7 +1603,7 @@ $("#focus-osk").onclick = async () => {
 };
 
 let building = false;
-async function buildMix(target: "stable" | "osk") {
+async function buildMix(target: ExportTarget) {
   building = true;
   renderMix();
   const result = $("#mix-result");
@@ -1565,16 +1611,25 @@ async function buildMix(target: "stable" | "osk") {
     h(
       "p",
       { class: "v-muted" },
-      target === "stable" ? "Creating…" : "Packing…",
+      target === "stable"
+        ? "Creating…"
+        : target === "osk"
+          ? "Packing…"
+          : "Converting…",
     ),
   );
   try {
     // Re-read every source so the plan matches the files on disk now.
     const plan = await planNow(true);
-    if (target === "osk") {
-      const filename = await downloadOsk(plan);
+    if (target !== "stable") {
+      const { filename, report } = await download(
+        target === "osk" ? plan : convertRequest(plan, target),
+      );
       result.replaceChildren(
         h("p", { class: "ok" }, `Downloading ${filename}`),
+        ...(report ? reportLines(report) : []).map((line) =>
+          h("p", { class: "v-muted" }, line),
+        ),
       );
       return;
     }
@@ -1606,8 +1661,10 @@ async function buildMix(target: "stable" | "osk") {
     renderMix();
   }
 }
-$("#build-stable").onclick = () => void buildMix("stable");
-$("#build-osk").onclick = () => void buildMix("osk");
+$("#export-run").onclick = () => {
+  const target = exportTarget.value;
+  if (isTarget(target)) void buildMix(target);
+};
 
 // ---- preview ----------------------------------------------------------------
 const PREVIEW_KEY = "skin-studio:preview";

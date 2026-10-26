@@ -491,17 +491,31 @@
         </details>
         <div class="mix-foot">
           <p id="mix-summary" class="v-muted v-mono mix-summary"></p>
-          <button
-            id="build-stable"
-            type="button"
-            class="v-btn v-btn--primary"
-            disabled
-          >
-            Create stable skin
-          </button>
-          <button id="build-osk" type="button" class="v-btn" disabled>
-            Download .osk
-          </button>
+          <div class="mix-export">
+            <label class="v-field">
+              <span>Export as</span>
+              <select id="export-target" class="v-select">
+                <option value="stable">osu! stable folder</option>
+                <option value="osk">osu!lazer .osk</option>
+                <option value="quaver">Quaver</option>
+                <option value="etterna">Etterna</option>
+              </select>
+            </label>
+            <p
+              id="export-note"
+              class="v-muted mix-export__note"
+              aria-live="polite"
+            ></p>
+            <button
+              id="export-run"
+              type="button"
+              class="v-btn v-btn--primary"
+              aria-describedby="export-note"
+              disabled
+            >
+              Create stable skin
+            </button>
+          </div>
           <div class="v-row">
             <button
               id="mix-ini"
