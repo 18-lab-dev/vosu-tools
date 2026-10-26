@@ -140,6 +140,8 @@ try {
   });
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
+  // These checks build new skins (the Mix panel's New skin mode).
+  await page.click("#mode-new");
 
   const shot = (name: string) => page.screenshot({ path: join(out, `${name}.png`) });
   const slot = (key: string) => page.locator(`#km-grid [data-key="${key}"]`).first();

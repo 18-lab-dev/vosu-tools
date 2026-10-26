@@ -171,6 +171,9 @@ struct Beatmap {
 struct Skin {
     name: Option<Arc<str>>,
     creator: Option<Arc<str>>,
+    /// lazer's skin hash (SHA-256 of its .ini/.json files): names the folder
+    /// "Edit externally" mounts.
+    hash: Option<Arc<str>>,
     files: Box<[StoredFile]>,
 }
 struct Score {
@@ -316,6 +319,7 @@ impl Index {
                 Skin {
                     name: strings.field(row, "Name"),
                     creator: strings.field(row, "Creator"),
+                    hash: strings.field(row, "Hash"),
                     files: files(row, &mut strings),
                 },
             );
@@ -395,7 +399,7 @@ impl Index {
     pub fn skin_list(&self) -> Value {
         let mut skins:Vec<_> = self.skins.iter().map(|(id,skin)| {
             let builtin = match id.as_ref() {"2991cfd8-2140-469a-bcb9-2ec23fbce4ad"=>Some("triangles"),"cffa69de-b3e3-4dee-8563-3c4f425c05d0"=>Some("argon"),"9fc9cf5d-0f16-4c71-8256-98868321ac43"=>Some("argon-pro"),"81f02cd3-eec6-4865-ac23-fae26a386187"=>Some("legacy"),"0555c76a-cc6b-4bb4-9548-df76ba72ef25"=>Some("retro"),_=>None};
-            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"builtin":builtin,"files":skin.files.len()})
+            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"hash":skin.hash.as_deref(),"builtin":builtin,"files":skin.files.len()})
         }).collect();
         skins.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
         json!({"skins":skins})

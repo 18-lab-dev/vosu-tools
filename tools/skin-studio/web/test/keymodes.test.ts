@@ -5,6 +5,7 @@ import { maniaValue } from "@vosu-tools/skin-spec";
 import {
   History,
   applyToAll,
+  assignSlots,
   copyStage,
   defaultPattern,
   imageUnit,
@@ -13,9 +14,10 @@ import {
   stageImages,
   stageStatus,
   touchedKeys,
+  type KeymodeDraft,
   type Slot,
 } from "../src/keymodes";
-import { compose, type SkinData } from "../src/plan";
+import { compose, hasEdits, inPlaceRemovals, type SkinData } from "../src/plan";
 import {
   MAX_UPLOAD_BYTES,
   UPLOADS,
@@ -233,4 +235,58 @@ test("dropped files: a referenced upload is kept, only unused ones are offered",
   expect(question).toContain("Delete 1 dropped file (1 KB)");
   expect(question).toContain("Other open Skin studio tabs or saved drafts in other browsers may still use these");
   expect(formatBytes(3 * 1048576)).toBe("3.0 MB");
+});
+
+test("one image for several selected slots is one undo step", () => {
+  const history = new History();
+  const before = { images: { KeyImage0: { value: "old/key" } }, values: {} } as KeymodeDraft;
+  const after = structuredClone(before);
+  const slot = { skin: "stable:/Skins/A", name: "mania/circle", files: [{ from: "mania/circle.png", suffix: ".png" }] };
+  assignSlots(after, ["KeyImage0", "NoteImage3", "StageHint"], slot);
+  history.push({ keys: 7, before, after, label: "Set 3 slots to circle.png" });
+  expect(Object.keys(after.images).sort()).toEqual(["KeyImage0", "NoteImage3", "StageHint"]);
+  // Each slot gets its own copy, so later edits of one never change another.
+  expect(after.images.NoteImage3).not.toBe(after.images.StageHint);
+  const undone = history.undo()!;
+  expect(undone.before).toEqual({ images: { KeyImage0: { value: "old/key" } }, values: {} });
+  expect(history.canUndo).toBe(false);
+  expect(history.redo()!.after.images.StageHint).toEqual(slot);
+  // Clearing several slots is one step too.
+  const cleared = structuredClone(after);
+  assignSlots(cleared, ["KeyImage0", "StageHint"], null);
+  expect(cleared.images).toEqual({ KeyImage0: null, NoteImage3: slot, StageHint: null });
+});
+
+test("an in-place draft removes only the skin's own files the plan dropped", () => {
+  const base: SkinData = {
+    key: "/Skins/A",
+    name: "A",
+    text: "[General]\nName: A\n",
+    files: ["skin.ini", "hitcircle.png", "mania-key1.png", "old.bak", "skin-studio-credits.txt", "mania-note1.png"],
+  };
+  const plan = {
+    name: "A",
+    overwrite: false,
+    ini: base.text,
+    sources: [{ skin: base.key, files: ["hitcircle.png", "mania-note1.png"] }],
+    blanks: [{ to: "mania-key1.png", kind: "png" as const }],
+  };
+  // The blanked key is replaced, not removed; backups and credits are not the draft's.
+  expect(inPlaceRemovals(plan, base)).toEqual([]);
+  plan.blanks = [];
+  expect(inPlaceRemovals(plan, base)).toEqual(["mania-key1.png"]);
+});
+
+test("a draft with nothing in it has no edits", () => {
+  expect(hasEdits({ name: "", base: "a", picks: {} })).toBe(false);
+  expect(hasEdits({ name: "", base: "a", picks: {}, keymodes: {} })).toBe(false);
+  expect(hasEdits({ name: "", base: "a", picks: {}, ini: "x" })).toBe(true);
+  expect(hasEdits({ name: "", base: "a", picks: {}, keymodes: { "7": { images: {}, values: {} } } })).toBe(true);
+});
+
+test("an in-place recipe leaves [General] as the skin has it", () => {
+  const skin: SkinData = { key: "/Skins/A", name: "A", text: "[General]\r\nName: Arturia\r\n\r\n[Mania]\r\nKeys: 4\r\n", files: ["skin.ini"] };
+  const { plan } = compose({ name: "", base: skin.key, picks: {}, inPlace: true }, new Map([[skin.key, skin]]));
+  expect(plan.ini).toContain("Name: Arturia");
+  expect(plan.ini).not.toContain("Version");
 });

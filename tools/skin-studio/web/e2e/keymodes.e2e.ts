@@ -133,6 +133,8 @@ try {
   });
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
+  // These checks build new skins (the Mix panel's New skin mode).
+  await page.click("#mode-new");
   const shot = (name: string, opts: object = {}) => page.screenshot({ path: join(out, `${name}.png`), ...opts });
   const slot = (key: string) => page.locator(`#km-grid [data-key="${key}"], #km-shared-grid [data-key="${key}"]`).first();
   const label = (key: string) => slot(key).getAttribute("aria-label");

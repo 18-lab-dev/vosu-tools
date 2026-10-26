@@ -343,6 +343,17 @@ export interface Change {
   after: KeymodeDraft | undefined;
   label: string;
 }
+/**
+ * Sets `slot` for every key of `draft` (one undoable change however many
+ * slots). A key image chosen by hand is no longer one HitPosition moved.
+ */
+export function assignSlots(draft: KeymodeDraft, keys: readonly string[], slot: Slot) {
+  for (const key of keys) {
+    draft.images[key] = slot === null ? null : structuredClone(slot);
+    if (draft.hit) delete draft.hit.originals[key];
+  }
+}
+
 export class History {
   #undo: Change[] = [];
   #redo: Change[] = [];

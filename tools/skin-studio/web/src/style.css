@@ -1052,6 +1052,11 @@
 .km-slot[aria-selected="true"] {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* Shift+click selects ranges, not text. */
+.km-slot {
+  user-select: none;
 }
 .km-slot.km-drop {
   outline: 2px dashed var(--accent);
@@ -1442,4 +1447,100 @@
 .km-hit__warn {
   margin: 0;
   color: var(--caution);
+}
+
+/* ---- edit in place ------------------------------------------------------ */
+.mix-mode {
+  flex: none;
+}
+.mix-edit__where,
+.mix-edit__note {
+  margin: 0;
+  font-size: var(--step--1);
+  overflow-wrap: anywhere;
+}
+.mix-edit__note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  color: var(--caution);
+}
+.mix-apply {
+  display: grid;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--hair) solid var(--rule);
+}
+.mix-apply__count {
+  margin: 0;
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.mix-apply__count.error {
+  color: var(--danger);
+  font-weight: 400;
+}
+.mode-link {
+  text-decoration: none;
+}
+.mode-link:hover {
+  background: var(--hover);
+}
+.apply-dialog {
+  width: min(44rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(36rem, calc(100vh - 2 * var(--space-4)));
+  padding: 0;
+  color: var(--fg);
+}
+.apply-dialog::backdrop {
+  background: var(--scrim);
+}
+.apply-dialog__form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: inherit;
+}
+.apply-dialog__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3);
+}
+.apply-dialog__where {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.apply-dialog__list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--hair) solid var(--rule);
+}
+.apply-dialog__list li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--hair) solid var(--rule);
+  font-size: var(--step--1);
+}
+.apply-dialog__list li > .v-mono {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.apply-dialog__list .apply-add {
+  color: var(--ok);
+}
+.apply-dialog__list .apply-remove {
+  color: var(--danger);
+}
+.apply-dialog__foot {
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--hair) solid var(--rule);
 }

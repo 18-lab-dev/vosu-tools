@@ -1,4 +1,5 @@
 mod anim;
+mod apply;
 mod build;
 mod images;
 mod library;
@@ -51,6 +52,10 @@ pub struct App {
     exports: Arc<Mutex<HashMap<String, build::Pending>>>,
     /// Images dropped from the desktop (canonical; `uploads::KEY`).
     pub uploads: Arc<Path>,
+    /// Backups of files an apply replaced or removed (`apply`).
+    pub backups: Arc<Path>,
+    /// `.osk` files handed to osu!lazer by an apply.
+    pub imports: Arc<Path>,
 }
 
 async fn list(State(app): State<App>) -> Result<Json<Library>, Failure> {
@@ -574,6 +579,35 @@ async fn derive(
     Ok(Json(out))
 }
 
+async fn review(
+    State(app): State<App>,
+    Json(request): Json<apply::Request>,
+) -> Result<Json<apply::Review>, Failure> {
+    Ok(Json(apply::review(&app, request).await?))
+}
+async fn apply_changes(
+    State(app): State<App>,
+    Json(request): Json<apply::Request>,
+) -> Result<Json<apply::Applied>, Failure> {
+    Ok(Json(apply::apply(&app, request).await?))
+}
+#[derive(Deserialize)]
+struct SkinKey {
+    skin: String,
+}
+async fn restore(
+    State(app): State<App>,
+    Json(key): Json<SkinKey>,
+) -> Result<Json<apply::Restored>, Failure> {
+    Ok(Json(apply::restore(&app, &key.skin).await?))
+}
+async fn applied(
+    State(app): State<App>,
+    Query(key): Query<SkinKey>,
+) -> Result<Json<Option<apply::LastApply>>, Failure> {
+    Ok(Json(apply::last(&app, &key.skin).await?))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -594,6 +628,10 @@ pub fn router(app: App) -> Router {
         .route("/v1/plays/last", get(last_play))
         .route("/v1/rows", get(image_rows))
         .route("/v1/derive", post(derive))
+        .route("/v1/review", post(review))
+        .route("/v1/apply", post(apply_changes))
+        .route("/v1/restore", post(restore))
+        .route("/v1/applied", get(applied))
         .with_state(app)
 }
 
@@ -617,6 +655,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         known: Arc::new(Mutex::new(None)),
         exports: Arc::new(Mutex::new(HashMap::new())),
         uploads: uploads.into(),
+        backups: env.data_dir.join("backups").into(),
+        imports: env.data_dir.join("lazer-imports").into(),
     };
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())

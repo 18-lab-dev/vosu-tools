@@ -49,7 +49,7 @@ pub enum FileMap {
     Renamed(String, String),
 }
 impl FileMap {
-    fn parts(&self) -> (&str, &str) {
+    pub fn parts(&self) -> (&str, &str) {
         match self {
             FileMap::Same(name) => (name, name),
             FileMap::Renamed(from, to) => (from, to),
@@ -108,7 +108,7 @@ pub fn skin_name(name: &str) -> Result<&str, Failure> {
 }
 
 /// Output paths: safe, unique (case-insensitively, for Windows), never skin.ini.
-fn targets(plan: &Plan) -> Result<usize, Failure> {
+pub fn targets(plan: &Plan) -> Result<usize, Failure> {
     let mut seen = HashSet::new();
     let mut count = 0;
     let outputs = plan
@@ -136,7 +136,7 @@ fn targets(plan: &Plan) -> Result<usize, Failure> {
     Ok(count)
 }
 
-fn blank(kind: BlankKind) -> Vec<u8> {
+pub fn blank(kind: BlankKind) -> Vec<u8> {
     match kind {
         BlankKind::Png => blank_png(),
         // A zero-length sample is silent in osu!.

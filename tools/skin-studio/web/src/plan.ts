@@ -64,6 +64,15 @@ export interface Recipe {
   overrides?: Record<string, Override>;
   /** The Keymodes screen's slots and values per key count; they win over both. */
   keymodes?: Keymodes;
+  /**
+   * Edit in place: the skin.ini text when edited by hand (the draft keeps it
+   * across reloads until applied or discarded).
+   */
+  ini?: string;
+  /** Edit in place: the user chose this skin, so it does not follow osu!'s. */
+  pinned?: boolean;
+  /** Edit in place: the base is the skin itself, its [General] untouched. */
+  inPlace?: boolean;
 }
 export type FileMap = string | [string, string];
 export interface Plan {
@@ -189,6 +198,28 @@ const ignored = (name: string) =>
   /^skin\.ini$/i.test(name) ||
   /\.bak$/i.test(name) ||
   /^skin-studio-credits\.txt$/i.test(name);
+
+/**
+ * Files an in-place apply removes: the edited skin's own files the composed
+ * plan no longer has (a group set to the built-in look or blanked). Files the
+ * plan never copies from a base (backups, credits) are not the draft's to
+ * remove.
+ */
+export function inPlaceRemovals(plan: Plan, base: SkinData): string[] {
+  const kept = new Set<string>();
+  for (const source of plan.sources)
+    for (const file of source.files)
+      kept.add((typeof file === "string" ? file : file[1]).toLowerCase());
+  for (const blank of plan.blanks) kept.add(blank.to.toLowerCase());
+  return base.files.filter((f) => !ignored(f) && !kept.has(f.toLowerCase()));
+}
+
+/** Whether a recipe holds edits (an in-place draft with nothing to apply is empty). */
+export const hasEdits = (recipe: Recipe) =>
+  !!Object.keys(recipe.picks).length ||
+  !!Object.keys(recipe.overrides ?? {}).length ||
+  Object.values(recipe.keymodes ?? {}).some((d) => !!d) ||
+  recipe.ini !== undefined;
 
 export interface Composed {
   plan: Plan;
@@ -371,9 +402,12 @@ export function compose(
     if (lost.size) fallbacks.set(id, [...lost].sort());
   }
 
-  setValue(ini, "General", "Name", recipe.name.trim());
-  if (!getValue(ini, "General", "Version"))
-    setValue(ini, "General", "Version", "latest");
+  // A skin edited in place keeps its own [General]; a new skin is named.
+  if (!recipe.inPlace) {
+    setValue(ini, "General", "Name", recipe.name.trim());
+    if (!getValue(ini, "General", "Version"))
+      setValue(ini, "General", "Version", "latest");
+  }
 
   const sources = new Map<string, FileMap[]>();
   const blanks: Plan["blanks"] = [];

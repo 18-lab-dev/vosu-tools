@@ -23,6 +23,7 @@ import {
   COLUMN_ROLES,
   History,
   applyToAll,
+  assignSlots,
   columnKey,
   copyStage,
   defaultPattern,
@@ -41,11 +42,24 @@ import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import { HitPanel, type HitHost } from "./hit-panel";
 import type { Preview, PreviewSource } from "./preview";
+import {
+  EMPTY,
+  all,
+  extend,
+  range,
+  single,
+  toggle,
+  type Cell,
+  type Selection,
+  type Shape,
+} from "./selection";
 
 /** Key counts render-core draws (dual stages above 10K are not previewed). */
 const DRAWN = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const DUAL = [12, 14, 16, 18];
 const MIX = "mix:";
+/** The `data-row` of stage-wide image slots (after the column roles and 4 value rows). */
+const SHARED_ROW = COLUMN_ROLES.length + 4;
 const DRAG_TYPE = "application/x-skin-studio-image";
 /**
  * An image as the user knows it: its file name (`drop-note.png`), without
@@ -159,6 +173,8 @@ export class KeymodesView {
   #keys = 0;
   /** The slot the picker assigns to (an image key of the shown key count). */
   #armed: string | null = null;
+  /** Selected slots (the armed one included); actions apply to all of them. */
+  #selection: Selection = EMPTY;
   /** Grid cell with keyboard focus: [row, column]. */
   #cell: [number, number] = [0, 0];
   #source = MIX;
@@ -283,10 +299,6 @@ export class KeymodesView {
   /** One undoable change of the shown key count's draft. */
   #change(label: string, mutate: (draft: KeymodeDraft) => void, keys = this.#keys) {
     if (!keys) return;
-    if (!this.#host.canWrite()) {
-      this.#error("Read-only tab: open Skin studio from the dashboard to edit.");
-      return;
-    }
     const before = clone(this.#host.drafts()[String(keys)]);
     const after = clone(before) ?? emptyDraft();
     mutate(after);
@@ -295,6 +307,11 @@ export class KeymodesView {
     this.#host.apply(keys, after);
     this.#error("");
     this.#state(label);
+  }
+  /** Forgets undo history (the draft it described was applied or discarded). */
+  resetHistory() {
+    this.#history = new History();
+    this.#renderToolbar();
   }
   undo() {
     const change = this.#history.undo();
@@ -320,24 +337,73 @@ export class KeymodesView {
   }
 
   #assign(key: string, slot: Slot, label: string) {
-    this.#change(label, (draft) => {
-      draft.images[key] = slot;
-      // A key image chosen by hand is not one HitPosition moved.
-      if (draft.hit) delete draft.hit.originals[key];
-    });
+    this.#change(label, (draft) => assignSlots(draft, [key], slot));
   }
   #clear(key: string) {
     this.#assign(key, null, `Clear ${this.#keyLabel(key)}`);
   }
-  /** The selected slot's label for other screens (`7K column 3 note`), or null. */
-  target(): string | null {
-    return this.#armed && this.#keys
-      ? `${this.#keys}K ${this.#keyLabel(this.#armed)}`
-      : null;
+  /** One image for several slots, as one undo step. */
+  #assignMany(keys: string[], slot: Slot, what: string) {
+    if (keys.length === 1) return this.#assign(keys[0], slot, `Set ${this.#keyLabel(keys[0])} to ${what}`);
+    const label = `Set ${keys.length} slots to ${what}`;
+    this.#change(label, (draft) => assignSlots(draft, keys, slot));
+    const roles = [...new Set(keys.map((k) => this.#roleOf(k)))];
+    if (roles.length > 1) this.#state(`${label}: one image for different roles (${roles.join(", ")})`);
   }
-  /** Sets the selected slot to image `name` of library skin `skin` (from the Explorer). */
+  #clearMany(keys: string[]) {
+    if (keys.length === 1) return this.#clear(keys[0]);
+    this.#change(`Clear ${keys.length} slots`, (draft) => assignSlots(draft, keys, null));
+  }
+  #roleOf(key: string) {
+    return /^(KeyImage|NoteImage)\d/.test(key) ? roleLabel(patternOf(key)).toLowerCase() : key;
+  }
+  /** The slots an action applies to: the selection. */
+  #targets(): string[] {
+    return this.#selection.keys.length ? [...this.#selection.keys] : this.#armed ? [this.#armed] : [];
+  }
+  /** The slots a drop on `key` applies to: the selection when `key` is in it. */
+  #dropTargets(key: string): string[] {
+    return this.#selection.keys.includes(key) ? this.#targets() : [key];
+  }
+  #shape(): Shape {
+    const slot = (r: number, c: number) =>
+      document.querySelector<HTMLElement>(`#keymodes-view .km-slot[data-row="${r}"][data-col="${c}"]`);
+    return {
+      keyAt: (r, c) => slot(r, c)?.dataset.key,
+      region: (row) => (row < COLUMN_ROLES.length ? 0 : row === SHARED_ROW ? 1 : -1),
+      cells: (region) =>
+        region < 0
+          ? []
+          : [...document.querySelectorAll<HTMLElement>(region === 0 ? "#km-grid .km-slot" : "#km-shared-grid .km-slot")].map(
+              (el) => [Number(el.dataset.row), Number(el.dataset.col)] as const,
+            ),
+    };
+  }
+  #cellOf(key: string): Cell | null {
+    const el = document.querySelector<HTMLElement>(`#keymodes-view .km-slot[data-key="${key}"]`);
+    return el ? [Number(el.dataset.row), Number(el.dataset.col)] : null;
+  }
+  #setSelection(selection: Selection) {
+    this.#selection = selection;
+    const focus = selection.focus && this.#shape().keyAt(...selection.focus);
+    this.#armed = focus && selection.keys.includes(focus) ? focus : (selection.keys.at(-1) ?? null);
+    this.#renderSelection();
+  }
+  /**
+   * The selected slots for other screens: the Explorer button's label
+   * (`Use as 7K column 3 note`, `Use for 7 slots`) and what they are.
+   */
+  target(): { label: string; slots: string } | null {
+    const keys = this.#targets();
+    if (!keys.length || !this.#keys) return null;
+    const slots =
+      keys.length === 1 ? `${this.#keys}K ${this.#keyLabel(keys[0])}` : `${keys.length} ${this.#keys}K slots`;
+    return { label: keys.length === 1 ? `Use as ${slots}` : `Use for ${keys.length} slots`, slots };
+  }
+  /** Sets the selected slots to image `name` of library skin `skin` (from the Explorer). */
   async assign(skin: string, name: string) {
-    if (this.#armed) await this.#assignImage(this.#armed, skin, name);
+    const keys = this.#targets();
+    if (keys.length) await this.#assignImage(keys, skin, name);
   }
   /** Starts a drag of image `name` of `skin` that slots and stage columns accept. */
   drag(data: DataTransfer, skin: string, name: string) {
@@ -346,16 +412,16 @@ export class KeymodesView {
     data.setData("text/plain", name);
     data.effectAllowed = "copy";
   }
-  async #assignImage(key: string, skin: string, name: string) {
+  async #assignImage(keys: string[], skin: string, name: string) {
     try {
       const { files } = await this.#host.load(skin);
       const unit = imageUnit(files, name);
       if (!unit.length) throw new Error(`${name} is not an image of ${this.#host.skinName(skin)}`);
       const exact = unit[0].from.replace(/\\/g, "/").slice(0, name.length);
-      this.#assign(
-        key,
+      this.#assignMany(
+        keys,
         { skin, name: exact, files: unit },
-        `Set ${this.#keyLabel(key)} to ${shownName(exact, unit)} from ${this.#host.skinName(skin)}`,
+        `${shownName(exact, unit)} from ${this.#host.skinName(skin)}`,
       );
     } catch (error) {
       this.#error(error instanceof Error ? error.message : String(error));
@@ -413,6 +479,7 @@ export class KeymodesView {
     if (keys === this.#keys) return;
     this.#keys = keys;
     this.#armed = null;
+    this.#selection = EMPTY;
     this.#cell = [0, 0];
     this.refresh();
     $(".km-sheet").scrollTop = 0;
@@ -574,7 +641,7 @@ export class KeymodesView {
 
   #slot(r: ManiaImageResolution, label: string, row: number, col: number) {
     const info = this.#slotInfo(r);
-    const armed = this.#armed === r.key;
+    const armed = this.#selection.keys.includes(r.key);
     const cell = h(
       "div",
       {
@@ -620,27 +687,47 @@ export class KeymodesView {
     cell.dataset.key = r.key;
     cell.dataset.row = String(row);
     cell.dataset.col = String(col);
-    cell.onclick = () => {
+    cell.onclick = (event: MouseEvent) => {
+      const at: Cell = [row, col];
       this.#cell = [row, col];
-      this.#arm(r.key);
+      const shape = this.#shape();
+      this.#setSelection(
+        event.shiftKey
+          ? range(this.#selection, shape, at)
+          : event.ctrlKey || event.metaKey
+            ? toggle(this.#selection, shape, at)
+            : single(shape, at),
+      );
+      for (const el of document.querySelectorAll<HTMLElement>("#keymodes-view [data-row]"))
+        el.tabIndex = el === cell ? 0 : -1;
       cell.focus({ preventScroll: true });
     };
     this.#acceptDrop(cell, r.key);
     return cell;
   }
 
+  /** Selects one slot (null: none). */
   #arm(key: string | null) {
-    this.#armed = key;
+    const cell = key ? this.#cellOf(key) : null;
+    this.#setSelection(key ? { keys: [key], anchor: cell, focus: cell } : EMPTY);
+  }
+  #renderSelection() {
+    const selected = new Set(this.#selection.keys);
+    const key = this.#armed;
     for (const cell of document.querySelectorAll<HTMLElement>(".km-slot"))
-      cell.setAttribute("aria-selected", String(cell.dataset.key === key));
+      cell.setAttribute("aria-selected", String(selected.has(cell.dataset.key ?? "")));
+    const columns = new Set(
+      [...selected].filter((k) => /^(Key|Note)Image\d/.test(k)).map((k) => /\d+/.exec(k)![0]),
+    );
     for (const column of document.querySelectorAll<HTMLElement>(".km-column"))
-      column.classList.toggle(
-        "km-column--on",
-        !!key && /^(Key|Note)Image/.test(key) && /\d+/.exec(key)?.[0] === column.dataset.col,
-      );
-    $("#km-for").textContent = key
-      ? `For ${this.#keyLabel(key)}`
-      : "Select a slot, then an image";
+      column.classList.toggle("km-column--on", columns.has(column.dataset.col ?? ""));
+    const roles = [...new Set([...selected].map((k) => this.#roleOf(k)))];
+    $("#km-for").textContent =
+      selected.size > 1
+        ? `For ${selected.size} slots${roles.length > 1 ? ` (${roles.join(", ")})` : ""}`
+        : key
+          ? `For ${this.#keyLabel(key)}`
+          : "Select a slot, then an image";
     this.#renderToolbar();
     this.#renderImages();
   }
@@ -798,7 +885,7 @@ export class KeymodesView {
       grid.replaceChildren();
       return;
     }
-    const base = COLUMN_ROLES.length + 4;
+    const base = SHARED_ROW;
     const lookups = this.#resolved.filter((r) => r.column === undefined);
     const cells = lookups.map((r, i) =>
       h("div", { class: "km-shared-item" }, h("span", { class: "km-shared-label" }, r.key), this.#slot(r, r.key, base, i)),
@@ -830,7 +917,7 @@ export class KeymodesView {
       col = Number(target.dataset.col);
     if (Number.isNaN(row)) return;
     const typing = target.tagName === "INPUT" && (target as HTMLInputElement).type === "number";
-    const shared = row >= COLUMN_ROLES.length + 4;
+    const shared = row >= SHARED_ROW;
     const moves: Record<string, [number, number]> = {
       ArrowUp: [-1, 0],
       ArrowDown: [1, 0],
@@ -838,6 +925,23 @@ export class KeymodesView {
       ArrowRight: [0, 1],
     };
     const move = moves[event.key];
+    // Shift+arrows grow the selection from its anchor.
+    if (move && event.shiftKey && target.dataset.key) {
+      event.preventDefault();
+      const next = extend(
+        this.#selection.keys.includes(target.dataset.key) ? this.#selection : single(this.#shape(), [row, col]),
+        this.#shape(),
+        move,
+      );
+      this.#setSelection(next);
+      if (next.focus) {
+        this.#cell = [next.focus[0], next.focus[1]];
+        for (const el of document.querySelectorAll<HTMLElement>("#keymodes-view [data-row]"))
+          el.tabIndex = el.dataset.row === String(next.focus[0]) && el.dataset.col === String(next.focus[1]) ? 0 : -1;
+        this.#focusCell();
+      }
+      return;
+    }
     if (move && !(typing && (event.key === "ArrowUp" || event.key === "ArrowDown"))) {
       event.preventDefault();
       let [r, c] = shared ? [row, col + move[0] + move[1]] : [row + move[0], col + move[1]];
@@ -854,13 +958,21 @@ export class KeymodesView {
     }
     const key = target.dataset.key;
     if (!key) return;
-    if (event.key === "Enter" || event.key === " ") {
+    const mod = event.ctrlKey || event.metaKey;
+    if (mod && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      this.#arm(key);
+      this.#setSelection(all(this.#shape(), [row, col]));
+    } else if (mod && event.key === " ") {
+      event.preventDefault();
+      this.#setSelection(toggle(this.#selection, this.#shape(), [row, col]));
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      // A multi-selection the slot is part of stays; otherwise this slot alone.
+      if (!this.#selection.keys.includes(key) || this.#selection.keys.length < 2) this.#arm(key);
       this.#focusTile(0) || $<HTMLInputElement>("#km-filter").focus();
     } else if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
-      this.#clear(key);
+      this.#clearMany(this.#dropTargets(key));
     } else if (event.key === "Escape") {
       this.#arm(null);
     }
@@ -981,14 +1093,14 @@ export class KeymodesView {
         this.#dragged = null;
         if (dragged) {
           const slot = this.#slotFor(dragged.unit, dragged.source);
-          this.#assign(k, slot, `Set ${this.#keyLabel(k)} to ${shownName(dragged.unit.name, dragged.unit.files)}`);
+          this.#assignMany(this.#dropTargets(k), slot, shownName(dragged.unit.name, dragged.unit.files));
           return;
         }
         // From the Explorer: `{skin, name}` of an image.
         try {
           const { skin, name } = JSON.parse(data.getData(DRAG_TYPE));
           if (typeof skin === "string" && typeof name === "string")
-            void this.#assignImage(k, skin, name);
+            void this.#assignImage(this.#dropTargets(k), skin, name);
         } catch {
           this.#error("That drag carried no image.");
         }
@@ -1021,7 +1133,7 @@ export class KeymodesView {
   /** Validates dropped files; reports problems inline; undefined if nothing usable. */
   async #check(files: File[]): Promise<DroppedImage[] | undefined> {
     if (!this.#host.canWrite()) {
-      this.#error("Read-only tab: open Skin studio from the dashboard to add files.");
+      this.#error("Adding files needs a write session: open Skin studio from the dashboard (Tools → Skin studio → Open). Your draft is kept.");
       return undefined;
     }
     const dropped = await Promise.all(
@@ -1048,7 +1160,7 @@ export class KeymodesView {
     // The files that failed stay reported after the valid one is assigned.
     const rejected = $("#km-error").textContent ?? "";
     const [slot] = await this.#uploadImages(images, files);
-    if (slot) this.#assign(key, slot, `Set ${this.#keyLabel(key)} to ${shownName(slot.name, slot.files)}`);
+    if (slot) this.#assignMany(this.#dropTargets(key), slot, shownName(slot.name, slot.files));
     if (rejected) this.#error(rejected);
   }
 
@@ -1342,7 +1454,7 @@ export class KeymodesView {
       this.#error("Select a slot first (click it, or Enter on it), then an image.");
       return;
     }
-    this.#assign(key, this.#slotFor(unit, this.#source), `Set ${this.#keyLabel(key)} to ${shownName(unit.name, unit.files)}`);
+    this.#assignMany(this.#targets(), this.#slotFor(unit, this.#source), shownName(unit.name, unit.files));
     requestAnimationFrame(() => this.#focusCell());
   }
 
