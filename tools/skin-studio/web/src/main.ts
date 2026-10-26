@@ -47,7 +47,14 @@ import {
 import type { Preview, Resolver } from "./preview";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
-import { KeymodesView, UPLOADS } from "./keymodes-view";
+import { KeymodesView } from "./keymodes-view";
+import {
+  UPLOADS,
+  formatBytes,
+  removeQuestion,
+  uploadUsage,
+  type UploadFile,
+} from "./uploads";
 import { touchedKeys, type KeymodeDraft } from "./keymodes";
 import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 
@@ -1399,7 +1406,61 @@ function renderMix() {
       : "No Skins folder");
   osk.title = reason || `${recipe.name.trim()}.osk`;
   explorer?.refreshMix();
+  renderUploads();
 }
+
+// ---- dropped files: listed with their use; removed only by the user --------
+let uploadFiles: UploadFile[] = [];
+async function refreshUploads() {
+  try {
+    uploadFiles = (await load(UPLOADS, true)).snapshot.files;
+  } catch (error) {
+    $("#mix-uploads-note").textContent = message(error);
+  }
+  renderUploads();
+}
+function renderUploads() {
+  const { used, unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
+  const all = [...used, ...unused];
+  $("#mix-uploads").hidden = !all.length;
+  $("#mix-uploads-summary").textContent = `Dropped files: ${all.length} (${formatBytes(all.reduce((s, f) => s + f.size, 0))})`;
+  $("#mix-uploads-list").replaceChildren(
+    ...all.map((f) =>
+      h(
+        "li",
+        { title: f.name },
+        h("span", { class: "v-mono" }, f.name.split("/").pop() ?? f.name),
+        h("span", { class: "v-muted" }, formatBytes(f.size)),
+        used.includes(f)
+          ? h("span", { class: "v-badge v-badge--ok" }, "used by this draft")
+          : h("span", { class: "v-badge" }, "unused"),
+      ),
+    ),
+  );
+  const remove = $<HTMLButtonElement>("#mix-uploads-remove");
+  remove.disabled = !unused.length || !vosu.canWrite;
+  remove.title = !vosu.canWrite
+    ? "Read-only tab"
+    : unused.length
+      ? "Files this draft uses are kept"
+      : "This draft uses every dropped file";
+}
+$("#mix-uploads-remove").onclick = async () => {
+  // Recompute at click time: the draft may have changed since the list.
+  const { unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
+  const note = $("#mix-uploads-note");
+  if (!unused.length || !confirm(removeQuestion(unused))) return;
+  try {
+    const removed = await post<{ files: number; bytes: number }>(
+      "v1/uploads/remove",
+      { names: unused.map((f) => f.name) },
+    );
+    note.textContent = `Removed ${removed.files} ${removed.files === 1 ? "file" : "files"} (${formatBytes(removed.bytes)})`;
+  } catch (error) {
+    note.textContent = message(error);
+  }
+  await refreshUploads();
+};
 $("#mix-base-clear").onclick = () => {
   recipe.base = null;
   persist();
@@ -1937,6 +1998,7 @@ const keymodes = new KeymodesView({
         body: file,
       },
     );
+    void refreshUploads();
     return stored.name;
   },
   canWrite: () => vosu.canWrite,
@@ -2080,6 +2142,7 @@ if (initial) {
   else renderFocus();
 } else renderFocus();
 renderMix();
+void refreshUploads();
 scheduleCompose();
 subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.

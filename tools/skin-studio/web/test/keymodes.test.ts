@@ -16,7 +16,15 @@ import {
   type Slot,
 } from "../src/keymodes";
 import { compose, type SkinData } from "../src/plan";
-import { MAX_UPLOAD_BYTES, checkDrop, droppedName } from "../src/uploads";
+import {
+  MAX_UPLOAD_BYTES,
+  UPLOADS,
+  checkDrop,
+  droppedName,
+  formatBytes,
+  removeQuestion,
+  uploadUsage,
+} from "../src/uploads";
 
 const keysSkin: SkinData = {
   key: "/skins/Keys",
@@ -198,4 +206,31 @@ test("names that differ only in case are one file: the second is refused", () =>
   ]);
   expect(images.map((i) => i.name)).toEqual(["Key"]);
   expect(errors).toEqual(["key.PNG: same name as Key.png apart from case"]);
+});
+
+test("dropped files: a referenced upload is kept, only unused ones are offered", () => {
+  const files = [
+    { name: "00000000000000aa/key.png", size: 2048 },
+    { name: "00000000000000aa/key@2x.png", size: 4096 },
+    { name: "00000000000000aa/old.png", size: 1024 },
+    { name: "00000000000000bb/.used", size: 0 },
+  ];
+  const keymodes = {
+    "7": {
+      images: {
+        KeyImage0: { skin: UPLOADS, name: "key", files: [{ from: "00000000000000aa/key.png", suffix: ".png" }, { from: "00000000000000AA/key@2x.png", suffix: "@2x.png" }] },
+        KeyImage1: { skin: "/skins/Other", name: "old", files: [{ from: "00000000000000aa/old.png", suffix: ".png" }] },
+        NoteImage0: null,
+      },
+      values: {},
+    },
+  };
+  const { used, unused } = uploadUsage(files, keymodes);
+  expect(used.map((f) => f.name)).toEqual(["00000000000000aa/key.png", "00000000000000aa/key@2x.png"]);
+  // The same path in another skin is no reference; markers are no files.
+  expect(unused.map((f) => f.name)).toEqual(["00000000000000aa/old.png"]);
+  const question = removeQuestion(unused);
+  expect(question).toContain("Delete 1 dropped file (1 KB)");
+  expect(question).toContain("Other open Skin studio tabs or saved drafts in other browsers may still use these");
+  expect(formatBytes(3 * 1048576)).toBe("3.0 MB");
 });

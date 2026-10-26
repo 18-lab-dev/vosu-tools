@@ -1366,3 +1366,36 @@
     border-left: 0;
   }
 }
+
+/* ---- dropped files ------------------------------------------------------- */
+.mix-uploads {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--hair) solid var(--rule);
+}
+.mix-uploads > summary {
+  cursor: pointer;
+}
+.mix-uploads__list {
+  max-height: 10rem;
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+.mix-uploads__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 2px 0;
+  font-size: var(--step--1);
+}
+.mix-uploads__list .v-mono {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mix-uploads__foot {
+  gap: var(--space-2);
+  font-size: var(--step--1);
+}

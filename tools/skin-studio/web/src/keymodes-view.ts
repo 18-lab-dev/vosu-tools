@@ -38,14 +38,12 @@ import {
   type SlotImage,
 } from "./keymodes";
 import { frameNames, imageIndex, lookupFiles } from "./mania";
-import { checkDrop, type DroppedImage } from "./uploads";
+import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import type { Preview, PreviewSource } from "./preview";
 
 /** Key counts render-core draws (dual stages above 10K are not previewed). */
 const DRAWN = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 const DUAL = [12, 14, 16, 18];
-/** Library key of dropped files (the service's `uploads::KEY`). */
-export const UPLOADS = "uploads:";
 const MIX = "mix:";
 const DRAG_TYPE = "application/x-skin-studio-image";
 /**
