@@ -446,6 +446,30 @@ async fn upload(
     }))
 }
 
+#[derive(Deserialize)]
+struct RemoveUploads {
+    /// Dropped files as `<group>/<name>`: exactly these are deleted.
+    names: Vec<String>,
+}
+#[derive(Serialize)]
+struct Removed {
+    files: usize,
+    bytes: u64,
+}
+/// Deletes the dropped files the page names (write route). The page decides
+/// which are unused and asks the user first; the service never guesses.
+async fn remove_uploads(
+    State(app): State<App>,
+    Json(request): Json<RemoveUploads>,
+) -> Result<Json<Removed>, Failure> {
+    let _guard = app.writes.lock().await;
+    let dir = app.uploads.clone();
+    let (files, bytes) = tokio::task::spawn_blocking(move || uploads::remove(&dir, &request.names))
+        .await
+        .map_err(failure)??;
+    Ok(Json(Removed { files, bytes }))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -462,6 +486,7 @@ pub fn router(app: App) -> Router {
             "/v1/uploads",
             post(upload).layer(DefaultBodyLimit::max(uploads::MAX_BYTES as usize + 1)),
         )
+        .route("/v1/uploads/remove", post(remove_uploads))
         .with_state(app)
 }
 
@@ -474,9 +499,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(e.into()),
     };
-    let uploads = env.data_dir.join("uploads");
-    fs::create_dir_all(&uploads)?;
-    uploads::prune(&uploads, uploads::KEEP);
+    let uploads = uploads::open(&env.data_dir)?;
     let app = App {
         client: env.client(),
         http: reqwest::Client::new(),
@@ -486,7 +509,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         added_file: added_file.into(),
         known: Arc::new(Mutex::new(None)),
         exports: Arc::new(Mutex::new(HashMap::new())),
-        uploads: uploads.canonicalize()?.into(),
+        uploads: uploads.into(),
     };
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())

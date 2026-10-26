@@ -479,6 +479,16 @@
           </div>
         </div>
         <ol id="mix-picks" class="v-scroll mix-picks"></ol>
+        <details id="mix-uploads" class="mix-uploads" hidden>
+          <summary id="mix-uploads-summary" class="v-label">Dropped files</summary>
+          <ul id="mix-uploads-list" class="v-scroll mix-uploads__list"></ul>
+          <div class="v-row mix-uploads__foot">
+            <button id="mix-uploads-remove" type="button" class="v-btn v-btn--sm v-btn--danger">
+              Remove unused
+            </button>
+            <span id="mix-uploads-note" class="v-muted" aria-live="polite"></span>
+          </div>
+        </details>
         <div class="mix-foot">
           <p id="mix-summary" class="v-muted v-mono mix-summary"></p>
           <button

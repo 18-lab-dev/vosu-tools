@@ -110,12 +110,9 @@ fn jpeg_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// name. The same bytes under the same name are kept; different bytes never
 /// replace a stored file, and a name differing only in case from a stored
 /// one is refused (they would be one file on Windows and in osu!'s lookups).
-/// Every store marks the group as used now (see [`prune`]).
 pub fn store(dir: &Path, group: &str, name: &str, bytes: &[u8]) -> Result<String, Failure> {
     let folder = dir.join(group);
     fs::create_dir_all(&folder).map_err(failure)?;
-    // `.used` (no dropped name starts with a dot) records the last drop.
-    fs::write(folder.join(USED), []).map_err(failure)?;
     for entry in fs::read_dir(&folder).map_err(failure)? {
         let other = entry.map_err(failure)?.file_name();
         let other = other.to_string_lossy();
@@ -145,35 +142,56 @@ pub fn store(dir: &Path, group: &str, name: &str, bytes: &[u8]) -> Result<String
     Ok(format!("{group}/{name}"))
 }
 
-/// Marks when a drop group was last used.
-const USED: &str = ".used";
-/// How long dropped files are kept after their last drop. Mix drafts live in
-/// the page's storage, which the service cannot see; a draft naming a pruned
-/// file gets an error when it builds and the file can be dropped again.
-pub const KEEP: std::time::Duration = std::time::Duration::from_secs(90 * 24 * 60 * 60);
+/// The uploads folder under the tool's data dir, created when missing.
+/// Opening it never deletes anything: mix drafts live in browser storage the
+/// service cannot see, so only the user removes dropped files ([`remove`]).
+pub fn open(data_dir: &Path) -> std::io::Result<std::path::PathBuf> {
+    let dir = data_dir.join("uploads");
+    fs::create_dir_all(&dir)?;
+    dir.canonicalize()
+}
 
-/// Removes drop groups not used for `keep` (abandoned uploads); returns how
-/// many. Entries that are not groups are left alone.
-pub fn prune(dir: &Path, keep: std::time::Duration) -> usize {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return 0;
-    };
-    let mut removed = 0;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let stale = fs::metadata(entry.path().join(USED))
-            .or_else(|_| entry.metadata())
-            .and_then(|m| m.modified())
-            .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > keep));
-        if group(&name.to_string_lossy()).is_ok()
-            && entry.file_type().is_ok_and(|t| t.is_dir())
-            && stale
-            && fs::remove_dir_all(entry.path()).is_ok()
-        {
-            removed += 1;
+/// A marker earlier versions wrote into drop folders; it is no dropped file.
+const LEGACY_MARKER: &str = ".used";
+
+/// Deletes exactly the dropped files named (`<group>/<name>`, as [`store`]
+/// returned them) and drop folders left empty; returns how many files and
+/// bytes went. Every name is checked first: one invalid name deletes nothing.
+/// Names already gone are skipped.
+pub fn remove(dir: &Path, names: &[String]) -> Result<(usize, u64), Failure> {
+    let mut targets = Vec::with_capacity(names.len());
+    for full in names {
+        let (g, n) = full
+            .split_once('/')
+            .ok_or_else(|| failure(format!("{full}: not a dropped file")))?;
+        targets.push((group(g)?, name(n)?));
+    }
+    let (mut files, mut bytes) = (0, 0);
+    for (g, n) in targets {
+        let path = dir.join(g).join(n);
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if !meta.is_file() {
+            return Err(failure(format!("{g}/{n} is not a dropped file")));
+        }
+        fs::remove_file(&path).map_err(failure)?;
+        files += 1;
+        bytes += meta.len();
+        let folder = dir.join(g);
+        let rest: Vec<_> = fs::read_dir(&folder)
+            .map_err(failure)?
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        if rest.iter().all(|f| f == LEGACY_MARKER) {
+            for f in rest {
+                fs::remove_file(folder.join(f)).map_err(failure)?;
+            }
+            fs::remove_dir(&folder).map_err(failure)?;
         }
     }
-    removed
+    Ok((files, bytes))
 }
 
 #[cfg(test)]
@@ -276,22 +294,53 @@ mod tests {
     }
 
     #[test]
-    fn abandoned_groups_are_pruned() {
-        let dir = tempfile::tempdir().unwrap();
-        store(dir.path(), "00000000000000aa", "old.png", &png(1, 1)).unwrap();
-        store(dir.path(), "00000000000000bb", "new.png", &png(1, 1)).unwrap();
-        fs::create_dir(dir.path().join("not-a-group")).unwrap();
-        let old = dir.path().join("00000000000000aa").join(USED);
-        let past = std::time::SystemTime::now() - KEEP - std::time::Duration::from_secs(60);
+    fn opening_never_deletes() {
+        let data = tempfile::tempdir().unwrap();
+        let dir = open(data.path()).unwrap();
+        store(&dir, "00000000000000aa", "old.png", &png(1, 1)).unwrap();
+        // However old: nothing is removed by time.
+        let past = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
         fs::File::options()
             .write(true)
-            .open(&old)
+            .open(dir.join("00000000000000aa/old.png"))
             .unwrap()
             .set_modified(past)
             .unwrap();
-        assert_eq!(prune(dir.path(), KEEP), 1);
-        assert!(!dir.path().join("00000000000000aa").exists());
-        assert!(dir.path().join("00000000000000bb/new.png").exists());
-        assert!(dir.path().join("not-a-group").exists());
+        let again = open(data.path()).unwrap();
+        assert!(again.join("00000000000000aa/old.png").exists());
+    }
+
+    #[test]
+    fn remove_deletes_only_the_named_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = store(dir.path(), "00000000000000aa", "used.png", &png(1, 1)).unwrap();
+        let gone = store(dir.path(), "00000000000000aa", "unused.png", &png(2, 2)).unwrap();
+        let lone = store(dir.path(), "00000000000000bb", "lone.png", &png(1, 1)).unwrap();
+        fs::write(dir.path().join("00000000000000bb").join(LEGACY_MARKER), []).unwrap();
+        let size = fs::metadata(dir.path().join(&gone)).unwrap().len()
+            + fs::metadata(dir.path().join(&lone)).unwrap().len();
+        assert_eq!(
+            remove(dir.path(), &[gone.clone(), lone.clone()]).unwrap(),
+            (2, size)
+        );
+        // The file a draft references (not named) survives; emptied folders go.
+        assert!(dir.path().join(&kept).exists());
+        assert!(!dir.path().join(&gone).exists());
+        assert!(!dir.path().join("00000000000000bb").exists());
+        // Already gone: skipped.
+        assert_eq!(remove(dir.path(), &[gone]).unwrap(), (0, 0));
+        // One bad name refuses the whole request.
+        for bad in [
+            "../skin.ini",
+            "00000000000000aa/../../x.png",
+            "00000000000000aa",
+            "x/used.png",
+        ] {
+            assert!(
+                remove(dir.path(), &[kept.clone(), bad.into()]).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(dir.path().join(&kept).exists());
     }
 }

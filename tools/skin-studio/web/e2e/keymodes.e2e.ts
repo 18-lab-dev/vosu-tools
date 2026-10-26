@@ -124,7 +124,13 @@ try {
   const page = await context.newPage();
   const pageErrors: string[] = [];
   page.on("pageerror", (e: Error) => pageErrors.push(e.message));
-  page.on("dialog", (d: any) => d.accept());
+  // Dialogs are accepted unless a step says otherwise; the last text is kept.
+  let answer = true,
+    lastDialog = "";
+  page.on("dialog", (d: { message(): string; accept(): Promise<void>; dismiss(): Promise<void> }) => {
+    lastDialog = d.message();
+    return answer ? d.accept() : d.dismiss();
+  });
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
   const shot = (name: string, opts: object = {}) => page.screenshot({ path: join(out, `${name}.png`), ...opts });
@@ -318,6 +324,29 @@ try {
   check("Dropped files source assigns a stage image", true);
   const hashFree = (await page.locator("#km-state").textContent()) ?? "";
   check("Status after picking a dropped file has no upload hash", hashFree === "Set StageHint to drop-note.png" && !/[0-9a-f]{16}/.test(hashFree), hashFree);
+  // ── Dropped files: kept until the user removes unused ones ───────────────
+  await page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(8, 8);
+    canvas.getContext("2d")!.fillRect(0, 0, 8, 8);
+    const data = new DataTransfer();
+    data.items.add(new File([await canvas.convertToBlob({ type: "image/png" })], "spare.png", { type: "image/png" }));
+    const picker = document.querySelector(".km-picker")!;
+    for (const type of ["dragenter", "dragover", "drop"])
+      picker.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+  });
+  await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+  await page.click("#mix-uploads-summary");
+  const listed = await page.locator("#mix-uploads-list li").allTextContents();
+  check("Mix panel lists dropped files with their use", listed.some((t) => t.includes("drop-note.png") && t.includes("used by this draft")) && listed.some((t) => t.includes("spare.png") && t.includes("unused")), listed.join(" | "));
+  answer = false;
+  await page.click("#mix-uploads-remove");
+  await page.waitForTimeout(800);
+  check("Declining the confirmation removes nothing", (await page.locator("#mix-uploads-list li").count()) === 2 && lastDialog.includes("Delete 1 dropped file") && lastDialog.includes("other browsers may still use these"), lastDialog.replace(/\n/g, " "));
+  answer = true;
+  await page.click("#mix-uploads-remove");
+  await until(async () => (await page.locator("#mix-uploads-list li").count()) === 1, "unused upload removed");
+  const left = await page.locator("#mix-uploads-list li").allTextContents();
+  check("Remove unused deletes only the unused file; the draft's stays", left.length === 1 && left[0].includes("drop-note.png") && (await page.locator("#mix-uploads-remove").isDisabled()), left.join(" | "));
   // ── Colour swatches show the colour, the value on focus ─────────────────
   await page.locator("#km-grid .km-swatch input").first().fill("#ff0000");
   await until(() => page.locator("#km-grid .km-swatch").first().evaluate((s) => (s as HTMLElement).style.getPropertyValue("--c").startsWith("rgb(255 0 0")), "Colour1 swatch red");

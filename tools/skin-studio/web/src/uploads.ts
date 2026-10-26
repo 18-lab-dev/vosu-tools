@@ -2,6 +2,8 @@
 // service (which checks them again) and grouped into images the way skins
 // name them: `name@2x` is the same image, `name-0`, `name-1`, … its frames.
 
+import type { Keymodes } from "./keymodes";
+
 /**
  * The largest file accepted: vosu forwards at most 1 MiB of request body to
  * a tool (`MAX_POST_BODY` in vosu's src/server/routes.rs); the service's
@@ -110,4 +112,46 @@ export function checkDrop(files: readonly Dropped[]): {
       }
   }
   return { images: [...images.values()], errors };
+}
+
+/** The library key of dropped files (the service's `uploads::KEY`). */
+export const UPLOADS = "uploads:";
+
+export interface UploadFile {
+  /** `<drop>/<name>` under {@link UPLOADS}. */
+  name: string;
+  size: number;
+}
+/**
+ * Dropped files split by whether the draft uses them: a Keymodes slot
+ * copies the file (frames and `@2x` included). Only images are listed.
+ */
+export function uploadUsage(
+  files: readonly UploadFile[],
+  keymodes: Keymodes,
+): { used: UploadFile[]; unused: UploadFile[] } {
+  const referenced = new Set<string>();
+  for (const draft of Object.values(keymodes))
+    for (const slot of Object.values(draft.images))
+      if (slot && "files" in slot && slot.skin === UPLOADS)
+        for (const file of slot.files) referenced.add(file.from.toLowerCase());
+  const images = files.filter((f) => /\.(png|jpe?g)$/i.test(f.name));
+  return {
+    used: images.filter((f) => referenced.has(f.name.toLowerCase())),
+    unused: images.filter((f) => !referenced.has(f.name.toLowerCase())),
+  };
+}
+
+/** `1.2 MB`, `34 KB`, `512 B`. */
+export const formatBytes = (bytes: number) =>
+  bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(1)} MB`
+    : bytes >= 1024
+      ? `${Math.round(bytes / 1024)} KB`
+      : `${bytes} B`;
+
+/** The question asked before unused dropped files are deleted. */
+export function removeQuestion(unused: readonly UploadFile[]): string {
+  const size = formatBytes(unused.reduce((sum, f) => sum + f.size, 0));
+  return `Delete ${unused.length} dropped ${unused.length === 1 ? "file" : "files"} (${size}) that this draft does not use?\n\nOther open Skin studio tabs or saved drafts in other browsers may still use these. Deleted files cannot be restored.`;
 }
