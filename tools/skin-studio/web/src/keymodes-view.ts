@@ -48,6 +48,12 @@ const DUAL = [12, 14, 16, 18];
 export const UPLOADS = "uploads:";
 const MIX = "mix:";
 const DRAG_TYPE = "application/x-skin-studio-image";
+/**
+ * An image as the user knows it: its file name (`drop-note.png`), without
+ * the folder (dropped files sit in a folder per drop) or a frame number.
+ */
+export const shownName = (name: string, files: readonly { from: string }[]) =>
+  `${name.split("/").pop()}${/\.[^./]+$/.exec(files[0]?.from ?? "")?.[0] ?? ""}`;
 
 export interface PickerSource {
   key: string;
@@ -298,6 +304,39 @@ export class KeymodesView {
   #clear(key: string) {
     this.#assign(key, null, `Clear ${this.#keyLabel(key)}`);
   }
+  /** The selected slot's label for other screens (`7K column 3 note`), or null. */
+  target(): string | null {
+    return this.#armed && this.#keys
+      ? `${this.#keys}K ${this.#keyLabel(this.#armed)}`
+      : null;
+  }
+  /** Sets the selected slot to image `name` of library skin `skin` (from the Explorer). */
+  async assign(skin: string, name: string) {
+    if (this.#armed) await this.#assignImage(this.#armed, skin, name);
+  }
+  /** Starts a drag of image `name` of `skin` that slots and stage columns accept. */
+  drag(data: DataTransfer, skin: string, name: string) {
+    this.#dragged = null;
+    data.setData(DRAG_TYPE, JSON.stringify({ skin, name }));
+    data.setData("text/plain", name);
+    data.effectAllowed = "copy";
+  }
+  async #assignImage(key: string, skin: string, name: string) {
+    try {
+      const { files } = await this.#host.load(skin);
+      const unit = imageUnit(files, name);
+      if (!unit.length) throw new Error(`${name} is not an image of ${this.#host.skinName(skin)}`);
+      const exact = unit[0].from.replace(/\\/g, "/").slice(0, name.length);
+      this.#assign(
+        key,
+        { skin, name: exact, files: unit },
+        `Set ${this.#keyLabel(key)} to ${shownName(exact, unit)} from ${this.#host.skinName(skin)}`,
+      );
+    } catch (error) {
+      this.#error(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   #keyLabel(key: string) {
     const column = /\d+/.exec(key);
     return column && /^(KeyImage|NoteImage)/.test(key)
@@ -350,6 +389,7 @@ export class KeymodesView {
     this.#armed = null;
     this.#cell = [0, 0];
     this.refresh();
+    $(".km-sheet").scrollTop = 0;
   }
 
   /** An empty draft makes the block (`[Mania]`, `Keys: N`) on its own. */
@@ -557,7 +597,7 @@ export class KeymodesView {
     cell.onclick = () => {
       this.#cell = [row, col];
       this.#arm(r.key);
-      cell.focus();
+      cell.focus({ preventScroll: true });
     };
     this.#acceptDrop(cell, r.key);
     return cell;
@@ -668,19 +708,28 @@ export class KeymodesView {
     const colour = (key: string, label: string, row: number, col: number, alpha: boolean) => {
       const current = maniaValue(text, keys, key);
       const fallback = specOf("Mania", key)?.default ?? "0,0,0";
+      const shown = current ?? fallback;
       const input = h("input", {
         type: "color",
         value: toHex(current, fallback),
         class: "km-colour",
-        ariaLabel: `${label}${current ? `: ${current}` : ` (default ${fallback})`}`,
-        title: `${key}: ${current ?? `default ${fallback}`}`,
+        ariaLabel: `${label}: ${current ?? `default ${fallback}`}`,
         tabIndex: this.#cell[0] === row && this.#cell[1] === col ? 0 : -1,
       });
       input.onchange = () =>
         this.#change(`Set ${label.toLowerCase()}`, (draft) => {
           draft.values[key] = fromHex(input.value, current, alpha);
         });
-      return this.#valueCell(input, row, col);
+      // The colour itself over a checkerboard (alpha shows), the value on hover or focus.
+      const swatch = h(
+        "label",
+        { class: "km-swatch", title: `${key}: ${current ?? `default ${fallback}`}` },
+        input,
+        h("span", { class: "km-swatch__value" }, shown),
+      );
+      const [r, g, b, a = 255] = shown.split(",").map((v) => Number(v.trim()) || 0);
+      swatch.style.setProperty("--c", `rgb(${r} ${g} ${b} / ${(a / 255).toFixed(3)})`);
+      return this.#valueCell(input, row, col, swatch);
     };
     const row = (label: string, index: number, cell: (c: number) => HTMLElement) =>
       h(
@@ -708,8 +757,8 @@ export class KeymodesView {
       ),
     ];
   }
-  #valueCell(input: HTMLElement, row: number, col: number) {
-    const cell = h("div", { class: "km-value", role: "gridcell" }, input);
+  #valueCell(input: HTMLElement, row: number, col: number, content: HTMLElement = input) {
+    const cell = h("div", { class: "km-value", role: "gridcell" }, content);
     input.dataset.row = String(row);
     input.dataset.col = String(col);
     input.addEventListener("focus", () => (this.#cell = [row, col]));
@@ -901,10 +950,22 @@ export class KeymodesView {
       const data = event.dataTransfer;
       if (!data) return;
       const k = keyOf();
-      if (data.types.includes(DRAG_TYPE) && this.#dragged) {
-        const { unit, source } = this.#dragged;
+      if (data.types.includes(DRAG_TYPE)) {
+        const dragged = this.#dragged;
         this.#dragged = null;
-        this.#assign(k, this.#slotFor(unit, source), `Set ${this.#keyLabel(k)}`);
+        if (dragged) {
+          const slot = this.#slotFor(dragged.unit, dragged.source);
+          this.#assign(k, slot, `Set ${this.#keyLabel(k)} to ${shownName(dragged.unit.name, dragged.unit.files)}`);
+          return;
+        }
+        // From the Explorer: `{skin, name}` of an image.
+        try {
+          const { skin, name } = JSON.parse(data.getData(DRAG_TYPE));
+          if (typeof skin === "string" && typeof name === "string")
+            void this.#assignImage(k, skin, name);
+        } catch {
+          this.#error("That drag carried no image.");
+        }
         return;
       }
       if (data.files.length) void this.#dropFiles(k, [...data.files]);
@@ -961,7 +1022,7 @@ export class KeymodesView {
     // The files that failed stay reported after the valid one is assigned.
     const rejected = $("#km-error").textContent ?? "";
     const [slot] = await this.#uploadImages(images, files);
-    if (slot) this.#assign(key, slot, `Set ${this.#keyLabel(key)} from ${slot.name}`);
+    if (slot) this.#assign(key, slot, `Set ${this.#keyLabel(key)} to ${shownName(slot.name, slot.files)}`);
     if (rejected) this.#error(rejected);
   }
 
@@ -980,7 +1041,7 @@ export class KeymodesView {
           });
         slots.push({ skin: UPLOADS, name: image.name, files: stored });
       }
-      this.#state(`Added ${slots.map((s) => s.name).join(", ")} to dropped files`);
+      this.#state(`Added ${slots.map((s) => shownName(s.name, s.files)).join(", ")} to dropped files`);
       return slots;
     } catch (error) {
       this.#error(`Not added: ${error instanceof Error ? error.message : String(error)}`);
@@ -1230,7 +1291,7 @@ export class KeymodesView {
         { class: "km-thumb" },
         h("img", { src: this.#host.assetUrl(unit.thumb.skin, unit.thumb.file), alt: "", loading: "lazy", decoding: "async" }),
       ),
-      h("span", { class: "km-tile__name" }, unit.name),
+      h("span", { class: "km-tile__name" }, this.#source === UPLOADS ? shownName(unit.name, unit.files) : unit.name),
       h("span", { class: "km-tile__meta" }, meta),
     );
     tile.dataset.index = String(index);
@@ -1255,7 +1316,7 @@ export class KeymodesView {
       this.#error("Select a slot first (click it, or Enter on it), then an image.");
       return;
     }
-    this.#assign(key, this.#slotFor(unit, this.#source), `Set ${this.#keyLabel(key)} to ${unit.name}`);
+    this.#assign(key, this.#slotFor(unit, this.#source), `Set ${this.#keyLabel(key)} to ${shownName(unit.name, unit.files)}`);
     requestAnimationFrame(() => this.#focusCell());
   }
 

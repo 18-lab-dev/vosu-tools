@@ -1048,6 +1048,7 @@ function showView(next: typeof view) {
   }
   void showPreview(view === "preview");
   void keymodes.show(view === "keymodes");
+  if (view === "explorer") explorer?.refreshMix();
 }
 $("#tab-elements").onclick = () => showView("elements");
 $("#tab-explorer").onclick = () => showView("explorer");
@@ -1885,22 +1886,6 @@ async function showInElements(ref: AssetRef, skin: string) {
   setTimeout(() => target.classList.remove("found"), 1600);
 }
 
-explorer = new Explorer({
-  skins: () => library?.skins ?? [],
-  load: async (key) => {
-    const { snapshot } = await load(key);
-    return { text: snapshot.text, files: snapshot.files };
-  },
-  assetUrl,
-  animationUrl,
-  play,
-  inMix: (ref) => recipe.overrides?.[assetId(ref)]?.skin,
-  use: useUnits,
-  group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
-  showInElements: (ref, skin) => void showInElements(ref, skin),
-  status: (text) => (status.textContent = text),
-});
-
 /** Stores one key count's Keymodes draft and recomposes the mix at once. */
 function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   recipe.keymodes ??= {};
@@ -1966,6 +1951,40 @@ const keymodes = new KeymodesView({
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
 });
+
+explorer = new Explorer({
+  skins: () => library?.skins ?? [],
+  load: async (key) => {
+    const { snapshot } = await load(key);
+    return { text: snapshot.text, files: snapshot.files };
+  },
+  assetUrl,
+  animationUrl,
+  play,
+  inMix: (ref) => recipe.overrides?.[assetId(ref)]?.skin,
+  use: useUnits,
+  group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
+  showInElements: (ref, skin) => void showInElements(ref, skin),
+  status: (text) => (status.textContent = text),
+  keymodes: {
+    target: () => keymodes.target(),
+    // The assignment shows where it went: the Keymodes tab.
+    assign: (skin, name) =>
+      void keymodes.assign(skin, name).then(() => showView("keymodes")),
+    drag: (data, skin, name) => keymodes.drag(data, skin, name),
+  },
+});
+// A drag held over the Keymodes tab opens it, so Explorer images drop on slots.
+{
+  const tab = $("#tab-keymodes");
+  let timer = 0;
+  tab.addEventListener("dragenter", () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(() => showView("keymodes"), 450);
+  });
+  tab.addEventListener("dragover", (event) => event.preventDefault());
+  tab.addEventListener("dragleave", () => clearTimeout(timer));
+}
 
 // ---- live game state -------------------------------------------------------
 const rulesets: Record<string, Category> = {

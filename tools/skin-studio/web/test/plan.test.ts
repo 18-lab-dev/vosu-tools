@@ -253,8 +253,8 @@ test("a stage group carries the images its source finds under default names", ()
   expect(fromPlain).not.toContainEqual(["mania-note1.png", "skin-studio/4k/mania-note1.png"]);
   // The base's own default-named key stays for its 7K stage.
   expect(copied(plan, withKey.key)).toContain("mania-key1.png");
-  // Only the base's replaced 4K note is gone; no receptor or note falls back.
-  expect(fallbacks.get("mania-keys-4")).toEqual(["base/note"]);
+  // The base's replaced 4K note is not drawn by the built-in look: nothing falls back.
+  expect(fallbacks.get("mania-keys-4")).toBeUndefined();
 });
 
 test("a stage group says which receptors and notes fall back to the built-in look", () => {

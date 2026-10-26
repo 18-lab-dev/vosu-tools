@@ -343,6 +343,10 @@ export function compose(
   const fallbacks = new Map<string, string[]>();
   const have = present(out);
   for (const [id, files] of removed) {
+    // A stage taken from a skin draws the images its new block looks up, not
+    // the base's old ones: whether those fall back is resolved below.
+    if (groupById(id)?.maniaKeys !== undefined && recipe.picks[id]?.kind === "skin")
+      continue;
     const lost = new Set(
       files.filter((f) => imageExt.test(f) && !have.has(stem(f))).map(unitName),
     );

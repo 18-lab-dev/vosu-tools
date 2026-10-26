@@ -11,7 +11,7 @@
 // Build first: `cargo build -p vosu-skin-studio` and `bun run build` in
 // tools/skin-studio/web. The skins are copied; the originals are only read.
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -39,7 +39,7 @@ if (process.env.KM_E2E_SANDBOX !== "1") {
     [
       "--dev-bind", "/", "/", "--dev", "/dev", "--tmpfs", "/tmp", "--tmpfs", "/run/user",
       "--tmpfs", osuWine,
-      "--unshare-net", "--unshare-ipc", "--unshare-pid", "--die-with-parent",
+      "--unshare-net", "--unshare-ipc", "--unshare-pid", "--proc", "/proc", "--die-with-parent",
       "--setenv", "KM_E2E_SANDBOX", "1",
       process.execPath, ...process.argv.slice(1),
     ],
@@ -193,11 +193,39 @@ try {
   await tile("mania-key2").dragTo(slot("KeyImage1"));
   await waitLabel("KeyImage1", "skin-studio/7k/mania-key2");
   check("Picker drag onto a slot", true);
-  for (const [key, name] of [["KeyImage3", "mania-keyS"], ["KeyImage0D", "mania-key1D"], ["KeyImage1D", "mania-key2D"], ["KeyImage3D", "mania-keySD"]]) {
+  for (const [key, name] of [["KeyImage0D", "mania-key1D"], ["KeyImage1D", "mania-key2D"]]) {
     await slot(key).click();
     await tile(name).click();
     await waitLabel(key, `skin-studio/7k/${name}`);
   }
+  // ── Explorer: "Use as <slot>" for the selected Keymodes slot, and a drag ──
+  await slot("KeyImage3").click();
+  await page.click("#tab-explorer");
+  await page.selectOption("#x-skin", { label: opt.keys! });
+  const xrow = (name: string) =>
+    page.locator("#x-list .x-row").filter({ has: page.locator(".x-name", { hasText: new RegExp(`^${name}$`, "i") }) }).first();
+  await page.fill("#x-filter", "mania-keys");
+  await xrow("mania-keyS").click();
+  const use = await page.locator("#x-keymodes").textContent();
+  await page.click("#x-keymodes");
+  await page.waitForSelector("#keymodes-view:not([hidden])");
+  await waitLabel("KeyImage3", "skin-studio/7k/mania-keyS");
+  check("Explorer: Use as the selected Keymodes slot", use === "Use as 7K column 4 key", use ?? "");
+  await page.click("#tab-explorer");
+  await page.fill("#x-filter", "mania-keysd");
+  await xrow("mania-keySD").waitFor();
+  await page.evaluate(async () => {
+    const row = [...document.querySelectorAll<HTMLElement>("#x-list .x-row")].find((r) => /^mania-keySD$/i.test(r.querySelector(".x-name")!.textContent!))!;
+    const data = new DataTransfer();
+    row.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, bubbles: true }));
+    document.querySelector("#tab-keymodes")!.dispatchEvent(new DragEvent("dragenter", { dataTransfer: data, bubbles: true }));
+    await new Promise((done) => setTimeout(done, 700));
+    const target = document.querySelector('#km-grid [data-key="KeyImage3D"]')!;
+    for (const type of ["dragenter", "dragover", "drop"])
+      target.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+  });
+  await waitLabel("KeyImage3D", "skin-studio/7k/mania-keySD");
+  check("Explorer drag: the Keymodes tab opens on hover, the image drops on a slot", true);
   await source(opt.notes!);
   for (const [key, name] of [["NoteImage0", "mania/circles-7k/left"], ["NoteImage0H", "mania/circles-7k/left"], ["NoteImage3", "mania/circles-7k/cornflower"], ["NoteImage3H", "mania/circles-7k/cornflower"]]) {
     await slot(key).click();
@@ -222,10 +250,13 @@ try {
 
   // ── OS-file drop: one valid PNG, one invalid file ─────────────────────────
   await page.evaluate(async () => {
-    const canvas = new OffscreenCanvas(64, 32);
+    // A square test image: its thumbnail must show whole.
+    const canvas = new OffscreenCanvas(64, 64);
     const g = canvas.getContext("2d")!;
     g.fillStyle = "#e0405a";
-    g.fillRect(0, 0, 64, 32);
+    g.beginPath();
+    g.arc(32, 32, 30, 0, Math.PI * 2);
+    g.fill();
     const png = new File([await canvas.convertToBlob({ type: "image/png" })], "drop-note.png", { type: "image/png" });
     const bad = new File(["not an image"], "notes.txt", { type: "text/plain" });
     const data = new DataTransfer();
@@ -238,6 +269,25 @@ try {
   await waitLabel("NoteImage6", "skin-studio/7k/drop-note");
   const error = await page.locator("#km-error").textContent();
   check("OS drop adds the PNG and reports the invalid file inline", !!error?.includes("notes.txt: only PNG and JPEG images") && (await page.locator("#km-error").isVisible()), error ?? "");
+  const thumbs = async () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLImageElement>("#keymodes-view .km-thumb img")].filter((img) => img.complete && img.naturalWidth).map((img) => {
+        const box = img.parentElement!.getBoundingClientRect(), r = img.getBoundingClientRect();
+        const fit = getComputedStyle(img).objectFit;
+        return { ok: fit === "contain" && r.left >= box.left && r.top >= box.top && r.right <= box.right + 0.5 && r.bottom <= box.bottom + 0.5, src: img.src.slice(-40), fit };
+      }),
+    );
+  const square = await page.evaluate(() => {
+    const img = document.querySelector<HTMLImageElement>('#km-grid [data-key="NoteImage6"] .km-thumb img')!;
+    const box = img.parentElement!.getBoundingClientRect(), r = img.getBoundingClientRect();
+    const scale = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+    // The drawn square (contain): inside the thumbnail, nothing cut.
+    const side = img.naturalWidth * scale;
+    return { natural: [img.naturalWidth, img.naturalHeight], side, inside: getComputedStyle(img).objectFit === "contain" && r.left >= box.left && r.top >= box.top && r.right <= box.right + 0.5 && r.bottom <= box.bottom + 0.5 && side <= Math.min(box.width, box.height) };
+  });
+  check("A square test image's thumbnail is fully visible", square.inside && square.natural[0] === 64, JSON.stringify(square));
+  const state = await page.locator("#km-state").textContent();
+  check("Status names the dropped file, not the upload folder", state === "Set column 7 note to drop-note.png", state ?? "");
   await shot("7k-drop-error");
 
   // ── Mirror, undo/redo across it ──────────────────────────────────────────
@@ -262,10 +312,22 @@ try {
   // The dropped image, picked again from the Dropped files source for a stage image.
   await source("Dropped files");
   await slot("StageHint").click();
-  // Dropped files sit in a folder per drop (`<group>/drop-note`).
-  await page.locator("#km-images .km-tile").filter({ has: page.locator(".km-tile__name", { hasText: /\/drop-note$/ }) }).first().click();
+  // Dropped files show by their file name (no upload folder).
+  await page.locator("#km-images .km-tile").filter({ has: page.locator(".km-tile__name", { hasText: /^drop-note\.png$/ }) }).first().click();
   await waitLabel("StageHint", "skin-studio/7k/drop-note");
   check("Dropped files source assigns a stage image", true);
+  const hashFree = (await page.locator("#km-state").textContent()) ?? "";
+  check("Status after picking a dropped file has no upload hash", hashFree === "Set StageHint to drop-note.png" && !/[0-9a-f]{16}/.test(hashFree), hashFree);
+  // ── Colour swatches show the colour, the value on focus ─────────────────
+  await page.locator("#km-grid .km-swatch input").first().fill("#ff0000");
+  await until(() => page.locator("#km-grid .km-swatch").first().evaluate((s) => (s as HTMLElement).style.getPropertyValue("--c").startsWith("rgb(255 0 0")), "Colour1 swatch red");
+  await page.locator("#km-grid .km-swatch input").first().focus();
+  const swatch = await page.locator("#km-grid .km-swatch").first().evaluate((s) => ({
+    value: s.querySelector(".km-swatch__value")!.textContent ?? "",
+    shown: getComputedStyle(s.querySelector(".km-swatch__value")!).opacity,
+    image: getComputedStyle(s).backgroundImage.slice(0, 60),
+  }));
+  check("Colour swatch shows the colour and, on focus, its value", swatch.value.startsWith("255,0,0") && swatch.shown === "1" && swatch.image.includes("255, 0, 0"), JSON.stringify(swatch));
 
   // ── Hand edit in skin.ini shows on the screen ────────────────────────────
   await page.click("#tab-ini");
@@ -300,6 +362,20 @@ try {
       await page.setViewportSize({ width: w, height: h });
       await page.waitForTimeout(2500);
       await shot(`keymodes-${theme}-${w}x${h}`);
+      if (theme === "light") continue;
+      const bad = (await thumbs()).filter((t) => !t.ok);
+      check(`Thumbnails contained, not cropped, at ${w}x${h}`, !bad.length, JSON.stringify(bad.slice(0, 3)));
+      const rows = await page.evaluate(() => {
+        const sheet = document.querySelector(".km-sheet")!.getBoundingClientRect();
+        const heads = [...document.querySelectorAll<HTMLElement>("#km-grid .km-row:not(.km-row--head):not(.km-row--values) .km-rowhead")];
+        return heads.map((el) => {
+          const slot = el.nextElementSibling!.getBoundingClientRect();
+          return { role: el.textContent, visible: slot.top >= sheet.top - 1 && slot.bottom <= sheet.bottom + 1 };
+        });
+      });
+      check(`All six roles of a column visible at ${w}x${h}`, rows.length === 6 && rows.every((r) => r.visible), JSON.stringify(rows));
+      const bar = await page.locator("#keymodes-view > .v-toolbar").evaluate((b) => b.getBoundingClientRect().height);
+      check(`Keymodes toolbar on one row at ${w}x${h}`, bar < 60, String(bar));
     }
   }
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
@@ -391,6 +467,53 @@ try {
   }, [mixStage.toString("base64"), exportStage.toString("base64")]);
   check("render-core draws the exported .osk like the Keymodes stage", diff.size && diff.changed < 0.005, JSON.stringify(diff));
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
+
+  // ── Stage defaults: a whole 7K stage group from a block naming no images ─
+  await page.click("#mix-reset");
+  await page.click("#tab-elements");
+  await page.locator("#skins .skin", { hasText: opt.notes! }).click();
+  await page.click("#use-base");
+  await page.locator("#skins .skin", { hasText: opt.keys! }).click();
+  await page.locator("#cats button", { hasText: "Mania" }).click();
+  const group = page.locator("#groups section.group").filter({ has: page.locator("h3", { hasText: /^7K stage/ }) });
+  await group.locator("button", { hasText: "Use this skin" }).click();
+  await page.waitForTimeout(1500);
+  const fallback = await page.locator("#mix-picks li", { hasText: "7K stage" }).locator(".pick-fallback").allTextContents();
+  check("Mix panel: the 7K stage group draws nothing from the built-in look", fallback.length === 0, fallback.join("; "));
+  const [download2] = await Promise.all([page.waitForEvent("download"), page.click("#build-osk")]);
+  const osk2 = join(out, "stage-group.osk");
+  await download2.saveAs(osk2);
+  const entries = spawnSync("unzip", ["-Z1", osk2], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);
+  const ini2 = spawnSync("unzip", ["-p", osk2, "skin.ini"], { encoding: "utf8" }).stdout;
+  writeFileSync(join(out, "stage-group-skin.ini"), ini2);
+  const block2 = /\[Mania\]\s*\r?\n\s*Keys: 7\r?\n([\s\S]*?)(\r?\n\s*\r?\n\s*\[|\r?\n\[|$)/.exec(ini2)?.[1] ?? "";
+  const keys2 = Object.fromEntries(block2.split(/\r?\n/).map((l) => l.trim().split(/:\s*/)).filter((p) => p.length === 2));
+  const pieces = Array.from({ length: 7 }, (_, c) => [`KeyImage${c}`, `KeyImage${c}D`, `NoteImage${c}`]).flat();
+  const problems: string[] = [];
+  for (const key of pieces) {
+    const value = keys2[key];
+    if (!value?.startsWith("skin-studio/7k/")) {
+      problems.push(`${key}=${value}`);
+      continue;
+    }
+    const files = entries.filter((e) => e.toLowerCase().startsWith(value.toLowerCase()));
+    if (!files.length) problems.push(`${key}: no file`);
+    for (const file of files) {
+      const copied = spawnSync("unzip", ["-p", osk2, file]).stdout;
+      const original = readFileSync(join(SKINS, opt.keys!, file.slice("skin-studio/7k/".length)));
+      if (!copied.equals(original)) problems.push(`${file} differs from ${opt.keys}`);
+    }
+  }
+  check("Stage group export: every receptor and note is the source's own file", !problems.length, problems.join("; ") || `${pieces.length} keys`);
+  const processes = readdirSync("/proc").filter((p) => /^\d+$/.test(p)).map((p) => {
+    try {
+      return readFileSync(`/proc/${p}/comm`, "utf8").trim();
+    } catch {
+      return "";
+    }
+  });
+  // `vosu` itself contains "osu": match osu!/lazer process names, not substrings.
+  check("No osu! or lazer process visible to the test vosu", !processes.some((c) => /^(osu!?(\.exe)?|lazer)$/i.test(c) || /^osu-/.test(c)) && !/osu!\.exe|PID \d+/.test(daemonLog.join("")), `${processes.length} processes: ${processes.join(", ")}`);
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));
 } finally {
