@@ -436,7 +436,8 @@ try {
   await page.mouse.move(0, 0);
   await page.waitForTimeout(2500);
   const mixStage = await page.locator("#km-stage").screenshot({ path: join(out, "stage-mix.png") });
-  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#build-osk")]);
+  await page.selectOption("#export-target", "osk");
+  const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-run")]);
   const osk = join(out, "mix.osk");
   await download.saveAs(osk);
   const listing = spawnSync("unzip", ["-Z1", osk], { encoding: "utf8" }).stdout.split("\n");
@@ -509,7 +510,7 @@ try {
   await page.waitForTimeout(1500);
   const fallback = await page.locator("#mix-picks li", { hasText: "7K stage" }).locator(".pick-fallback").allTextContents();
   check("Mix panel: the 7K stage group draws nothing from the built-in look", fallback.length === 0, fallback.join("; "));
-  const [download2] = await Promise.all([page.waitForEvent("download"), page.click("#build-osk")]);
+  const [download2] = await Promise.all([page.waitForEvent("download"), page.click("#export-run")]);
   const osk2 = join(out, "stage-group.osk");
   await download2.saveAs(osk2);
   const entries = spawnSync("unzip", ["-Z1", osk2], { encoding: "utf8" }).stdout.split("\n").filter(Boolean);

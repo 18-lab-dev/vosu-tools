@@ -1,5 +1,6 @@
 mod anim;
 mod build;
+mod export;
 mod library;
 mod uploads;
 
@@ -345,32 +346,49 @@ struct Export {
     /// Relative to this tool's API: `v1/exports/<id>`.
     url: String,
     filename: String,
+    /// Converted skins: what was exported, skipped and approximated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    report: Option<export::Report>,
 }
-/// Accepts a plan for an .osk download (write route) and returns a one-time
-/// download URL. The GET is a plain browser download, so it carries no
-/// session; the unguessable id, its single use and a short expiry stand in.
+/// Accepts a plan for a download (write route) and returns a one-time
+/// download URL: an `.osk` (`target` absent or `osk`), or the mix's mania
+/// stages converted for Quaver or Etterna (`target`, `stages`), finished
+/// before this answers. The GET is a plain browser download, so it carries
+/// no session; the unguessable id, its single use and a short expiry stand in.
 async fn export(
     State(app): State<App>,
-    Json(plan): Json<build::Plan>,
+    Json(request): Json<export::Request>,
 ) -> Result<Json<Export>, Failure> {
-    let plan = build::prepare(&app, plan).await?;
+    let (filename, report, payload) = if request.target == export::Target::Osk {
+        let plan = build::prepare(&app, request.plan).await?;
+        let filename = format!("{}.osk", plan.name.trim());
+        (filename, None, build::Payload::Osk(plan))
+    } else {
+        let archive = export::convert(&app, request).await?;
+        (
+            archive.filename.clone(),
+            Some(archive.report.clone()),
+            build::Payload::Archive(archive),
+        )
+    };
     let id = uuid::Uuid::new_v4().simple().to_string();
-    let filename = format!("{}.osk", plan.name.trim());
     let mut exports = app.exports.lock().await;
     exports.retain(|_, pending| pending.created.elapsed() < build::PENDING_FOR);
     exports.insert(
         id.clone(),
         build::Pending {
             created: Instant::now(),
-            plan,
+            payload,
         },
     );
     Ok(Json(Export {
         url: format!("v1/exports/{id}"),
         filename,
+        report,
     }))
 }
-/// Streams an accepted export as `<name>.osk` with an attachment disposition.
+/// Sends an accepted export once, with an attachment disposition: an `.osk`
+/// streamed from its plan, or a converted skin's finished archive.
 async fn download(
     State(app): State<App>,
     UrlPath(id): UrlPath<String>,
@@ -385,12 +403,21 @@ async fn download(
             StatusCode::NOT_FOUND,
             "This download has expired; export again.".to_owned(),
         ))?;
-    let disposition = build::disposition(&pending.plan.name);
-    let (tx, rx) = mpsc::channel::<build::Chunk>(4);
-    tokio::spawn(build::stream(app, pending.plan, tx));
-    let body = Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async move {
-        rx.recv().await.map(|chunk| (chunk, rx))
-    }));
+    let (disposition, body) = match pending.payload {
+        build::Payload::Osk(plan) => {
+            let disposition = build::disposition(&format!("{}.osk", plan.name.trim()));
+            let (tx, rx) = mpsc::channel::<build::Chunk>(4);
+            tokio::spawn(build::stream(app, plan, tx));
+            let body = Body::from_stream(futures_util::stream::unfold(rx, |mut rx| async move {
+                rx.recv().await.map(|chunk| (chunk, rx))
+            }));
+            (disposition, body)
+        }
+        build::Payload::Archive(archive) => (
+            build::disposition(&archive.filename),
+            Body::from(archive.bytes),
+        ),
+    };
     let mut response = body.into_response();
     let headers = response.headers_mut();
     headers.insert(

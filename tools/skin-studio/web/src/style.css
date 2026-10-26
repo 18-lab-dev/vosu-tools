@@ -722,6 +722,15 @@
   margin: 0;
   font-size: var(--step--2);
 }
+.mix-export {
+  display: grid;
+  gap: var(--space-1);
+}
+.mix-export__note {
+  margin: 0;
+  font-size: var(--step--2);
+  line-height: 1.35;
+}
 .mix-result {
   display: grid;
   gap: var(--space-1);
