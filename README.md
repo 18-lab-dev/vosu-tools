@@ -1,17 +1,101 @@
 # vosu tools
 
-Official tools for [vosu](https://github.com/18-lab-dev/vosu) by 18-LAB. Each tool is an out-of-process application hosted by vosu (tool protocol v1): it may have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
+Official tools for [vosu](https://github.com/18-lab-dev/vosu) by 18-LAB. Install them from the vosu dashboard's **Tools** page. Each one opens in your browser with **Open**, and some also run in the background or on the command line (`vosux <id>`).
 
-| Tool | id | Interfaces | Purpose |
-| --- | --- | --- | --- |
-| osu! practice tool | `practice` | CLI, UI | Offline rates, ruleset-specific transforms (Constant Speed, seeded Random, Mirror…), trims to chosen sections with cut audio, a render-core playfield preview of the result and named profiles; see [scope and provenance](tools/practice/PROVENANCE.md) |
-| Server pp calculator | `server-pp` | service, CLI, UI | Reproduce pinned public Akatsuki and Mamestagram calculator snapshots and run user-supplied WebAssembly pp calculators; a results table compares them on the selected map, with official pp comparison |
-| Mania ratings | `mania-ratings` | service, CLI, UI | Etterna, Quaver, Interlude and dan ratings for osu!mania, per map and per section |
-| Skin studio | `skin-studio` | UI | Browse stable skins, added folders and `.osk` files, and lazer skins (via `lazer-library`), with an in-page file Explorer whose selections feed per-asset mixing; preview images, @2x, animations (cached APNG at AnimationFramerate), hitsounds and a looping gameplay preview per ruleset; mix element groups per ruleset plus single assets (carrying the skin.ini keys that make them draw) into a new stable skin (atomic, never overwrites without confirmation) or a downloaded `.osk`; Monaco skin.ini editor with wiki-revisioned checks and backups. [Details](tools/skin-studio/README.md) |
-| Map preview | `map-preview` | UI | Opens on the game's current map at the current time and follows map, mods, clock (the track's actual rate) and skin live; hidden during the player's own gameplay. All four rulesets with the client's skin (stable or lazer, files or built-in Argon / Triangles / classic look; [client-skin](packages/client-skin/README.md)), an `.osk` file or a skin folder; legacy mania skins are laid out as osu!lazer lays them out, golden-tested against lazer itself; osu! maps played in taiko, mania or catch are converted as osu!lazer converts them (key count, key mods and Dual Stages included; [ruleset-convert](packages/ruleset-convert/README.md)); manual `.osu` preview with audio (muted until unmuted, remembered) and a ruleset choice; settings in the dashboard; [shared renderer API](packages/render-core/README.md) |
-| Replay renderer | `replay-renderer` | CLI, UI | Deterministic multi-replay studio with player presets and per-ruleset render settings; browser WebM and native MP4 using a SHA-256-pinned managed browser plus external FFmpeg, without Node. [Settings/runtime contract](tools/replay-renderer/README.md). Judgement HUD appears only when stored counts verify. |
-| Beatmap downloader | `downloader` | UI | Context-aware discovery, read-only stable library/history, and a polite validated mirror queue |
-| Lazer library | `lazer-library` | service | Read-only, consistent Realm snapshots for MD5 map lookup, owned sets, skins and replay files; [schema and concurrency design](crates/realm-reader/DESIGN.md) |
+![The vosu dashboard's Tools page with the eight tools installed](docs/screenshots/tools.webp)
+
+The pictures below are real tool pages, running in a vosu with no osu! client attached. Instead of a game, the maps, skins and replays in them are 18-LAB's own generated demo content. See [how they are made](docs/screenshots/README.md).
+
+## osu! practice tool
+
+Make practice copies of the map you have selected in osu!: change its rate, difficulty and ruleset transforms, trim it to the sections you want to grind, and preview the result before generating it.
+
+![osu! practice tool](docs/screenshots/practice.webp)
+
+*A generated demo map at 1.25× with Mirror and one kept section.*
+
+[Details](tools/practice/README.md)
+
+## Server pp calculator
+
+See what the selected map is worth on recorded public Akatsuki and Mamestagram calculator snapshots, or on pp formulas of your own, next to official pp.
+
+![Server pp calculator](docs/screenshots/server-pp.webp)
+
+*A generated demo map with the two built-in profiles and two of the tool's example custom calculators.*
+
+[Details](tools/server-pp/README.md)
+
+## Mania ratings
+
+An osu!mania difficulty dashboard for a second monitor: Etterna (MinaCalc), Quaver, Interlude and osu!mania ratings for the selected map at the game's rate, with a rate curve, timelines and section ratings.
+
+![Mania ratings](docs/screenshots/mania-ratings.webp)
+
+*A generated 7K demo chart.*
+
+[Details](tools/mania-ratings/README.md)
+
+## Skin studio
+
+Browse your stable and lazer skins, preview their elements and gameplay in every ruleset, mix parts of several skins into a new one, and edit skin.ini with checks.
+
+![Skin studio](docs/screenshots/skin-studio.webp)
+
+*A skin exported from render-core's own drawing of the classic look.*
+
+[Details](tools/skin-studio/README.md)
+
+## Map preview
+
+Watch the map selected in osu! play out in any of the four rulesets with your skin, mods and the game's clock, or preview any `.osu` file.
+
+![Map preview](docs/screenshots/map-preview.webp)
+
+*A generated demo map drawn with the built-in Argon look.*
+
+[Details](tools/map-preview/README.md)
+
+## Replay renderer
+
+Turn replays into videos: put several replays side by side or overlap them on one playfield, pick skins and an output size, and render MP4 or WebM.
+
+![Replay renderer](docs/screenshots/replay-renderer.webp)
+
+*Three generated replays of a demo map in the Overlap layout.*
+
+[Details](tools/replay-renderer/README.md)
+
+## Beatmap downloader
+
+Find maps like the one you have selected (same mapper, similar stars or mania MSD, your recent play history) and download them from a mirror through a polite, validated queue.
+
+![Beatmap downloader](docs/screenshots/downloader.webp)
+
+*Sample data: synthetic search results and queue entries, not real maps.*
+
+[Details](tools/downloader/README.md)
+
+## Lazer library
+
+A background service with no page of its own. It lets the other tools read your osu!lazer library (maps, skins and replays) without changing it.
+
+[Details](tools/lazer-library/README.md)
+
+## Interfaces
+
+| Tool | id | UI | Service | CLI |
+| --- | --- | --- | --- | --- |
+| osu! practice tool | `practice` | yes | backend | `vosux practice` |
+| Server pp calculator | `server-pp` | yes | background | `vosux server-pp` |
+| Mania ratings | `mania-ratings` | yes | background | `vosux mania-ratings` |
+| Skin studio | `skin-studio` | yes | backend | — |
+| Map preview | `map-preview` | yes | — | — |
+| Replay renderer | `replay-renderer` | yes | backend | `vosux replay-renderer` |
+| Beatmap downloader | `downloader` | yes | backend | — |
+| Lazer library | `lazer-library` | — | background | — |
+
+Each tool is an out-of-process application hosted by vosu (tool protocol v1). It can have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
 
 UI/CLI tools can have a native **backend** for local files or rendering. vosu starts it on demand and stops it when idle; it is not a separate service interface. Only background services have Start/Stop/Restart and **Start with vosu** controls. That per-user setting overrides the manifest default and is available in Details, tool Settings, or `vosux --autostart <id> on|off|default`. Server pp, mania ratings and lazer library default to on-demand; enable startup for whichever background services you use.
 
@@ -66,6 +150,9 @@ python scripts/smoke_install.py --vosu /tmp/vosu-int-target/debug/vosu \
 
 It serves test-only loopback catalog copies (package digests/bytes are unchanged), isolates HOME and every XDG root including `XDG_RUNTIME_DIR`, uses only daemon ports 25150/25151, installs and approves the real tools, starts services, reads their APIs, exercises CLI help, and opens all UIs in a private headless browser. JSON receipts, logs, CLI help, and dark/light screenshots go under `/tmp/vosu-tools-evidence/integration/`. It never generates practice maps, modifies skins, downloads user beatmaps, or renders to a user's directories.
 
+## Screenshots
+
+The pictures in this README come from the packaged tools in an isolated, sandboxed vosu. `scripts/screenshots.mjs` regenerates them all; [docs/screenshots/README.md](docs/screenshots/README.md) lists what each one shows and how to run it.
 
 ## License
 

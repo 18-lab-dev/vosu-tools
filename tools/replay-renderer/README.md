@@ -1,5 +1,9 @@
 # Replay renderer
 
+A deterministic multi-replay video studio: player presets and per-ruleset render settings, browser WebM and native MP4 export through a SHA-256-pinned managed browser plus external FFmpeg (no Node.js), and a judgement HUD that appears only when the replay's stored counts verify.
+
+![Replay renderer](../../docs/screenshots/replay-renderer.webp)
+
 Interfaces: **UI + CLI**. The native rendering backend starts on demand and stops when idle; it has no separate service controls or startup toggle.
 
 `vosux replay-renderer render /absolute/play.osr --set mania.scroll_speed=27 --set background_dim=0.9 --resolution 2560x1440 --out /absolute/play.mp4`

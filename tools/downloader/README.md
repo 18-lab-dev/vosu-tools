@@ -1,5 +1,11 @@
 # Beatmap downloader
 
+Context-aware discovery from the map selected in osu! and your play history, a read-only view of your stable library and history, and a polite, validated mirror download queue.
+
+![Beatmap downloader with synthetic sample results](../../docs/screenshots/downloader.webp)
+
+*The picture shows synthetic "Sample set" results and queue entries, not real maps.*
+
 18-LAB's UI-only tool for vosu 1.2.0, with a native backend started on demand and stopped when idle (not a standalone background service). Build with `cargo build -p vosu-downloader` and `bun run --cwd tools/downloader/web build`, then launch `vosu --tool tools/downloader` in an isolated development environment. The manifest uses Cargo's development binary fallback; release packages place the executable in `bin/`.
 
 ## Discovery
