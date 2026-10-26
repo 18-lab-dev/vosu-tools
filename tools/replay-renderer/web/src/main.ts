@@ -9,6 +9,7 @@ import {
   loadTrack,
   checked,
   ApiError,
+  playerLabels,
   type Track,
   type Preset,
 } from "./studio";
@@ -21,6 +22,7 @@ import { SkinLibrary, type SkinContext } from "./skins";
 import { ReplayLibrary, showMissingMap, type LinkState } from "./library";
 import { SizePicker, parseSize, type SizeStore } from "./sizes";
 import { LAYOUTS, type Layout } from "./layout";
+import { DEFAULT_OVERLAP, OverlapAudio, focusLayers, overlapColour, overlapEligibility, overlapOptions, type OverlapJudgements } from "./overlap";
 import { compositionAudio } from "./audio-mix";
 import { MixScheduler } from "./audio";
 
@@ -70,6 +72,8 @@ function refreshComposition() {
   el<HTMLButtonElement>("play").disabled = !tracks.length;
   el<HTMLInputElement>("seek").disabled = !tracks.length;
   if (!tracks.length) {
+    overlapAudio.apply(tracks, null);
+    describeOverlap();
     composition = undefined;
     if (playing) setPlaying(false);
     time = 0;
@@ -86,14 +90,114 @@ function refreshComposition() {
   const even = (n: number) => Math.max(2, Math.round((n * scale) / 2) * 2);
   const [width, height] = [even(outW), even(outH)];
   el("gate").style.setProperty("--ar", `${outW} / ${outH}`);
-  const layout = el<HTMLSelectElement>("layout").value as Layout;
+  describeOverlap();
+  const layout = effectiveLayout();
+  // Overlap hears the focus player's hitsounds only, by default.
+  if (overlapAudio.apply(tracks, layout === "overlap" ? overlap.focus : null)) {
+    renderTracks();
+    describeOverlap();
+  }
   composition = new Composition(tracks, width, height, layout);
+  composition.overlap = overlap;
   composition.timing = timing();
   composition.inspect = INSPECT;
   composition.validate();
   el("preview").replaceChildren(composition.canvas);
   refreshTimeline();
   editor.render();
+}
+/** Overlap's options (focus player, judgements, name tags, health bar). */
+let overlap = { ...DEFAULT_OVERLAP };
+const overlapAudio = new OverlapAudio();
+/** The layout drawn: the one picked, except Overlap while these replays cannot
+ *  share a playfield (then Auto, and the note says why). */
+function effectiveLayout(): Layout {
+  const picked = el<HTMLSelectElement>("layout").value as Layout;
+  if (picked !== "overlap") return picked;
+  return overlapEligibility(tracks.map((t) => t.replay)).ok ? "overlap" : "auto";
+}
+/**
+ * Offers Overlap only when the replays can share a playfield, names the
+ * reason when they cannot (or what is drawn differently when they can), and
+ * shows the overlap options while it is the layout.
+ */
+function describeOverlap() {
+  const select = el<HTMLSelectElement>("layout"),
+    option = select.querySelector<HTMLOptionElement>('option[value="overlap"]')!,
+    note = el("overlap-note");
+  const eligibility = overlapEligibility(tracks.map((t) => t.replay)),
+    picked = select.value === "overlap";
+  // A stored choice stays selected (showing why it is not drawn) until changed.
+  option.disabled = !eligibility.ok && !picked;
+  option.textContent = eligibility.ok ? "Overlap" : "Overlap (unavailable)";
+  const osu = tracks.length >= 2 && tracks.every((t) => t.replay.mode === 0);
+  note.hidden = true;
+  delete note.dataset.tone;
+  if (!eligibility.ok && (picked || osu)) {
+    note.hidden = false;
+    note.textContent = picked ? `${eligibility.reason}. Showing Auto instead.` : `Overlap unavailable: ${eligibility.reason}.`;
+    if (picked) note.dataset.tone = "warn";
+  } else if (eligibility.ok && picked && eligibility.notes.length) {
+    note.hidden = false;
+    note.textContent = eligibility.notes.join(" ");
+  }
+  overlap = overlapOptions(overlap, tracks.length);
+  el("overlap-options").hidden = effectiveLayout() !== "overlap";
+  const focus = el<HTMLSelectElement>("overlap-focus");
+  const labels = playerLabels(tracks);
+  focus.replaceChildren(
+    ...labels.map((label, i) => {
+      const entry = document.createElement("option");
+      entry.value = String(i);
+      entry.textContent = `V${i + 1} ${label}`;
+      return entry;
+    }),
+  );
+  focus.value = String(overlap.focus);
+  el<HTMLSelectElement>("overlap-judgements").value = overlap.judgements;
+  el<HTMLInputElement>("overlap-names").checked = overlap.names;
+  el<HTMLInputElement>("overlap-health").checked = overlap.health;
+  // Each player's hitsounds (the track's own mute setting), in their colour.
+  el("overlap-hitsounds").replaceChildren(
+    ...labels.map((label, i) => {
+      const track = tracks[i],
+        entry = document.createElement("label"),
+        input = document.createElement("input"),
+        text = document.createElement("span");
+      entry.className = "v-check";
+      input.type = "checkbox";
+      input.checked = (track.settings["audio.mute"] ?? 0) === 0;
+      input.onchange = () => {
+        track.settings["audio.mute"] = input.checked ? 0 : 1;
+        renderTracks();
+      };
+      // The player's colour as a swatch: coloured text would not read in both themes.
+      const swatch = document.createElement("i");
+      swatch.className = "player-swatch";
+      swatch.style.setProperty("--player", overlapColour(i));
+      swatch.setAttribute("aria-hidden", "true");
+      text.textContent = label;
+      entry.title = `${label}'s hitsounds`;
+      entry.append(input, swatch, text);
+      return entry;
+    }),
+  );
+}
+for (const id of ["overlap-focus", "overlap-judgements", "overlap-names", "overlap-health"])
+  el(id).onchange = () => {
+    overlap = {
+      focus: Number(el<HTMLSelectElement>("overlap-focus").value) || 0,
+      judgements: el<HTMLSelectElement>("overlap-judgements").value as OverlapJudgements,
+      names: el<HTMLInputElement>("overlap-names").checked,
+      health: el<HTMLInputElement>("overlap-health").checked,
+    };
+    betweenFrames(refreshComposition).catch(report);
+  };
+/** The render request's overlay layers (in Overlap, the focus player's). */
+function requestLayers(): OverlayLayer[] {
+  const layers = overlayEditor.read(tracks.map((t) => t.id));
+  if (composition?.layout !== "overlap") return layers;
+  return focusLayers(layers, composition.overlap.focus);
 }
 /** Development aid: `?inspect` in the studio URL draws the composition
  *  inspector over the preview and asks MP4 exports for it too. Off by default. */
@@ -638,7 +742,7 @@ live.onWebGpu = describeWebGpu;
 /** The render request's overlay layers, or null while one is incomplete. */
 function liveLayers(): OverlayLayer[] | null {
   try {
-    return overlayEditor.read(tracks.map((t) => t.id));
+    return requestLayers();
   } catch {
     return null;
   }
@@ -661,9 +765,17 @@ const editor: LayoutEditor = new LayoutEditor(
   },
   {
     output: () => sizes.size,
-    layout: () => el<HTMLSelectElement>("layout").value as Layout,
+    layout: effectiveLayout,
     tracks: () => tracks,
     layers: () => overlayEditor.layers,
+    overlapFocus: () => (composition?.layout === "overlap" ? composition.focus : null),
+    overlapLegend: () => {
+      const box = composition?.layout === "overlap" ? composition.legendBox : null;
+      if (!box || !composition) return null;
+      // The preview may run smaller than the output.
+      const k = sizes.size.width / composition.width;
+      return { x: box.x * k, y: box.y * k, width: box.width * k, height: box.height * k };
+    },
     changed(item, commit) {
       if (!commit) return;
       if (item.kind === "playfield") {
@@ -876,8 +988,9 @@ el("queue").onclick = async () => {
       })),
       fps: Number(el<HTMLInputElement>("fps").value),
       resolution: `${sizes.size.width}x${sizes.size.height}`,
-      layout: el<HTMLSelectElement>("layout").value,
-      overlays: overlayEditor.read(tracks.map((t) => t.id)),
+      layout: composition.layout,
+      overlap: composition.layout === "overlap" ? composition.overlap : undefined,
+      overlays: requestLayers(),
       out: outName(),
       inspect: INSPECT,
       outro_ms: composition.timing.outroMs,
@@ -978,6 +1091,7 @@ el("webm").onclick = async () => {
     composition.releaseTargets();
     const { width, height } = sizes.size;
     const full = new Composition(tracks, width, height, composition.layout, false);
+    full.overlap = composition.overlap;
     full.timing = composition.timing;
     try {
       const blob = await exportWebM({

@@ -1,3 +1,4 @@
+import { recoloured } from "../src/gpu";
 import { describe, expect, test } from "bun:test";
 import { circleRadius, parseOsu } from "@vosu-tools/osu-parse";
 import { compileScene } from "../src/scene";
@@ -109,6 +110,23 @@ describe("osu! judgements", () => {
     expect(above).toHaveLength(1);
     expect(above[0]).toMatchObject({ profile: Profile.legacyHit, start: 1010, until: 2110, p2: 1, code: 10 });
     expect(above[0].w).toBeCloseTo(120 * scale);
+  });
+  test("an overlap player's tint recolours every piece and the lighting (negative red)", () => {
+    const tint = [0.9, 0.6, 0];
+    const { below, above } = run(
+      [
+        event({ time: 1010, result: "great", note: 0, object: "circle", x: 64, y: 192, tint }),
+        event({ time: 1200, result: "miss", note: 0, object: "circle", x: 64, y: 192, tint }),
+      ],
+      { hit300: [120, 60], hit0: [80, 80], lighting: [128, 128] },
+    );
+    expect([...below, ...above].map((i) => i.tint)).toEqual([
+      [-0.9, -0.6, -0, 1],
+      [-0.9, -0.6, -0, 1],
+      [-0.9, -0.6, -0, 1],
+    ]);
+    // A zero red channel still marks the recolour.
+    expect(recoloured([0, 0.5, 1])[0]).toBeLessThan(0);
   });
   test("slider judgements show only with classic behaviour, on the tail; heads always", () => {
     const lazer = run(

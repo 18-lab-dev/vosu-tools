@@ -192,7 +192,7 @@ fn chainHit(dt:f32,endScale:f32)->f32{
  if(shape==6u){var nearest=10.0;for(var i=0u;i<6u;i++){let row=select(0.0,0.55,i>2u);let x=f32(i%3u)*0.55-0.55;nearest=min(nearest,length(v.local-vec2f(x,row-0.3))/0.4);}coverage=1.0-smoothstep(1.0-aa,1.0,nearest);}
  if(shape==8u){let outer=length(v.local-vec2f(-0.15,-0.3));let inner=length(v.local-vec2f(0.15,-0.5));coverage=(1.0-smoothstep(1.0-aa,1.0,outer))*smoothstep(0.74-aa,0.74,inner);}
  if(shape==9u){coverage=1.0-smoothstep(1.0-aa,1.0,d);let rim=smoothstep(0.72,0.78,d);colour=vec4f(mix(vec3f(0.86,0.65,0.5),vec3f(0.45,0.48,0.5),rim),colour.a);if(abs(v.local.x)<0.025){colour=vec4f(0.2,0.2,0.2,colour.a);}}
- if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,v.layer,0.0);colour=vec4f(tex.rgb*colour.rgb,tex.a*colour.a);}
+ if(shape==10u || shape==13u){let tex=textureSampleLevel(atlas,atlasSampler,v.uv,v.layer,0.0);let base=select(tex.rgb,vec3f(max(tex.r,max(tex.g,tex.b))),colour.r<0.0);colour=vec4f(base*abs(colour.rgb),tex.a*colour.a);}
  if(shape==12u){let p=vec2f(v.local.x*v.shape.y,v.local.y);let q=p-vec2f(clamp(p.x,-v.shape.y+1.0,v.shape.y-1.0),0.0);let r=length(q);coverage=1.0-smoothstep(1.0-aa,1.0,r);
   let shadowPass=v.shape.z>5.0;let border=select(abs(v.shape.z),v.shape.z-10.0,shadowPass);let profile=floor(v.region.w/10.0+0.0001);let bodyAlpha=v.region.w-profile*10.0;let accent=colour.rgb;var c=v.region.rgb;var a=1.0;let shadow=0.078125;
   if(v.shape.z<0.0){let t=1.0-r*(1.0-border);let f=clamp((t-border)/max(0.0001,1.0-border),0.0,1.0);

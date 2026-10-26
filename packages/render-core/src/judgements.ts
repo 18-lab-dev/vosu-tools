@@ -17,6 +17,7 @@
  * autoplay look.
  */
 import { circleRadius, type Beatmap } from "@vosu-tools/osu-parse";
+import { recoloured } from "./gpu";
 import {
   hasFrames,
   regionInstances,
@@ -46,6 +47,11 @@ export interface JudgementEvent {
   combo: number;
   /** osu!catch: the catcher's x when the object was judged. */
   catcher?: number;
+  /**
+   * osu!: the player's colour (RGB, 0-1) when several replays share one
+   * playfield (overlap); the piece is recoloured in it (see `recoloured`).
+   */
+  tint?: readonly number[];
 }
 
 /** Shader motion kind for judgement elements and its profiles. */
@@ -273,7 +279,8 @@ function legacyPiece(
   scale: number,
   layer: "below" | "above",
 ): void {
-  const [w, h] = marks.size(asset);
+  const [w, h] = marks.size(asset),
+    tint = event.tint && recoloured(event.tint);
   const particle = PARTICLE[event.result];
   if (particle && marks.has(particle)) {
     if (layer === "below") {
@@ -287,6 +294,7 @@ function legacyPiece(
           direction =
             judgementRandom(event.time, event.note, 3 * i + 2) * Math.PI * 2;
         marks.put({
+          tint,
           asset: particle,
           x,
           y,
@@ -301,6 +309,7 @@ function legacyPiece(
         });
       }
       marks.put({
+        tint,
         asset,
         x,
         y,
@@ -311,6 +320,7 @@ function legacyPiece(
       });
     } else
       marks.put({
+        tint,
         asset,
         x,
         y,
@@ -328,6 +338,7 @@ function legacyPiece(
     const rotation =
       (judgementRandom(event.time, event.note) * 2 - 1) * 8.6 * DEG;
     marks.put({
+      tint,
       asset,
       x,
       y,
@@ -341,6 +352,7 @@ function legacyPiece(
     });
   } else
     marks.put({
+      tint,
       asset,
       x,
       y,
@@ -365,8 +377,10 @@ function defaultPiece(
   scale: number,
   stretch = false,
 ): void {
-  const [w, h] = marks.size(asset);
+  const [w, h] = marks.size(asset),
+    tint = event.tint && recoloured(event.tint);
   marks.put({
+    tint,
     asset,
     x,
     y,
@@ -455,7 +469,7 @@ export function osuJudgements(options: OsuJudgementOptions): {
             h: h * scale,
             time: e.time,
             profile: Profile.lighting,
-            tint: options.colour(e.note),
+            tint: e.tint ? recoloured(e.tint) : options.colour(e.note),
             additive: true,
             fps: 0,
           });
@@ -483,6 +497,7 @@ export function osuJudgements(options: OsuJudgementOptions): {
             h: h * scale,
             time: e.time,
             profile: Profile.tickHit,
+            tint: e.tint && recoloured(e.tint),
             p1: scale,
             fps: 0,
           });

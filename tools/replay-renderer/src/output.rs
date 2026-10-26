@@ -171,7 +171,7 @@ pub(super) async fn set_last(
 }
 
 /// Layouts the compositor understands; `auto` picks by output aspect.
-pub(super) const LAYOUTS: [&str; 4] = ["auto", "side-by-side", "stacked", "grid"];
+pub(super) const LAYOUTS: [&str; 5] = ["auto", "side-by-side", "stacked", "grid", "overlap"];
 #[derive(Deserialize)]
 pub(super) struct LayoutChoice {
     layout: String,

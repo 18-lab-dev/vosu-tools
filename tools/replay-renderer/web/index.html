@@ -86,8 +86,29 @@
               <option value="side-by-side">Side by side</option>
               <option value="stacked">Stacked</option>
               <option value="grid">Grid</option>
+              <option value="overlap">Overlap</option>
             </select>
           </label>
+          <p id="overlap-note" class="export-note" role="status" hidden></p>
+          <fieldset id="overlap-options" class="overlap-options" hidden>
+            <legend class="v-label">Overlap</legend>
+            <div class="pair">
+              <label class="v-field"><span>Focus player</span><select id="overlap-focus" class="v-select"></select></label>
+              <label class="v-field"><span>Judgements</span>
+                <select id="overlap-judgements" class="v-select">
+                  <option value="misses">Misses only</option>
+                  <option value="all">All</option>
+                  <option value="none">None</option>
+                </select>
+              </label>
+            </div>
+            <div class="overlap-checks">
+              <label class="v-check"><input id="overlap-names" type="checkbox" checked /><span>Name tags</span></label>
+              <label class="v-check"><input id="overlap-health" type="checkbox" /><span>Focus health bar</span></label>
+            </div>
+            <span class="v-label">Hitsounds</span>
+            <div id="overlap-hitsounds" class="overlap-checks"></div>
+          </fieldset>
           <div class="pair">
             <label class="v-field"><span>Export for</span>
               <select id="export-for" class="v-select">

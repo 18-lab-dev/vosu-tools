@@ -13,8 +13,19 @@ export type Backend = "webgpu" | "webgl2";
 
 /** Floats per instance (six vec4 attributes). */
 export const INSTANCE_FLOATS = 24;
-/** Overlay instances (cursor, trail, cursor sprites) drawn per frame at most. */
-export const MAX_OVERLAYS = 512;
+/** Overlay instances (cursors, trails, cursor sprites) drawn per frame at
+ *  most: 512 per cursor for up to eight overlapping players. */
+export const MAX_OVERLAYS = 4096;
+/** Overlay instances one cursor and its trail may use. */
+export const CURSOR_OVERLAYS = 512;
+/**
+ * A textured instance's tint asking the shader to recolour the image: its
+ * brightest channel per pixel times `tint` (RGB, 0-1), so a red miss or a
+ * colourful cursor reads as one player's colour. Encoded as a negative red.
+ */
+export function recoloured(tint: readonly number[]): [number, number, number] {
+  return [-Math.max(tint[0], 1 / 1024), -tint[1], -tint[2]];
+}
 /** Floats in the `Globals` uniform block. */
 export const UNIFORM_FLOATS = 24;
 
