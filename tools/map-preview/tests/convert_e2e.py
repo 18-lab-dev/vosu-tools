@@ -18,7 +18,7 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from preview_e2e import CHROME, DIST, MAPS, ORIGIN, PORT, QUERY, Game, Host, handler, playfield_unblocked, set_controls
+from preview_e2e import CHROME, CHROME_ARGS, DIST, MAPS, ORIGIN, PORT, QUERY, Game, Host, handler, playfield_unblocked, set_controls
 
 # osu!lazer 2026.1005.0 converting Hikiray - Zero Two [Insane] (oracle output).
 LAZER = {'taiko': 777, 'mania': (893, 7), 'mania4K': (784, 4), 'maniaDS': (881, 14)}
@@ -31,8 +31,7 @@ async def checks(host: Host, evidence: Path):
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path=str(CHROME), headless=True,
-            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
-                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
+            args=CHROME_ARGS)
 
         async def open_page(game: Game, theme='dark', width=1920, height=1080):
             page = await browser.new_page(viewport={'width': width, 'height': height}, device_scale_factor=1)

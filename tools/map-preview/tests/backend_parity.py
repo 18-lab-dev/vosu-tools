@@ -30,7 +30,7 @@ from PIL import Image
 from skimage.metrics import structural_similarity
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from preview_e2e import CHROME  # noqa: E402
+from preview_e2e import CHROME, CHROME_ARGS  # noqa: E402
 
 PORT = 25652
 THRESHOLD = 0.99
@@ -83,8 +83,7 @@ async def run(skins: dict, evidence: Path) -> list:
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             executable_path=str(CHROME), headless=True,
-            args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist', '--use-angle=vulkan',
-                  '--enable-features=Vulkan', '--disable-vulkan-surface'])
+            args=CHROME_ARGS)
         pages = {}
         for backend in ('webgpu', 'webgl2'):
             page = await browser.new_page(viewport={'width': WIDTH, 'height': HEIGHT})

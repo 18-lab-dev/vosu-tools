@@ -385,6 +385,10 @@ export function rendererOn(
       uniforms[20] =
         map.mode === 0 && settings.playfieldShift ? PLAYFIELD_SHIFT : 0;
       uniforms[21] = fromInput ? activeMask(keyImageIntervals, time) : mask;
+      // Slider bodies' snaking (shader.ts, kind SLIDER_BODY): 1 in, 2 out.
+      uniforms[22] =
+        (settings.snakingIn === false ? 0 : 1) +
+        (settings.snakingOut === false ? 0 : 2);
       uniforms[14] = hyperAmount(scene.hyper, time);
       uniforms[0] = time;
       uniforms[1] = width;

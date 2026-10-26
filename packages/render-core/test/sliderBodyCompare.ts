@@ -18,7 +18,11 @@
  * anything else blends in draw order.
  */
 import { parseOsu } from "@vosu-tools/osu-parse";
-import { compileScene, type RenderOptions } from "../src/scene";
+import {
+  compileScene,
+  sliderBodyRange,
+  type RenderOptions,
+} from "../src/scene";
 import type { AtlasRegion, Skin } from "../src/skin";
 
 export interface SliderPath {
@@ -190,13 +194,33 @@ export function sliderCapsules(
       // Lifetimes are float32 in the instance data, as the shader compares them.
       if (Math.fround(time) < d[6] || Math.fround(time) > d[7]) continue;
       const profileCode = d[19],
-        profile = Math.floor(profileCode / 10 + 0.0001);
+        profile = Math.floor(profileCode / 10 + 0.0001),
+        // The part of the segment lazer shows now (shader.ts kind 42).
+        { lo, hi, alpha } = sliderBodyRange(
+          d[4],
+          d[5],
+          d[11],
+          scene.preempt,
+          Math.fround(time),
+          options.snakingIn !== false,
+          options.snakingOut !== false,
+        ),
+        [s0, s1] = [d[22], d[23]],
+        a = Math.max(s0, lo),
+        b = Math.min(s1, hi);
+      if (a > b || alpha <= 0) continue;
+      const half = (d[2] - d[3]) / 2,
+        span = Math.max(s1 - s0, 1e-6),
+        from = -half + 2 * half * Math.min(1, Math.max(0, (a - s0) / span)),
+        to = -half + 2 * half * Math.min(1, Math.max(0, (b - s0) / span)),
+        ux = Math.cos(d[13]),
+        uy = Math.sin(d[13]);
       out.push({
-        x: d[0],
-        y: d[1],
-        half: (d[2] - d[3]) / 2,
-        ux: Math.cos(d[13]),
-        uy: Math.sin(d[13]),
+        x: d[0] + ((from + to) / 2) * ux,
+        y: d[1] + ((from + to) / 2) * uy,
+        half: (to - from) / 2,
+        ux,
+        uy,
         radius: d[3] / 2,
         width: Math.max(2, Math.floor(d[3] * 0.5) * 2),
         start: d[4],
@@ -205,7 +229,7 @@ export function sliderCapsules(
         bodyAlpha: profileCode - profile * 10,
         accent: [d[8], d[9], d[10]],
         edge: [d[16], d[17], d[18]],
-        alpha: d[11],
+        alpha,
         bodies: chunk.bodies === true,
       });
     }

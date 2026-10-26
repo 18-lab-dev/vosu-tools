@@ -6,8 +6,14 @@
  * judgements and replay-style input (osu! cursor and trail, mania keys), twice:
  * into an offscreen target cleared transparent (the composition path, read
  * back as raw RGBA) and on a visible canvas (bitmap presentation, as PNG).
+ *
+ * `window.__bodies()` draws render-core's slider body golden cases
+ * (packages/render-core/test/fixtures/slider-bodies.json) offscreen at
+ * 1920×1080 and measures each body against osu!lazer's, rebuilt per pixel
+ * from the fixture (`lazerPixel`), for tests/slider_bodies_e2e.py: the GPU
+ * rasteriser's own output, which the CPU golden test cannot see.
  */
-import { parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
+import { parseOsu, pathPosition, type Beatmap } from "@vosu-tools/osu-parse";
 import { demo, type DemoId } from "@vosu-tools/demo-maps";
 import {
   builtinLook,
@@ -21,6 +27,11 @@ import {
   type Playfield,
   type Skin,
 } from "@vosu-tools/render-core";
+import fixture from "../../../../packages/render-core/test/fixtures/slider-bodies.json";
+import {
+  lazerPixel,
+  type SliderBodyCase,
+} from "../../../../packages/render-core/test/sliderBodyCompare";
 
 interface Spec {
   demo: DemoId;
@@ -36,6 +47,7 @@ declare global {
       { backend: Backend; fallbackReason: string | null } | { error: string };
     __render?: (spec: Spec) => Promise<unknown>;
     __lose?: () => Promise<unknown>;
+    __bodies?: () => Promise<BodyResult[]>;
   }
 }
 
@@ -143,6 +155,124 @@ const bytesToBase64 = (bytes: Uint8Array) => {
   return btoa(text);
 };
 
+interface BodyResult {
+  name: string;
+  /** Pixels of lazer's body compared. */
+  pixels: number;
+  /** Largest channel error per pixel, 0-255: mean, 99th percentile, max. */
+  mean: number;
+  p99: number;
+  max: number;
+}
+
+/** A 1×1 transparent PNG. */
+const blank = (() => {
+  const canvas = new OffscreenCanvas(1, 1);
+  canvas.getContext("2d");
+  return canvas.convertToBlob({ type: "image/png" });
+})();
+
+/**
+ * Every skin image the loader asks for, but no animation frames, comes back
+ * blank: hit circles, approach circles, the slider ball and follow circle,
+ * reverse arrows, ticks and the circles' digits all draw nothing, so only
+ * the slider body is left, as in the golden (lazer's paths alone).
+ */
+function blankImage(name: string): Promise<Blob> | null {
+  const file = name.toLowerCase();
+  if (!file.endsWith(".png")) return null;
+  const frame = /(-\d+|^sliderb\d+)(@2x)?\.png$/.test(file);
+  return frame && !/^default-\d(@2x)?\.png$/.test(file) ? null : blank;
+}
+
+/**
+ * One golden case drawn by this backend, against lazer: premultiplied RGB
+ * over black on both sides, over every pixel of lazer's body, with the skin's
+ * images blank so nothing but the body is drawn (`blankImage`) except the
+ * untextured ring render-core puts on the slider's end, which is left out.
+ */
+async function bodyCase(c: SliderBodyCase): Promise<BodyResult> {
+  const width = 1920,
+    height = 1080,
+    scale = height / c.size[1],
+    ini = (fixture.skins as Record<string, string | null>)[c.skin];
+  const { skin } = await loadPlayfieldSkin(
+    async (name) =>
+      name.toLowerCase() === "skin.ini"
+        ? ini
+          ? new Blob([ini])
+          : null
+        : blankImage(name),
+    c.skin,
+  );
+  const map = parseOsu((fixture.maps as Record<string, string>)[c.map]);
+  const target = offscreen.createTarget(width, height);
+  offscreen.setSkin(skin);
+  offscreen.resize(width, height);
+  offscreen.setBeatmap(map, {});
+  offscreen.renderAt(c.time, { target });
+  const pixels = await target.read();
+  target.destroy();
+  const path = c.paths[0],
+    v = path.vertices,
+    reach = path.radius + 2;
+  // The case's slider (on screen from 600 ms before it, AR 9) and its end in
+  // lazer's game space.
+  const slider = map.objects.find(
+      (o) => c.time >= o.time - 600 && c.time <= o.endTime,
+    )!,
+    end = pathPosition(slider.path, slider.repeats % 2 ? 1 : 0),
+    [x0, y0, x1, , , y2] = c.playfield,
+    tail = [
+      x0 + (end.x / 512) * (x1 - x0),
+      y0 + (end.y / 384) * (y2 - y0),
+    ] as const;
+  let left = Infinity,
+    top = Infinity,
+    right = -Infinity,
+    bottom = -Infinity;
+  for (let i = 0; i < v.length; i += 2) {
+    left = Math.min(left, v[i] - reach);
+    right = Math.max(right, v[i] + reach);
+    top = Math.min(top, v[i + 1] - reach);
+    bottom = Math.max(bottom, v[i + 1] + reach);
+  }
+  const errors: number[] = [],
+    lazer = [0, 0, 0];
+  for (
+    let py = Math.max(0, Math.floor(top * scale));
+    py < Math.min(height, bottom * scale);
+    py++
+  )
+    for (
+      let px = Math.max(0, Math.floor(left * scale));
+      px < Math.min(width, right * scale);
+      px++
+    ) {
+      const gx = (px + 0.5) / scale,
+        gy = (py + 0.5) / scale;
+      if (Math.hypot(gx - tail[0], gy - tail[1]) < path.radius * 1.15) continue;
+      lazerPixel(c.paths, gx, gy, lazer);
+      if (Math.max(...lazer) <= 0) continue;
+      const at = (py * width + px) * 4;
+      errors.push(
+        Math.max(
+          ...[0, 1, 2].map((k) =>
+            Math.abs(pixels[at + k] - Math.round(lazer[k] * 255)),
+          ),
+        ),
+      );
+    }
+  errors.sort((a, b) => a - b);
+  return {
+    name: c.name,
+    pixels: errors.length,
+    mean: errors.reduce((a, b) => a + b, 0) / Math.max(1, errors.length),
+    p99: errors[Math.floor(errors.length * 0.99)] ?? 0,
+    max: errors.at(-1) ?? 0,
+  };
+}
+
 let offscreen: Playfield, onscreen: Playfield;
 async function start() {
   offscreen = await createPlayfield({ backend, transparent: true });
@@ -187,6 +317,12 @@ async function start() {
       canvas: canvas.toDataURL("image/png"),
       textureMB: offscreen.textureBytes / 2 ** 20,
     };
+  };
+  window.__bodies = async () => {
+    const results: BodyResult[] = [];
+    for (const c of fixture.cases as unknown as SliderBodyCase[])
+      results.push(await bodyCase(c));
+    return results;
   };
   // A playfield presenting directly on its own canvas loses its device or
   // context, as a GPU reset would, and must draw the same frame afterwards.
