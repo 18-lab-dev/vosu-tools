@@ -23,8 +23,10 @@ renderer.destroy();
 
 - **Map preview** follows the client: its mods, scroll speed and direction, visual settings, and no combo colour normalisation for stable.
 - **Skin studio** draws looping demo maps (three periods, so catch's random offsets follow the loop) with the skin's own combo colours and scroll speed 16.
-- **Practice** draws a generated map without the client's settings, so mania uses lazer's default scroll speed (20).
+- **Practice** draws a generated map with the client's mania scroll speed and direction, like Map preview.
 - **Replay renderer** draws each track into an offscreen target sized by its layout cell at the export resolution (not `playfieldSize`), cleared transparent for its own background and dim, with the replay's input and simulated judgements. It fits the measured playfield to the cell, so taiko strips and mania stages fill it (stage decorations outside the measured box are cut; the stage stays centred like lazer's).
+
+Map preview and Practice pick the mania scroll speed with `@vosu-tools/client-skin`'s `maniaScroll` (the page's field, the tool's setting, the client's, then lazer's default 8) and divide it by the rate their clock runs at, since both clients keep notes moving at the same real-time speed whatever the rate.
 
 `renderAt` takes **absolute beatmap milliseconds**, before rate scaling. Audio/replay clocks belong to callers. Calls can arrive in any order, including backwards seeks; no accumulated animation state or random frame state exists. `applyMods` returns a copy; DT/HT rate metadata never rescales hit times. The caller scales its playback clock.
 

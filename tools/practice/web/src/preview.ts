@@ -2,7 +2,14 @@
 // output map's own clock; the source audio is played at the chosen rate and
 // re-seeked into each trimmed section (silent in the gaps between them).
 import { parseOsu, type Beatmap } from '@vosu-tools/osu-parse';
-import { createPlayfield, describeBackend, playfieldSize, type Playfield, type Skin } from '@vosu-tools/render-core';
+import {
+  createPlayfield,
+  describeBackend,
+  playfieldSize,
+  type Playfield,
+  type RenderOptions,
+  type Skin,
+} from '@vosu-tools/render-core';
 import { sourceTime, type Window } from './time';
 
 export type PreviewMap = { osu: string; rate: number; windows: Window[]; pitch: boolean };
@@ -18,6 +25,8 @@ export class Preview {
   private startTime = 0;
   private frame = 0;
   private skin: Skin | undefined;
+  /** Scroll speed and direction (mania). */
+  private options: RenderOptions = {};
   private showing = 0;
   readonly audio = new Audio();
   private readonly observer = new ResizeObserver(() => this.resize());
@@ -67,7 +76,7 @@ export class Preview {
     const keepTime = this.current !== null;
     this.current = next;
     this.map = map;
-    renderer.setBeatmap(map);
+    renderer.setBeatmap(map, this.options);
     this.audio.playbackRate = next.rate;
     this.audio.preservesPitch = next.pitch;
     // Open on the first object so the playfield shows notes straight away.
@@ -143,6 +152,19 @@ export class Preview {
       this.audio.currentTime = source / 1000;
       if (this.audio.paused) void this.audio.play().catch(() => this.onError('Audio unavailable.'));
     }
+  }
+
+  /**
+   * Mania scroll: render-core's `scrollSpeed` (the preview's clock is the
+   * generated map's own, rate 1) and upward scrolling. Recompiles the shown
+   * map only when either changed.
+   */
+  setScroll(scrollSpeed: number, maniaScrollUp: boolean): void {
+    if (this.options.scrollSpeed === scrollSpeed && this.options.maniaScrollUp === maniaScrollUp) return;
+    this.options = { scrollSpeed, maniaScrollUp };
+    if (!this.renderer || !this.map) return;
+    this.renderer.setBeatmap(this.map, this.options);
+    this.draw();
   }
 
   /** Draw with `skin` (the client's current skin, from ClientSkin). */

@@ -25,6 +25,7 @@ if (!playwrightModule || !evidence || !osuSource || !maniaSource) {
 const { chromium } = await import(playwrightModule);
 const root = path.resolve(import.meta.dir, '../../../..');
 const dist = path.join(root, 'tools/practice/web/dist');
+const mapPreviewDist = path.join(root, 'tools/map-preview/web/dist');
 const manifest = await readFile(path.join(root, 'tools/practice/tool.toml'), 'utf8');
 const routes = Object.fromEntries(['read', 'write'].map((kind) => [kind, JSON.parse(manifest.match(new RegExp(`^${kind} = (\\[.*\\])$`, 'm'))[1])]));
 const settingsSchema = JSON.parse(await readFile(path.join(root, 'tools/practice/settings.json'), 'utf8'));
@@ -126,7 +127,29 @@ export const vosu = Object.freeze({
 // request is validated exactly as vosu does, a rejected one gets vosu's error
 // frame and close 1008, and frames carry values by pointer index.
 let revision = 0;
-const v2 = () => ({ client: 'stable', folders: { skin: currentSkin }, beatmap: { checksum: context.beatmap.checksum } });
+// The client's mania settings as vosu reports stable's (src/api/v2/wire.rs);
+// null leaves them out, as when vosu cannot read them. Map preview, opened on
+// the same host for the scroll comparison, also follows the clock and modes.
+let maniaSpeed = 20;
+let liveTime = 0;
+const RULESET = { osu: 0, taiko: 1, fruits: 2, mania: 3 };
+const v2 = () => ({
+  client: 'stable',
+  state: { number: 5 },
+  folders: { skin: currentSkin },
+  beatmap: {
+    checksum: context.beatmap.checksum,
+    mode: { number: RULESET[context.beatmap.mode] },
+    time: { live: liveTime, rate: 1, running: false },
+  },
+  settings: {
+    mode: { number: RULESET[context.beatmap.mode] },
+    ...(maniaSpeed === null ? {} : {
+      mania: { speedBPMScale: false, usePerBeatmapSpeedScale: false, scrollSpeed: maniaSpeed, scrollDirection: { number: 1, name: 'down' } },
+    }),
+  },
+  play: { mods: { array: [] }, source: null },
+});
 const values = (pointers) => pointers.map((tokens) => at(v2(), tokens));
 function updates(ws) {
   const next = values(ws.data.pointers);
@@ -194,6 +217,7 @@ const host = Bun.serve({
       const file = skinFiles[currentSkin].get(decodeURIComponent(url.pathname.slice('/files/skin/'.length)).toLowerCase());
       return file && (await Bun.file(file).exists()) ? new Response(Bun.file(file)) : new Response(null, { status: 404 });
     }
+    if (url.pathname === '/files/beatmap/file') return new Response(Bun.file(context.beatmap.file));
     if (url.pathname === '/files/beatmap/audio') return new Response(Bun.file(context.beatmap.audio));
     if (url.pathname === '/files/beatmap/background') {
       return context.beatmap.background ? new Response(Bun.file(context.beatmap.background)) : new Response(null, { status: 404 });
@@ -212,6 +236,12 @@ const host = Bun.serve({
       if (!read && request.headers.get('X-Vosu-Tool-Session') !== SESSION) return Response.json({ error: 'write session required' }, { status: 403 });
       return proxy(request, url, services.practice.port, '/tools/practice/api/', TOKENS.practice);
     }
+    // Map preview's built UI, for the scroll comparison (same skin, map and moment).
+    if (url.pathname.startsWith('/tools/map-preview/')) {
+      const relative = url.pathname.slice('/tools/map-preview/'.length) || 'index.html';
+      const file = Bun.file(path.join(mapPreviewDist, path.normalize(relative)));
+      return (await file.exists()) ? new Response(file) : new Response(null, { status: 404 });
+    }
     if (url.pathname.startsWith('/tools/practice/')) {
       const relative = url.pathname.slice('/tools/practice/'.length) || 'index.html';
       const file = Bun.file(path.join(dist, path.normalize(relative)));
@@ -226,6 +256,10 @@ function switchMap(name) {
 }
 function switchSkin(name) {
   currentSkin = name;
+  for (const ws of sockets) if (ws.data.pointers) updates(ws);
+}
+/** A change in the client (the stand-in v2 document) reaches every subscriber. */
+function pushGame() {
   for (const ws of sockets) if (ws.data.pointers) updates(ws);
 }
 
@@ -342,6 +376,173 @@ try {
   check('preview uses the client skin and follows skin changes live', first && followed && back, { skin: await page.textContent('#skin'), title: await page.getAttribute('#skin', 'title') });
   const version = await page.textContent('#version');
   check('difficulty name: BPM integer or one decimal', /\(\d+(\.\d)?bpm\)/.test(version), version);
+
+  // ---- Mania scroll speed: the client's own setting (stable's, as vosu
+  // reports it) followed live, with an override and lazer's default as the
+  // fallback. Practice's generated 1x map is drawn exactly as Map preview
+  // draws the selected map at the same moment and speed: both pages open on
+  // the map's first object (Practice's preview starts there; Map preview
+  // follows the client's paused clock set to it).
+  {
+    const lines = maps.mania.original.toString('utf8').split(/\r?\n/);
+    liveTime = Number(lines[lines.findIndex((l) => l.trim() === '[HitObjects]') + 1].split(',')[2]);
+    maniaSpeed = 15;
+    pushGame();
+    const practice = await open('dark');
+    const mpCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: 'dark' });
+    const mp = await mpCtx.newPage();
+    await mp.addInitScript('{ const request = GPU.prototype.requestAdapter; GPU.prototype.requestAdapter = async function (o) { return (await request.call(this, o)) ?? request.call(this, o); }; }');
+    mp.on('pageerror', (error) => practice.errors.push(`map preview: ${error.message}`));
+    await mp.goto('http://127.0.0.1:25250/tools/map-preview/?presentation=bitmap#theme=dark', { waitUntil: 'networkidle' });
+    const shown = (target, ids, want) => target.waitForFunction(([ids, want]) => {
+      const skin = document.getElementById(ids.skin);
+      return document.getElementById('scroll').placeholder === want.scroll && skin.textContent === want.skin
+        && (document.getElementById(ids.busy).getAttribute('aria-busy') ?? 'false') === 'false';
+    }, [ids, want], { timeout: 30_000 }).then(() => target.waitForTimeout(500)).then(() => true, () => false);
+    const practiceShown = (scroll) => shown(practice.page, { skin: 'skin', busy: 'skin' }, { scroll, skin: SKINS[0] });
+    const mapShown = (scroll) => shown(mp, { skin: 'skin-name', busy: 'skin-panel' }, { scroll, skin: SKINS[0] });
+    const hint = () => practice.page.getAttribute('#scroll-help', 'data-tip');
+    const shots = {};
+    const shoot = async (name, target, selector) => {
+      const png = await target.locator(selector).screenshot();
+      await writeFile(`${evidence}/scroll-${name}.png`, png);
+      shots[name] = png.toString('base64');
+    };
+    const live = [];
+    for (const speed of [15, 30]) {
+      maniaSpeed = speed;
+      pushGame();
+      live.push({ speed, practice: await practiceShown(String(speed)), mapPreview: await mapShown(String(speed)), hint: await hint() });
+      await shoot(`practice-${speed}`, practice.page, '#canvas');
+      await shoot(`map-preview-${speed}`, mp, '#playfield');
+    }
+    await practice.page.screenshot({ path: `${evidence}/scroll-practice-page-30-dark-1920.png` });
+    const fieldShown = await practice.page.evaluate(() => !document.getElementById('scroll-field').hidden && !document.getElementById('scroll-help').hidden);
+    check('mania scroll: Practice follows the client speed live (15 → 30), as Map preview does; the hint names the source',
+      fieldShown && live.every((l) => l.practice && l.mapPreview && l.hint === `Your osu! scroll speed (${l.speed}).`), live);
+    // Override: the field wins over the client (back at 15); clearing it follows the client again.
+    maniaSpeed = 15;
+    pushGame();
+    await practice.page.fill('#scroll', '30');
+    await practice.page.waitForTimeout(500);
+    const overrideHint = await hint();
+    await shoot('practice-override-30', practice.page, '#canvas');
+    await practice.page.fill('#scroll', '');
+    const cleared = await practiceShown('15');
+    // Fallback: vosu reports no mania settings, then lazer's default (8) applies.
+    maniaSpeed = null;
+    pushGame();
+    const fallback = await practiceShown('8');
+    const fallbackHint = await hint();
+    await shoot('practice-default-8', practice.page, '#canvas');
+    check('mania scroll: override wins, blank follows the client, lazer default (8) without a reported speed',
+      overrideHint === 'Set here; clear it to follow osu!.' && cleared && fallback && fallbackHint.includes("lazer's default (8)"),
+      { overrideHint, cleared, fallback, fallbackHint });
+    // Row profiles of the captures in playfield units (both canvases fit the
+    // 480-unit world to their height): mean brightness per world row.
+    const profiles = await practice.page.evaluate(async (images) => {
+      const out = {};
+      for (const [name, b64] of Object.entries(images)) {
+        const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+        const c = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+        c.drawImage(bitmap, 0, 0);
+        const { data, width, height } = c.getImageData(0, 0, bitmap.width, bitmap.height);
+        const sums = new Array(480).fill(0), counts = new Array(480).fill(0);
+        for (let y = 0; y < height; y++) {
+          let sum = 0;
+          for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            sum += 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+          }
+          const row = Math.min(479, Math.floor((y / height) * 480));
+          sums[row] += sum / width;
+          counts[row]++;
+        }
+        out[name] = sums.map((s, i) => s / Math.max(1, counts[i]));
+      }
+      return out;
+    }, shots);
+    const pearson = (a, b) => {
+      const n = a.length, ma = a.reduce((s, v) => s + v, 0) / n, mb = b.reduce((s, v) => s + v, 0) / n;
+      let ab = 0, aa = 0, bb = 0;
+      for (let i = 0; i < n; i++) { ab += (a[i] - ma) * (b[i] - mb); aa += (a[i] - ma) ** 2; bb += (b[i] - mb) ** 2; }
+      return Math.round((ab / Math.sqrt(aa * bb)) * 1000) / 1000;
+    };
+    // Notes above the receptors (world rows 8-330).
+    const field = (name) => profiles[name].slice(8, 330);
+    const same = {
+      at15: pearson(field('practice-15'), field('map-preview-15')),
+      at30: pearson(field('practice-30'), field('map-preview-30')),
+      override30: pearson(field('practice-override-30'), field('map-preview-30')),
+      across15vs30: pearson(field('practice-15'), field('practice-30')),
+    };
+    // Note spacing: the notes (coloured blobs; the receptor rings are grey)
+    // in world units. At the first object's time that note sits on the hit
+    // line (the lowest blob); every other note's distance from it is
+    // speed × time ahead, so at 30 each column's n-th note from the bottom is
+    // twice as far up as at 15.
+    const notes = await practice.page.evaluate(async (images) => {
+      const out = {};
+      for (const [name, b64] of Object.entries(images)) {
+        const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+        const c = new OffscreenCanvas(bitmap.width, bitmap.height).getContext('2d');
+        c.drawImage(bitmap, 0, 0);
+        const { data, width, height } = c.getImageData(0, 0, bitmap.width, bitmap.height);
+        const mask = new Uint8Array(width * height);
+        for (let i = 0; i < mask.length; i++) {
+          const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+          mask[i] = Math.max(r, g, b) > 80 && Math.max(r, g, b) - Math.min(r, g, b) > 40 ? 1 : 0;
+        }
+        const blobs = [];
+        const stack = [];
+        for (let start = 0; start < mask.length; start++) {
+          if (mask[start] !== 1) continue;
+          let n = 0, sx = 0, sy = 0, top = height;
+          mask[start] = 2;
+          stack.push(start);
+          while (stack.length) {
+            const i = stack.pop(), x = i % width, y = (i - x) / width;
+            n++; sx += x; sy += y; top = Math.min(top, y);
+            for (const j of [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1, y > 0 ? i - width : -1, y < height - 1 ? i + width : -1])
+              if (j >= 0 && mask[j] === 1) { mask[j] = 2; stack.push(j); }
+          }
+          // Whole notes only: not cut by the top edge, not specks.
+          if (top > 0 && n > (height / 480) ** 2 * 40)
+            blobs.push({ x: Math.round(((sx / n - width / 2) / height) * 480), y: Math.round(((sy / n) / height) * 4800) / 10 });
+        }
+        out[name] = blobs;
+      }
+      return out;
+    }, { 'practice-15': shots['practice-15'], 'practice-30': shots['practice-30'], 'map-preview-15': shots['map-preview-15'], 'map-preview-30': shots['map-preview-30'] });
+    const columns = (blobs) => {
+      const hit = Math.max(...blobs.map((b) => b.y));
+      const byColumn = new Map();
+      for (const b of blobs) {
+        const key = Math.round(b.x / 8);
+        byColumn.set(key, [...(byColumn.get(key) ?? []), hit - b.y].sort((p, q) => p - q));
+      }
+      return byColumn;
+    };
+    const ratios = [];
+    const at15 = columns(notes['practice-15']), at30 = columns(notes['practice-30']);
+    for (const [key, far] of at30)
+      far.forEach((d, i) => { const near = at15.get(key)?.[i]; if (d > 0 && near > 0) ratios.push(Math.round((d / near) * 100) / 100); });
+    ratios.sort((p, q) => p - q);
+    const spacing = {
+      notes: Object.fromEntries(Object.entries(notes).map(([k, v]) => [k, v.length])),
+      ratios,
+      median: ratios[Math.floor(ratios.length / 2)],
+    };
+    report.scroll = { liveTime, same, spacing, notes };
+    check('mania scroll: Practice matches Map preview at 15 and 30; at 30 notes sit twice as far from the hit line',
+      same.at15 >= 0.95 && same.at30 >= 0.95 && same.override30 >= 0.95 && same.across15vs30 < same.at15 - 0.2
+        && ratios.length >= 3 && ratios.every((r) => Math.abs(r - 2) <= 0.06),
+      { same, spacing });
+    maniaSpeed = 20;
+    pushGame();
+    await mpCtx.close();
+    await practice.ctx.close();
+  }
   await page.waitForFunction((rated) => {
     const label = document.getElementById('timeline-label').textContent;
     return rated ? label.includes('Mania ratings') : label.startsWith('Notes per second');
