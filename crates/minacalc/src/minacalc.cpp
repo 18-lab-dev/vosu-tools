@@ -19,11 +19,13 @@ extern "C" int vosu_minacalc(const NoteInfo* rows, size_t count,
         auto result = ssr ? MinaSDCalc(notes, rate, goal, keys, &calc)
                           : calc.CalcMain(notes, rate, 0.93F);
         if (result.size() != 8) return 1;
+        // Copy every value (NaN included) so the caller can tell why it is non-finite.
+        bool finite = true;
         for (size_t i = 0; i < 8; ++i) {
-            if (!std::isfinite(result[i])) return 2;
+            finite = finite && std::isfinite(result[i]);
             out[i] = result[i];
         }
-        return 0;
+        return finite ? 0 : 2;
     } catch (...) {
         return 3;
     }

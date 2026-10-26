@@ -220,7 +220,7 @@ async fn rates(
                     score: None,
                 },
             )?;
-            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars}));
+            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars,"unrated":d.unrated}));
         }
         Ok(json!({"checksum":md5,"rates":rates}))
     })

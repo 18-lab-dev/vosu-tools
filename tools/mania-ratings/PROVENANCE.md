@@ -30,8 +30,21 @@ Alternatives evaluated:
 
 ## Input semantics
 
-`rosu-map =0.2.1` parses native mania. Only 4K, 6K and 7K are exposed, even though
-this upstream revision also contains 5K logic. Keys must be integral CS.
+`rosu-map =0.2.1` parses native mania with an integral CS of 1–18 (dual-stage
+included). Each calculator rates only the key counts its upstream supports and
+otherwise reports `unrated.<system> = {scope:"keys", reason}` instead of a value:
+MinaCalc 4K/6K/7K (this revision also contains 5K logic, not exposed), Quaver.API
+1K–10K (its `LaneToFinger`, including the 10K two-thumb layout), Interlude 3K–10K
+(`Layout.keys_on_left_hand`), osu!mania stars every key count, Reform 4K only.
+No calculator is ever run on another key count's model. See `KEYMODES.md`.
+
+MinaCalc 527 has no Technical model outside 4K (the 6K/7K/generic models never fill
+`TechBase`), so `msd.technical` is `null` there. Its `Chisel` search stops at 100
+and returns 0 for a skillset past that; non-4K outputs are then scaled by 4/keys,
+so 6K and 7K top out at 66.67 and 57.14 MSD. Past that, upstream returns 0 for the
+skillset and NaN stamina (the cause of the old "MinaCalc failed (2)" rate-curve
+error on hard 7K charts). Such outputs are reported as `unrated.etterna =
+{scope:"rate"}` with the reason; rate curves and local-MSD timelines leave gaps.
 Column is `floor(x * keys / 512)` with x=512 clamped to the last column, matching
 osu's right-edge behavior. Equal float-second timestamps are merged with OR;
 input timestamps remain unscaled and playback rate is passed separately.
@@ -78,7 +91,8 @@ rows grouped by float seconds; production computations reproduce these anchors.
 
 Between anchor MSDs A[n] and A[n+1], value = n + (MSD-A[n])/(A[n+1]-A[n]).
 The label is `Reform floor(value)`. No extrapolation: below dan 1, above dan 10,
-non-finite values, and 6K/7K return `dan:null`. Estimation uses rate-specific MSD,
+non-finite values, and every key count other than 4K return `dan:null` with an
+`unrated.reform` reason. Estimation uses rate-specific MSD,
 not the requested score goal. `experimental:true` is always set. A single map
 cannot certify a course clear: stamina distribution, breaks, LN strain and
 osu!mania's 96% course-clear accuracy rule are not modeled. These are similarity

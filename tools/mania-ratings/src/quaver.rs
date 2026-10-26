@@ -244,7 +244,14 @@ pub fn calculate(map: &Beatmap, rate: f32) -> (f32, Vec<(f32, f32)>) {
         let lane = ((x * keys as f32 / 512.0).floor() as usize).min(keys - 1) + 1;
         let half = keys / 2;
         let hand = lane > half;
-        let finger = if lane <= half {
+        // Upstream LaneToFinger: 10K puts both middle lanes on the thumbs.
+        let finger = if keys == 10 {
+            match lane {
+                1..=4 => 1 << (4 - lane),
+                5 | 6 => 16,
+                _ => 1 << (lane - 7),
+            }
+        } else if lane <= half {
             1 << (half - lane)
         } else if keys % 2 == 1 && lane == half + 1 {
             16

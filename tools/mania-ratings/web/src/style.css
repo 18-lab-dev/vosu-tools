@@ -46,6 +46,7 @@ canvas.plot { touch-action: none; cursor: crosshair; }
 #curve .marker { fill: var(--accent); stroke: var(--bg-sunken); stroke-width: 2; }
 #curve text { fill: var(--muted); font: 400 var(--step--2) var(--font-mono); }
 
+.curve-note { margin: var(--space-1) 0 0; overflow: hidden; font-size: var(--step--1); white-space: nowrap; text-overflow: ellipsis; }
 .ladder { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
 .ladder:empty { display: none; }
 .ladder li { padding-left: var(--space-2); border-left: var(--hair) solid var(--rule); }
