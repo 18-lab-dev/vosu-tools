@@ -46,8 +46,13 @@ export interface RenderTarget {
 export interface DrawCall {
   /** `Globals`, `UNIFORM_FLOATS` floats. */
   uniforms: Float32Array<ArrayBuffer>;
-  /** Scene instance ranges to draw, in order. */
-  chunks: readonly { first: number; count: number }[];
+  /**
+   * Scene instance ranges to draw, in order. `bodies` ranges are slider
+   * bodies: drawn depth-only with the shader's fs_slider first, then again
+   * shading only where the depth is equal (each pixel once, by its nearest
+   * segment). The depth buffer is cleared every frame.
+   */
+  chunks: readonly { first: number; count: number; bodies?: true }[];
   overlays: Float32Array<ArrayBuffer>;
   overlayCount: number;
   /** An offscreen target; the canvas otherwise. */

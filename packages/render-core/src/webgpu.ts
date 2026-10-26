@@ -13,6 +13,13 @@ import {
 } from "./gpu";
 import { FRAME_TABLE_WIDTH, shader } from "./shader";
 
+/**
+ * The slider bodies' depth and stencil (gpu.ts DrawCall), as WebGL2's
+ * default framebuffer: the stencil lets only the first of equally near
+ * segments shade a pixel.
+ */
+const DEPTH_FORMAT: GPUTextureFormat = "depth24plus-stencil8";
+
 class Target implements RenderTarget {
   readonly texture: GPUTexture;
   readonly view: GPUTextureView;
@@ -122,8 +129,18 @@ export async function createWebGpu(
       },
     ],
   });
-  const pipeline = await device
-    .createRenderPipelineAsync({
+  const blend: GPUBlendState = {
+    color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
+  };
+  // Every pipeline shares the pass's depth buffer, which only slider bodies
+  // use (fs_slider: depth-only, then colour where the depth is equal).
+  const make = (
+    entryPoint: "fs" | "fs_slider",
+    writeMask: number,
+    depthStencil: GPUDepthStencilState,
+  ) =>
+    device.createRenderPipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
       vertex: {
         module,
@@ -142,23 +159,33 @@ export async function createWebGpu(
       },
       fragment: {
         module,
-        entryPoint: "fs",
-        targets: [
-          {
-            format,
-            blend: {
-              color: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
-              alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha" },
-            },
-          },
-        ],
+        entryPoint,
+        targets: [{ format, blend, writeMask }],
       },
       primitive: { topology: "triangle-list" },
-    })
-    .catch((error: unknown) =>
-      fail(error instanceof Error ? error : new Error(String(error))),
-    );
-  // A device lost while starting up (e.g. a GPU reset) cannot draw either.
+      depthStencil,
+    });
+  const [pipeline, bodyDepth, bodyColour] = await Promise.all([
+    make("fs", GPUColorWrite.ALL, {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      depthCompare: "always",
+    }),
+    make("fs_slider", 0, {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: true,
+      depthCompare: "less",
+    }),
+    make("fs_slider", GPUColorWrite.ALL, {
+      format: DEPTH_FORMAT,
+      depthWriteEnabled: false,
+      depthCompare: "equal",
+      stencilFront: { compare: "equal", passOp: "increment-clamp" },
+      stencilBack: { compare: "equal", passOp: "increment-clamp" },
+    }),
+  ]).catch((error: unknown) =>
+    fail(error instanceof Error ? error : new Error(String(error))),
+  );
   await Promise.resolve();
   if (lostReason) fail(new Error(lostReason));
   // Only now does the canvas get its WebGPU context.
@@ -191,6 +218,7 @@ export async function createWebGpu(
     table: GPUTexture | undefined,
     bindings: GPUBindGroup | undefined,
     instances: GPUBuffer | undefined,
+    depth: GPUTexture | undefined,
     textureBytes = 0;
   const attachment: GPURenderPassColorAttachment = {
       view: undefined as unknown as GPUTextureView,
@@ -198,8 +226,18 @@ export async function createWebGpu(
       storeOp: "store",
       clearValue: options.clear,
     },
+    depthAttachment: GPURenderPassDepthStencilAttachment = {
+      view: undefined as unknown as GPUTextureView,
+      depthClearValue: 1,
+      depthLoadOp: "clear",
+      depthStoreOp: "discard",
+      stencilClearValue: 0,
+      stencilLoadOp: "clear",
+      stencilStoreOp: "discard",
+    },
     passDescriptor: GPURenderPassDescriptor = {
       colorAttachments: [attachment],
+      depthStencilAttachment: depthAttachment,
     },
     commands: GPUCommandBuffer[] = [];
 
@@ -289,16 +327,40 @@ export async function createWebGpu(
     draw(call) {
       device.queue.writeBuffer(uniformBuffer, 0, call.uniforms);
       const target = call.target as Target | undefined;
-      attachment.view =
-        target?.view ?? context!.getCurrentTexture().createView();
+      const texture = target?.texture ?? context!.getCurrentTexture();
+      attachment.view = target?.view ?? texture.createView();
+      if (depth?.width !== texture.width || depth?.height !== texture.height) {
+        depth?.destroy();
+        depth = device.createTexture({
+          size: [texture.width, texture.height],
+          format: DEPTH_FORMAT,
+          usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        depthAttachment.view = depth.createView();
+      }
       passDescriptor.timestampWrites = call.timestampWrites;
       const encoder = device.createCommandEncoder(),
         pass = encoder.beginRenderPass(passDescriptor);
       pass.setPipeline(pipeline);
       pass.setBindGroup(0, bindings!);
       pass.setVertexBuffer(0, instances!);
-      for (const chunk of call.chunks)
-        pass.draw(6, chunk.count, 0, chunk.first);
+      const chunks = call.chunks;
+      for (let i = 0; i < chunks.length;) {
+        if (!chunks[i].bodies) {
+          pass.draw(6, chunks[i].count, 0, chunks[i].first);
+          i++;
+          continue;
+        }
+        let end = i;
+        while (end < chunks.length && chunks[end].bodies) end++;
+        for (const passPipeline of [bodyDepth, bodyColour]) {
+          pass.setPipeline(passPipeline);
+          for (let j = i; j < end; j++)
+            pass.draw(6, chunks[j].count, 0, chunks[j].first);
+        }
+        pass.setPipeline(pipeline);
+        i = end;
+      }
       if (call.overlayCount) {
         device.queue.writeBuffer(
           overlayBuffer,
@@ -329,6 +391,7 @@ export async function createWebGpu(
       overlayBuffer.destroy();
       atlas?.destroy();
       table?.destroy();
+      depth?.destroy();
       context?.unconfigure();
       owned?.dispose();
     },

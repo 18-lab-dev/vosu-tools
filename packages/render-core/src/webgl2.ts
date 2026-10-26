@@ -35,6 +35,7 @@ function compile(
 class Target implements RenderTarget {
   readonly framebuffer: WebGLFramebuffer;
   private readonly colour: WebGLRenderbuffer;
+  private readonly depth: WebGLRenderbuffer;
   private rendered = false;
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -44,6 +45,15 @@ class Target implements RenderTarget {
     this.colour = gl.createRenderbuffer()!;
     gl.bindRenderbuffer(gl.RENDERBUFFER, this.colour);
     gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, width, height);
+    // Slider bodies' depth and stencil (gpu.ts DrawCall), as the canvas's own.
+    this.depth = gl.createRenderbuffer()!;
+    gl.bindRenderbuffer(gl.RENDERBUFFER, this.depth);
+    gl.renderbufferStorage(
+      gl.RENDERBUFFER,
+      gl.DEPTH24_STENCIL8,
+      width,
+      height,
+    );
     this.framebuffer = gl.createFramebuffer()!;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffer);
     gl.framebufferRenderbuffer(
@@ -51,6 +61,12 @@ class Target implements RenderTarget {
       gl.COLOR_ATTACHMENT0,
       gl.RENDERBUFFER,
       this.colour,
+    );
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER,
+      gl.DEPTH_STENCIL_ATTACHMENT,
+      gl.RENDERBUFFER,
+      this.depth,
     );
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   }
@@ -80,6 +96,7 @@ class Target implements RenderTarget {
   destroy(): void {
     this.gl.deleteFramebuffer(this.framebuffer);
     this.gl.deleteRenderbuffer(this.colour);
+    this.gl.deleteRenderbuffer(this.depth);
   }
 }
 
@@ -95,45 +112,53 @@ export function createWebGl2(options: GpuOptions): Gpu {
   const gl = surface.getContext("webgl2", {
     alpha: false,
     antialias: false,
-    depth: false,
-    stencil: false,
+    depth: true,
+    stencil: true,
     premultipliedAlpha: true,
     preserveDrawingBuffer: false,
     powerPreference: "high-performance",
   }) as WebGL2RenderingContext | null;
   if (!gl) throw new Error("WebGL2 is unavailable");
-  const program = gl.createProgram()!,
-    vertex = compile(gl, gl.VERTEX_SHADER, glsl.vs.code),
-    fragment = compile(gl, gl.FRAGMENT_SHADER, glsl.fs.code);
-  gl.attachShader(program, vertex);
-  gl.attachShader(program, fragment);
-  for (let i = 0; i < ATTRIBUTES; i++)
-    gl.bindAttribLocation(program, i, `_p2vs_location${i}`);
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const log = [
-      gl.getShaderInfoLog(vertex),
-      gl.getShaderInfoLog(fragment),
-      gl.getProgramInfoLog(program),
-    ]
-      .filter(Boolean)
-      .join("\n");
-    throw new Error(`GLSL: ${log || "program did not link"}`);
-  }
-  gl.deleteShader(vertex);
-  gl.deleteShader(fragment);
-  gl.useProgram(program);
-  // WGSL's `g` is one uniform block per stage; both read binding point 0.
   const uniformBuffer = gl.createBuffer()!;
   gl.bindBuffer(gl.UNIFORM_BUFFER, uniformBuffer);
   gl.bufferData(gl.UNIFORM_BUFFER, 96, gl.DYNAMIC_DRAW);
-  for (const block of [glsl.vs.uniforms.g, glsl.fs.uniforms.g]) {
-    const index = gl.getUniformBlockIndex(program, block);
-    if (index !== gl.INVALID_INDEX) gl.uniformBlockBinding(program, index, 0);
-  }
   gl.bindBufferBase(gl.UNIFORM_BUFFER, 0, uniformBuffer);
-  gl.uniform1i(gl.getUniformLocation(program, glsl.fs.textures.atlas), 0);
-  gl.uniform1i(gl.getUniformLocation(program, glsl.vs.textures.frameTable), 1);
+  /** The vertex stage with one fragment entry point (`fs`, or `fs_slider`). */
+  const link = (stage: typeof glsl.fs | typeof glsl.fs_slider) => {
+    const program = gl.createProgram()!,
+      vertex = compile(gl, gl.VERTEX_SHADER, glsl.vs.code),
+      fragment = compile(gl, gl.FRAGMENT_SHADER, stage.code);
+    gl.attachShader(program, vertex);
+    gl.attachShader(program, fragment);
+    for (let i = 0; i < ATTRIBUTES; i++)
+      gl.bindAttribLocation(program, i, `_p2vs_location${i}`);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      const log = [
+        gl.getShaderInfoLog(vertex),
+        gl.getShaderInfoLog(fragment),
+        gl.getProgramInfoLog(program),
+      ]
+        .filter(Boolean)
+        .join("\n");
+      throw new Error(`GLSL: ${log || "program did not link"}`);
+    }
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
+    gl.useProgram(program);
+    for (const block of [glsl.vs.uniforms.g, stage.uniforms.g]) {
+      const index = gl.getUniformBlockIndex(program, block);
+      if (index !== gl.INVALID_INDEX) gl.uniformBlockBinding(program, index, 0);
+    }
+    gl.uniform1i(gl.getUniformLocation(program, stage.textures.atlas), 0);
+    gl.uniform1i(
+      gl.getUniformLocation(program, glsl.vs.textures.frameTable),
+      1,
+    );
+    return program;
+  };
+  const bodies = link(glsl.fs_slider),
+    program = link(glsl.fs);
 
   const vao = gl.createVertexArray()!;
   gl.bindVertexArray(vao);
@@ -332,16 +357,47 @@ export function createWebGl2(options: GpuOptions): Gpu {
       const target = call.target as Target | undefined;
       gl.bindFramebuffer(gl.FRAMEBUFFER, target?.framebuffer ?? null);
       gl.viewport(0, 0, target?.width ?? width, target?.height ?? height);
-      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.depthMask(true);
+      gl.stencilMask(0xff);
+      gl.clear(
+        gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT,
+      );
       gl.bindBuffer(gl.UNIFORM_BUFFER, uniformBuffer);
       gl.bufferSubData(gl.UNIFORM_BUFFER, 0, call.uniforms);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, atlas);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_2D, table);
-      for (const chunk of call.chunks) {
-        point(instanceBuffer, chunk.first);
-        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, chunk.count);
+      const chunks = call.chunks;
+      for (let i = 0; i < chunks.length; ) {
+        if (!chunks[i].bodies) {
+          point(instanceBuffer, chunks[i].first);
+          gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, chunks[i].count);
+          i++;
+          continue;
+        }
+        let end = i;
+        while (end < chunks.length && chunks[end].bodies) end++;
+        // Depth only (nearest segment per pixel), then colour where equal,
+        // once per pixel (the stencil turns away equally near segments).
+        gl.useProgram(bodies);
+        gl.enable(gl.DEPTH_TEST);
+        gl.stencilFunc(gl.EQUAL, 0, 0xff);
+        gl.stencilOp(gl.KEEP, gl.KEEP, gl.INCR);
+        for (const colour of [false, true]) {
+          gl.colorMask(colour, colour, colour, colour);
+          gl.depthMask(!colour);
+          gl.depthFunc(colour ? gl.EQUAL : gl.LESS);
+          if (colour) gl.enable(gl.STENCIL_TEST);
+          for (let j = i; j < end; j++) {
+            point(instanceBuffer, chunks[j].first);
+            gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, chunks[j].count);
+          }
+        }
+        gl.disable(gl.DEPTH_TEST);
+        gl.disable(gl.STENCIL_TEST);
+        gl.useProgram(program);
+        i = end;
       }
       if (call.overlayCount) {
         gl.bindBuffer(gl.ARRAY_BUFFER, overlayBuffer);
@@ -390,6 +446,7 @@ export function createWebGl2(options: GpuOptions): Gpu {
       gl.deleteBuffer(uniformBuffer);
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
+      gl.deleteProgram(bodies);
     },
   };
   return gpu;

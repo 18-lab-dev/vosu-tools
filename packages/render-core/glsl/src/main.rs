@@ -41,6 +41,7 @@ fn run() -> Result<String, String> {
     for (stage, entry) in [
         (naga::ShaderStage::Vertex, "vs"),
         (naga::ShaderStage::Fragment, "fs"),
+        (naga::ShaderStage::Fragment, "fs_slider"),
     ] {
         // WebGPU's clip space is kept: render-core flips rows itself where
         // WebGL2's bottom-up framebuffers differ (readback), and draws at z = 0.

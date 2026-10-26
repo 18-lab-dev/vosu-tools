@@ -151,7 +151,25 @@ compared by `test/judgementGolden.test.ts`); and for replay-driven gameplay
 objects, the cursor), with lazer's own autoplay replay as render-core's
 `input`, stepped at 60 Hz (`test/gameplayGolden.ts`, fixture
 `test/fixtures/gameplay-golden.json`, compared by
-`test/gameplayGolden.test.ts`).
+`test/gameplayGolden.test.ts`). The same harness dumps lazer's slider bodies
+(each `DrawableSliderPath`'s vertices, radius, alpha and `SmoothPath` texture)
+for `test/sliderBodyGolden.ts`; `test/sliderBodyCompare.ts` rebuilds them per
+pixel and compares render-core's slider capsules (fixture
+`test/fixtures/slider-bodies.json`, compared by `test/sliderBody.test.ts`).
+
+Slider bodies follow osu!framework 2026.921.1's `Path` drawing
+(`Graphics/Lines/Path.cs`, `SmoothPath.cs`, `Resources/Shaders/sh_Path.fs`,
+`sh_PathPrepass.fs`): the body colour profile (`ColourAt`) is baked into a
+texture as wide as the path radius (RGBA8, the outer 2 % faded in), and each
+pixel takes the texel at its distance from the nearest path segment. render-core
+draws one quad per segment, keeps the nearest one per pixel with a depth
+pass and samples the same RGBA8 profile in the shader, so stacked capsules no
+longer blend into bands. Each quad covers only the pixels its segment can be
+nearest to (`bodySegments` in `src/scene.ts`: the segment's rectangle, reaching
+radius · sin(θ / 2) past a joint turning by θ and the full radius past the
+path's ends and the snaking head), so a pixel is drawn by a few quads rather
+than by every capsule within a radius of it; `test/body-segments.test.ts`
+checks the coverage.
 
 `test/reference/VosuManiaLayout.cs` is a test-only harness that runs lazer's
 own `DrawableManiaRuleset` headless against a skin folder; it is never
