@@ -63,6 +63,7 @@ test("fields map from the v2 document", () => {
     hitLighting: false,
     beatmapColours: null,
     snakingInSliders: false,
+    snakingOutSliders: true,
     comboColourNormalisation: 0.35,
   });
   expect(state.client).toBe("lazer");
@@ -77,6 +78,7 @@ test("fields map from the v2 document", () => {
     hitLighting: false,
     beatmapColours: false,
     snakingIn: false,
+    snakingOut: true,
     comboColourNormalisation: 0.35,
   });
   // Stable (and older vosu) report none: unknown.

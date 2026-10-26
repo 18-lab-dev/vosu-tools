@@ -8,7 +8,7 @@
  *     runs lazer (test/reference/VosuLayout.cs with `Paths`) on the synthetic
  *     sliders below (tight S curves, loops tighter than the body, a repeat)
  *     at CS 4 and 6, with a legacy skin's slider colours and with the classic
- *     skin, and stores its slider paths as test/fixtures/slider-bodies.json
+ *     skin, fully shown, snaking in (fading in) and snaking out, and stores its slider paths as test/fixtures/slider-bodies.json
  *     for test/sliderBody.test.ts.
  *   bun test/sliderBodyGolden.ts --osu ~/ppy-osu --skin <dir> --map <map.osu>
  *       --time 30000[,31000]
@@ -24,6 +24,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { approachTime, parseOsu } from "@vosu-tools/osu-parse";
 import { readSkinFolder } from "./goldenFiles";
 import { runLazer } from "./layoutGolden";
 import type { LayoutCase } from "./layoutCompare";
@@ -113,22 +114,35 @@ function writeFixtures(osu: string, dotnet: string): void {
   }
   for (const cs of [4, 6]) {
     writeFileSync(join(work, `cs${cs}.osu`), sliderMap(cs));
+    const map = parseOsu(sliderMap(cs)),
+      preempt = approachTime(map.difficulty.ar);
     for (const skin of Object.keys(SKINS))
-      for (const [slider, line] of SLIDERS) {
-        const name = `${slider}-cs${cs}-${skin}`;
-        // Fully snaked in, before the head is hit.
-        times[name] = Number(line.split(",")[2]) - 100;
-        cases.push({
-          name,
-          ruleset: "osu",
-          skin: join(work, skin),
-          map: join(work, `cs${cs}.osu`),
-          width: 1365.3334,
-          height: 768,
-          time: times[name],
-          mapColours: true,
-          paths: true,
-        });
+      for (const [index, [slider]] of SLIDERS.entries()) {
+        const o = map.objects[index],
+          lastSpan =
+            o.time + ((o.endTime - o.time) * (o.repeats - 0.5)) / o.repeats;
+        for (const [stage, time] of [
+          // Fully snaked in, before the head is hit.
+          ["", o.time - 100],
+          // Fading in, 60 % of the path shown (it snakes in over preempt / 3).
+          ["-snaking-in", o.time - preempt + 0.2 * preempt],
+          // Halfway through the last span: the body ends at the ball.
+          ["-snaking-out", lastSpan],
+        ] as const) {
+          const name = `${slider}${stage}-cs${cs}-${skin}`;
+          times[name] = time;
+          cases.push({
+            name,
+            ruleset: "osu",
+            skin: join(work, skin),
+            map: join(work, `cs${cs}.osu`),
+            width: 1365.3334,
+            height: 768,
+            time,
+            mapColours: true,
+            paths: true,
+          });
+        }
       }
   }
   const results = runLazer(osu, dotnet, cases) as unknown as Dumped[];
