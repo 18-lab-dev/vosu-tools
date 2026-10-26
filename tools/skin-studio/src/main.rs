@@ -1,11 +1,12 @@
 mod anim;
 mod build;
 mod library;
+mod uploads;
 
 use axum::{
     Json, Router,
-    body::Body,
-    extract::{Path as UrlPath, Query, State},
+    body::{Body, Bytes},
+    extract::{DefaultBodyLimit, Path as UrlPath, Query, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -46,6 +47,8 @@ pub struct App {
     pub known: Arc<Mutex<Option<Known>>>,
     /// Accepted .osk exports by one-time id, each downloaded at most once.
     exports: Arc<Mutex<HashMap<String, build::Pending>>>,
+    /// Images dropped from the desktop (canonical; `uploads::KEY`).
+    pub uploads: Arc<Path>,
 }
 
 async fn list(State(app): State<App>) -> Result<Json<Library>, Failure> {
@@ -402,6 +405,71 @@ async fn download(
     Ok(response)
 }
 
+#[derive(Deserialize)]
+struct UploadQuery {
+    group: String,
+    name: String,
+}
+#[derive(Serialize)]
+struct Uploaded {
+    /// The file under `uploads::KEY`: `<group>/<name>`.
+    name: String,
+    size: usize,
+    width: u32,
+    height: u32,
+}
+/// Keeps one dropped image (write route) for mix drafts to copy from.
+async fn upload(
+    State(app): State<App>,
+    Query(query): Query<UploadQuery>,
+    body: Bytes,
+) -> Result<Json<Uploaded>, Failure> {
+    let group = uploads::group(&query.group)?;
+    let name = uploads::name(&query.name)?;
+    if body.len() as u64 > uploads::MAX_BYTES {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!("{name} exceeds 1 MiB, the most vosu passes to a tool."),
+        ));
+    }
+    let (width, height) = uploads::image(name, &body)?;
+    let (dir, group, name) = (app.uploads.clone(), group.to_owned(), name.to_owned());
+    let size = body.len();
+    let stored = tokio::task::spawn_blocking(move || uploads::store(&dir, &group, &name, &body))
+        .await
+        .map_err(failure)??;
+    Ok(Json(Uploaded {
+        name: stored,
+        size,
+        width,
+        height,
+    }))
+}
+
+#[derive(Deserialize)]
+struct RemoveUploads {
+    /// Dropped files as `<group>/<name>`: exactly these are deleted.
+    names: Vec<String>,
+}
+#[derive(Serialize)]
+struct Removed {
+    files: usize,
+    bytes: u64,
+}
+/// Deletes the dropped files the page names (write route). The page decides
+/// which are unused and asks the user first; the service never guesses.
+async fn remove_uploads(
+    State(app): State<App>,
+    Json(request): Json<RemoveUploads>,
+) -> Result<Json<Removed>, Failure> {
+    let _guard = app.writes.lock().await;
+    let dir = app.uploads.clone();
+    let (files, bytes) = tokio::task::spawn_blocking(move || uploads::remove(&dir, &request.names))
+        .await
+        .map_err(failure)??;
+    Ok(Json(Removed { files, bytes }))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -414,6 +482,11 @@ pub fn router(app: App) -> Router {
         .route("/v1/build", post(create))
         .route("/v1/exports", post(export))
         .route("/v1/exports/{id}", get(download))
+        .route(
+            "/v1/uploads",
+            post(upload).layer(DefaultBodyLimit::max(uploads::MAX_BYTES as usize + 1)),
+        )
+        .route("/v1/uploads/remove", post(remove_uploads))
         .with_state(app)
 }
 
@@ -426,6 +499,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
         Err(e) => return Err(e.into()),
     };
+    let uploads = uploads::open(&env.data_dir)?;
     let app = App {
         client: env.client(),
         http: reqwest::Client::new(),
@@ -435,6 +509,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         added_file: added_file.into(),
         known: Arc::new(Mutex::new(None)),
         exports: Arc::new(Mutex::new(HashMap::new())),
+        uploads: uploads.into(),
     };
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())

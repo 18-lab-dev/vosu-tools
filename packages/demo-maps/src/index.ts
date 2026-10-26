@@ -7,7 +7,7 @@ import { parseOsu, type Beatmap, type Ruleset } from "@vosu-tools/osu-parse";
 import osuText from "../maps/osu.osu?raw";
 import taikoText from "../maps/taiko.osu?raw";
 import catchText from "../maps/catch.osu?raw";
-import { MANIA_KEYS, MANIA_PERIOD, maniaOsu } from "./mania";
+import { MANIA_KEYS, MANIA_PERIOD, maniaOsu, maniaStillNotes } from "./mania";
 
 export { MANIA_KEYS } from "./mania";
 export type DemoId = "osu" | "taiko" | "fruits" | `mania-${number}k`;
@@ -129,3 +129,10 @@ export function demoLoop(id: DemoId): DemoLoop {
   }
   return { demo: d, beatmap, start: d.period, length: d.period };
 }
+
+/**
+ * A still mania stage of `keys` columns to draw at time 0 with no key held:
+ * every column shows its key, a hold (head, body, tail) and a note.
+ */
+export const maniaStill = (keys: number): Beatmap =>
+  parseOsu(maniaOsu(keys, maniaStillNotes(keys)));

@@ -29,16 +29,23 @@ test("skinned sliders use the client body profile; unskinned keep the flat look"
   const legacyShapes = shapes(legacy.data);
   expect(legacyShapes).toContain(12);
   expect(legacyShapes).not.toContain(2);
-  // Shadow pass (border + 10), then border (+border), then body (−border).
+  // One capsule per path segment carrying the whole profile (shadow, border
+  // and body; shape parameter: the border portion), drawn as slider bodies.
   const borders: number[] = [];
   for (let i = 0; i < legacy.count; i++)
     if (legacy.data[i * 24 + 20] === 12) borders.push(legacy.data[i * 24 + 21]);
-  expect(borders[0]).toBeCloseTo(10.1875);
-  expect(borders).toContainEqual(expect.closeTo(0.1875, 5));
-  expect(borders.at(-1)).toBeCloseTo(-0.1875);
-  expect(borders.findLastIndex((b) => b > 5)).toBeLessThan(
-    borders.findIndex((b) => b > 0 && b < 5),
+  expect(borders.length).toBe(
+    parseOsu(source).objects.reduce(
+      (n, o) => n + (o.type & 2 ? o.path.length - 1 : 0),
+      0,
+    ),
   );
+  expect(new Set(borders)).toEqual(new Set([0.1875]));
+  const bodies = legacy.chunks.filter((c) => c.bodies);
+  expect(bodies.reduce((n, c) => n + c.count, 0)).toBe(borders.length);
+  for (const c of bodies)
+    for (let i = c.first; i < c.first + c.count; i++)
+      expect(legacy.data[i * 24 + 20]).toBe(12);
   // The profile code (legacy = 1, opacity 0.7) rides in the UV slot.
   const first = legacyShapes.indexOf(12);
   expect(legacy.data[first * 24 + 19]).toBeCloseTo(10.7, 5);

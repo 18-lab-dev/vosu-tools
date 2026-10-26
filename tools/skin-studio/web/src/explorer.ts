@@ -36,6 +36,13 @@ export interface ExplorerHost {
   group(ref: AssetRef, ini: string): string | undefined;
   showInElements(ref: AssetRef, skin: string): void;
   status(text: string): void;
+  /** The Keymodes screen: its selected slot, assigning to it, dragging onto slots. */
+  keymodes: {
+    /** The selected slot's label (`column 3 note`), or null. */
+    target(): string | null;
+    assign(skin: string, name: string): void;
+    drag(data: DataTransfer, skin: string, name: string): void;
+  };
 }
 
 const ROW = 32;
@@ -74,6 +81,7 @@ export class Explorer {
   #details = $("#x-details");
   #count = $("#x-count");
   #use = $<HTMLButtonElement>("#x-use");
+  #keymodes = $<HTMLButtonElement>("#x-keymodes");
 
   constructor(host: ExplorerHost) {
     this.#host = host;
@@ -90,6 +98,10 @@ export class Explorer {
     $("#x-grouped").onclick = () => this.#setGrouped(true);
     $("#x-flat").onclick = () => this.#setGrouped(false);
     this.#use.onclick = () => this.#useSelection();
+    this.#keymodes.onclick = () => {
+      const unit = this.#keymodeUnit();
+      if (unit && this.#skin) this.#host.keymodes.assign(this.#skin, unit.name);
+    };
     this.#list.addEventListener("scroll", () => this.#schedule());
     this.#list.addEventListener("keydown", (e) => this.#key(e));
     new ResizeObserver(() => this.#schedule()).observe(this.#list);
@@ -389,6 +401,21 @@ export class Explorer {
       : selected.length
         ? `${selected.length} selected${units.length !== selected.length ? ` · ${units.length} assets` : ""}`
         : `${n} ${noun}`;
+    const target = this.#host.keymodes.target();
+    const unit = this.#keymodeUnit();
+    this.#keymodes.disabled = !unit || !target;
+    this.#keymodes.textContent = target ? `Use as ${target}` : "Use in Keymodes";
+    this.#keymodes.title = !target
+      ? "Select a slot on the Keymodes tab first"
+      : unit
+        ? `Set ${target} to ${unit.name} and show it on the Keymodes tab`
+        : "Select one image";
+  }
+
+  /** The one image selected, for a Keymodes slot. */
+  #keymodeUnit() {
+    const units = rowUnits(this.#selectedRows());
+    return units.length === 1 && units[0].kind === "image" ? units[0] : undefined;
   }
 
   #schedule() {
@@ -502,6 +529,7 @@ export class Explorer {
         class: `x-row${index === this.#active ? " active" : ""}`,
         ariaSelected: String(this.#selected.has(row.id)),
         title: row.files.join("\n"),
+        draggable: row.unit?.kind === "image",
         onclick: (event: MouseEvent) => {
           this.#pick(
             index,
@@ -514,6 +542,11 @@ export class Explorer {
           this.#list.focus({ preventScroll: true });
         },
         ondblclick: () => this.#useSelection(),
+        // Images drag onto Keymodes slots (the Keymodes tab opens on hover).
+        ondragstart: (event: DragEvent) => {
+          if (row.unit?.kind !== "image" || !event.dataTransfer) return;
+          this.#host.keymodes.drag(event.dataTransfer, skin, row.unit.name);
+        },
       },
       h("span", { class: "x-thumb" }, thumb),
       h(

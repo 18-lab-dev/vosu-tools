@@ -4,7 +4,7 @@ import {
   pathPosition,
   scrollPosition,
 } from "@vosu-tools/osu-parse";
-import type { Beatmap, HitObject, Mod } from "@vosu-tools/osu-parse";
+import type { Beatmap, HitObject, Mod, Point } from "@vosu-tools/osu-parse";
 import { normaliseComboColour } from "./colour";
 import { catchPreempt, compileCatch } from "./fruits";
 import {
@@ -115,7 +115,18 @@ export function sceneScope(map: Beatmap, options: RenderOptions = {}): SkinScope
 
 export interface Scene {
   data: Float32Array<ArrayBuffer>;
-  chunks: { first: number; count: number; from: number; until: number }[];
+  /**
+   * Instance ranges in draw order, culled by lifetime. `bodies` marks osu!
+   * slider bodies, which the backends draw with the slider passes
+   * (shader.ts fs_slider): depth first, then colour where the depth is equal.
+   */
+  chunks: {
+    first: number;
+    count: number;
+    from: number;
+    until: number;
+    bodies?: true;
+  }[];
   count: number;
   preempt: number;
   speed: number;
@@ -145,6 +156,62 @@ const defaultComboColours: readonly (readonly number[])[] = [
   [242 / 255, 24 / 255, 57 / 255],
 ];
 /** Packed 6xvec4 instance ABI: geometry, lifetime, tint, motion, UV, shape parameters. */
+/** A slider body segment and how far its quad reaches past each end. */
+export interface BodySegment {
+  a: Point;
+  b: Point;
+  length: number;
+  angle: number;
+  before: number;
+  after: number;
+}
+
+/**
+ * The quads that draw a slider body's capsules (radius `radius`): one per path
+ * segment, covering only the pixels that segment can be nearest to. A pixel
+ * whose nearest path point lies inside a segment is in that segment's
+ * rectangle; one nearest to a joint turning by θ lies in the sector between
+ * the two segments' normals, which each neighbour covers half of by reaching
+ * radius · sin(θ / 2) past the joint (radius past the path's ends). The depth
+ * pass then picks the nearest of the few quads over each pixel instead of
+ * every capsule within a radius, the same pixels at a fraction of the
+ * overdraw. One osu! pixel of slack keeps rasterisation edges covered.
+ */
+export function bodySegments(
+  path: readonly Point[],
+  radius: number,
+): BodySegment[] {
+  const out: BodySegment[] = [];
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1],
+      b = path[i];
+    out.push({
+      a,
+      b,
+      length: Math.hypot(b.x - a.x, b.y - a.y),
+      angle: Math.atan2(b.y - a.y, b.x - a.x),
+      before: radius,
+      after: radius,
+    });
+  }
+  for (let i = 1; i < out.length; i++) {
+    const p = out[i - 1],
+      q = out[i];
+    if (p.length <= 1e-6 || q.length <= 1e-6) continue;
+    const dot =
+      ((p.b.x - p.a.x) * (q.b.x - q.a.x) + (p.b.y - p.a.y) * (q.b.y - q.a.y)) /
+      (p.length * q.length);
+    // sin(θ / 2) for the turn θ between the two directions.
+    const reach = Math.min(
+      radius,
+      radius * Math.sqrt(Math.max(0, (1 - Math.min(1, dot)) / 2)) + 1,
+    );
+    p.after = reach;
+    q.before = reach;
+  }
+  return out;
+}
+
 export function compileScene(
   map: Beatmap,
   options: RenderOptions,
@@ -157,6 +224,8 @@ export function compileScene(
     hyper: Scene["hyper"] = [],
     states: Scene["catcherStates"];
   const values: number[] = [],
+    /** Instances [first, end) of skinned slider bodies. */
+    bodies = [Infinity, 0],
     preempt = approachTime(map.difficulty.ar),
     radius = circleRadius(map.difficulty.cs),
     catcher: { time: number; x: number; y?: number }[] = [];
@@ -482,8 +551,9 @@ export function compileScene(
     // Hit lighting and new-style judgement pieces sit under the hit objects.
     judged?.below();
     // Slider tracks sit below all hit objects. Skinned sliders follow the
-    // client's body profile: all border capsules of a slider first, then all
-    // body capsules, so joints between path segments never show a border.
+    // client's body profile, one capsule per path segment drawn by the
+    // renderer's slider passes (`bodies`): each pixel takes its colour from
+    // the segment it is nearest to, as osu!framework's Path draws them.
     const sliderStyle =
       skin?.style?.slider ?? (skin ? legacySliderStyle : undefined);
     const profileCode = sliderStyle
@@ -505,51 +575,46 @@ export function compileScene(
             edge =
               sliderStyle.profile === "argon" ? colour : border.slice(0, 3),
             custom = [edge[0], edge[1], edge[2], profileCode] as const;
-          // Pass 2 (legacy only) draws the soft outer shadow, 1 the border,
-          // -1 the body; shape parameter: border portion, +10 for shadows.
-          for (const pass of sliderStyle.profile === "legacy"
-            ? [2, 1, -1]
-            : [1, -1]) {
-            const r = pass > 0 ? outer : outer * (1 - sliderStyle.border);
-            let cumulative = 0;
-            for (let i = 1; i < o.path.length; i++) {
-              const a = o.path[i - 1],
-                b = o.path[i],
-                len = Math.hypot(b.x - a.x, b.y - a.y);
-              cumulative += len;
-              const reveal =
-                o.time -
-                preempt +
-                (options.snakingIn === false
-                  ? 0
-                  : Math.min(1, cumulative / Math.max(1, o.length)) *
-                    preempt *
-                    0.4);
-              add(
-                (a.x + b.x) / 2 - offset,
-                (a.y + b.y) / 2 - offset,
-                len + r * 2,
-                r * 2,
-                o.time,
-                o.endTime,
-                reveal,
-                o.endTime + 180,
-                accent,
-                12,
-                0,
-                Math.atan2(b.y - a.y, b.x - a.x),
-                0,
-                0,
-                "",
-                pass === 2
-                  ? sliderStyle.border + 10
-                  : pass * sliderStyle.border,
-                0,
-                0,
-                custom,
-              );
-            }
+          bodies[0] = Math.min(bodies[0], values.length / 24);
+          const segments = bodySegments(o.path, outer);
+          let cumulative = 0;
+          const revealAt = (length: number) =>
+            o.time -
+            preempt +
+            (options.snakingIn === false
+              ? 0
+              : Math.min(1, length / Math.max(1, o.length)) * preempt * 0.4);
+          for (const [i, segment] of segments.entries()) {
+            const { a, b, length } = segment;
+            cumulative += length;
+            const next = segments[i + 1];
+            // Shape parameter: the border's portion of the radius. The quad
+            // reaches `before` / `after` past the segment's ends (the full
+            // radius at the path's ends, and at the snaking head until the
+            // next segment shows: q is when it does).
+            add(
+              (a.x + b.x) / 2 - offset,
+              (a.y + b.y) / 2 - offset,
+              length + outer * 2,
+              outer * 2,
+              o.time,
+              o.endTime,
+              revealAt(cumulative),
+              o.endTime + 180,
+              accent,
+              12,
+              0,
+              segment.angle,
+              segment.before,
+              segment.after,
+              "",
+              sliderStyle.border,
+              next ? revealAt(cumulative + next.length) : -1e9,
+              0,
+              custom,
+            );
           }
+          bodies[1] = values.length / 24;
           continue;
         }
         let cumulative = 0;
@@ -1056,17 +1121,28 @@ export function compileScene(
   }
   const data = new Float32Array(values),
     count = values.length / 24,
-    chunks: Scene["chunks"] = [];
-  for (let first = 0; first < count; first += 128) {
-    const n = Math.min(128, count - first);
-    let from = Infinity,
-      until = -Infinity;
-    for (let i = first; i < first + n; i++) {
-      from = Math.min(from, data[i * 24 + 6]);
-      until = Math.max(until, data[i * 24 + 7]);
+    chunks: Scene["chunks"] = [],
+    ranges: [number, number, boolean][] =
+      bodies[1] > bodies[0]
+        ? [
+            [0, bodies[0], false],
+            [bodies[0], bodies[1], true],
+            [bodies[1], count, false],
+          ]
+        : [[0, count, false]];
+  for (const [start, end, body] of ranges)
+    for (let first = start; first < end; first += 128) {
+      const n = Math.min(128, end - first);
+      let from = Infinity,
+        until = -Infinity;
+      for (let i = first; i < first + n; i++) {
+        from = Math.min(from, data[i * 24 + 6]);
+        until = Math.max(until, data[i * 24 + 7]);
+      }
+      chunks.push(
+        body ? { first, count: n, from, until, bodies: true } : { first, count: n, from, until },
+      );
     }
-    chunks.push({ first, count: n, from, until });
-  }
   return {
     data,
     chunks,

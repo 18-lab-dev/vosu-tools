@@ -76,3 +76,98 @@ test("asset completion high resolution animations and font digits", () => {
 test("non-image files cannot satisfy image references", () => {
   expect(hasAsset("audio.wav", ["audio.wav"])).toBe(false);
 });
+
+import {
+  addManiaBlock,
+  columnKeys,
+  imagePathValue,
+  maniaKeyCounts,
+  maniaLists,
+  maniaValue,
+  setManiaValue,
+} from "./index";
+
+test("per-column [Mania] keys and list lengths for each key count", () => {
+  const images = (column: number) =>
+    columnKeys(column)
+      .filter((k) => k.type === "image")
+      .map((k) => k.key);
+  expect(images(0)).toEqual([
+    "KeyImage0",
+    "KeyImage0D",
+    "NoteImage0",
+    "NoteImage0H",
+    "NoteImage0L",
+    "NoteImage0T",
+  ]);
+  expect(images(6).at(-1)).toBe("NoteImage6T");
+  // Colours count from 1 (osu! wiki: Colour#, ColourLight#).
+  const colours = columnKeys(0).filter((k) => k.pattern.startsWith("Colour"));
+  expect(colours.map((k) => [k.key, k.type])).toEqual([
+    ["Colour1", "rgba"],
+    ["ColourLight1", "rgb"],
+  ]);
+  for (const keys of [1, 4, 7, 10, 18]) {
+    const lengths = Object.fromEntries(
+      maniaLists(keys).map((s) => [s.key, s.length]),
+    );
+    expect(lengths).toEqual({
+      ColumnSpacing: keys - 1,
+      ColumnWidth: keys,
+      ColumnLineWidth: keys + 1,
+      LightingNWidth: keys,
+      LightingLWidth: keys,
+    });
+  }
+});
+
+const skinIni =
+  "\uFEFF// mine\r\n[General]\r\nName: X\r\n\r\n[Mania]\r\n    Keys: 4\r\n    NoteImage0: old // keep me?\r\n    ColumnWidth: 40\r\n\r\n[Mania]\r\nKeys: 4\r\nNoteImage0: ignored\r\n";
+
+test("[Mania] values read as osu! reads them", () => {
+  expect(maniaValue(skinIni, 4, "NoteImage0")).toBe("old");
+  expect(maniaValue(skinIni, 7, "NoteImage0")).toBeUndefined();
+  expect(maniaValue(skinIni, 4, "KeyImage0")).toBeUndefined();
+  expect(maniaKeyCounts(parse(skinIni))).toEqual([4]);
+  // The last occurrence in a block wins.
+  expect(maniaValue("[Mania]\nKeys: 7\nKeyImage0: a\nKeyImage0: b\n", 7, "KeyImage0")).toBe("b");
+});
+
+test("setting [Mania] values keeps everything else byte for byte", () => {
+  const set = setManiaValue(skinIni, 4, "NoteImage0", "skin-studio/4k/note");
+  expect(set).toBe(skinIni.replace("NoteImage0: old // keep me?", "NoteImage0: skin-studio/4k/note"));
+  // A new key follows the block's last entry, indented like it.
+  const added = setManiaValue(skinIni, 4, "KeyImage1D", "keys/down");
+  expect(added).toBe(skinIni.replace("ColumnWidth: 40\r\n", "ColumnWidth: 40\r\n    KeyImage1D: keys/down\r\n"));
+  expect(maniaValue(added, 4, "KeyImage1D")).toBe("keys/down");
+  // Removing restores the text; the second 4K block is never touched.
+  expect(setManiaValue(added, 4, "KeyImage1D", undefined)).toBe(skinIni);
+  expect(setManiaValue(skinIni, 4, "Absent", undefined)).toBe(skinIni);
+  // A missing block is appended in the file's line endings.
+  const seven = setManiaValue(skinIni, 7, "NoteImage3", "n");
+  expect(seven).toBe(skinIni + "\r\n[Mania]\r\nKeys: 7\r\nNoteImage3: n\r\n");
+  expect(maniaKeyCounts(parse(seven))).toEqual([4, 7]);
+  // LF files, a last line without a newline, duplicates.
+  expect(setManiaValue("[Mania]\nKeys: 7\nKeyImage0: a\nKeyImage0: b", 7, "KeyImage0", "c")).toBe(
+    "[Mania]\nKeys: 7\nKeyImage0: c\n",
+  );
+  expect(setManiaValue("[Mania]\nKeys: 7", 7, "KeyImage0", "c")).toBe("[Mania]\nKeys: 7\nKeyImage0: c");
+  expect(setManiaValue("[Mania]\nKeys: 7\nKeyImage0: c", 7, "KeyImage0", undefined)).toBe("[Mania]\nKeys: 7");
+  expect(() => setManiaValue(skinIni, 4, "Keys", "5")).toThrow();
+  expect(() => setManiaValue(skinIni, 4, "NoteImage0", "a\nb")).toThrow();
+});
+
+test("image paths become skin.ini values: relative, forward slashes, no extension", () => {
+  expect(imagePathValue("skin-studio\\7k\\note@2x.PNG")).toBe("skin-studio/7k/note");
+  expect(imagePathValue("./Circles/Baby Pink.jpg")).toBe("Circles/Baby Pink");
+  expect(imagePathValue("arrow.left.png")).toBe("arrow.left");
+  expect(imagePathValue("note-0.png")).toBe("note-0");
+  for (const bad of ["../x.png", "/etc/x.png", "C:\\x.png", "a//b.png", "a/./b.png", "sound.wav", "", "@2x.png"])
+    expect(imagePathValue(bad)).toBeUndefined();
+});
+
+test("a key count's block is added once, in the file's line endings", () => {
+  expect(addManiaBlock("[General]\nName: X", 7)).toBe("[General]\nName: X\n\n[Mania]\nKeys: 7\n");
+  expect(addManiaBlock(skinIni, 4)).toBe(skinIni);
+  expect(addManiaBlock("", 4)).toBe("[Mania]\r\nKeys: 4\r\n");
+});

@@ -72,10 +72,21 @@ export function maniaNotes(keys: number): Note[] {
   return notes.sort((a, b) => a.time - b.time || a.column - b.column);
 }
 
-/** The `.osu` text of one period of the demo for `keys` columns. */
-export function maniaOsu(keys: number): string {
+/**
+ * A still stage for skin editors, drawn at time 0 with the keys up: in every
+ * column a hold (head, body and tail on screen) with a note above it.
+ */
+export function maniaStillNotes(keys: number): Note[] {
+  return Array.from({ length: keys }, (_, column) => [
+    { column, time: 150, end: 450 },
+    { column, time: 600 },
+  ]).flat();
+}
+
+/** The `.osu` text of `notes` (one period of the demo by default) for `keys` columns. */
+export function maniaOsu(keys: number, notes = maniaNotes(keys)): string {
   const x = (column: number) => Math.floor(((column + 0.5) * 512) / keys);
-  const objects = maniaNotes(keys).map((n) =>
+  const objects = notes.map((n) =>
     n.end === undefined
       ? `${x(n.column)},192,${n.time},1,0,0:0:0:0:`
       : `${x(n.column)},192,${n.time},128,0,${n.end}:0:0:0:0:`,

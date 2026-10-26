@@ -798,3 +798,604 @@
     grid-column: 1 / -1;
   }
 }
+
+/* ---- keymodes ------------------------------------------------------------ */
+/* The screen brings its own image picker, so it takes the library's column. */
+.studio[data-view="keymodes"] {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 21rem);
+}
+.studio[data-view="keymodes"] > .library {
+  display: none;
+}
+.keymodes-view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.keymodes-view > .v-toolbar {
+  flex: none;
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hair) solid var(--rule);
+}
+.km-history {
+  gap: var(--space-1);
+}
+.km-state {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  font-size: var(--step--1);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-copy-menu {
+  position: relative;
+}
+.km-copy-menu > summary {
+  list-style: none;
+}
+.km-copy-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.km-copy {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 5;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2);
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+.km-copy .v-select {
+  max-width: 14rem;
+}
+.km-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 7.5rem minmax(0, 1fr) minmax(12rem, 17rem);
+  min-height: 0;
+}
+
+/* Key counts */
+.km-rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--hair) solid var(--rule);
+}
+.km-counts {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+}
+.km-count {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--space-1);
+  border: var(--hair) solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.km-count:hover:not(:disabled) {
+  background: var(--hover);
+}
+.km-count[aria-current="true"] {
+  border-color: var(--rule-strong);
+  background: var(--selected);
+}
+.km-count:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.km-mini {
+  grid-row: span 2;
+  width: 28px;
+  height: 20px;
+  image-rendering: pixelated;
+}
+.km-count__name {
+  font: 600 var(--step-0) var(--font-mono);
+}
+.km-status {
+  overflow: hidden;
+  font-size: var(--step--2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-status--complete {
+  color: var(--ok);
+}
+.km-status--fallback {
+  color: var(--caution);
+}
+.km-status--missing {
+  color: var(--danger);
+}
+.km-status--dual {
+  color: var(--muted);
+}
+.km-add {
+  flex: none;
+  margin: var(--space-2);
+}
+
+/* Stage and slots */
+.km-editor {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.km-stage {
+  position: relative;
+  flex: 0 0 clamp(8rem, 36%, 24rem);
+  overflow: hidden;
+  background: var(--bg-sunken);
+  border-bottom: var(--hair) solid var(--rule);
+}
+.km-stage canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.km-stage--off canvas,
+.km-stage--off .km-columns {
+  visibility: hidden;
+}
+.km-stage--off::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  content: "Dual-stage layouts are not previewed yet.";
+}
+.km-columns {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.km-column {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.km-column:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.km-column--on {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.km-column.km-drop {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.km-preview-state {
+  position: absolute;
+  bottom: var(--space-1);
+  left: var(--space-2);
+  font-size: var(--step--2);
+  pointer-events: none;
+}
+.km-sheet {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+.km-grid {
+  display: grid;
+  grid-template-columns: 4.5rem repeat(var(--km-cols, 4), minmax(3rem, 1fr));
+  gap: 4px;
+}
+.km-row {
+  display: contents;
+}
+.km-rowhead {
+  align-self: center;
+  color: var(--muted);
+  font-size: var(--step--1);
+}
+.km-row--head > * {
+  position: sticky;
+  top: calc(-1 * var(--space-2));
+  z-index: 2;
+  background: var(--bg-raised);
+}
+.km-colhead {
+  display: flex;
+  gap: var(--space-1);
+  align-items: baseline;
+  justify-content: center;
+  font: 600 var(--step--1) var(--font-mono);
+}
+.km-colhead small {
+  color: var(--muted);
+  font-weight: 400;
+}
+.km-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 3px;
+  border: var(--hair) solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--bg);
+  cursor: pointer;
+}
+.km-slot:hover {
+  border-color: var(--rule-strong);
+}
+.km-slot[aria-selected="true"] {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.km-slot.km-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: 1px;
+}
+.km-slot[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+/* Set on this screen: a mark in the corner. */
+.km-slot--set::before {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  content: "";
+}
+.km-thumb {
+  position: relative;
+  height: var(--km-thumb, 2.75rem);
+  overflow: hidden;
+  border-radius: calc(var(--radius) - 1px);
+  background: repeating-conic-gradient(var(--bg-sunken) 0 25%, var(--bg) 0 50%)
+    0 0 / 10px 10px;
+}
+/* The whole image, scaled down to fit (never cropped), at every size. */
+.km-thumb img {
+  position: absolute;
+  inset: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  object-fit: contain;
+}
+.km-thumb__none {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font: 500 var(--step--2) var(--font-mono);
+}
+.km-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  padding: 0 2px;
+  border-radius: 2px;
+  background: var(--bg);
+  font: 500 var(--step--2) var(--font-mono);
+}
+.km-src {
+  overflow: hidden;
+  color: var(--muted);
+  font: 400 var(--step--2) var(--font-mono);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-slot--ini .km-src,
+.km-slot--default .km-src {
+  color: var(--fg-dim);
+}
+.km-slot--builtin .km-src {
+  color: var(--caution);
+}
+.km-slot--missing .km-src {
+  color: var(--danger);
+}
+.km-hd {
+  color: var(--muted);
+}
+.km-clear {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--fg-dim);
+  line-height: 1;
+  opacity: 0;
+  cursor: pointer;
+}
+.km-slot:hover .km-clear,
+.km-slot:focus-within .km-clear,
+.km-slot[aria-selected="true"] .km-clear {
+  opacity: 1;
+}
+.km-clear:hover {
+  color: var(--danger);
+}
+.km-value {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.km-num {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-1);
+  font: 400 var(--step--1) var(--font-mono);
+}
+.km-swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: var(--control-h-sm);
+  overflow: hidden;
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background:
+    linear-gradient(var(--c), var(--c)),
+    repeating-conic-gradient(#8a8a8a 0 25%, #d8d8d8 0 50%) 0 0 / 8px 8px;
+  cursor: pointer;
+}
+.km-swatch:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* The native picker opens from the swatch; the input itself is not drawn. */
+.km-colour {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.km-swatch__value {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: 400 var(--step--2) var(--font-mono);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+.km-swatch:hover .km-swatch__value,
+.km-swatch:focus-within .km-swatch__value {
+  opacity: 1;
+}
+.km-error {
+  margin: var(--space-2) 0 0;
+  color: var(--danger);
+  font-size: var(--step--1);
+}
+.km-shared {
+  margin-top: var(--space-3);
+}
+.km-shared > summary {
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.km-shared-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(5rem, 1fr));
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.km-shared-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.km-shared-label {
+  overflow: hidden;
+  font: 400 var(--step--2) var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--step--1);
+}
+
+/* Picker */
+.km-picker {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: var(--hair) solid var(--rule);
+}
+.km-picker.km-drop {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+.km-picker__head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: var(--hair) solid var(--rule);
+}
+.km-for {
+  margin: 0;
+  font-size: var(--step--1);
+}
+.km-images {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(4.75rem, 1fr));
+  gap: var(--space-1);
+  align-content: start;
+  min-height: 0;
+  padding: var(--space-2);
+}
+.km-images > .v-empty {
+  grid-column: 1 / -1;
+}
+.km-images__head {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  margin: var(--space-2) 0 0;
+}
+.km-images__head:first-child {
+  margin-top: 0;
+}
+.km-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  border: var(--hair) solid transparent;
+  border-radius: var(--radius);
+  cursor: grab;
+}
+.km-tile:hover {
+  border-color: var(--rule);
+  background: var(--hover);
+}
+.km-tile--drag {
+  opacity: 0.5;
+}
+.km-tile__name {
+  overflow: hidden;
+  font: 400 var(--step--2) var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-tile__meta {
+  min-height: 1em;
+  color: var(--muted);
+  font-size: var(--step--2);
+}
+.km-drop-hint {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2);
+  border-top: var(--hair) solid var(--rule);
+  font-size: var(--step--1);
+}
+
+@media (max-height: 56rem) {
+  .km-stage {
+    flex-basis: clamp(7rem, 26%, 16rem);
+  }
+  .km-body {
+    --km-thumb: 2rem;
+  }
+}
+@media (max-width: 75rem) {
+  .studio[data-view="keymodes"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .km-body {
+    grid-template-columns: 6.5rem minmax(0, 1fr) minmax(11rem, 14rem);
+  }
+}
+@media (max-width: 48rem) {
+  .km-body {
+    display: flex;
+    flex-direction: column;
+  }
+  .km-rail {
+    border-right: 0;
+    border-bottom: var(--hair) solid var(--rule);
+  }
+  .km-counts {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .km-count {
+    width: auto;
+  }
+  .km-stage {
+    flex-basis: 14rem;
+  }
+  .km-sheet {
+    overflow-x: auto;
+  }
+  .km-picker {
+    max-height: 50vh;
+    border-top: var(--hair) solid var(--rule);
+    border-left: 0;
+  }
+}
+
+/* ---- dropped files ------------------------------------------------------- */
+.mix-uploads {
+  flex: none;
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--hair) solid var(--rule);
+}
+.mix-uploads > summary {
+  cursor: pointer;
+}
+.mix-uploads__list {
+  max-height: 10rem;
+  margin: var(--space-2) 0;
+  padding: 0;
+  list-style: none;
+}
+.mix-uploads__list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 2px 0;
+  font-size: var(--step--1);
+}
+.mix-uploads__list .v-mono {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mix-uploads__foot {
+  gap: var(--space-2);
+  font-size: var(--step--1);
+}

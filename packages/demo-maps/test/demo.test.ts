@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
 import { catchObjects } from "@vosu-tools/ruleset-convert";
-import { MANIA_KEYS, demoLoop, demos, maniaDemo, repeatOsu } from "../src";
+import {
+  MANIA_KEYS,
+  demoLoop,
+  demos,
+  maniaDemo,
+  maniaStill,
+  repeatOsu,
+} from "../src";
 
 const CIRCLE = 1,
   SLIDER = 2,
@@ -140,4 +147,20 @@ test("mania covers 1K-10K with notes, long notes, a long-note chord and a long h
     }
   }
   expect(maniaDemo(14)).toBeUndefined();
+});
+
+test("the still stage shows a hold and a note in every column", () => {
+  for (const keys of [1, 4, 7, 10]) {
+    const map = maniaStill(keys);
+    expect(map.difficulty.cs).toBe(keys);
+    for (let column = 0; column < keys; column++) {
+      const objects = map.objects.filter(
+        (o) => Math.floor((o.x * keys) / 512) === column,
+      );
+      expect(objects.map((o) => [o.time, o.endTime])).toEqual([
+        [150, 450],
+        [600, 600],
+      ]);
+    }
+  }
 });
