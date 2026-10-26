@@ -190,6 +190,94 @@ test("mania key-count groups replace one [Mania] block with its images", () => {
   expect(copied(plan, other.key)).not.toContain("mania/unused.png");
 });
 
+// A stage whose block names no images: the skin draws its default-named
+// files (like the user's "Orchids Garden"), and the base has its own
+// default-named key for its other key counts.
+const plain: SkinData = {
+  key: "/skins/Plain",
+  name: "Plain",
+  text: ["[General]", "Name: Plain", "[Mania]", "Keys: 4", "ColumnWidth: 60", ""].join("\n"),
+  files: [
+    "mania-key1.png",
+    "mania-key1@2x.png",
+    "mania-key1D.png",
+    "mania-key2.png",
+    "mania-key2D.png",
+    "mania-note1.png",
+    "mania-note1-0.png",
+    "mania-note1-1@2x.png",
+    "mania-note2.png",
+    "mania-note1L.png",
+    "LightingN-0.png",
+    "mania-hit300.png",
+  ],
+};
+const withKey: SkinData = {
+  ...base,
+  key: "/skins/WithKey",
+  files: [...base.files, "mania-key1.png"],
+};
+
+test("a stage group carries the images its source finds under default names", () => {
+  const pool = new Map([
+    [withKey.key, withKey],
+    [plain.key, plain],
+  ]);
+  const { plan, fallbacks } = compose(
+    {
+      name: "M",
+      base: withKey.key,
+      picks: { "mania-keys-4": { kind: "skin", key: plain.key } },
+    },
+    pool,
+  );
+  const block = serializeIni([maniaBlocks(parseIni(plan.ini)).get(4)!]);
+  // Default names per column (4K: 1 2 2 1), in the source's spelling.
+  for (const line of [
+    "KeyImage0: skin-studio/4k/mania-key1",
+    "KeyImage1: skin-studio/4k/mania-key2",
+    "KeyImage2D: skin-studio/4k/mania-key2D",
+    "NoteImage0: skin-studio/4k/mania-note1",
+    "NoteImage1: skin-studio/4k/mania-note2",
+    "NoteImage3L: skin-studio/4k/mania-note1L",
+    "LightingN: skin-studio/4k/LightingN",
+    "Hit300: skin-studio/4k/mania-hit300",
+  ])
+    expect(block).toContain(line);
+  // Nothing to carry: those keys stay out.
+  expect(block).not.toContain("NoteImage0H");
+  const fromPlain = plan.sources.find((s) => s.skin === plain.key)!.files;
+  expect(fromPlain).toContainEqual(["mania-key1@2x.png", "skin-studio/4k/mania-key1@2x.png"]);
+  // Notes animate: their frames, not the plain image, are what the stage reads.
+  expect(fromPlain).toContainEqual(["mania-note1-1@2x.png", "skin-studio/4k/mania-note1-1@2x.png"]);
+  expect(fromPlain).not.toContainEqual(["mania-note1.png", "skin-studio/4k/mania-note1.png"]);
+  // The base's own default-named key stays for its 7K stage.
+  expect(copied(plan, withKey.key)).toContain("mania-key1.png");
+  // The base's replaced 4K note is not drawn by the built-in look: nothing falls back.
+  expect(fallbacks.get("mania-keys-4")).toBeUndefined();
+});
+
+test("a stage group says which receptors and notes fall back to the built-in look", () => {
+  const lacking: SkinData = {
+    ...plain,
+    files: plain.files.filter((f) => !/^mania-key\dD/.test(f)),
+  };
+  const { fallbacks } = compose(
+    {
+      name: "M",
+      base: null,
+      picks: { "mania-keys-4": { kind: "skin", key: lacking.key } },
+    },
+    new Map([[lacking.key, lacking]]),
+  );
+  expect(fallbacks.get("mania-keys-4")).toEqual([
+    "KeyImage0D",
+    "KeyImage1D",
+    "KeyImage2D",
+    "KeyImage3D",
+  ]);
+});
+
 test("default removes and blank hides a group", () => {
   const { plan } = compose(
     {

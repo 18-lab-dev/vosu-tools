@@ -3,6 +3,12 @@
 
 import { resolve } from "@vosu-tools/skin-spec";
 import {
+  maniaConfig,
+  maniaImageKeys,
+  resolveManiaImages,
+} from "@vosu-tools/render-core/mania";
+import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
+import {
   type Group,
   audioExt,
   elementFiles,
@@ -20,16 +26,27 @@ import {
 } from "./assets";
 import {
   type Ini,
+  type Section,
   entries,
   getValue,
+  maniaBlock,
   maniaBlocks,
   parseIni,
   removeKeys,
   replaceMania,
   serializeIni,
+  setInSection,
   setValue,
   appendLines,
 } from "./ini";
+import {
+  hasImage,
+  imageIndex,
+  lookupFiles,
+  lookupName,
+  stageFolder,
+} from "./mania";
+import { type Keymodes, applyKeymodes } from "./keymodes";
 
 export interface SkinData {
   key: string;
@@ -45,6 +62,8 @@ export interface Recipe {
   picks: Record<string, Pick>;
   /** Single assets by asset id (`image:hitcircle`, `font:default`, …); they win over picks. */
   overrides?: Record<string, Override>;
+  /** The Keymodes screen's slots and values per key count; they win over both. */
+  keymodes?: Keymodes;
 }
 export type FileMap = string | [string, string];
 export interface Plan {
@@ -101,6 +120,25 @@ function referenced(
 }
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+/**
+ * The images a stage of `keys` columns finds under their default names
+ * because its `[Mania]` block names none for the key (`KeyImage0` →
+ * `mania-key1`, …): each lookup with the files of `files` it reads.
+ */
+function stageDefaults(files: string[], block: Section, keys: number) {
+  const named = new Set(entries([block], "Mania", /.*/).map((e) => e.key));
+  const index = imageIndex(files);
+  return maniaImageKeys(keys)
+    .filter((lookup) => !named.has(lookup.key))
+    .map((lookup) => ({
+      ...lookup,
+      files: lookupFiles(index, lookup.fallback, lookup.animated),
+    }))
+    .filter((lookup) => lookup.files.length);
+}
+/** Receptors and notes: what a stage visibly lacks when they fall back. */
+const STAGE_PIECE = /^(KeyImage\d+D?|NoteImage\d+)$/;
+
 const iniPairs = (ini: Ini, group: Group) =>
   (group.ini ?? []).flatMap((k) =>
     entries(ini, k.section, k.pattern ? new RegExp(k.key) : k.key).map((e) => ({
@@ -109,16 +147,34 @@ const iniPairs = (ini: Ini, group: Group) =>
     })),
   );
 
-/** Every file of `skin` that the group owns (elements + skin.ini references). */
-export function groupFiles(group: Group, skin: SkinData): string[] {
+/**
+ * Every file of `skin` that the group owns (elements + skin.ini references).
+ * A key-count group also owns the images its block leaves to default names
+ * (receptors, notes, stage, lighting, judgements); `exclusive` leaves those
+ * out, since every key count without its own key shares them.
+ */
+export function groupFiles(
+  group: Group,
+  skin: SkinData,
+  exclusive = false,
+): string[] {
   const ini = parseIni(skin.text);
   if (group.maniaKeys !== undefined) {
     const block = maniaBlocks(ini).get(group.maniaKeys);
     if (!block) return [];
-    return referenced(
+    const named = referenced(
       skin.files,
       entries([block], "Mania", /.*/).map((e) => ({ section: "Mania", ...e })),
     );
+    if (exclusive) return named;
+    return [
+      ...new Set([
+        ...named,
+        ...stageDefaults(skin.files, block, group.maniaKeys).flatMap(
+          (lookup) => lookup.files,
+        ),
+      ]),
+    ];
   }
   return [
     ...new Set([
@@ -167,10 +223,11 @@ export function compose(
   skins: Map<string, SkinData>,
 ): Composed {
   const base = recipe.base ? skins.get(recipe.base) : undefined;
-  // Output path (lower-cased) → source.
+  // Output path (lower-cased) → source; `to` renames the copy.
   const out = new Map<
     string,
-    { skin: string; from: string } | { blank: "png" | "wav"; to: string }
+    | { skin: string; from: string; to?: string }
+    | { blank: "png" | "wav"; to: string }
   >();
   const ini: Ini = base
     ? parseIni(base.text)
@@ -185,15 +242,34 @@ export function compose(
     const group = groupById(id);
     if (!group) continue;
     if (base) {
-      const owned = groupFiles(group, base);
+      // A stage's default-named images stay: other key counts use them too.
+      const owned = groupFiles(group, base, true);
       for (const file of owned) out.delete(file.toLowerCase());
       if (pick.kind !== "blank") removed.set(id, owned);
     }
     const source = pick.kind === "skin" ? skins.get(pick.key) : undefined;
     if (group.maniaKeys !== undefined) {
-      const block =
-        source && maniaBlocks(parseIni(source.text)).get(group.maniaKeys);
-      replaceMania(ini, group.maniaKeys, block);
+      const keys = group.maniaKeys;
+      const block = source && maniaBlocks(parseIni(source.text)).get(keys);
+      replaceMania(ini, keys, block);
+      // The source's stage also draws images found under default names. The
+      // mix's own default-named files may differ (and serve its other key
+      // counts), so these are copied into this stage's folder and named in
+      // its block, the way lazer would find them in the source.
+      if (source && block) {
+        const target = maniaBlock(ini, keys);
+        for (const lookup of stageDefaults(source.files, block, keys)) {
+          for (const from of lookup.files) {
+            const to = `${stageFolder(keys)}/${from}`;
+            out.set(to.toLowerCase(), { skin: source.key, from, to });
+          }
+          setInSection(
+            target,
+            lookup.key,
+            `${stageFolder(keys)}/${lookupName(lookup.files, lookup.fallback)}`,
+          );
+        }
+      }
     } else {
       for (const k of group.ini ?? []) {
         const key = k.pattern ? new RegExp(k.key) : k.key;
@@ -209,7 +285,7 @@ export function compose(
       }
     }
     if (source) {
-      for (const file of groupFiles(group, source))
+      for (const file of groupFiles(group, source, true))
         out.set(file.toLowerCase(), { skin: source.key, from: file });
     } else if (pick.kind === "blank") {
       for (const element of group.elements) {
@@ -246,6 +322,7 @@ export function compose(
       ),
     );
   }
+  applyKeymodes(recipe.keymodes ?? {}, ini, out);
 
   // A skin.ini key the mix keeps (say another key count's `StageHint`) still
   // names a base file a pick removed: keep that file, so the client finds it
@@ -266,11 +343,31 @@ export function compose(
   const fallbacks = new Map<string, string[]>();
   const have = present(out);
   for (const [id, files] of removed) {
+    // A stage taken from a skin draws the images its new block looks up, not
+    // the base's old ones: whether those fall back is resolved below.
+    if (groupById(id)?.maniaKeys !== undefined && recipe.picks[id]?.kind === "skin")
+      continue;
     const lost = new Set(
       files.filter((f) => imageExt.test(f) && !have.has(stem(f))).map(unitName),
     );
     for (const f of files)
       if (audioExt.test(f) && !out.has(f.toLowerCase())) lost.add(unitName(f));
+    if (lost.size) fallbacks.set(id, [...lost].sort());
+  }
+  // A stage taken from a skin draws osu!'s built-in receptors or notes where
+  // the mix has no image for them (the source may have lacked them too).
+  const mixIni = readSkinIni(serializeIni(ini)),
+    outIndex = imageIndex([...out.keys()]);
+  for (const [id, pick] of Object.entries(recipe.picks)) {
+    const keys = groupById(id)?.maniaKeys;
+    if (keys === undefined || pick.kind !== "skin") continue;
+    const lost = new Set(fallbacks.get(id));
+    for (const image of resolveManiaImages(
+      maniaConfig(mixIni, keys),
+      hasImage(outIndex),
+    ))
+      if (STAGE_PIECE.test(image.key) && image.source === "built-in")
+        lost.add(image.key);
     if (lost.size) fallbacks.set(id, [...lost].sort());
   }
 
@@ -287,7 +384,7 @@ export function compose(
       continue;
     }
     const list = sources.get(entry.skin) ?? [];
-    list.push(entry.from);
+    list.push(entry.to ? [entry.from, entry.to] : entry.from);
     sources.set(entry.skin, list);
     counts.set(entry.skin, (counts.get(entry.skin) ?? 0) + 1);
   }

@@ -18,7 +18,7 @@ startup = "on-demand"
 
 [api]
 read = ["/v1/library", "/v1/skin", "/v1/asset", "/v1/animation", "/v1/exports"]
-write = ["/v1/save", "/v1/folders", "/v1/build", "/v1/exports"]
+write = ["/v1/save", "/v1/folders", "/v1/build", "/v1/exports", "/v1/uploads"]
 
 [permissions]
 host = ["context"]
