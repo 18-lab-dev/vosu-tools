@@ -47,7 +47,8 @@ if (process.env.VOSU_SCREENSHOTS_SANDBOX !== '1') {
     ...visible.flatMap((path) => ['--bind', path, path]), '--bind', run, PLAYER,
     // The official-catalog mode alone keeps the network: vosu downloads the
     // published release the way a user's install does.
-    ...(official ? [] : ['--unshare-net']), '--unshare-ipc', '--unshare-pid', '--die-with-parent',
+    // A fresh /proc for the PID namespace: no osu!, lazer or user vosu is visible.
+    ...(official ? [] : ['--unshare-net']), '--unshare-ipc', '--unshare-pid', '--proc', '/proc', '--die-with-parent',
     '--setenv', 'VOSU_SCREENSHOTS_SANDBOX', '1',
     '--setenv', 'PLAYWRIGHT_BROWSERS_PATH', process.env.PLAYWRIGHT_BROWSERS_PATH || join(homedir(), '.cache/ms-playwright'),
     process.execPath, ...process.argv.slice(1),
@@ -574,12 +575,43 @@ const SHOTS = {
     await save(page, 'replay-renderer', 'Replay renderer: three generated replays of a demo map in the Overlap layout');
   },
   async 'skin-studio'() {
+    // A 7K demo mix on the Keymodes tab: the classic look as the base, with
+    // its 7K notes and holds taken from the Triangles look (both exported
+    // from render-core), the classic keys kept.
     await setSettings('skin-studio', { stable_skins_dir: skins, lazer_skins: false });
     const page = await tab();
     await page.goto(await launch('skin-studio'));
-    await page.getByText(/18-LAB Demo .*classic look/).first().click({ timeout: 60000 });
+    await page.locator('#skins .skin', { hasText: /classic look/ }).first().click({ timeout: 60000 });
+    await page.click('#use-base');
+    await page.click('#tab-keymodes');
+    await page.waitForSelector('#km-counts .km-count');
+    await page.locator('#km-counts .km-count', { hasText: /^.*7K/ }).first().click();
+    await page.waitForSelector('#km-grid .km-colhead:nth-of-type(7)');
+    const ready = async () => {
+      await sleep(500);
+      await page.waitForFunction(() => !document.querySelector('#km-images .v-empty')?.textContent?.startsWith('Reading'));
+    };
+    const slot = (key) => page.locator(`#km-grid [data-key="${key}"]`).first();
+    const triangles = await page.locator('#km-source option').evaluateAll((options) =>
+      options.find((o) => /Triangles look/.test(o.textContent ?? ''))?.value);
+    if (!triangles) throw new Error('Keymodes source list has no Triangles look');
+    await page.selectOption('#km-source', triangles);
+    await ready();
+    // Each note role takes the Triangles image offered first for column 1
+    // (the one its skin.ini uses there), then every column follows osu!'s
+    // 1/2/S pattern.
+    for (const key of ['NoteImage0', 'NoteImage0H', 'NoteImage0L', 'NoteImage0T']) {
+      await slot(key).click();
+      await ready();
+      await page.locator('#km-images .km-tile').first().click();
+      await sleep(300);
+    }
+    await page.click('#km-pattern');
+    await sleep(500);
+    await slot('NoteImage3').click();
+    await ready();
     await settle(page, 4000);
-    await save(page, 'skin-studio', 'Skin studio browsing a skin exported from render-core\'s classic look');
+    await save(page, 'skin-studio', 'Skin studio Keymodes tab: a 7K demo mix of the exported classic look with Triangles notes');
   },
   async downloader() {
     const page = await tab();

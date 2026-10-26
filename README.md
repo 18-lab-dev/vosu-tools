@@ -42,7 +42,7 @@ Browse your stable and lazer skins, preview their elements and gameplay in every
 
 ![Skin studio](docs/screenshots/skin-studio.webp)
 
-*A skin exported from render-core's own drawing of the classic look.*
+*The Keymodes tab: a 7K mix of skins exported from render-core's own drawings of the classic and Triangles looks.*
 
 [Details](tools/skin-studio/README.md)
 
