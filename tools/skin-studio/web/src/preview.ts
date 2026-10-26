@@ -20,6 +20,7 @@ import {
   type DemoId,
   type DemoLoop,
 } from "@vosu-tools/demo-maps";
+import { LAZER_DEFAULT_SCROLL_SPEED } from "@vosu-tools/client-skin/scroll";
 
 /** Returns a skin file by skin-relative name (any case), or null. */
 export type Resolver = (file: string) => Promise<Blob | null>;
@@ -68,6 +69,8 @@ export class Preview {
   #stillMap?: DemoLoop["beatmap"];
   /** Frames a still stage is still drawn after a change (images upload meanwhile). */
   #redraws = 0;
+  /** Mania scroll speed and direction (the client's, see client-scroll.ts). */
+  #scroll = { scrollSpeed: LAZER_DEFAULT_SCROLL_SPEED, maniaScrollUp: false };
 
   /** Rulesets whose images skins decode (all when omitted): a mania-only view decodes far less. */
   #rulesets?: readonly number[];
@@ -163,6 +166,17 @@ export class Preview {
     }
   }
 
+  /** Mania scroll speed and direction; the shown map is recompiled on a change. */
+  setScroll(scrollSpeed: number, maniaScrollUp: boolean) {
+    const s = this.#scroll;
+    if (s.scrollSpeed === scrollSpeed && s.maniaScrollUp === maniaScrollUp)
+      return;
+    this.#scroll = { scrollSpeed, maniaScrollUp };
+    const map = this.#stillMap ?? this.#loop?.beatmap;
+    if (map) this.#renderer?.setBeatmap(map, this.#options());
+    this.#redraws = 30;
+  }
+
   setPlaying(playing: boolean) {
     if (playing === this.#playing) return;
     const now = performance.now();
@@ -220,9 +234,9 @@ export class Preview {
 
   #options() {
     // Product: the skin's combo colours, not the demo map's (the skin is what
-    // is being browsed), and a slower mania scroll that shows more of the
-    // stage. Everything else is the shared playfield default.
-    return { beatmapColours: false, scrollSpeed: 16 };
+    // is being browsed), and the client's mania scroll speed and direction.
+    // Everything else is the shared playfield default.
+    return { beatmapColours: false, ...this.#scroll };
   }
 
   /** The status line between messages names the backend drawing. */

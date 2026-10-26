@@ -2,7 +2,10 @@
   "name": "@vosu-tools/client-skin",
   "version": "0.1.0",
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./scroll": "./src/scroll.ts"
+  },
   "scripts": {
     "check": "tsc --noEmit -p tsconfig.json",
     "test": "bun test"
