@@ -192,12 +192,25 @@ export function maniaValue(
   return (comment < 0 ? line.value : line.value.slice(0, comment)).trim();
 }
 /**
+ * `text` with a `[Mania]` block for `keys` columns: unchanged when it has
+ * one, else with `[Mania]` and `Keys: N` appended in the file's line endings.
+ */
+export function addManiaBlock(text: string, keys: number): string {
+  const doc = parse(text);
+  if (maniaBlockOf(doc, keys) !== undefined) return text;
+  const eol = doc.lines.find((l) => l.eol)?.eol ?? "\r\n";
+  const last = doc.lines.at(-1);
+  const head = last && !last.eol ? text + eol : text;
+  const gap = last && last.raw.trim() ? eol : "";
+  return `${head}${gap}[Mania]${eol}Keys: ${keys}${eol}`;
+}
+/**
  * `text` with `key` set to `value` in the `[Mania]` block for `keys` columns
  * (removed when `value` is undefined). Every other line, comment, line ending
  * and the BOM stay as they are. A key set twice is set where it first
  * appears and its other lines dropped; a new key goes after the block's
  * last entry with that entry's indentation; a missing block is appended
- * (`[Mania]`, `Keys: N`, the key).
+ * ({@link addManiaBlock}).
  */
 export function setManiaValue(
   text: string,
@@ -211,23 +224,14 @@ export function setManiaValue(
   const doc = parse(text),
     block = maniaBlockOf(doc, keys),
     eol = doc.lines.find((l) => l.eol)?.eol ?? "\r\n";
+  if (block === undefined)
+    return value === undefined
+      ? text
+      : setManiaValue(addManiaBlock(text, keys), keys, key, value);
   const lines: { raw: string; eol: string; key?: string; block?: number }[] =
     doc.lines.map((l) => ({ ...l }));
   const join = (list: typeof lines) =>
     list.map((l) => l.raw + l.eol).join("");
-  if (block === undefined) {
-    if (value === undefined) return text;
-    const last = lines.at(-1);
-    if (last && !last.eol) last.eol = eol;
-    const gap = last && last.raw.trim() ? eol : "";
-    return (
-      join(lines) +
-      gap +
-      ["[Mania]", `Keys: ${keys}`, `${key}: ${value}`]
-        .map((l) => l + eol)
-        .join("")
-    );
-  }
   const matching = lines.filter((l) => l.block === block && l.key === key);
   if (matching.length) {
     const [first] = matching;

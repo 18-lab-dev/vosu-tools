@@ -5,6 +5,12 @@
 import type { HasImage } from "@vosu-tools/render-core/mania";
 import { imageExt } from "./groups";
 
+/**
+ * Where a mix puts the images of a key count that it names explicitly:
+ * default names are shared by every key count, so each stage gets a folder.
+ */
+export const stageFolder = (keys: number) => `skin-studio/${keys}k`;
+
 /** A skin's image files by lower-cased name without extension and `@2x`. */
 export function imageIndex(files: readonly string[]): Map<string, string[]> {
   const index = new Map<string, string[]>();

@@ -39,7 +39,14 @@ import {
   setValue,
   appendLines,
 } from "./ini";
-import { hasImage, imageIndex, lookupFiles, lookupName } from "./mania";
+import {
+  hasImage,
+  imageIndex,
+  lookupFiles,
+  lookupName,
+  stageFolder,
+} from "./mania";
+import { type Keymodes, applyKeymodes } from "./keymodes";
 
 export interface SkinData {
   key: string;
@@ -55,6 +62,8 @@ export interface Recipe {
   picks: Record<string, Pick>;
   /** Single assets by asset id (`image:hitcircle`, `font:default`, …); they win over picks. */
   overrides?: Record<string, Override>;
+  /** The Keymodes screen's slots and values per key count; they win over both. */
+  keymodes?: Keymodes;
 }
 export type FileMap = string | [string, string];
 export interface Plan {
@@ -127,12 +136,6 @@ function stageDefaults(files: string[], block: Section, keys: number) {
     }))
     .filter((lookup) => lookup.files.length);
 }
-/**
- * Where a mix puts the images of a key count that it names explicitly:
- * default names are shared by every key count, so a stage taken from one
- * skin gets its own folder.
- */
-export const stageFolder = (keys: number) => `skin-studio/${keys}k`;
 /** Receptors and notes: what a stage visibly lacks when they fall back. */
 const STAGE_PIECE = /^(KeyImage\d+D?|NoteImage\d+)$/;
 
@@ -319,6 +322,7 @@ export function compose(
       ),
     );
   }
+  applyKeymodes(recipe.keymodes ?? {}, ini, out);
 
   // A skin.ini key the mix keeps (say another key count's `StageHint`) still
   // names a base file a pick removed: keep that file, so the client finds it

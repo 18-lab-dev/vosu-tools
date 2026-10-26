@@ -78,6 +78,7 @@ test("non-image files cannot satisfy image references", () => {
 });
 
 import {
+  addManiaBlock,
   columnKeys,
   imagePathValue,
   maniaKeyCounts,
@@ -163,4 +164,10 @@ test("image paths become skin.ini values: relative, forward slashes, no extensio
   expect(imagePathValue("note-0.png")).toBe("note-0");
   for (const bad of ["../x.png", "/etc/x.png", "C:\\x.png", "a//b.png", "a/./b.png", "sound.wav", "", "@2x.png"])
     expect(imagePathValue(bad)).toBeUndefined();
+});
+
+test("a key count's block is added once, in the file's line endings", () => {
+  expect(addManiaBlock("[General]\nName: X", 7)).toBe("[General]\nName: X\n\n[Mania]\nKeys: 7\n");
+  expect(addManiaBlock(skinIni, 4)).toBe(skinIni);
+  expect(addManiaBlock("", 4)).toBe("[Mania]\r\nKeys: 4\r\n");
 });

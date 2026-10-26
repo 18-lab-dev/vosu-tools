@@ -31,6 +31,15 @@
           Explorer
         </button>
         <button
+          id="tab-keymodes"
+          role="tab"
+          type="button"
+          aria-selected="false"
+          aria-controls="keymodes-view"
+        >
+          Keymodes
+        </button>
+        <button
           id="tab-ini"
           role="tab"
           type="button"
@@ -208,6 +217,104 @@
               class="v-scroll x-details"
               aria-label="File details"
             ></aside>
+          </div>
+        </section>
+
+        <section
+          id="keymodes-view"
+          class="keymodes-view"
+          role="tabpanel"
+          aria-labelledby="tab-keymodes"
+          hidden
+        >
+          <div class="v-toolbar">
+            <div class="v-row km-history">
+              <button id="km-undo" type="button" class="v-btn v-btn--sm" disabled>
+                Undo
+              </button>
+              <button id="km-redo" type="button" class="v-btn v-btn--sm" disabled>
+                Redo
+              </button>
+            </div>
+            <span class="v-toolbar__sep"></span>
+            <button id="km-all" type="button" class="v-btn v-btn--sm" disabled>
+              Apply to all columns
+            </button>
+            <button id="km-mirror" type="button" class="v-btn v-btn--sm">
+              Mirror
+            </button>
+            <button id="km-pattern" type="button" class="v-btn v-btn--sm">
+              osu! 1/2/S pattern
+            </button>
+            <details class="km-copy-menu">
+              <summary class="v-btn v-btn--sm">Copy key count from…</summary>
+              <form id="km-copy" class="km-copy">
+                <select
+                  id="km-copy-skin"
+                  class="v-select"
+                  aria-label="Copy from skin"
+                ></select>
+                <select
+                  id="km-copy-keys"
+                  class="v-select"
+                  aria-label="Copy from key count"
+                ></select>
+                <button id="km-copy-go" type="submit" class="v-btn v-btn--sm v-btn--primary">
+                  Copy
+                </button>
+              </form>
+            </details>
+            <span class="v-bar__spacer"></span>
+            <span id="km-state" class="v-muted km-state" role="status"></span>
+            <div class="v-seg" role="group" aria-label="Stage">
+              <button id="km-still" type="button" aria-pressed="true">Still</button>
+              <button id="km-play" type="button" aria-pressed="false">Play</button>
+            </div>
+          </div>
+          <div class="km-body">
+            <nav class="km-rail" aria-label="Key counts">
+              <ol id="km-counts" class="v-scroll km-counts"></ol>
+              <select id="km-add" class="v-select km-add" aria-label="Add key count"></select>
+            </nav>
+            <div class="km-editor">
+              <div id="km-stage" class="km-stage">
+                <canvas id="km-canvas" aria-label="The selected key count's stage"></canvas>
+                <div id="km-columns" class="km-columns"></div>
+                <span id="km-preview-state" class="v-muted km-preview-state" role="status"></span>
+              </div>
+              <div class="v-scroll km-sheet">
+                <div id="km-grid" class="km-grid" role="grid" aria-label="Column images and values"></div>
+                <p id="km-error" class="km-error" role="alert" hidden></p>
+                <details class="km-shared" open>
+                  <summary class="v-label">Stage images</summary>
+                  <div id="km-shared-grid" class="km-shared-grid" role="grid" aria-label="Stage images"></div>
+                </details>
+              </div>
+            </div>
+            <aside class="km-picker" aria-label="Image picker">
+              <div class="km-picker__head">
+                <select id="km-source" class="v-select" aria-label="Images from"></select>
+                <input
+                  id="km-filter"
+                  class="v-input"
+                  type="search"
+                  placeholder="Filter images"
+                  aria-label="Filter images"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <p id="km-for" class="v-muted km-for">Select a slot, then an image</p>
+              </div>
+              <div
+                id="km-images"
+                class="v-scroll km-images"
+                role="listbox"
+                aria-label="Images to assign"
+              ></div>
+              <p class="v-muted km-drop-hint">
+                Drop PNG or JPEG files on a slot, or here to keep them.
+              </p>
+            </aside>
           </div>
         </section>
 
