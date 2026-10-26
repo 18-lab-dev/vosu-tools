@@ -38,6 +38,15 @@ export type {
 } from "./host";
 export { openOsk } from "./osk";
 export type { SkinArchive } from "./osk";
+export {
+  LAZER_DEFAULT_SCROLL_SPEED,
+  MANIA_SETTINGS_POINTER,
+  MAX_SCROLL_SPEED,
+  MIN_SCROLL_SPEED,
+  maniaScroll,
+  readManiaSettings,
+} from "./scroll";
+export type { ClientManiaSettings, ManiaScroll, ScrollSource } from "./scroll";
 
 /** What is shown: the client's skin, a user-chosen file/folder, or a built-in look. */
 export type SkinChoice = "client" | "user" | BuiltinSkinName;

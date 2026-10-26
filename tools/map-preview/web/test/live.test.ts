@@ -68,7 +68,7 @@ test("fields map from the v2 document", () => {
   });
   expect(state.client).toBe("lazer");
   expect([state.time, state.rate, state.running]).toEqual([1234.5, 1.5, true]);
-  expect(state.mania).toEqual({ scrollSpeed: 24.7, scrollUp: true });
+  expect(state.mania).toEqual({ scrollSpeed: 24.7, scrollUp: true, bpmScale: false });
   expect(state.mods).toEqual([
     { acronym: "DT", settings: { speed_change: 1.3 } },
     { acronym: "HD", settings: {} },
