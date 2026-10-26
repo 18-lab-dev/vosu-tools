@@ -513,9 +513,21 @@ const SHOTS = {
       await page.mouse.move(at(39300 / duration), strip.y + strip.height / 2, { steps: 12 });
       await page.mouse.up();
       await page.keyboard.up('Shift');
-      // 30.1 s (the 0.9× section): circles and a ticked slider on screen.
-      await page.mouse.click(at(30100 / duration), strip.y + strip.height / 2);
       await page.mouse.move(0, 0);
+      await settle(page, 2000);
+      // Step the playhead (the strip's ArrowRight, one source second each)
+      // to 0:02.2 of the preview or later, where the incoming slider has
+      // faded in fully.
+      await page.locator('#strip').focus();
+      const clock = async () => {
+        const [m, s] = ((await page.locator('#clock').textContent()) ?? '').split('/')[0].trim().split(':');
+        return Number(m) * 60 + Number(s);
+      };
+      for (let i = 0; i < 6 && (await clock()) < 2.2; i++) {
+        await page.keyboard.press('ArrowRight');
+        await sleep(400);
+      }
+      await page.locator('#strip').blur();
       await settle(page, 4000);
       await save(page, 'practice', 'osu! practice tool on a selected demo map (osu!): 1.25×, Mirror and one kept section');
     } finally {
