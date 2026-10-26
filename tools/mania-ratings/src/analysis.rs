@@ -84,7 +84,14 @@ pub fn timeline(
     if map.mode != GameMode::Mania {
         return Err("native mania maps only".into());
     }
-    let keys = map.circle_size as u32;
+    let keys = map.circle_size.round() as u32;
+    if keys as f32 != map.circle_size {
+        return Err(format!(
+            "non-integer key count (CircleSize {})",
+            map.circle_size
+        ));
+    }
+    crate::support(system, keys)?;
     let rows = rows(&map, keys)?;
     let duration = rows.last().map_or(0.0, |r| r.seconds + 0.001);
     if system == "etterna" {
@@ -178,7 +185,17 @@ fn local_msd(
     hop: f32,
     duration: f32,
 ) -> Result<Value, String> {
-    let overall = minacalc::calculate(rows, keys, p.rate(), None)?;
+    // A window (or the whole map) beyond MinaCalc's range or skipped by it has
+    // no rating: emit null and the reason instead of failing the timeline.
+    let rated = |rows: &[crate::Row]| match minacalc::calculate(rows, keys, p.rate(), None) {
+        Ok(skills) => Ok(Ok(skills)),
+        Err(e @ (minacalc::Error::OutOfRange { .. } | minacalc::Error::Skipped)) => {
+            Ok(Err(e.to_string()))
+        }
+        Err(e) => Err(e.to_string()),
+    };
+    let overall = rated(rows)?;
+    let mut unrated_reason = overall.as_ref().err().cloned();
     let mut points = Vec::with_capacity((duration / hop).ceil() as usize + 1);
     let mut clipped = Vec::new();
     for i in 0..=(duration / hop).floor() as usize {
@@ -192,14 +209,23 @@ fn local_msd(
             notes: r.notes,
             seconds: r.seconds - start,
         }));
-        let skills = minacalc::calculate(&clipped, keys, p.rate(), None)?;
+        let skills = rated(&clipped)?;
+        if let Err(reason) = &skills {
+            unrated_reason.get_or_insert_with(|| reason.clone());
+        }
+        let (value, skills) = match skills {
+            Ok(s) => (Some(s[0]), Some(s)),
+            Err(_) => (None, None),
+        };
         let heads: u32 = clipped.iter().map(|r| r.notes.count_ones()).sum();
         let nps = if end > start {
             heads as f32 * p.rate() / (end - start)
         } else {
             0.0
         };
-        points.push(json!({"time":time,"start":start,"end":end,"value":skills[0],"skills":skills,"nps":nps}));
+        points.push(
+            json!({"time":time,"start":start,"end":end,"value":value,"skills":skills,"nps":nps}),
+        );
     }
     Ok(json!({
         "checksum":checksum(bytes),"rate":p.rate(),"system":"etterna",
@@ -207,8 +233,9 @@ fn local_msd(
         "window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none",
         "context":"independent centered windows; reset context; heads in [start,end); timestamps rebased to window start; clipped at chart edges",
         "aggregation":"MinaCalc CalcMain independently on each window at 0.93 goal; no averaging or strain-to-MSD conversion",
-        "units":"local MSD","overall":overall[0],"overall_skills":overall,
-        "skill_names":["overall","stream","jumpstream","handstream","stamina","jackspeed","chordjack","technical"],
+        "units":"local MSD","overall":overall.as_ref().ok().map(|s| s[0]),"overall_skills":overall.as_ref().ok(),
+        "unrated":unrated_reason,
+        "skill_names":minacalc::skill_names(keys),
         "duration":duration,"points":points
     }))
 }

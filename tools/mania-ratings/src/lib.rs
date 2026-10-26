@@ -16,6 +16,8 @@ pub const DAN_MODEL: &str = "reform-v1-course-msd527@1";
 pub const MAX_BYTES: usize = 1024 * 1024;
 
 pub use minacalc::Row;
+/// MinaCalc's eight outputs under its own skillset names. `technical` is `None`
+/// where MinaCalc 527 has no technical model for the key count.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Skills {
     pub overall: f32,
@@ -25,10 +27,10 @@ pub struct Skills {
     pub stamina: f32,
     pub jackspeed: f32,
     pub chordjack: f32,
-    pub technical: f32,
+    pub technical: Option<f32>,
 }
-impl From<[f32; 8]> for Skills {
-    fn from(v: [f32; 8]) -> Self {
+impl Skills {
+    pub fn new(v: [f32; 8], keys: u32) -> Self {
         Self {
             overall: v[0],
             stream: v[1],
@@ -37,8 +39,38 @@ impl From<[f32; 8]> for Skills {
             stamina: v[4],
             jackspeed: v[5],
             chordjack: v[6],
-            technical: v[7],
+            technical: minacalc::technical_modelled(keys).then_some(v[7]),
         }
+    }
+}
+
+/// Largest osu!mania key count (dual-stage 18K).
+pub const MAX_KEYS: u32 = 18;
+
+/// Whether `system` rates `keys`-key charts; `Err` carries the calculator's own
+/// limit. Systems: etterna, quaver, interlude, osu, reform, nps.
+pub fn support(system: &str, keys: u32) -> Result<(), String> {
+    let (ok, reason) = match system {
+        "etterna" | "etterna-native" => (
+            minacalc::KEYS.contains(&keys),
+            "MinaCalc 527 has dedicated models for 4K–7K only",
+        ),
+        "quaver" => (
+            (1..=10).contains(&keys),
+            "Quaver.API assigns fingers for 1K–10K only",
+        ),
+        "interlude" => (
+            (3..=10).contains(&keys),
+            "Interlude's hand layout covers 3K–10K only",
+        ),
+        "reform" => (keys == 4, "Reform dan courses are 4K only"),
+        "osu" | "nps" => (true, ""),
+        _ => return Err(format!("unknown system {system}")),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("Not rated for {keys}K: {reason}."))
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -75,7 +107,35 @@ pub struct Difficulty {
     pub ssr: Option<Skills>,
     pub dan: Option<Dan>,
     pub calculator: Calculator,
+    /// Whole-map refusal (not a native osu!mania map, invalid key count).
     pub unsupported: Option<String>,
+    /// Per-system reasons for a missing value: etterna, quaver, interlude, reform.
+    #[serde(default)]
+    pub unrated: std::collections::BTreeMap<String, Unrated>,
+}
+/// Why a system has no value for this chart and rate.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Unrated {
+    pub scope: Scope,
+    pub reason: String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// The calculator has no model for this key count (any rate).
+    Keys,
+    /// The calculator has no rating at this rate (its range or a skipped chart).
+    Rate,
+    /// A derived estimate outside its calibration or missing its input.
+    Estimate,
+}
+impl Unrated {
+    fn new(scope: Scope, reason: impl Into<String>) -> Self {
+        Self {
+            scope,
+            reason: reason.into(),
+        }
+    }
 }
 #[derive(Clone, Copy, Debug)]
 pub struct Params {
@@ -100,7 +160,7 @@ impl Params {
     }
     pub fn key(self, checksum: &str) -> String {
         format!(
-            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:ratings2",
+            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:ratings4",
             self.rate_tick,
             self.score.map(f32::to_bits),
             quaver::REVISION,
@@ -118,9 +178,10 @@ pub fn checksum(bytes: &[u8]) -> String {
     s
 }
 
+/// Rows of note heads for a `keys`-column chart (1K–18K).
 pub fn rows(map: &Beatmap, keys: u32) -> Result<Vec<Row>, String> {
-    if !matches!(keys, 4 | 6 | 7) {
-        return Err("unsupported key count".into());
+    if !(1..=MAX_KEYS).contains(&keys) {
+        return Err(format!("unsupported key count {keys}"));
     }
     let mut rows: Vec<Row> = Vec::with_capacity(map.hit_objects.len());
     for note in &map.hit_objects {
@@ -157,7 +218,9 @@ pub fn rows(map: &Beatmap, keys: u32) -> Result<Vec<Row>, String> {
     Ok(merged)
 }
 pub fn native(rows: &[Row], keys: u32, rate: f32, score: Option<f32>) -> Result<Skills, String> {
-    minacalc::calculate(rows, keys, rate, score).map(Into::into)
+    minacalc::calculate(rows, keys, rate, score)
+        .map(|v| Skills::new(v, keys))
+        .map_err(String::from)
 }
 pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
     if bytes.len() > MAX_BYTES {
@@ -175,7 +238,7 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         GameMode::Catch => "fruits",
         GameMode::Mania => "mania",
     };
-    let keys = map.circle_size as u32;
+    let keys = map.circle_size.round() as u32;
     let mut result = Difficulty {
         checksum: checksum(bytes),
         title: std::mem::take(&mut map.title),
@@ -201,34 +264,79 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
             osu: "rosu-pp@4.0.1".into(),
         },
         unsupported: None,
+        unrated: Default::default(),
     };
     if map.mode != GameMode::Mania {
         result.unsupported = Some("only native osu!mania beatmaps are supported".into());
         return Ok(result);
     }
-    if !matches!(keys, 4 | 6 | 7) || keys as f32 != map.circle_size {
-        result.unsupported = Some("MinaCalc provider supports 4K, 6K and 7K".into());
+    if !(1..=MAX_KEYS).contains(&keys) || keys as f32 != map.circle_size {
+        result.unsupported = Some(format!(
+            "osu!mania key count must be a whole number from 1 to {MAX_KEYS} (CircleSize {})",
+            map.circle_size
+        ));
         return Ok(result);
     }
     let rows = rows(&map, keys)?;
-    result.interlude = Some(interlude::calculate(&rows, keys as usize, params.rate()).0);
-    result.quaver = Some(quaver::calculate(&map, params.rate()).0);
+    let rate = params.rate();
+    let mut unrated = std::collections::BTreeMap::new();
+    let mut refuse = |system: &str, reason: String| {
+        unrated.insert(system.to_owned(), Unrated::new(Scope::Keys, reason));
+    };
+    match support("interlude", keys) {
+        Ok(()) => result.interlude = Some(interlude::calculate(&rows, keys as usize, rate).0),
+        Err(reason) => refuse("interlude", reason),
+    }
+    match support("quaver", keys) {
+        Ok(()) => result.quaver = Some(quaver::calculate(&map, rate).0),
+        Err(reason) => refuse("quaver", reason),
+    }
+    let reform_keys = support("reform", keys);
+    let etterna = support("etterna", keys);
+    if let Err(reason) = &etterna {
+        refuse("etterna", reason.clone());
+    }
+    if let Err(reason) = &reform_keys {
+        refuse("reform", reason.clone());
+    }
     let pp_map = rosu_pp::Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?;
     result.stars = Some(
         rosu_pp::Difficulty::new()
-            .clock_rate(f64::from(params.rate()))
+            .clock_rate(f64::from(rate))
             .calculate(&pp_map)
             .stars(),
     );
-    let msd = native(&rows, keys, params.rate(), None)?;
-    if keys == 4 {
-        result.dan = estimate_dan(msd.overall);
+    if etterna.is_ok() {
+        match native(&rows, keys, rate, None) {
+            Ok(msd) => {
+                result.ssr = params
+                    .score
+                    .and_then(|s| native(&rows, keys, rate, Some(s)).ok());
+                result.msd = Some(msd);
+            }
+            Err(reason) => {
+                unrated.insert("etterna".into(), Unrated::new(Scope::Rate, reason));
+            }
+        }
     }
-    result.ssr = params
-        .score
-        .map(|s| native(&rows, keys, params.rate(), Some(s)))
-        .transpose()?;
-    result.msd = Some(msd);
+    if reform_keys.is_ok() {
+        let reform = match &result.msd {
+            None => Err("Reform needs a MinaCalc rating.".to_owned()),
+            Some(msd) => estimate_dan(msd.overall).ok_or_else(|| {
+                format!(
+                    "MSD {:.2} is outside the Reform calibration range.",
+                    msd.overall
+                )
+            }),
+        };
+        match reform {
+            Ok(dan) => result.dan = Some(dan),
+            Err(reason) => {
+                unrated.insert("reform".into(), Unrated::new(Scope::Estimate, reason));
+            }
+        }
+    }
+    result.unrated = unrated;
     Ok(result)
 }
 

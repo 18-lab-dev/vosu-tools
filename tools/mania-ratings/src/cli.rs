@@ -151,6 +151,8 @@ fn human(result: &Value, header: &str) -> String {
     if result["rating"].is_object() {
         return human(&result["rating"], header);
     }
+    // MinaCalc names its Jumpstream/Handstream slots differently outside 4K.
+    let labels = minacalc::skill_names(result["keys"].as_u64().map_or(4, |k| k as u32));
     if let Some(rates) = result["rates"].as_array() {
         let rows = rates
             .iter()
@@ -166,26 +168,40 @@ fn human(result: &Value, header: &str) -> String {
             })
             .collect::<Vec<_>>();
         let headers = std::iter::once("Rate")
-            .chain(SKILLS)
+            .chain(labels)
             .chain(["Quaver", "Interlude", "osu! stars"])
             .collect::<Vec<_>>();
         return format!("{header}\n\n{}", table(&headers, &rows));
     }
+    let unrated = |system: &str| {
+        result["unrated"][system]["reason"]
+            .as_str()
+            .map(str::to_owned)
+    };
     let reason = result["unsupported"]
         .as_str()
-        .unwrap_or("no estimate for this key count or rating");
+        .map(str::to_owned)
+        .or_else(|| unrated("reform"))
+        .unwrap_or_else(|| "no estimate for this key count or rating".into());
     let unsupported = if result["unsupported"].is_string() {
         format!("\nUnsupported: {}", text(&result["unsupported"]))
     } else {
         String::new()
     };
+    let msd = match unrated("etterna") {
+        Some(why) if result["msd"].is_null() => format!("Etterna: — ({why})"),
+        _ => ratings(&result["msd"], Some(&result["ssr"]), &labels),
+    };
+    let notes = ["quaver", "interlude"]
+        .into_iter()
+        .filter_map(|system| unrated(system).map(|why| format!("\n{why}")))
+        .collect::<String>();
     format!(
-        "{header}\n\n{}\n\nQuaver: {} · Interlude: {} · osu!mania: {} ★\n\n{}{}",
-        ratings(&result["msd"], Some(&result["ssr"])),
+        "{header}\n\n{msd}\n\nQuaver: {} · Interlude: {} · osu!mania: {} ★{notes}\n\n{}{}",
         number(&result["quaver"]),
         number(&result["interlude"]),
         number(&result["stars"]),
-        dan(&result["dan"], reason),
+        dan(&result["dan"], &reason),
         unsupported
     )
 }
@@ -230,5 +246,11 @@ mod output_tests {
         );
         assert!(output.contains("0.70×") && output.contains("6.72"));
         assert!(!output.contains("rates["));
+        let seven = human(
+            &serde_json::json!({"keys":7,"msd":{"overall":31.0,"jumpstream":30.0},"ssr":null}),
+            "7K",
+        );
+        assert!(seven.contains("chordstream") && seven.contains("bracketing"));
+        assert!(!seven.contains("jumpstream") && !seven.contains("handstream"));
     }
 }

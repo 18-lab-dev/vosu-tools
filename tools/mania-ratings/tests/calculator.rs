@@ -1,5 +1,7 @@
 use rosu_map::Beatmap;
-use vosu_mania_ratings::{Params, calculate, checksum, estimate_dan, rows};
+use vosu_mania_ratings::{
+    Params, Scope, analysis::timeline, calculate, checksum, estimate_dan, rows, support,
+};
 fn chart(mode: u8, keys: u8, objects: &str) -> Vec<u8> {
     format!("osu file format v14\n[General]\nMode:{mode}\n[Difficulty]\nCircleSize:{keys}\n[HitObjects]\n{objects}").into_bytes()
 }
@@ -52,20 +54,157 @@ fn rate_validation_and_keying() {
     assert_eq!(checksum(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
 }
 #[test]
-fn unsupported_modes_and_keys() {
-    for (mode, keys) in [(0, 4), (1, 4), (2, 4), (3, 5), (3, 8)] {
+fn unsupported_modes_and_key_counts() {
+    for (mode, keys) in [(0, 4), (1, 4), (2, 4), (3, 0), (3, 19)] {
         let d = calculate(&chart(mode, keys, ""), Params::new(1.0, None).unwrap()).unwrap();
-        assert!(d.unsupported.is_some());
-        assert!(d.msd.is_none() && d.ssr.is_none() && d.dan.is_none());
+        assert!(d.unsupported.is_some(), "{mode} {keys}K");
+        assert!(d.msd.is_none() && d.ssr.is_none() && d.dan.is_none() && d.stars.is_none());
     }
-    for keys in [4, 6, 7] {
-        assert!(
-            calculate(&chart(3, keys, ""), Params::new(1.0, None).unwrap())
-                .unwrap()
-                .unsupported
-                .is_none()
+    let fractional = String::from_utf8(chart(3, 4, ""))
+        .unwrap()
+        .replace("CircleSize:4", "CircleSize:4.5");
+    let d = calculate(fractional.as_bytes(), Params::new(1.0, None).unwrap()).unwrap();
+    assert!(d.unsupported.is_some());
+}
+
+fn demo(keys: u32) -> Vec<u8> {
+    std::fs::read(format!(
+        "{}/tests/fixtures/demo/mania-{keys}k.osu",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap()
+}
+
+/// Every calculator either rates a key count or names its own limit; nothing
+/// borrows another key count's model, skill names or values.
+#[test]
+fn demo_maps_rate_per_calculator_for_every_key_count() {
+    for keys in 1..=10 {
+        let d = calculate(&demo(keys), Params::new(1.0, None).unwrap()).unwrap();
+        assert_eq!(d.keys, keys);
+        assert!(d.unsupported.is_none(), "{keys}K");
+        assert!(d.stars.is_some_and(|s| s > 0.0), "{keys}K osu!mania stars");
+        let expect = |system: &str, present: bool| {
+            let supported = support(system, keys).is_ok();
+            assert_eq!(present, supported, "{keys}K {system}");
+            if !supported {
+                let why = &d.unrated[system];
+                assert_eq!(why.scope, Scope::Keys);
+                assert!(
+                    why.reason.starts_with(&format!("Not rated for {keys}K")),
+                    "{}",
+                    why.reason
+                );
+            }
+        };
+        expect("etterna", d.msd.is_some());
+        expect("quaver", d.quaver.is_some());
+        expect("interlude", d.interlude.is_some());
+        assert_eq!(
+            d.msd.as_ref().map(|m| m.technical.is_some()),
+            d.msd.as_ref().map(|_| keys == 4 || keys == 5),
+            "{keys}K technical"
         );
+        if keys != 4 {
+            assert!(d.dan.is_none() && d.unrated["reform"].reason.contains("4K only"));
+        }
+        for system in [
+            "etterna",
+            "etterna-native",
+            "quaver",
+            "interlude",
+            "osu",
+            "nps",
+        ] {
+            let t = timeline(
+                &demo(keys),
+                Params::new(1.0, None).unwrap(),
+                system,
+                4.0,
+                1.0,
+            );
+            match support(system, keys) {
+                Ok(()) => assert!(t.is_ok(), "{keys}K {system}: {t:?}"),
+                Err(reason) => assert_eq!(t.unwrap_err(), reason),
+            }
+        }
     }
+    assert_eq!(
+        (
+            support("etterna", 7),
+            support("quaver", 10),
+            support("interlude", 2)
+        ),
+        (
+            Ok(()),
+            Ok(()),
+            Err("Not rated for 2K: Interlude's hand layout covers 3K–10K only.".into())
+        )
+    );
+}
+
+/// Every 0.05× step of the rate curve returns a value or a reason, never an error.
+#[test]
+fn rate_curve_never_fails_on_demo_maps() {
+    for keys in [4, 5, 6, 7, 8, 9, 10] {
+        for tick in 10..=40 {
+            let d = calculate(
+                &demo(keys),
+                Params {
+                    rate_tick: tick,
+                    score: None,
+                },
+            )
+            .unwrap();
+            assert!(
+                d.msd.is_some() || d.unrated.contains_key("etterna"),
+                "{keys}K {tick}"
+            );
+        }
+    }
+}
+
+/// Dense 7K chord stream: MinaCalc 527 passes its search limit at high rates
+/// (upstream returns 0 Handstream and NaN Stamina). That is reported as no
+/// rating with the reason instead of failing the whole response.
+#[test]
+fn minacalc_ceiling_is_a_reason_not_an_error() {
+    // Same chord rotation as the minacalc crate's unit test: 24 three-note rows/s for 60 s.
+    let chords: [&[u32]; 4] = [&[0, 2, 4], &[1, 4, 6], &[0, 3, 5], &[1, 3, 6]];
+    let mut objects = String::new();
+    for i in 0..1440 {
+        for column in chords[i % 4] {
+            objects.push_str(&format!("{},192,{},1,0\n", column * 73 + 36, i * 1000 / 24));
+        }
+    }
+    let bytes = chart(3, 7, &objects);
+    let low = calculate(&bytes, Params::new(0.5, None).unwrap()).unwrap();
+    assert!(low.msd.is_some());
+    let high = calculate(&bytes, Params::new(2.0, None).unwrap()).unwrap();
+    assert!(high.msd.is_none());
+    assert_eq!(high.unrated["etterna"].scope, Scope::Rate);
+    assert!(
+        high.unrated["etterna"]
+            .reason
+            .starts_with("Beyond MinaCalc 527's 7K range")
+    );
+    assert!(high.quaver.is_some() && high.interlude.is_some() && high.stars.is_some());
+    let local = timeline(
+        &bytes,
+        Params::new(2.0, None).unwrap(),
+        "etterna",
+        12.0,
+        6.0,
+    )
+    .unwrap();
+    assert!(local["overall"].is_null() && local["unrated"].is_string());
+    assert!(
+        local["points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["value"].is_null())
+    );
 }
 #[test]
 fn reference_golden_and_ssr() {
@@ -88,8 +227,8 @@ fn dan_interpolation_is_calibrated_and_not_extrapolated() {
 }
 
 #[test]
-fn nonempty_six_and_seven_key_calculation_and_score_endpoints() {
-    for keys in [4, 6, 7] {
+fn nonempty_five_six_and_seven_key_calculation_and_score_endpoints() {
+    for keys in [4, 5, 6, 7] {
         let source = include_str!("fixtures/cyclic.osu")
             .replace("CircleSize:4", &format!("CircleSize:{keys}"));
         for score in [0.0, 0.93, 1.0] {

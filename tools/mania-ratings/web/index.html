@@ -28,10 +28,11 @@
 <div id="skills" class="v-panel__body skills"></div>
 </section>
 <section class="v-panel">
-<div class="v-panel__head"><span class="v-label"><b>02</b> / Rate curve</span></div>
+<div class="v-panel__head"><span class="v-label"><b>02</b> / <span id="curve-label">Rate curve</span></span></div>
 <div class="v-panel__body fill">
-<div class="plot-frame"><svg id="curve" class="plot" role="img" aria-label="Etterna overall MSD by rate"></svg></div>
-<ol id="ladder" class="ladder" aria-label="MSD at nearby rates"></ol>
+<div class="plot-frame"><svg id="curve" class="plot" role="img" aria-label="Difficulty by rate"></svg></div>
+<p id="curve-note" class="v-muted curve-note" hidden></p>
+<ol id="ladder" class="ladder" aria-label="Values at nearby rates"></ol>
 </div>
 </section>
 </div>

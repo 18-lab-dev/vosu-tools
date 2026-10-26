@@ -210,6 +210,7 @@ async fn rates(
     let ticks = vosu_mania_ratings::analysis::rate_ticks(options.step)?;
     app.work(move |conn| {
         let mut rates = Vec::with_capacity(14);
+        let mut keys = 0;
         for tick in ticks {
             let d = cached(
                 &conn,
@@ -220,9 +221,10 @@ async fn rates(
                     score: None,
                 },
             )?;
-            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars}));
+            keys = d.keys;
+            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars,"unrated":d.unrated}));
         }
-        Ok(json!({"checksum":md5,"rates":rates}))
+        Ok(json!({"checksum":md5,"keys":keys,"rates":rates}))
     })
     .await
     .map(Json)
