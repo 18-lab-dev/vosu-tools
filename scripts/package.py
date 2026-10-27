@@ -382,7 +382,7 @@ def main():
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--out', type=Path, default=Path('dist'))
     parser.add_argument('--target', choices=TARGETS)
-    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.2.0')
+    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.3.0')
     parser.add_argument('--name', default='18-LAB official tools')
     parser.add_argument('--published')
     parser.add_argument('--skip-build', action='store_true', help='package already-built binaries and hidden-sourcemap UI outputs')

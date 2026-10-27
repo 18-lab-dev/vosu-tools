@@ -42,7 +42,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
     {
       "id": "practice",
       "name": "osu! practice tool",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "…",
       "author": "18-LAB",
       "homepage": "https://github.com/18-lab-dev/vosu-tools/tree/main/tools/practice",
@@ -52,7 +52,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "interfaces": ["ui", "cli"],
       "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
       "packages": {
-        "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.1-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
+        "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.2-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
         "x86_64-unknown-linux-gnu": {"url": "…", "sha256": "…", "size": 1234567}
       }
     }
@@ -92,7 +92,7 @@ Merge platform catalogs with:
 
 ```sh
 python scripts/package.py --merge-catalogs linux/catalog.json windows/catalog.json \
-  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.2.0
+  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.3.0
 ```
 
 Conflicting tool metadata or different packages for an already-present target fail the merge. No target package is silently replaced.

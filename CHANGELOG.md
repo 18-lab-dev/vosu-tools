@@ -1,22 +1,49 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 - 2026-10-26
 
-### Every tool
+### Consistent mania key counts
 
-- Native osu!mania maps use the key count osu! plays everywhere (Practice, Map preview, Skin studio, Replay renderer, Mania ratings and the shared renderer and replay judging): CircleSize clamped to 1–18 and rounded half to even (6.5 is 6K, 7.5 is 8K), 11/13/15/17 as two stages of 10/12/14/16, and 5K when a map has no CircleSize. Before, the web UIs rounded half up and Practice's Rust side truncated or defaulted to 4K. Converted osu! maps keep lazer's conversion key count.
+- Practice, Map preview, Skin studio, Replay renderer and Mania ratings now use the key count osu! actually plays. Native mania maps share one rule in Rust and TypeScript: clamp CircleSize to 1–18 and round ties to even (6.5 is 6K, 7.5 is 8K); play 11/13/15/17 as two stages of 10/12/14/16; use 5K when CircleSize is absent. Converted osu! maps keep lazer's conversion key count.
 
-### Skin studio
+### Skin studio 0.3.0
 
-- Scroll mania previews (the Preview tab and the Keymodes stage) at your osu! scroll speed and direction, following changes live, instead of a fixed speed of 16. A Scroll field in the Preview tab overrides it; its hint says where the speed comes from, and lazer's default (8) applies without a client or a reported speed.
+- Edit the current stable skin in place, with backups and restore. If an apply cannot roll back, keep the backup instead of discarding it.
+- Calibrate the mania hit position from your last play, or adjust it with the hit-position stepper.
+- Keep image proportions when resizing, organize mania assets by key count, and edit the [Mania] settings in a form.
+- Select several Keymodes slots at once. Read repeated Keys blocks as lazer does, keep label-only settings, and show sizes without waiting for a hover.
+- Export mixes as Quaver skins or Etterna noteskins.
+- Scroll mania previews at your client's scroll speed and direction, following changes live. Override the speed in Preview; without a reported speed, use lazer's default of 8.
+- Keep hold bodies unchanged when adjusting HitPosition. Width changes scale receptors without replaying the derived hit position as another move, preserve short and blank keys, and keep 10K resizing consistent.
+- Select per-column values like image slots and apply a value to all columns. Keep typing intact when Keymodes redraws.
+- Show the note nearest the receptors in the still stage, with hold pieces placed so they do not overlap.
 
-### Practice
+### Mania ratings 0.2.0
 
-- Draw the mania preview with your osu! scroll speed and direction (stable or lazer, read from vosu) and follow changes live. A Scroll field in the preview overrides it; its hint says where the speed comes from, and lazer's default (8) applies without a client or a reported speed.
+- Rate charts across 1K–18K, with each calculator's supported key counts and unavailable results explained instead of silently dropping them.
+- Add Interlude pattern breakdowns, Prism (mania-tracker) ratings for 6K–8K, a 7K view and Regular dan estimates, and long-note statistics.
+- Use MinaCalc's dedicated 5K model, name its 6K/7K skillsets as upstream does, and explain rating-cap gaps.
+- Parse native mania slider and spinner objects as lazer plays them, and use lazer's key-count rounding.
 
-### Map preview
+### Lazer library 0.2.0
 
-- Keep notes moving at the client's real-time speed when the client plays at another rate (DT, HT or a custom rate), and fall back to lazer's default scroll speed (8, was 20) when no speed is set or reported. The scroll speed's hint names its source.
+- Offer recent local scores with replay files through a new route, with ruleset and count filters, for features such as Skin studio calibration.
+
+### Practice 0.1.2 and Map preview 0.2.2
+
+- Follow the client's mania scroll speed and direction, with a manual override and a hint explaining the source.
+- Keep mania notes moving at the client's real-time speed when DT, HT or a custom rate is active. Use lazer's default speed of 8 when no speed is reported.
+
+### Replay renderer 0.2.0
+
+- Bring the new per-key-count mania ratings, pattern breakdowns and lazer-faithful parsing to the ratings data supplied to replay overlays.
+- Read repeated Keys blocks in mania skins as lazer does.
+
+### Third-party components and packaging
+
+- Include Interlude patterns (YAVSRG Prelude, MIT), Prism / mania-tracker (MIT), and the translated osu!lazer mania converter (MIT). Their license texts and provenance notices ship with the packages that include them.
+- Keep the vosu 1.2.0 ZIP compatibility checks for every package.
+- Downloader and server-pp remain at 0.1.0; their behavior is unchanged.
 
 ## v0.2.0 - 2026-10-26
 

@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "lazer-library"
 name = "Lazer library"
-version = "0.1.0"
+version = "0.2.0"
 description = "Read-only access to lazer beatmaps, skins and replay files from consistent Realm snapshots."
 author = "18-LAB"
 icon = "art/icon.svg"

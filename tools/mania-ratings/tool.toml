@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "mania-ratings"
 name = "Mania ratings"
-version = "0.1.0"
+version = "0.2.0"
 description = "Live osu!mania difficulty dashboard for a second monitor: MinaCalc, Quaver, Interlude and osu!mania stars, rate curve, timelines and experimental Reform estimates for the selected map and rate."
 author = "18-LAB"
 icon = "art/icon.svg"
