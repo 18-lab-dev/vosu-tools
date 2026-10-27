@@ -4,6 +4,7 @@
 
 - Skin studio separates hit-position (press/receptor) and LN-length (release/hold-tail) calibration into independent, visible groups. Each names the play, client and key count, shows relative and absolute local play time, flags old plays, and explains blocked proposals.
 - Replay renderer: correct mania Classic + ScoreV2 judging to use modern hit windows, matching lazer's `ManiaHitWindows`; Classic's legacy windows apply only without ScoreV2.
+- Skin studio LN-length means now use only non-miss/non-combo-break physical releases under the replay client's timing rules. Show used/total/excluded counts, block calibration when fewer than 50 remain, and explicitly report very late held releases which stable ScoreV1 still accepts.
 
 ## v0.3.0 - 2026-10-26
 

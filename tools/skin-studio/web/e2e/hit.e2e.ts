@@ -197,6 +197,8 @@ try {
   await until(() => page.locator("#km-ln .km-hit__play").count(), "independent LN proposal", 120000);
   check("Both calibrations read one play independently", (await page.locator("#km-ln .km-hit__play").textContent()) === (await page.locator("#km-hit .km-hit__play").textContent()));
   check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("Presses:"));
+  const sevenReleases = (await page.locator("#km-ln").textContent()) ?? "";
+  check("7K LN proposal reports used/excluded releases", /\d+ of \d+ releases used; \d+ early\/late releases outside the hit window excluded/.test(sevenReleases), sevenReleases);
   await page.locator("#km-hit button", { hasText: "Apply to receptors" }).click();
   await until(async () => (await hitValue()) === "450", "calibrated 450");
   check("Applied: HitPosition 450", true);
@@ -213,6 +215,7 @@ try {
   const tails = (await page.locator("#km-ln").textContent()) ?? "";
   const release = /Releases: mean \+?([\d.]+) ms ± [\d.]+ over ([\d,]+) holds → you release late/.exec(tails);
   check("Rate mods: DT play judged in real ms; late releases found", !!release && release[1] === "5.1" && release[2] === "424", release?.[0] ?? tails.slice(0, 300));
+  check("4K LN proposal reports used/excluded releases", /\d+ of \d+ releases used; \d+ early\/late releases outside the hit window excluded/.test(tails), tails);
   await shot("hit-4k-proposal");
   await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await label("NoteImage0L")) !== before4, "hold ends applied");

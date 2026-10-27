@@ -14,6 +14,7 @@ import {
   holdPlan,
   type Offsets,
   type Speed,
+  type CalibrationOffsets,
 } from "./calibrate";
 import { $, h } from "./dom";
 import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
@@ -86,7 +87,7 @@ interface Calibration {
   keys: number;
   speed: Speed;
   press: Offsets;
-  release: Offsets;
+  release: CalibrationOffsets;
 }
 
 export class HitPanel {
@@ -655,7 +656,10 @@ export class HitPanel {
     }
     if (kind === "press") return out;
     // Hold tails.
-    if (!c.release.count) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
+    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} releases used; ${c.release.excluded} early/late releases outside the hit window excluded`));
+    if (c.release.veryLate)
+      out.push(h("p", { class: "km-hit__warn" }, `${c.release.veryLate} very late releases included, as stable judges them.`));
+    if (!c.release.total) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
     else if (c.release.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${c.release.count} releases; at least ${MIN_HITS} are needed.`));
     else {
