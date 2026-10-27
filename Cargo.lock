@@ -1431,6 +1431,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mania-keys"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "matchit"
 version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1645,6 +1652,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hound",
+ "mania-keys",
  "minimp3",
  "rosu-map 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rubato",
@@ -2839,6 +2847,7 @@ dependencies = [
  "axum",
  "chart-parser",
  "clap",
+ "mania-keys",
  "md-5 0.11.0",
  "minacalc",
  "prism",
@@ -2928,6 +2937,7 @@ dependencies = [
  "axum",
  "clap",
  "hound",
+ "mania-keys",
  "md-5 0.11.0",
  "osu-file",
  "reqwest",

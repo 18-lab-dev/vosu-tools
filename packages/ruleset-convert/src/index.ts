@@ -11,6 +11,9 @@ import { convertToMania, maniaLayout } from "./mania";
 import { convertToTaiko } from "./taiko";
 
 export { LegacyRandom } from "./random";
+// Native maps' key count (lazer's CircleSize rule) beside the convert rule
+// (`maniaKeys` / `maniaLayout`): the two ways the clients pick mania columns.
+export { maniaColumns, maniaKeyCount } from "@vosu-tools/osu-parse";
 export {
   legacyBeatmap,
   timingPointAt,
@@ -145,6 +148,7 @@ export function convertBeatmap(
     const converted = convertToMania(legacy, mods),
       total = converted.columns * converted.stages;
     base.difficulty = { ...base.difficulty, cs: total };
+    base.maniaColumns = total;
     base.objects = converted.notes.map((n) =>
       object(
         n.time,

@@ -1,12 +1,10 @@
 //! Slider and spinner objects in native mania charts are converted as osu!
 //! (lazer) plays them (tests/reference/lazer/generate.py), and every system
 //! then rates the chart.
+use mania_keys::key_count;
 use rosu_map::{Beatmap, section::hit_objects::HitObjectKind};
 use serde_json::Value;
-use vosu_mania_ratings::{
-    Params, calculate, checksum,
-    playable::{key_count, playable},
-};
+use vosu_mania_ratings::{Params, calculate, checksum, playable::playable};
 
 /// Notes and holds as lazer's oracle prints them: start, end, column, kind.
 fn played(bytes: &[u8]) -> (u32, Vec<(f64, f64, u32, &'static str)>) {
@@ -125,33 +123,6 @@ fn every_system_rates_charts_with_sliders_and_spinners() {
             assert_eq!(before == after, !slider_or_spinner, "{chart}: {before}");
         }
     }
-}
-
-/// lazer's rule: clamp to 1–18, round half to even, two half stages above 10K.
-#[test]
-fn key_count_is_lazers() {
-    for (size, keys) in [
-        (1.111111, 1),
-        (0.0, 1),
-        (0.4, 1),
-        (4.0, 4),
-        (6.5, 6),
-        (7.49, 7),
-        (7.5, 8),
-        (8.5, 8),
-        (10.4, 10),
-        (10.5, 10),
-        (10.6, 10),
-        (11.0, 10),
-        (12.0, 12),
-        (13.0, 12),
-        (17.0, 16),
-        (18.0, 18),
-        (25.0, 18),
-    ] {
-        assert_eq!(key_count(size), Ok(keys), "CircleSize {size}");
-    }
-    assert!(key_count(f32::NAN).is_err());
 }
 
 /// Fractional, odd-above-10 and missing CircleSize: the chart is rewritten

@@ -9,7 +9,7 @@ import {
   type Replay,
   type ReplayFrame,
 } from "@vosu-tools/replay";
-import { csv, type Beatmap } from "@vosu-tools/osu-parse";
+import { csv, maniaColumns, type Beatmap } from "@vosu-tools/osu-parse";
 import type { Track } from "./studio";
 
 const MODES = ["osu", "taiko", "fruits", "mania"] as const;
@@ -156,7 +156,7 @@ export function telemetry(
   const counts = state?.counts ?? null;
   const health = replayHealth(replay, simulation, time);
   const mode = { number: replay.mode, name: MODES[replay.mode] };
-  const columns = Math.max(1, Math.round(map.difficulty.cs));
+  const columns = maniaColumns(map);
   const mean = all.length ? all.reduce((sum, value) => sum + value, 0) / all.length : 0;
   const ur = all.length
     ? Math.sqrt(all.reduce((sum, value) => sum + (value - mean) ** 2, 0) / all.length) * 10

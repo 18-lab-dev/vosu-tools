@@ -1,8 +1,7 @@
+use mania_keys::key_count;
 use rosu_map::Beatmap;
 use serde_json::Value;
-use vosu_mania_ratings::{
-    Params, analysis, calculate, interlude, playable::key_count, quaver, rows,
-};
+use vosu_mania_ratings::{Params, analysis, calculate, interlude, quaver, rows};
 #[test]
 fn upstream_reference_values_and_strain_arrays() {
     let fixtures: Vec<Value> =

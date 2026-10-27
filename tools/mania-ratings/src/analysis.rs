@@ -96,7 +96,7 @@ pub fn timeline(
     if map.mode != GameMode::Mania {
         return Err("native mania maps only".into());
     }
-    let keys = crate::playable::key_count(map.circle_size)?;
+    let keys = mania_keys::key_count(map.circle_size)?;
     crate::support(system, keys)?;
     let rows = rows(&map, keys)?;
     let duration = rows.last().map_or(0.0, |r| r.seconds + 0.001);

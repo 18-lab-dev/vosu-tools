@@ -8,14 +8,7 @@ import type { Beatmap, Point } from "@vosu-tools/osu-parse";
 
 export const f32 = Math.fround;
 
-/** .NET `Math.Round` / `MathF.Round`: midpoints go to the even neighbour. */
-export function roundHalfEven(value: number): number {
-  const floor = Math.floor(value),
-    diff = value - floor;
-  if (diff > 0.5) return floor + 1;
-  if (diff < 0.5) return floor;
-  return floor % 2 === 0 ? floor : floor + 1;
-}
+export { roundHalfEven } from "@vosu-tools/osu-parse";
 
 /** `Precision.AlmostEquals(double, double)` with osu!framework's default epsilon. */
 export const almostEquals = (a: number, b: number, epsilon = 1e-7): boolean =>

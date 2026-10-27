@@ -2,7 +2,7 @@
 // HitPosition with a stepper that also moves the receptor graphics, and a
 // calibration from the last completed play for receptors and hold tails.
 
-import { parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
+import { maniaColumns, parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
 import { maniaConfig, type ManiaImageResolution } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
 import { judgeReplay, parseReplay, replayRate } from "@vosu-tools/replay";
@@ -523,7 +523,7 @@ export class HitPanel {
       this.#calibration = {
         play,
         map,
-        keys: Math.max(1, Math.round(map.difficulty.cs)),
+        keys: maniaColumns(map),
         speed,
         press: offsets(simulation, map, "press", speed, rate),
         release: offsets(simulation, map, "release", speed, rate),

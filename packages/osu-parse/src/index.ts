@@ -1,4 +1,14 @@
 import { parse as parseSkinDocument } from "@vosu-tools/skin-spec";
+import { maniaColumns } from "./keys";
+
+export {
+  DEFAULT_CIRCLE_SIZE,
+  MAX_MANIA_KEYS,
+  MAX_STAGE_KEYS,
+  maniaColumns,
+  maniaKeyCount,
+  roundHalfEven,
+} from "./keys";
 
 /**
  * Repeated Mania blocks are kept separate, keyed by their explicit Keys entry.
@@ -86,6 +96,12 @@ export interface Beatmap {
   visualMods: string[];
   /** Catch: Hard Rock's (or Difficulty Adjust's "spicy patterns") fruit offsets. */
   catchHardRockOffsets?: boolean;
+  /**
+   * Mania: the key count the clients' conversion chose for a converted osu!
+   * map (set by `@vosu-tools/ruleset-convert`). Native maps leave it unset and
+   * play `maniaKeyCount(difficulty.cs)`; read either with `maniaColumns`.
+   */
+  maniaColumns?: number;
 }
 export interface Mod {
   acronym: string;
@@ -855,7 +871,7 @@ export function applyMods(
     return (seed >>> 0) / 4294967296;
   };
   // Mania columns: Random and Mirror apply in mod order, like lazer's beatmap mods.
-  const keys = Math.max(1, Math.round(d.cs));
+  const keys = maniaColumns(map);
   // Mania's conversion mods run first (`IApplicableAfterBeatmapConversion`).
   if (map.mode === 3 && has("IN")) {
     // ManiaModInvert: holds fill the gaps between a column's notes.

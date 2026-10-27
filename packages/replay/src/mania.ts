@@ -6,7 +6,7 @@
  * missed head or a broken hold) and a body that breaks combo when the hold is
  * dropped (`DrawableHoldNote`).
  */
-import type { Beatmap } from "@vosu-tools/osu-parse";
+import { maniaColumns, type Beatmap } from "@vosu-tools/osu-parse";
 import type { Replay } from "./index";
 import { isClassic, replayMods, replayRate } from "./mods";
 import { difficultyRange } from "./osu";
@@ -93,7 +93,7 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
   const mods = replayMods(replay),
     has = (a: string) => mods.some((m) => m.acronym === a);
   if (has("AT") || has("CN")) throw new Error("Autoplay replays are not judged from input");
-  const columns = Math.max(1, Math.round(map.difficulty.cs));
+  const columns = maniaColumns(map);
   const windows = maniaHitWindows(Math.fround(map.difficulty.od), {
     // Rate mods widen the windows in map time (`IManiaRateAdjustmentMod`).
     rate: replayRate(replay),

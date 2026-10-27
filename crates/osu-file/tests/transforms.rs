@@ -47,6 +47,31 @@ fn invert_duplicates_and_terminal_notes() {
     assert_eq!(mods::summary(&output).unwrap().0, 3);
 }
 #[test]
+fn mania_transforms_use_lazers_key_count() {
+    // CircleSize 6.5 plays as 6K and 7.5 as 8K (`mania-keys`): Mirror sends
+    // column 0 to that count's last column.
+    let original = MANIA
+        .lines()
+        .find(|l| l.starts_with("CircleSize:"))
+        .unwrap();
+    for (size, keys) in [("6.5", 6), ("7.5", 8), ("11", 10)] {
+        let text = MANIA
+            .replace(original, &format!("CircleSize:{size}"))
+            .replace("[HitObjects]\n", "[HitObjects]\n0,192,500,1,0,0:0:0:0:\n");
+        let output = mods::apply(&text, &options(&["MR"])).unwrap();
+        let line = output
+            .lines()
+            .find(|l| l.split(',').nth(2) == Some("500"))
+            .unwrap();
+        let x: f64 = line.split(',').next().unwrap().parse().unwrap();
+        assert_eq!(
+            (x * f64::from(keys) / 512.0).floor(),
+            f64::from(keys - 1),
+            "{size}: {line}"
+        );
+    }
+}
+#[test]
 fn taiko_swap_and_lazer_seeded_values() {
     let source = MANIA
         .replace("Mode: 3", "Mode: 1")

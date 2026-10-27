@@ -2,7 +2,12 @@
  * The renderer on a chosen backend (index.ts createRenderer picks it): scenes,
  * per-frame uniforms and overlay instances, the same for every backend.
  */
-import { applyMods, scrollPosition, type Beatmap } from "@vosu-tools/osu-parse";
+import {
+  applyMods,
+  maniaColumns,
+  scrollPosition,
+  type Beatmap,
+} from "@vosu-tools/osu-parse";
 import { legacyBool } from "./osu";
 import {
   buildAtlas,
@@ -265,7 +270,7 @@ export function rendererOn(
       scene = compileScene(map, opts, regions, skin, aspect);
       keyIntervals =
         map.mode === 3
-          ? Array.from({ length: Math.round(map.difficulty.cs) }, () => [])
+          ? Array.from({ length: maniaColumns(map) }, () => [])
           : [];
       holdIntervals = keyIntervals.map(() => []);
       if (map.mode === 3 && opts.input)
