@@ -55,6 +55,12 @@ export interface KeymodeDraft {
         had: boolean;
       }
     >;
+    /**
+     * HitPosition units moved by hand (stepper, field, calibration) since
+     * the capture, at the captured widths. Width changes are not recorded
+     * here: the HitPosition they derive is reached by scaling.
+     */
+    moved?: number;
   };
   /**
    * Keep proportions when changing column width (proportions.ts): on unless

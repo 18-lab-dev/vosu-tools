@@ -74,12 +74,17 @@ export function maniaNotes(keys: number): Note[] {
 
 /**
  * A still stage for skin editors, drawn at time 0 with the keys up: in every
- * column a hold (head, body and tail on screen) with a note above it.
+ * column a note nearest the receptors and a hold (head, body and tail on
+ * screen) above it. `times` places them for a skin and scroll speed
+ * (render-core's `maniaStillTimes`); the default suits lazer's default speed.
  */
-export function maniaStillNotes(keys: number): Note[] {
+export function maniaStillNotes(
+  keys: number,
+  times: { note: number; start: number; end: number } = { note: 100, start: 300, end: 900 },
+): Note[] {
   return Array.from({ length: keys }, (_, column) => [
-    { column, time: 150, end: 450 },
-    { column, time: 600 },
+    { column, time: Math.round(times.note) },
+    { column, time: Math.round(times.start), end: Math.round(times.end) },
   ]).flat();
 }
 

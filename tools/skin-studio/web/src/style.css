@@ -1198,6 +1198,12 @@
   align-items: center;
   min-width: 0;
 }
+/* A value cell in the row's selection: an edit sets every one. */
+.km-value[aria-selected="true"] {
+  border-radius: var(--radius);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .km-num {
   width: 100%;
   min-width: 0;

@@ -21,6 +21,12 @@ import {
   type DemoLoop,
 } from "@vosu-tools/demo-maps";
 import { LAZER_DEFAULT_SCROLL_SPEED } from "@vosu-tools/client-skin/scroll";
+import {
+  maniaConfig,
+  maniaLayout,
+  maniaStillTimes,
+  skinImageSize,
+} from "@vosu-tools/render-core/mania";
 
 /** Returns a skin file by skin-relative name (any case), or null. */
 export type Resolver = (file: string) => Promise<Blob | null>;
@@ -119,17 +125,32 @@ export class Preview {
   }
 
   /**
-   * Draws a still stage of `keys` columns (keys up, a hold and a note in
-   * every column) instead of the demo, or the demo again with `null`.
+   * Draws a still stage of `keys` columns (keys up; in every column a note
+   * nearest the receptors and a hold above it) instead of the demo, or the
+   * demo again with `null`.
    */
   setStill(keys: number | null) {
     if (keys === this.#still) return;
     this.#still = keys;
-    this.#stillMap = keys === null ? undefined : maniaStill(keys);
+    this.#placeStill();
     const map = this.#stillMap ?? this.#loop?.beatmap;
     if (map) this.#renderer?.setBeatmap(map, this.#options());
     this.#redraws = 30;
     void this.#reconcile();
+  }
+
+  /**
+   * The still stage laid out on the shown skin's stage (receptors, note and
+   * hold heights) for the scroll speed, so nothing overlaps at any speed.
+   */
+  #placeStill() {
+    const keys = this.#still;
+    if (keys === null) {
+      this.#stillMap = undefined;
+      return;
+    }
+    const layout = maniaLayout(maniaConfig(this.#skin, keys), skinImageSize(this.#skin));
+    this.#stillMap = maniaStill(keys, maniaStillTimes(layout, this.#scroll.scrollSpeed));
   }
 
   /** The mania stage drawn now; skins decode only that one (holds are large). */
@@ -172,6 +193,7 @@ export class Preview {
     if (s.scrollSpeed === scrollSpeed && s.maniaScrollUp === maniaScrollUp)
       return;
     this.#scroll = { scrollSpeed, maniaScrollUp };
+    this.#placeStill();
     const map = this.#stillMap ?? this.#loop?.beatmap;
     if (map) this.#renderer?.setBeatmap(map, this.#options());
     this.#redraws = 30;
@@ -224,6 +246,7 @@ export class Preview {
     this.#decoded = decoded;
     this.#skin = fileSkin ? overLook(fileSkin) : this.#classic;
     this.#renderer?.setSkin(this.#skin);
+    this.#placeStill();
     const map = this.#stillMap ?? this.#loop?.beatmap;
     if (map) this.#renderer?.setBeatmap(map, this.#options());
     this.#redraws = 30;

@@ -44,6 +44,18 @@ import { HitPanel, type HitHost } from "./hit-panel";
 import { MANIA_COLUMNS, MANIA_FIELDS, columnKey as formKey, setListEntry, type ColumnField, type Field } from "./mania-form";
 import type { Preview, PreviewSource } from "./preview";
 import {
+  NONE,
+  all as allRow,
+  columnsText,
+  extend as extendRow,
+  isSelected,
+  range as rangeRow,
+  single as singleRow,
+  toggle as toggleRow,
+  targets as rowTargets,
+  type RowSelection,
+} from "./value-selection";
+import {
   EMPTY,
   all,
   extend,
@@ -193,6 +205,16 @@ export class KeymodesView {
   #resolved: ManiaImageResolution[] = [];
   #mixIndex = new Map<string, string[]>();
   #hit: HitPanel;
+  /** Selected columns of one value row (widths, colours, the form's per-column fields). */
+  #rows: RowSelection = NONE;
+  /** The value cell focused last; Apply to all columns copies it while it is the last focus. */
+  #valueFocus: { row: string; col: number } | null = null;
+  #lastFocus: "slot" | "value" = "slot";
+  /** Per value row: its name, length, an edit of some columns, a copy of one column to all. */
+  #valueSpecs = new Map<
+    string,
+    { label: string; length: number; apply(cols: number[], value: string | null): void; copy(from: number): void }
+  >();
 
   constructor(host: KeymodesHost) {
     this.#host = host;
@@ -398,6 +420,10 @@ export class KeymodesView {
   }
   #setSelection(selection: Selection) {
     this.#selection = selection;
+    if (selection.keys.length) {
+      this.#lastFocus = "slot";
+      if (this.#rows.cols.length) this.#setRows(NONE);
+    }
     const focus = selection.focus && this.#shape().keyAt(...selection.focus);
     this.#armed = focus && selection.keys.includes(focus) ? focus : (selection.keys.at(-1) ?? null);
     this.#renderSelection();
@@ -493,6 +519,8 @@ export class KeymodesView {
   #select(keys: number) {
     if (keys === this.#keys) return;
     this.#keys = keys;
+    this.#rows = NONE;
+    this.#valueFocus = null;
     this.#armed = null;
     this.#selection = EMPTY;
     this.#cell = [0, 0];
@@ -591,12 +619,19 @@ export class KeymodesView {
     undo.title = next.undo ? `Undo ${next.undo} (Ctrl+Z)` : "Nothing to undo";
     redo.title = next.redo ? `Redo ${next.redo} (Ctrl+Shift+Z)` : "Nothing to redo";
     const all = $<HTMLButtonElement>("#km-all");
+    const value = this.#lastFocus === "value" && this.#valueFocus ? this.#valueSpecs.get(this.#valueFocus.row) : undefined;
     const armed = this.#armed && /\d/.test(this.#armed) && /^(Key|Note)Image/.test(this.#armed);
-    all.disabled = !write || !armed;
-    all.textContent = armed
-      ? `Apply ${roleLabel(patternOf(this.#armed!)).toLowerCase()} to all columns`
-      : "Apply to all columns";
-    all.title = armed ? "" : "Select a column slot first";
+    all.disabled = !write || !(value || armed);
+    all.textContent = value
+      ? `Apply ${value.label} to all columns`
+      : armed
+        ? `Apply ${roleLabel(patternOf(this.#armed!)).toLowerCase()} to all columns`
+        : "Apply to all columns";
+    all.title = value
+      ? `Copies column ${this.#valueFocus!.col + 1}'s ${value.label} to every column`
+      : armed
+        ? ""
+        : "Select a column slot or value first";
     $<HTMLButtonElement>("#km-mirror").disabled = !write || this.#keys < 2;
     $<HTMLButtonElement>("#km-mirror").title =
       `Right half takes the left half's images: ${this.#mirrorPairs()}`;
@@ -747,9 +782,42 @@ export class KeymodesView {
     this.#renderImages();
   }
 
+  /**
+   * A field being typed into when `root` re-renders (the mix recomposes
+   * after the previous edit): its label and unsaved text, put back after.
+   */
+  #editing(root: HTMLElement) {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement) || !root.contains(active) || active.value === active.defaultValue) return null;
+    const label = active.getAttribute("aria-label");
+    return label ? { label, value: active.value } : null;
+  }
+  #keepEditing(root: HTMLElement, editing: { label: string; value: string } | null) {
+    if (!editing) return;
+    const input = root.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(editing.label)}"]`);
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.value = editing.value;
+    // A value set from code may not count as the user's for the browser's
+    // own change event: commit it on blur or Enter unless that event came.
+    let fired = false;
+    input.addEventListener("change", () => (fired = true), { once: true });
+    const commit = () => {
+      if (!fired && input.isConnected && input.value !== input.defaultValue) {
+        fired = true;
+        input.dispatchEvent(new Event("change"));
+      }
+    };
+    input.addEventListener("blur", commit, { once: true });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") setTimeout(commit);
+    });
+  }
+
   #renderGrid() {
     const grid = $("#km-grid");
     const hadFocus = grid.contains(document.activeElement);
+    const editing = this.#editing(grid);
     const keys = this.#keys;
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
@@ -791,21 +859,22 @@ export class KeymodesView {
     const valueRows = this.#valueRows(keys, COLUMN_ROLES.length);
     grid.replaceChildren(...rows, ...valueRows);
     if (hadFocus) this.#focusCell(grid);
+    this.#keepEditing(grid, editing);
   }
 
   /**
    * Column widths through the hit panel, which keeps proportions (by
    * default) in the same undo step; the first time, says so inline.
    */
-  async #setWidths(column: number, value: string, label: string) {
+  async #setWidths(columns: number[], value: string, label: string) {
     // The widths as they are when this edit runs (after any edit before it).
-    await this.#hit.setWidths(column, value, label);
+    await this.#hit.setWidths(columns, value, label);
     const done = this.#hit.lastRegeometry;
     if (this.#draft()?.keepProportions === false || !done) return;
     const first = localStorage.getItem("skin-studio:proportions-seen") === null;
     localStorage.setItem("skin-studio:proportions-seen", "1");
     this.#state(
-      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
+      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${done.skipped ? `. ${done.skipped}` : ""}${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
     );
   }
 
@@ -820,6 +889,7 @@ export class KeymodesView {
     const keys = this.#keys;
     if (!keys) return root.replaceChildren();
     const hadFocus = root.contains(document.activeElement) ? document.activeElement?.getAttribute("aria-label") : null;
+    const editing = this.#editing(root);
     const text = this.#host.mixText();
     // The draft's own value first: the skin.ini text catches up a moment
     // later (the mix recomposes), and the form must not show the old value.
@@ -914,22 +984,34 @@ export class KeymodesView {
       const global = f.list ? undefined : value(f.key.replace(/#.*$/, ""));
       const fill = (i: number) =>
         f.key.startsWith("Lighting") ? (widths[i]?.trim() || "30") : (f.fallback ?? "0");
+      const name = f.label.toLowerCase();
+      // An edit of some columns (the row's selection), one undo step.
+      const apply = (cols: number[], v: string | null, label: string) =>
+        f.list
+          ? set(f.key, cols.reduce<string | undefined>((list, c) => setListEntry(list, length, c, v, fill), value(f.key))!, label)
+          : this.#change(label, (draft) => {
+              for (const c of cols) draft.values[formKey(f, c)] = v;
+            });
+      this.#valueSpecs.set(f.key, {
+        label: name,
+        length,
+        apply: (cols, v) => apply(cols, v, `Set ${name} of ${columnsText(cols)}`),
+        copy: (from) => {
+          const v = f.list ? (value(f.key)?.split(",")[from]?.trim() || fill(from)) : (value(formKey(f, from)) ?? null);
+          apply(Array.from({ length }, (_, c) => c), v, `Apply ${name} to all columns`);
+        },
+      });
       const cells = Array.from({ length }, (_, i) => {
         const key = f.list ? f.key : formKey(f, i);
         const current = f.list ? raw?.[i] || undefined : value(key);
-        const label = f.list && length < keys ? `${f.label} column ${i + 1}` : `Column ${i + 1} ${f.label.toLowerCase()}`;
+        const label = f.list && length < keys ? `${f.label} column ${i + 1}` : `Column ${i + 1} ${name}`;
         const fallback = f.list ? (f.key.startsWith("Lighting") ? fill(i) : f.fallback) : (global ?? MANIA_FIELDS.find((g) => g.key === f.key.replace(/#.*$/, ""))?.fallback);
-        const el = control(
-          f,
-          label,
-          current,
-          fallback,
-          (v) =>
-            f.list
-              ? set(f.key, setListEntry(value(f.key), length, i, v, fill), `Set ${label.toLowerCase()}`)
-              : set(key, v, `Set ${label.toLowerCase()}`),
-        );
-        return h("div", { class: `km-value${f.list && length < keys ? " km-value--gap" : ""}` }, el);
+        const el = control(f, label, current, fallback, (v) => {
+          const cols = rowTargets(this.#rows, f.key, i);
+          apply(cols, v, cols.length === 1 ? `Set ${label.toLowerCase()}` : `Set ${name} of ${columnsText(cols)}`);
+        });
+        const cell = h("div", { class: `km-value${f.list && length < keys ? " km-value--gap" : ""}`, role: "gridcell" }, el);
+        return this.#bindValue(cell, el.matches("input, select") ? el : (el.querySelector<HTMLElement>("input, select") ?? el), f.key, i, length);
       });
       const set_ = f.list ? value(f.key) !== undefined : cells.some((_, i) => value(formKey(f, i)) !== undefined);
       return h(
@@ -951,7 +1033,7 @@ export class KeymodesView {
         ...Array.from({ length: Math.max(0, keys - length) }, () => h("span", { class: "km-value", ariaHidden: "true" })),
       );
     };
-    const columns = h("div", { class: "km-grid km-settings__columns", role: "grid", ariaLabel: "Per-column settings" }, ...MANIA_COLUMNS.map(columnRow));
+    const columns = h("div", { class: "km-grid km-settings__columns", role: "grid", ariaLabel: "Per-column settings", ariaMultiSelectable: "true" }, ...MANIA_COLUMNS.map(columnRow));
     columns.style.setProperty("--km-cols", String(keys));
     // Typed fields by group.
     const groups = new Map<string, Field[]>();
@@ -975,6 +1057,7 @@ export class KeymodesView {
     );
     root.replaceChildren(columns, h("div", { class: "km-settings__groups" }, ...fieldsets));
     if (hadFocus) root.querySelector<HTMLElement>(`[aria-label="${CSS.escape(hadFocus)}"]`)?.focus();
+    this.#keepEditing(root, editing);
   }
 
   /** Width, line width, colour and light colour per column. */
@@ -986,17 +1069,45 @@ export class KeymodesView {
     };
     const widths = list("ColumnWidth", keys, specOf("Mania", "ColumnWidth")?.default ?? "30");
     const lines = list("ColumnLineWidth", keys + 1, specOf("Mania", "ColumnLineWidth")?.default ?? "2");
-    const setList = (key: string, values: string[], label: string) =>
-      this.#change(label, (draft) => {
-        draft.values[key] = values.join(",");
+    const label = (row: string, cols: number[], single: string) =>
+      cols.length === 1 ? single : `Set ${row} of ${columnsText(cols)}`;
+    // Each row: how an edit of some columns lands (one undo step), and the
+    // copy Apply to all columns makes.
+    this.#valueSpecs.set("ColumnWidth", {
+      label: "width",
+      length: keys,
+      apply: (cols, v) => void this.#setWidths(cols, v ?? widths[cols[0]], label("width", cols, `Set column ${cols[0] + 1} width`)),
+      copy: (from) => void this.#setWidths(Array.from({ length: keys }, (_, i) => i), widths[from], "Apply width to all columns"),
+    });
+    const setLines = (cols: number[], v: string, l: string) =>
+      this.#change(l, (draft) => {
+        draft.values.ColumnLineWidth = lines.map((w, i) => (cols.includes(i) ? v : w)).join(",");
       });
-    const number = (
-      value: string,
-      label: string,
-      row: number,
-      col: number,
-      set: (value: string) => void,
-    ) => {
+    this.#valueSpecs.set("ColumnLineWidth", {
+      label: "line width",
+      length: keys,
+      apply: (cols, v) => setLines(cols, v ?? lines[cols[0]], label("line width", cols, `Set column ${cols[0] + 1} line`)),
+      copy: (from) => setLines(Array.from({ length: keys }, (_, i) => i), lines[from], "Apply line width to all columns"),
+    });
+    for (const [prefix, name, alpha] of [["Colour", "colour", true], ["ColourLight", "light colour", false]] as const) {
+      const current = (c: number) => maniaValue(text, keys, `${prefix}${c + 1}`);
+      const fallback = (c: number) => specOf("Mania", `${prefix}${c + 1}`)?.default ?? "0,0,0";
+      this.#valueSpecs.set(prefix, {
+        label: name,
+        length: keys,
+        // A picked colour keeps each column's own alpha.
+        apply: (cols, hex) =>
+          this.#change(label(name, cols, `Set column ${cols[0] + 1} ${name}`), (draft) => {
+            for (const c of cols) draft.values[`${prefix}${c + 1}`] = hex === null ? null : fromHex(hex, current(c), alpha);
+          }),
+        copy: (from) =>
+          this.#change(`Apply ${name} to all columns`, (draft) => {
+            const v = current(from) ?? fallback(from);
+            for (let c = 0; c < keys; c++) draft.values[`${prefix}${c + 1}`] = v;
+          }),
+      });
+    }
+    const number = (value: string, label: string, row: number, col: number, id: string) => {
       const input = h("input", {
         type: "number",
         min: "0",
@@ -1013,11 +1124,12 @@ export class KeymodesView {
           input.value = value;
           return;
         }
-        set(String(n));
+        this.#valueSpecs.get(id)!.apply(rowTargets(this.#rows, id, col), String(n));
       };
-      return this.#valueCell(input, row, col);
+      return this.#bindValue(this.#valueCell(input, row, col), input, id, col, keys);
     };
-    const colour = (key: string, label: string, row: number, col: number, alpha: boolean) => {
+    const colour = (prefix: "Colour" | "ColourLight", label: string, row: number, col: number) => {
+      const key = `${prefix}${col + 1}`;
       const current = maniaValue(text, keys, key);
       const fallback = specOf("Mania", key)?.default ?? "0,0,0";
       const shown = current ?? fallback;
@@ -1028,10 +1140,7 @@ export class KeymodesView {
         ariaLabel: `${label}: ${current ?? `default ${fallback}`}`,
         tabIndex: this.#cell[0] === row && this.#cell[1] === col ? 0 : -1,
       });
-      input.onchange = () =>
-        this.#change(`Set ${label.toLowerCase()}`, (draft) => {
-          draft.values[key] = fromHex(input.value, current, alpha);
-        });
+      input.onchange = () => this.#valueSpecs.get(prefix)!.apply(rowTargets(this.#rows, prefix, col), input.value);
       // The colour itself over a checkerboard (alpha shows), the value on hover or focus.
       const swatch = h(
         "label",
@@ -1041,9 +1150,9 @@ export class KeymodesView {
       );
       const [r, g, b, a = 255] = shown.split(",").map((v) => Number(v.trim()) || 0);
       swatch.style.setProperty("--c", `rgb(${r} ${g} ${b} / ${(a / 255).toFixed(3)})`);
-      return this.#valueCell(input, row, col, swatch);
+      return this.#bindValue(this.#valueCell(input, row, col, swatch), input, prefix, col, keys);
     };
-    const row = (label: string, index: number, cell: (c: number) => HTMLElement) =>
+    const row = (label: string, cell: (c: number) => HTMLElement) =>
       h(
         "div",
         { class: "km-row km-row--values", role: "row" },
@@ -1051,23 +1160,77 @@ export class KeymodesView {
         ...Array.from({ length: keys }, (_, c) => cell(c)),
       );
     return [
-      row("Width", first, (c) =>
-        number(widths[c], `Column ${c + 1} width`, first, c, (v) =>
-          void this.#setWidths(c, v, `Set column ${c + 1} width`),
-        ),
-      ),
-      row("Line", first + 1, (c) =>
-        number(lines[c], `Line left of column ${c + 1}`, first + 1, c, (v) =>
-          setList("ColumnLineWidth", lines.map((w, i) => (i === c ? v : w)), `Set column ${c + 1} line`),
-        ),
-      ),
-      row("Colour", first + 2, (c) =>
-        colour(`Colour${c + 1}`, `Column ${c + 1} colour`, first + 2, c, true),
-      ),
-      row("Light", first + 3, (c) =>
-        colour(`ColourLight${c + 1}`, `Column ${c + 1} light colour`, first + 3, c, false),
-      ),
+      row("Width", (c) => number(widths[c], `Column ${c + 1} width`, first, c, "ColumnWidth")),
+      row("Line", (c) => number(lines[c], `Line left of column ${c + 1}`, first + 1, c, "ColumnLineWidth")),
+      row("Colour", (c) => colour("Colour", `Column ${c + 1} colour`, first + 2, c)),
+      row("Light", (c) => colour("ColourLight", `Column ${c + 1} light colour`, first + 3, c)),
     ];
+  }
+
+  /**
+   * Makes a value cell part of its row's selection: Ctrl/Cmd+click toggles
+   * it, Shift+click selects the run from the anchor (neither opens a colour
+   * picker or flips a switch), a plain click on a cell outside the
+   * selection selects it alone; Shift+arrows grow the run, Ctrl+A takes the
+   * row, Escape clears.
+   */
+  #bindValue(cell: HTMLElement, input: HTMLElement, row: string, col: number, length: number) {
+    cell.dataset.vrow = row;
+    cell.dataset.vcol = String(col);
+    cell.setAttribute("aria-selected", String(isSelected(this.#rows, row, col)));
+    cell.addEventListener(
+      "click",
+      (event) => {
+        if (event.ctrlKey || event.metaKey || event.shiftKey) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.#setRows(event.shiftKey ? rangeRow(this.#rows, row, col) : toggleRow(this.#rows, row, col));
+          input.focus({ preventScroll: true });
+        } else if (!isSelected(this.#rows, row, col)) this.#setRows(singleRow(row, col));
+      },
+      true,
+    );
+    input.addEventListener("focus", () => {
+      this.#valueFocus = { row, col };
+      this.#lastFocus = "value";
+      this.#renderToolbar();
+    });
+    input.addEventListener("keydown", (event) => {
+      const mod = event.ctrlKey || event.metaKey;
+      if (event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        event.stopPropagation();
+        const delta = event.key === "ArrowLeft" ? -1 : 1;
+        this.#setRows(extendRow(this.#rows, row, col, delta, length));
+        const next = Math.max(0, Math.min(length - 1, col + delta));
+        document
+          .querySelector<HTMLElement>(`[data-vrow="${CSS.escape(row)}"][data-vcol="${next}"]`)
+          ?.querySelector<HTMLElement>("input, select")
+          ?.focus({ preventScroll: true });
+      } else if (mod && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        event.stopPropagation();
+        this.#setRows(allRow(row, length));
+      } else if (event.key === "Escape" && this.#rows.cols.length) {
+        event.stopPropagation();
+        this.#setRows(NONE);
+      }
+    });
+    return cell;
+  }
+
+  /** Selects columns of one value row (slots are deselected). */
+  #setRows(selection: RowSelection) {
+    this.#rows = selection;
+    if (selection.cols.length) {
+      this.#lastFocus = "value";
+      if (this.#selection.keys.length) this.#setSelection(EMPTY);
+    }
+    for (const cell of document.querySelectorAll<HTMLElement>("#keymodes-view [data-vrow]"))
+      cell.setAttribute("aria-selected", String(isSelected(selection, cell.dataset.vrow!, Number(cell.dataset.vcol))));
+    const n = selection.cols.length;
+    if (n > 1) this.#state(`${n} columns selected: an edit sets every one (Escape clears)`);
+    this.#renderToolbar();
   }
   #valueCell(input: HTMLElement, row: number, col: number, content: HTMLElement = input) {
     const cell = h("div", { class: "km-value", role: "gridcell" }, content);
@@ -1389,6 +1552,9 @@ export class KeymodesView {
   // ---- bulk -------------------------------------------------------------------
 
   #applyToAll() {
+    const focus = this.#valueFocus;
+    const value = this.#lastFocus === "value" && focus ? this.#valueSpecs.get(focus.row) : undefined;
+    if (value) return value.copy(focus!.col);
     const key = this.#armed;
     if (!key || !/^(Key|Note)Image\d/.test(key)) return;
     const pattern = patternOf(key);
