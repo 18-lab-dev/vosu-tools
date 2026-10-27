@@ -30,8 +30,19 @@ Alternatives evaluated:
 
 ## Input semantics
 
-`rosu-map =0.2.1` parses native mania with an integral CS of 1–18 (dual-stage
-included). Each calculator rates only the key counts its upstream supports and
+`rosu-map =0.2.1` parses native mania. The key count is the one osu! (lazer)
+`2026.1005.0-lazer` plays (`playable::key_count`, the only place the tool
+derives it): `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps a mania
+`CircleSize` to 1–18 (`MAX_MANIA_KEY_COUNT`), `ManiaBeatmapConverter.getColumnCount`
+returns `Math.Max(1, Math.Round(CircleSize))` for a native map (`Math.Round`
+rounds half to even: 1.111111 → 1, 6.5 → 6, 7.49 → 7, 7.5 → 8), and above
+`MAX_STAGE_KEYS` (10) the converter plays two stages of half the count each, so
+11, 13, 15 and 17 become 10, 12, 14 and 16 columns. A missing `CircleSize` is
+osu!'s default 5. (Converted osu! maps derive the count from OD and the
+slider/spinner share instead; they are not rated.) The chart's `CircleSize` line
+is rewritten to that count before any calculator reads it, so every system and
+the column mapping use it; `tests/playable.rs` checks the columns against
+lazer's own converter. Each calculator rates only the key counts its upstream supports and
 otherwise reports `unrated.<system> = {scope:"keys", reason}` instead of a value:
 MinaCalc 4K–7K (one dedicated `Ulbu` model each; 5K is Etterna's pump/5K model), Quaver.API
 1K–10K (its `LaneToFinger`, including the 10K two-thumb layout), Interlude 3K–10K
@@ -52,6 +63,32 @@ error on hard 7K charts). Such outputs are reported as `unrated.etterna =
 Column is `floor(x * keys / 512)` with x=512 clamped to the last column, matching
 osu's right-edge behavior. Equal float-second timestamps are merged with OR;
 input timestamps remain unscaled and playback rate is passed separately.
+
+**Slider and spinner objects are converted as osu! plays them.** Some native
+mania charts contain slider- or spinner-type
+objects, and the game plays them. osu! (lazer) `2026.1005.0-lazer`
+(`9a10d935b05a3b896f4bd811d620f2023331db93`, MIT, ppy Pty Ltd):
+`ManiaBeatmapConverter` for a native map (`IsForCurrentRuleset`) sends a slider
+through `PassThroughPatternGenerator`, which makes it a hold over the slider's
+duration (spans × `SliderPath.Distance` ÷ velocity, velocity =
+100 × `SliderMultiplier` × SV ÷ beat length) in the column of its x. A spinner
+goes through `SpinnerPatternGenerator`: a column drawn from `LegacyRandom`
+(seeded from the clamped HP, CS, OD and AR; column 0 on 8K for a finish spinner
+shorter than 1 s), a hold of the spinner's length, or a note under 100 ms.
+`src/playable.rs` ports this and rewrites only those lines before any
+calculator reads the chart, so every system rates the chart that is played; the
+reported checksum stays the file's MD5. lazer's converter is a port of stable's;
+stable itself was not run.
+
+The upstream loaders would rate a different chart: Etterna's `NotesLoaderOSU`
+(`2d706147`), Quaver.API's `OsuBeatmap` (`a921d561`) and Interlude's
+`OsuConverter` (`1fe55766`) skip these objects, and Prism's chart parser reads
+them as taps (on a local 7K chart, 903 of 3,232 objects are sliders). They all
+get the converted chart instead. `tests/reference/lazer/generate.py` runs
+lazer's own decoder and converter (the `packages/ruleset-convert` oracle) and
+`tests/playable.rs` checks every converted note and hold (start, end, column,
+kind) against it, on committed fixtures and, through `VOSU_LAZER_REFERENCE`, on
+local charts.
 
 **Long notes contribute heads only.** MinaCalc's `NoteInfo` has only a column
 bitmask and time, not a hold duration or release flag. Etterna's serialized input

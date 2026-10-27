@@ -54,17 +54,22 @@ fn rate_validation_and_keying() {
     assert_eq!(checksum(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
 }
 #[test]
-fn unsupported_modes_and_key_counts() {
-    for (mode, keys) in [(0, 4), (1, 4), (2, 4), (3, 0), (3, 19)] {
-        let d = calculate(&chart(mode, keys, ""), Params::new(1.0, None).unwrap()).unwrap();
-        assert!(d.unsupported.is_some(), "{mode} {keys}K");
+fn unsupported_modes_and_lazer_key_counts() {
+    for mode in 0..3 {
+        let d = calculate(&chart(mode, 4, ""), Params::new(1.0, None).unwrap()).unwrap();
+        assert!(d.unsupported.is_some(), "mode {mode}");
         assert!(d.msd.is_none() && d.ssr.is_none() && d.dan.is_none() && d.stars.is_none());
     }
-    let fractional = String::from_utf8(chart(3, 4, ""))
-        .unwrap()
-        .replace("CircleSize:4", "CircleSize:4.5");
-    let d = calculate(fractional.as_bytes(), Params::new(1.0, None).unwrap()).unwrap();
-    assert!(d.unsupported.is_some());
+    // Out-of-range and fractional CircleSize: the key count lazer plays.
+    for (size, keys) in [("0", 1), ("19", 18), ("4.5", 4), ("5.5", 6)] {
+        let text = String::from_utf8(chart(3, 4, "64,192,1000,1,0,0:0:0:0:\n"))
+            .unwrap()
+            .replace("CircleSize:4", &format!("CircleSize:{size}"));
+        let d = calculate(text.as_bytes(), Params::new(1.0, None).unwrap()).unwrap();
+        assert!(d.unsupported.is_none(), "CircleSize {size}");
+        assert_eq!(d.keys, keys, "CircleSize {size}");
+        assert!(d.stars.is_some(), "CircleSize {size}");
+    }
 }
 
 fn demo(keys: u32) -> Vec<u8> {

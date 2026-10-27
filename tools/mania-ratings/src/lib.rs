@@ -11,6 +11,7 @@ pub mod analysis;
 pub mod interlude;
 pub mod ln;
 pub mod patterns;
+pub mod playable;
 pub mod prism;
 pub mod quaver;
 pub mod view7k;
@@ -221,7 +222,7 @@ pub fn rows(map: &Beatmap, keys: u32) -> Result<Vec<Row>, String> {
         let x = match &note.kind {
             HitObjectKind::Circle(c) => c.pos.x,
             HitObjectKind::Hold(h) => h.pos_x,
-            _ => return Err("mania sliders and spinners are not supported".into()),
+            _ => return Err("convert sliders and spinners with playable::playable first".into()),
         };
         let seconds = (note.start_time / 1000.0) as f32;
         if !x.is_finite()
@@ -264,6 +265,11 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
     {
         return Err("expected an osu beatmap".into());
     }
+    // Every calculator rates the chart as played: sliders and spinners
+    // converted as the game converts them. The checksum stays the file's.
+    let original = bytes;
+    let converted = playable::playable(original)?;
+    let bytes: &[u8] = &converted;
     let mut map = Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?;
     let mode = match map.mode {
         GameMode::Osu => "osu",
@@ -271,9 +277,14 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         GameMode::Catch => "fruits",
         GameMode::Mania => "mania",
     };
-    let keys = map.circle_size.round() as u32;
+    // Converted osu! maps are not rated; their CircleSize is only echoed.
+    let keys = if map.mode == GameMode::Mania {
+        playable::key_count(map.circle_size)?
+    } else {
+        map.circle_size.round() as u32
+    };
     let mut result = Difficulty {
-        checksum: checksum(bytes),
+        checksum: checksum(original),
         title: std::mem::take(&mut map.title),
         artist: std::mem::take(&mut map.artist),
         version: std::mem::take(&mut map.version),
@@ -311,13 +322,6 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         result.unsupported = Some("only native osu!mania beatmaps are supported".into());
         return Ok(result);
     }
-    if !(1..=MAX_KEYS).contains(&keys) || keys as f32 != map.circle_size {
-        result.unsupported = Some(format!(
-            "osu!mania key count must be a whole number from 1 to {MAX_KEYS} (CircleSize {})",
-            map.circle_size
-        ));
-        return Ok(result);
-    }
     let rows = rows(&map, keys)?;
     let rate = params.rate();
     let mut unrated = std::collections::BTreeMap::new();
@@ -329,7 +333,7 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         Err(reason) => refuse("interlude", reason),
     }
     match support("quaver", keys) {
-        Ok(()) => result.quaver = Some(quaver::calculate(&map, rate).0),
+        Ok(()) => result.quaver = Some(quaver::calculate(&map, keys as usize, rate).0),
         Err(reason) => refuse("quaver", reason),
     }
     let reform_keys = support("reform", keys);

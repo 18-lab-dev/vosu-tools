@@ -19,7 +19,7 @@ Interfaces: **service + CLI + UI**. The background service computes and caches r
 - **LN statistics (ours)** for every key count: hold share, coverage, release density, inverse and off-row release shares.
 - **Reform dan estimate** (experimental): an interpolation of overall MSD against the Reform v1 course charts. It describes similarity to those courses, not a course clear; only 4K maps have one.
 
-The page follows the beatmap selected in osu! at the game's actual rate (DT/HT/NC and lazer rate mods included). Turn **Follow game** off to set the rate yourself, or open an `.osu` file. Long notes count by their heads only, so MSD measures a chart's head patterns, not LN release or holding strain.
+The page follows the beatmap selected in osu! at the game's actual rate (DT/HT/NC and lazer rate mods included). Turn **Follow game** off to set the rate yourself, or open an `.osu` file. Long notes count by their heads only, so MSD measures a chart's head patterns, not LN release or holding strain. Slider and spinner objects in a mania chart count the way osu! plays them: a slider is a hold over its length, a spinner a hold (or a note) in the column the game picks.
 
 [Provenance and semantics](PROVENANCE.md) records the calculator revisions, input rules, the Reform model, the cache and the API.
 
