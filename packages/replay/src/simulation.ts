@@ -24,8 +24,20 @@ export interface Judgement {
   /** The client's score after this judgement, when the simulation computes it. */
   score?: number;
 }
+/** A physical hold release, including drops that never produce a timed tail judgement. */
+export interface ManiaRelease {
+  note: number;
+  time: number;
+  /** Map milliseconds relative to the hold end. */
+  offset: number;
+  /** Its actual release judgement was neither a miss nor a combo break. */
+  hit: boolean;
+  /** Stable ScoreV1 accepts held releases beyond its meh window. */
+  veryLate: boolean;
+}
 export interface Simulation {
   events: Judgement[];
+  releases?: ManiaRelease[];
   /** Audible input/loop intervals that do not themselves award a judgement. */
   audio?: { note: number; time: number; endTime?: number; name: string }[];
   counts: Counts;
