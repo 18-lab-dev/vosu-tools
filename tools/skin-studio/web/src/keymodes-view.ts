@@ -482,6 +482,7 @@ export class KeymodesView {
     this.#renderShared();
     this.#renderSettings();
     this.#hit.render();
+    this.#hit.warm();
     this.#renderColumns();
     this.#renderCopy();
     this.#syncPreview();
@@ -828,6 +829,14 @@ export class KeymodesView {
       this.#change(label, (draft) => {
         draft.values[key] = v;
       });
+    const help = (tip: string) => {
+      const el = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: tip });
+      el.dataset.tip = tip;
+      el.dataset.tipPos = "right";
+      return el;
+    };
+    const optionLabel = (f: { options?: { value: string; label: string }[] }, value: string) =>
+      f.options?.find((o) => o.value === value)?.label ?? value;
     const reset = (label: string, onclick: () => void, shown: boolean) =>
       h("button", { type: "button", class: "km-clear km-reset", ariaLabel: `Reset ${label} to its default`, title: "Reset to default (leave the key out)", hidden: !shown, onclick }, "×");
     const control = (
@@ -837,7 +846,6 @@ export class KeymodesView {
       fallback: string | undefined,
       onSet: (v: string | null) => void,
       alpha = false,
-      compact = false,
     ): HTMLElement => {
       if (f.control === "switch") {
         const box = h("input", { type: "checkbox", role: "switch", ariaLabel: label, checked: (current ?? fallback) === "1" });
@@ -849,12 +857,9 @@ export class KeymodesView {
         const select = h(
           "select",
           { class: "v-select km-settings__select", ariaLabel: label },
-          h(
-            "option",
-            { value: "", title: fallback !== undefined ? `Default: ${f.options?.find((o) => o.value === fallback)?.label ?? fallback}` : "Default" },
-            fallback !== undefined && !compact ? `Default (${f.options?.find((o) => o.value === fallback)?.label ?? fallback})` : "Default",
-          ),
-          ...(f.options ?? []).map((o) => h("option", { value: o.value }, o.label)),
+          // Unset reads "Default"; the open list marks which value that is.
+          h("option", { value: "", title: fallback !== undefined ? `Default: ${optionLabel(f, fallback)}` : "Default" }, "Default"),
+          ...(f.options ?? []).map((o) => h("option", { value: o.value }, o.value === fallback ? `${o.label} (default)` : o.label)),
           // A value the list does not name (another spelling) stays selectable.
           ...(current !== undefined && !f.options?.some((o) => o.value === current) ? [h("option", { value: current }, current)] : []),
         );
@@ -923,8 +928,6 @@ export class KeymodesView {
             f.list
               ? set(f.key, setListEntry(value(f.key), length, i, v, fill), `Set ${label.toLowerCase()}`)
               : set(key, v, `Set ${label.toLowerCase()}`),
-          false,
-          true,
         );
         return h("div", { class: `km-value${f.list && length < keys ? " km-value--gap" : ""}` }, el);
       });
@@ -934,8 +937,9 @@ export class KeymodesView {
         { class: "km-row", role: "row" },
         h(
           "span",
-          { class: "km-rowhead", role: "rowheader", title: `${f.key}${f.note ? `: ${f.note}` : ""}` },
+          { class: "km-rowhead", role: "rowheader", title: f.key },
           f.label,
+          f.help ? help(f.help) : null,
           reset(f.label, () =>
             this.#change(`Reset ${f.label.toLowerCase()}`, (draft) => {
               if (f.list) draft.values[f.key] = null;
@@ -962,11 +966,9 @@ export class KeymodesView {
           return h(
             "div",
             { class: "km-settings__field" },
-            h("span", { class: "km-settings__label", title: f.key }, f.label),
+            h("span", { class: "km-settings__label", title: f.key }, f.label, f.help ? help(f.help) : null),
             control(f, f.label, current, f.fallback, (v) => set(f.key, v, `Set ${f.label.toLowerCase()}`), f.alpha),
-            h("span", { class: "v-muted km-settings__default" }, current === undefined ? (f.fallback !== undefined ? `default ${f.fallback}` : "not set") : ""),
             reset(f.label, () => set(f.key, null, `Reset ${f.label.toLowerCase()}`), current !== undefined),
-            f.note ? h("span", { class: "v-muted km-settings__note" }, f.note) : null,
           );
         }),
       ),

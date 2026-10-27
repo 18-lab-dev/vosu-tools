@@ -367,7 +367,7 @@ try {
   await page.click("#editor .view-lines");
   await page.keyboard.press("Control+End");
   // 10K: a key count the base has no block for (a later duplicate block is ignored).
-  for (const line of ["", "[Mania", "Keys: 10", "ColumnWidth: 44,44,44,44,44,44,44,44,44,44", "ColumnStart: 222", "ColourHold: 10,20,30,40"]) {
+  for (const line of ["", "[Mania]", "Keys: 10", "ColumnWidth: 44,44,44,44,44,44,44,44,44,44", "ColumnStart: 222", "ColourHold: 10,20,30,40"]) {
     if (line) await page.keyboard.type(line);
     await page.keyboard.press("Escape");
     await page.keyboard.press("End");
@@ -377,12 +377,19 @@ try {
   await until(() => page.locator("#km-counts .km-count", { hasText: "10K" }).count(), "10K from the hand edit");
   await pick(10);
   check("Hand edit of skin.ini shows on the screen", (await page.locator("#km-grid .km-num").first().inputValue()) === "44");
+  // The 10K block names no images: like lazer, every column draws osu!'s
+  // built-in look; the 9K block before it keeps its own images.
+  const tenK: string[] = [];
+  for (let c = 0; c < 10; c++) for (const k of [`KeyImage${c}`, `NoteImage${c}`]) tenK.push(`${k}: ${(await label(k)) ?? ""}`);
+  check("10K without images: every column is osu!'s built-in look", tenK.every((l) => l.includes("osu!'s built-in look")), tenK.filter((l) => !l.includes("built-in")).join(" | "));
+  const nineK = (await page.locator("#km-counts .km-count", { hasText: "9K" }).textContent()) ?? "";
+  check("The 9K block before it is unaffected", nineK.includes("complete"), nineK);
 
   // ── All [Mania] settings: the form from skin-spec's schema ────────────────
   await page.locator(".km-settings > summary").click();
   const setting = (label: string) => page.locator(`#km-settings [aria-label="${label}"]`).first();
   check("Form shows hand-edited values", (await setting("Stage left edge").inputValue()) === "222" && (await setting("Hold combo alpha").inputValue()) === "40");
-  check("Unset keys show their default", (await setting("Light position").getAttribute("placeholder")) === "413" && (await page.locator("#km-settings .km-settings__field", { hasText: "Light position" }).textContent())!.includes("default 413"));
+  check("Unset keys show their default", (await setting("Light position").getAttribute("placeholder")) === "413" && (await setting("Combo burst side").inputValue()) === "" && (await setting("Combo burst side").locator("option").allTextContents()).includes("Right (default)"));
   // Keyboard: a field, a select, a per-column gap, a switch.
   await setting("Light position").focus();
   await page.keyboard.type("420");
@@ -406,6 +413,36 @@ try {
   await page.locator("#km-settings .km-settings__field", { hasText: "Light position" }).locator(".km-reset").click();
   await until(async () => (await setting("Light position").inputValue()) === "", "light position reset");
   check("Reset to default leaves the key out", true);
+  // Labels only: no truncated label, default or option (at every size
+  // below), no explanatory lines; an ambiguous name has a hover tip.
+  const clippedNow = () => page.evaluate(() => {
+    const g = document.createElement("canvas").getContext("2d")!;
+    // A select's text: its width plus the padding and the arrow must fit.
+    const cut = (el: HTMLElement) => {
+      if (!(el instanceof HTMLSelectElement)) {
+        // Text and tip icon inside the label's box (a tip's hidden bubble
+        // is overflow of its own, not of the label).
+        const box = el.getBoundingClientRect(),
+          range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].some((r) => r.width > 0 && (r.right > box.right + 1 || r.left < box.left - 1));
+      }
+      const style = getComputedStyle(el);
+      g.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const text = g.measureText(el.selectedOptions[0]?.text ?? "").width;
+      return text + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) > el.clientWidth + 1;
+    };
+    return [...document.querySelectorAll<HTMLElement>("#km-settings .km-settings__label, #km-settings .km-rowhead, #km-settings select")]
+      .filter(cut)
+      .map((el) => el.getAttribute("aria-label") ?? el.textContent);
+  });
+  const tips = await page.locator("#km-settings .v-help").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""));
+  const notes = await page.locator("#km-settings .km-settings__note").count();
+  const defaults = await page.locator("#km-settings option", { hasText: "Default (" }).count();
+  check("Explanations are hover tips (v-help), not lines under fields", notes === 0 && defaults === 0 && tips.some((t) => t.includes("osu!lazer ignores it")), `${tips.length} tips; ${notes} notes; ${defaults} "Default (…)" options`);
+  await page.locator("#km-settings .km-settings__field", { hasText: "Special column" }).locator(".v-help").hover();
+  await page.waitForTimeout(300);
+  await page.locator("#km-settings").screenshot({ path: join(out, "mania-settings-help.png") });
   for (const [theme, w, h] of [["dark", 1920, 1080], ["light", 1280, 720]] as const) {
     await page.evaluate((t: string) => (document.documentElement.dataset.theme = t), theme);
     await page.setViewportSize({ width: w, height: h });
@@ -414,6 +451,8 @@ try {
     await page.screenshot({ path: join(out, `mania-settings-${theme}-${w}x${h}.png`) });
     const scroll = await page.evaluate(() => document.scrollingElement!.scrollHeight - innerHeight);
     check(`Settings form: no page scroll at ${w}x${h}`, scroll <= 0, String(scroll));
+    const clipped = await clippedNow();
+    check(`No control label or option is cut off at ${w}x${h}`, clipped.length === 0, clipped.join(" | "));
   }
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   await page.setViewportSize({ width: 1920, height: 1080 });

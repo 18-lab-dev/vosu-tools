@@ -690,6 +690,10 @@ async fn applied(
 ) -> Result<Json<Option<apply::LastApply>>, Failure> {
     Ok(Json(apply::last(&app, &key.skin).await?))
 }
+/// Applies that did not finish (checked when the studio opens).
+async fn unfinished(State(app): State<App>) -> Json<Vec<apply::Unfinished>> {
+    Json(apply::unfinished(&app.backups))
+}
 
 pub fn router(app: App) -> Router {
     Router::new()
@@ -715,6 +719,7 @@ pub fn router(app: App) -> Router {
         .route("/v1/apply", post(apply_changes))
         .route("/v1/restore", post(restore))
         .route("/v1/applied", get(applied))
+        .route("/v1/applied/unfinished", get(unfinished))
         .with_state(app)
 }
 

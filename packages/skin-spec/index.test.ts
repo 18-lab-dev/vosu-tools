@@ -171,3 +171,16 @@ test("a key count's block is added once, in the file's line endings", () => {
   expect(addManiaBlock(skinIni, 4)).toBe(skinIni);
   expect(addManiaBlock("", 4)).toBe("[Mania]\r\nKeys: 4\r\n");
 });
+
+test("a second Keys in one [Mania] section starts the next block, as lazer reads it", () => {
+  // A header typo ("[Mania" is not a header): lazer's decoder still starts a
+  // 10K configuration at its Keys line; the 9K one keeps the lines before it.
+  const text = "[Mania]\nKeys: 9\nNoteImage0: a\n[Mania\nKeys: 10\nColumnWidth: 44\n";
+  const doc = parse(text);
+  expect(maniaKeyCounts(doc)).toEqual([9, 10]);
+  expect(maniaValue(text, 9, "NoteImage0")).toBe("a");
+  expect(maniaValue(text, 9, "ColumnWidth")).toBeUndefined();
+  expect(maniaValue(text, 10, "ColumnWidth")).toBe("44");
+  expect(maniaValue(text, 10, "NoteImage0")).toBeUndefined();
+  expect(serialize(doc)).toBe(text);
+});

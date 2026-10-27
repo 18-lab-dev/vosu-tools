@@ -474,6 +474,21 @@ export class HitPanel {
   }
 
   /** The files the mix draws for a lookup, as an image to copy (one source skin). */
+  /**
+   * Reads the image sizes a width change resamples with, ahead of it: the
+   * first change otherwise waits for a decode of every file it touches (the
+   * resampler itself runs in the service and needs no start-up). Cached, so
+   * calling it on every refresh costs nothing.
+   */
+  warm() {
+    if (this.#host.draft()?.keepProportions === false) return;
+    for (const r of this.#host.resolved()) {
+      if (!pieceOf(r.key)) continue;
+      const image = this.#mixImage(r);
+      for (const f of image?.files ?? []) this.#size(image!.skin, f.from).catch(() => undefined);
+    }
+  }
+
   #mixImage(r: ManiaImageResolution): SlotImage | null {
     if (!r.drawn || r.drawn.builtin) return null;
     const files = this.#host.mixFiles();

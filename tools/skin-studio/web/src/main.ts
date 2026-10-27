@@ -1228,7 +1228,7 @@ let reviewTicket = 0;
 let applying = false;
 /** The first apply in a tab shows exactly what goes where. */
 let applyConfirmed = false;
-let lastApply: { id: string; created: number; changes: number } | null = null;
+let lastApply: { id: string; created: number; changes: number; status: string } | null = null;
 
 /** Skins an apply can write: folders and lazer skins (not .osk or drops). */
 const editable = (skin: Skin | undefined) =>
@@ -1503,9 +1503,75 @@ async function applyNow() {
     scheduleCompose();
   } catch (error) {
     result.replaceChildren(h("p", { class: "error" }, message(error)));
+    await refreshUnfinished();
   } finally {
     applying = false;
     renderApply();
+  }
+}
+
+/** An apply that did not finish: stopped mid-way, or files it could not put back. */
+interface Unfinished {
+  skin: string;
+  backup: string;
+  status: "applying" | "rollback_incomplete";
+  failed: { path: string; error: string }[];
+}
+/** Checks for unfinished applies (when the studio opens, and after an apply or restore fails). */
+async function refreshUnfinished() {
+  let list: Unfinished[] = [];
+  try {
+    list = await request<Unfinished[]>("v1/applied/unfinished");
+  } catch {
+    /* the service is unreachable: the library says so */
+  }
+  const box = $("#unfinished");
+  box.hidden = !list.length;
+  box.replaceChildren(
+    ...list.map((u) =>
+      h(
+        "p",
+        { class: "mix-unfinished__item" },
+        h(
+          "span",
+          {},
+          `Last apply to ${skinName(u.skin)} didn't finish`,
+          u.failed.length ? `; not put back: ${u.failed.map((f) => f.path).join(", ")}` : "",
+          ".",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            class: "v-btn v-btn--sm",
+            title: `Puts back the original files kept in ${u.backup}`,
+            disabled: !vosu.canWrite,
+            onclick: () => void restoreUnfinished(u),
+          },
+          "Restore",
+        ),
+      ),
+    ),
+  );
+}
+async function restoreUnfinished(u: Unfinished) {
+  const result = $("#mix-result");
+  try {
+    const restored = await post<{ restored: number; skipped: string[] }>("v1/restore", { skin: u.skin });
+    result.replaceChildren(
+      h("p", { class: "ok" }, `Restored ${plural(restored.restored, "file")} in ${skinName(u.skin)}`),
+      ...(restored.skipped.length
+        ? [h("p", { class: "v-muted" }, `Left as they are (changed since): ${restored.skipped.join(", ")}`)]
+        : []),
+    );
+    loaded.delete(u.skin);
+    if (focused === u.skin) await focus(u.skin);
+    scheduleCompose();
+  } catch (error) {
+    result.replaceChildren(h("p", { class: "error" }, message(error)));
+  } finally {
+    await refreshUnfinished();
+    await refreshLastApply();
   }
 }
 
@@ -1531,6 +1597,7 @@ $("#restore").onclick = async () => {
   } catch (error) {
     result.replaceChildren(h("p", { class: "error" }, message(error)));
   }
+  await refreshUnfinished();
 };
 
 function setMode(next: EditMode) {
@@ -2723,6 +2790,7 @@ if (initial) {
 renderMix();
 void refreshUploads();
 void refreshLastApply();
+void refreshUnfinished();
 scheduleCompose();
 subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.
