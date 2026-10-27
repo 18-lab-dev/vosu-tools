@@ -182,6 +182,20 @@ course rules (96%, no pauses) and stamina are not modelled.
   checks the vendored files against the pinned upstream, builds the pristine
   crates and writes `tests/fixtures/prism-reference.json`; `tests/prism.rs`
   requires bit-identical results.
+  Windows: upstream `jsmath` declares POSIX `clock_gettime` for
+  `js::thread_cpu_seconds`, a CPU-time helper in a private module that nothing
+  in Prism calls; MSVC has no such function, so debug and test binaries failed
+  to link (LNK2019). The vendored files stay untouched: `src/windows_clock.rs`
+  (ours, Windows only) supplies `clock_gettime` for the thread CPU clock jsmath
+  asks for, from `GetThreadTimes`. No rating reads it. Prism's results do
+  differ slightly between platforms, for another reason: jsmath takes `pow`
+  from the C runtime (everything else is its own fdlibm port or IEEE `sqrt`),
+  and glibc's and the MSVC UCRT's `pow` disagree in the last bits on some
+  inputs. On the fixtures and 40 local 6K–8K charts at two rates, 36 of 1,044
+  values differ, by at most 19 ULP (4e-15 relative). Pristine upstream built on
+  Windows gives exactly our Windows values, so Windows has its own reference
+  (`tests/fixtures/prism-reference-windows.json`, written there by
+  `generate.py`) and `tests/prism.rs` stays bit-exact on both platforms.
 * **Interlude patterns** (3K–10K): `src/patterns.rs` ports Prelude's
   `Calculator/Patterns` (Density, Primitives, Patterns, FindPatterns,
   Clustering, Categorise, Summary) and `OsuConverter.convert_hit_objects` (holds

@@ -24,6 +24,7 @@
 - Add Interlude pattern breakdowns, Prism (mania-tracker) ratings for 6K–8K, a 7K view and Regular dan estimates, and long-note statistics.
 - Use MinaCalc's dedicated 5K model, name its 6K/7K skillsets as upstream does, and explain rating-cap gaps.
 - Parse native mania slider and spinner objects as lazer plays them, and use lazer's key-count rounding.
+- Build Mania ratings and Replay renderer on Windows with Prism's required CPU timer supplied by Windows thread times. The vendored calculator and its rating arithmetic remain unchanged.
 
 ### Lazer library 0.2.0
 
