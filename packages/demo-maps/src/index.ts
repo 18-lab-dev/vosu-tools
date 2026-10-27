@@ -134,5 +134,7 @@ export function demoLoop(id: DemoId): DemoLoop {
  * A still mania stage of `keys` columns to draw at time 0 with no key held:
  * every column shows its key, a hold (head, body, tail) and a note.
  */
-export const maniaStill = (keys: number): Beatmap =>
-  parseOsu(maniaOsu(keys, maniaStillNotes(keys)));
+export const maniaStill = (
+  keys: number,
+  times?: Parameters<typeof maniaStillNotes>[1],
+): Beatmap => parseOsu(maniaOsu(keys, maniaStillNotes(keys, times)));

@@ -149,7 +149,7 @@ test("mania covers 1K-10K with notes, long notes, a long-note chord and a long h
   expect(maniaDemo(14)).toBeUndefined();
 });
 
-test("the still stage shows a hold and a note in every column", () => {
+test("the still stage shows a note, then a hold above it, in every column", () => {
   for (const keys of [1, 4, 7, 10]) {
     const map = maniaStill(keys);
     expect(map.difficulty.cs).toBe(keys);
@@ -158,9 +158,15 @@ test("the still stage shows a hold and a note in every column", () => {
         (o) => Math.floor((o.x * keys) / 512) === column,
       );
       expect(objects.map((o) => [o.time, o.endTime])).toEqual([
-        [150, 450],
-        [600, 600],
+        [100, 100],
+        [300, 900],
       ]);
     }
   }
+  const placed = maniaStill(4, { note: 50.4, start: 200, end: 640.6 });
+  const first = placed.objects.filter((o) => Math.floor((o.x * 4) / 512) === 0);
+  expect(first.map((o) => [o.time, o.endTime])).toEqual([
+    [50, 50],
+    [200, 641],
+  ]);
 });

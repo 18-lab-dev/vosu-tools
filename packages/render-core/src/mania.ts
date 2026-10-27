@@ -290,6 +290,65 @@ export function atlasImageSize(regions: Map<string, AtlasRegion>): ImageSize {
   };
 }
 
+/** Display sizes from a loaded skin's bitmaps, as [`atlasImageSize`] reads an atlas. */
+export function skinImageSize(skin: Pick<Skin, "assets" | "pixelScale">): ImageSize {
+  return (name, animated) => {
+    const frame = skin.assets.get(`${name}-0`),
+      plain = skin.assets.get(name);
+    const key = animated
+      ? frame
+        ? `${name}-0`
+        : plain
+          ? name
+          : undefined
+      : plain && plain !== frame
+        ? name
+        : undefined;
+    const bitmap = key && skin.assets.get(key);
+    if (!bitmap) return undefined;
+    const scale = skin.pixelScale?.get(key) ?? 1;
+    return { width: bitmap.width / scale, height: bitmap.height / scale };
+  };
+}
+
+/** Object times of a still stage: a note, then a hold from `start` to `end`. */
+export interface ManiaStillTimes {
+  note: number;
+  start: number;
+  end: number;
+}
+/**
+ * Times for a still stage drawn at time 0 with the keys up, laid out on the
+ * stage itself so it looks the same at every scroll speed: in every column
+ * a note nearest the hit line, above the tallest receptor, then a hold
+ * (head, body, tail) above it, with a gap between each. A note, head and
+ * tail have their bottom edge on their time; a tail is drawn above its end
+ * time (`LegacyHoldNoteTailPiece`), so a hold spans start to end + tail.
+ * The body takes what height is left, at least as much as a head. In
+ * upscroll everything mirrors about the stage, so the same times serve.
+ */
+export function maniaStillTimes(
+  layout: Pick<ManiaLayout, "hitY" | "columns">,
+  scrollSpeed: number,
+): ManiaStillTimes {
+  // lazer stage units per ms (scene.ts: legacy units × MANIA_SCALE).
+  const perMs = (scrollSpeed * DEFAULT_SCROLL_LENGTH * MANIA_SCALE) / 11485;
+  const most = (f: (c: ManiaColumn) => number) =>
+    Math.max(0, ...layout.columns.map(f));
+  const receptor = most((c) =>
+    Math.max(c.key ? layout.hitY - c.key.y : 0, c.keyDown ? layout.hitY - c.keyDown.y : 0),
+  );
+  const note = most((c) => c.note?.height ?? 0),
+    head = most((c) => (c.head ?? c.note)?.height ?? 0),
+    tail = most((c) => c.tail?.height ?? 0);
+  const gap = layout.hitY / 40;
+  const noteAt = receptor + gap,
+    start = noteAt + note + gap;
+  const room = layout.hitY - gap - tail - start;
+  const end = start + Math.max(head + gap, room);
+  return { note: noteAt / perMs, start: start / perMs, end: end / perMs };
+}
+
 /**
  * How a texture behaves when upscroll mirrors the stage: `mirror` flips with
  * it, `inverted` is flipped in downscroll only (hold tails), `none` never
