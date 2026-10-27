@@ -56,13 +56,13 @@ def build(workspace_crates, target):
     if os.name == 'nt':
         # Upstream jsmath declares POSIX clock_gettime, which MSVC lacks; link
         # the same shim the tool uses (src/windows_clock.rs).
-        shim = (tool / 'src/windows_clock.rs').resolve()
-        main += f'\n#[path = r"{shim}"]\nmod windows_clock;\n'
+        shim = (tool / 'src/windows_clock.rs').resolve().as_posix()
+        main += f'\n#[path = "{shim}"]\nmod windows_clock;\n'
     (project / 'src/main.rs').write_text(main)
     (project / 'Cargo.toml').write_text(
         '[package]\nname = "prism-reference"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n'
-        f'[dependencies]\nprism = {{ path = "{workspace_crates}/prism" }}\n'
-        f'chart-parser = {{ path = "{workspace_crates}/chart-parser" }}\n')
+        f'[dependencies]\nprism = {{ path = "{workspace_crates.as_posix()}/prism" }}\n'
+        f'chart-parser = {{ path = "{workspace_crates.as_posix()}/chart-parser" }}\n')
     subprocess.run(['cargo', 'build', '--release', '--quiet', '--manifest-path', str(project / 'Cargo.toml')], check=True)
     return project / 'target/release/prism-reference'
 
