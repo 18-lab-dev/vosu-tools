@@ -63,8 +63,9 @@ def build(workspace_crates, target):
         '[package]\nname = "prism-reference"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n'
         f'[dependencies]\nprism = {{ path = "{workspace_crates.as_posix()}/prism" }}\n'
         f'chart-parser = {{ path = "{workspace_crates.as_posix()}/chart-parser" }}\n')
-    subprocess.run(['cargo', 'build', '--release', '--quiet', '--manifest-path', str(project / 'Cargo.toml')], check=True)
-    return project / 'target/release/prism-reference'
+    subprocess.run(['cargo', 'build', '--release', '--quiet', '--manifest-path', str(project / 'Cargo.toml'),
+                    '--target-dir', str(project / 'target')], check=True)
+    return project / 'target/release' / ('prism-reference.exe' if os.name == 'nt' else 'prism-reference')
 
 
 def run(binary, chart):
