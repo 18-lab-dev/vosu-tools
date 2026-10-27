@@ -70,20 +70,52 @@ fn db(path: &std::path::Path) -> std::result::Result<rusqlite::Connection, Strin
     rusqlite::Connection::open(path).map_err(|e| e.to_string())
 }
 fn cached(
-    conn: &rusqlite::Connection, md5: &str, bytes: Option<&[u8]>, p: Params,
-    mode: Option<&str>, mods: &str,
+    conn: &rusqlite::Connection,
+    md5: &str,
+    bytes: Option<&[u8]>,
+    p: Params,
+    mode: Option<&str>,
+    mods: &str,
 ) -> std::result::Result<Value, String> {
+    use rusqlite::OptionalExtension;
+    let bits = vosu_map_analysis::official::mods(mods)?;
+    let key = format!(
+        "map-analysis2:{}:{}:{bits}",
+        p.key(md5),
+        mode.unwrap_or("native")
+    );
+    let cached: Option<String> = conn
+        .query_row("SELECT result FROM ratings WHERE key=?1", [&key], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(|e| e.to_string())?;
+    if let Some(value) = cached {
+        return serde_json::from_str(&value).map_err(|e| e.to_string());
+    }
     let stored;
-    let bytes = if let Some(bytes) = bytes { bytes } else {
+    let bytes = if let Some(bytes) = bytes {
+        bytes
+    } else {
         stored = map_bytes(conn, md5)?;
         &stored
     };
     let official = vosu_map_analysis::official::calculate(bytes, mode, mods, f64::from(p.rate()))?;
-    let mut value = serde_json::to_value(cached_mania(conn, md5, Some(bytes), p)?).map_err(|e| e.to_string())?;
+    let mut value = serde_json::to_value(cached_mania(conn, md5, Some(bytes), p)?)
+        .map_err(|e| e.to_string())?;
     value["stars"] = official["stars"].clone();
     value["mode"] = official["mode"].clone();
     value["unsupported"] = Value::Null;
+    value["performance"] = official["performance"].clone();
     value["official"] = official;
+    conn.execute(
+        "INSERT OR REPLACE INTO ratings(key,result) VALUES(?1,?2)",
+        rusqlite::params![
+            key,
+            serde_json::to_string(&value).map_err(|e| e.to_string())?
+        ],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(value)
 }
 fn cached_mania(
@@ -131,23 +163,6 @@ fn cached_mania(
     Ok(result)
 }
 impl App {
-    async fn targets(&self, mut value: Value) -> Value {
-        let checksum = value["checksum"].as_str().unwrap_or_default().to_owned();
-        let bytes = self.work(move |conn| map_bytes(&conn, &checksum)).await;
-        let result = match bytes {
-            Ok(bytes) => vosu_tool_sdk::send_json::<Value>(self.client.tool(
-                vosu_tool_sdk::cli::Method::POST, "server-pp", &format!("v1/targets?mode={}&mods={}&rate={}",
-                    value["mode"].as_str().unwrap_or("osu"), value["official"]["mods"], value["rate"]))
-                .body(bytes)).await.map_err(|e| e.to_string()),
-            Err(_) => Err("map bytes unavailable".into()),
-        };
-        value["performance"] = match result {
-            Ok(result) => result,
-            Err(_) => json!({"reason":"PP targets unavailable: enable the optional Server pp calculator tool."}),
-        };
-        value
-    }
-
     async fn work<T: Send + 'static>(
         &self,
         f: impl FnOnce(rusqlite::Connection) -> std::result::Result<T, String> + Send + 'static,
@@ -193,13 +208,24 @@ async fn submit(
     let mode = options.mode.clone();
     let mods = options.mods.clone();
     let p = options.params()?;
-    let value = app.work(move |conn| cached(&conn, &checksum(&bytes), Some(&bytes), p, mode.as_deref(), &mods))
-        .await
-        ?;
-    Ok(Json(app.targets(value).await))
+    let value = app
+        .work(move |conn| {
+            cached(
+                &conn,
+                &checksum(&bytes),
+                Some(&bytes),
+                p,
+                mode.as_deref(),
+                &mods,
+            )
+        })
+        .await?;
+    Ok(Json(value))
 }
 async fn file_bytes(State(app): State<App>, Path(md5): Path<String>) -> Result<Bytes> {
-    app.work(move |conn| map_bytes(&conn, &md5)).await.map(Bytes::from)
+    app.work(move |conn| map_bytes(&conn, &md5))
+        .await
+        .map(Bytes::from)
 }
 async fn lookup(
     State(app): State<App>,
@@ -209,25 +235,42 @@ async fn lookup(
     let mode = options.mode.clone();
     let mods = options.mods.clone();
     let p = options.params()?;
-    let value = app.work(move |conn| cached(&conn, &md5, None, p, mode.as_deref(), &mods))
-        .await
-        ?;
-    Ok(Json(app.targets(value).await))
+    let value = app
+        .work(move |conn| cached(&conn, &md5, None, p, mode.as_deref(), &mods))
+        .await?;
+    Ok(Json(value))
 }
 async fn current(
     State(app): State<App>,
     Query(mut options): Query<Options>,
 ) -> Result<Json<Value>> {
     if options.mode.is_none() || options.mods.is_empty() || options.rate.is_none() {
-        let telemetry: Value = app.client.get_json("/json/v2").await
-            .map_err(|e| ApiError(StatusCode::BAD_GATEWAY,e.to_string()))?;
+        let telemetry: Value = app
+            .client
+            .get_json("/json/v2")
+            .await
+            .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?;
         if options.mode.is_none() {
-            options.mode = (if telemetry["state"]["number"] == 2 { telemetry["play"]["mode"]["name"].as_str() } else { None })
-                .or_else(||telemetry["settings"]["mode"]["name"].as_str())
-                .or_else(||telemetry["beatmap"]["mode"]["name"].as_str()).map(str::to_owned);
+            options.mode = (if telemetry["state"]["number"] == 2 {
+                telemetry["play"]["mode"]["name"].as_str()
+            } else {
+                None
+            })
+            .or_else(|| telemetry["settings"]["mode"]["name"].as_str())
+            .or_else(|| telemetry["beatmap"]["mode"]["name"].as_str())
+            .map(str::to_owned);
         }
-        if options.mods.is_empty() { options.mods=telemetry["play"]["mods"]["name"].as_str().unwrap_or("NM").to_owned(); }
-        if options.rate.is_none() { options.rate=telemetry["play"]["mods"]["rate"].as_f64().map(|rate| rate as f32); }
+        if options.mods.is_empty() {
+            options.mods = telemetry["play"]["mods"]["name"]
+                .as_str()
+                .unwrap_or("NM")
+                .to_owned();
+        }
+        if options.rate.is_none() {
+            options.rate = telemetry["play"]["mods"]["rate"]
+                .as_f64()
+                .map(|rate| rate as f32);
+        }
     }
     let mode = options.mode.clone();
     let mods = options.mods.clone();
@@ -239,19 +282,26 @@ async fn current(
         .map_err(|e| ApiError(StatusCode::BAD_GATEWAY, e.to_string()))?
         .beatmap
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "no selected beatmap".into()))?;
-    let value = app.work(move |conn| {
-        use std::io::Read;
-        let mut bytes = Vec::new();
-        std::fs::File::open(map.file)
-            .map_err(|e| e.to_string())?
-            .take((MAX_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|e| e.to_string())?;
-        cached(&conn, &checksum(&bytes), Some(&bytes), p, mode.as_deref(), &mods)
-    })
-    .await
-    ?;
-    Ok(Json(app.targets(value).await))
+    let value = app
+        .work(move |conn| {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            std::fs::File::open(map.file)
+                .map_err(|e| e.to_string())?
+                .take((MAX_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            cached(
+                &conn,
+                &checksum(&bytes),
+                Some(&bytes),
+                p,
+                mode.as_deref(),
+                &mods,
+            )
+        })
+        .await?;
+    Ok(Json(value))
 }
 fn map_bytes(conn: &rusqlite::Connection, md5: &str) -> std::result::Result<Vec<u8>, String> {
     use rusqlite::OptionalExtension;
@@ -366,6 +416,41 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     #[test]
+    fn multimode_cache_retains_official_skills_pp_and_exact_mod_rate_keys() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE maps(checksum TEXT PRIMARY KEY,bytes BLOB NOT NULL); CREATE TABLE ratings(key TEXT PRIMARY KEY,result TEXT NOT NULL);").unwrap();
+        for (mode, bytes) in [
+            (
+                "osu",
+                include_bytes!("../tests/fixtures/demo/osu-1.osu").as_slice(),
+            ),
+            (
+                "taiko",
+                include_bytes!("../tests/fixtures/demo/taiko-1.osu").as_slice(),
+            ),
+            (
+                "fruits",
+                include_bytes!("../tests/fixtures/demo/fruits-1.osu").as_slice(),
+            ),
+            (
+                "mania",
+                include_bytes!("../tests/fixtures/demo/mania-4k.osu").as_slice(),
+            ),
+        ] {
+            let hash = checksum(bytes);
+            let p = Params::new(1.123, None).unwrap();
+            let first = cached(&conn, &hash, Some(bytes), p, Some(mode), "HD").unwrap();
+            assert_eq!(
+                first,
+                cached(&conn, &hash, None, p, Some(mode), "HD").unwrap()
+            );
+            assert_eq!(first["mode"], mode);
+            assert_eq!(first["performance"]["targets"].as_array().unwrap().len(), 4);
+            assert!((first["rate"].as_f64().unwrap() - 1.123).abs() < 0.000001);
+            assert_eq!(first["official"]["mods"], 8);
+        }
+    }
+    #[test]
     fn cache_is_durable_and_separates_parameters() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("cache.sqlite3");
@@ -374,12 +459,12 @@ mod tests {
         let bytes = include_bytes!("../tests/fixtures/cyclic.osu");
         let hash = checksum(bytes);
         let p = Params::new(1.0, None).unwrap();
-        cached(&conn, &hash, Some(bytes), p).unwrap();
+        cached_mania(&conn, &hash, Some(bytes), p).unwrap();
         drop(conn);
         let conn = db(&path).unwrap();
-        let d = cached(&conn, &hash, None, p).unwrap();
+        let d = cached_mania(&conn, &hash, None, p).unwrap();
         assert_eq!(d.checksum, hash);
-        let ssr = cached(&conn, &hash, None, Params::new(1.1, Some(0.95)).unwrap()).unwrap();
+        let ssr = cached_mania(&conn, &hash, None, Params::new(1.1, Some(0.95)).unwrap()).unwrap();
         assert!(ssr.ssr.is_some());
         assert_eq!(
             conn.query_row("SELECT COUNT(*) FROM ratings", [], |r| r.get::<_, u32>(0))
@@ -387,7 +472,7 @@ mod tests {
             2
         );
         assert_eq!(
-            cached(&conn, "missing", None, p).unwrap_err(),
+            cached_mania(&conn, "missing", None, p).unwrap_err(),
             "not calculated"
         );
     }
@@ -400,7 +485,7 @@ mod tests {
         let bytes = include_bytes!("../tests/fixtures/mixed7.osu");
         let hash = checksum(bytes);
         let p = Params::new(1.0, None).unwrap();
-        cached(&conn, &hash, Some(bytes), p).unwrap();
+        cached_mania(&conn, &hash, Some(bytes), p).unwrap();
         let first = cached_timeline(&conn, &hash, p, "etterna", 12.0, 1.0).unwrap();
         drop(conn);
         let conn = db(&path).unwrap();

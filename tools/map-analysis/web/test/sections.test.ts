@@ -1,7 +1,7 @@
 import {test,expect} from 'bun:test';
-import {sections} from './sections';
-import {convertedMania} from './played';
-import {demo} from '../../../../../packages/demo-maps/src';
+import {sections} from '../src/sections';
+import {convertedMania} from '../src/played';
+import {demo} from '../../../../packages/demo-maps/src';
 import {parseOsu} from '@vosu-tools/osu-parse';
 import {playedRuleset} from '@vosu-tools/tool-web';
 

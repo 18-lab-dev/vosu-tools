@@ -273,8 +273,7 @@ async fn timeline(
             }
         } else {
             note = Some(
-                "Map analysis timeline is turned off in settings; showing notes per second."
-                    .into(),
+                "Map analysis timeline is turned off in settings; showing notes per second.".into(),
             );
         }
     }

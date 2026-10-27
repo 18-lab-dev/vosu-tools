@@ -8,9 +8,9 @@ use rosu_map::{
 use serde::{Deserialize, Serialize};
 
 pub mod analysis;
-pub mod official;
 pub mod interlude;
 pub mod ln;
+pub mod official;
 pub mod patterns;
 pub mod playable;
 pub mod prism;

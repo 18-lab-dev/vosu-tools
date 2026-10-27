@@ -11,7 +11,7 @@ type Cluster = {pattern:string;specific:[string,number][];bpm:number;mixed:boole
 type Patterns = {category:string;clusters:Cluster[];ln_percent:number;duration:number};
 type LnStats = {notes:number;holds:number;ln_share:number;coverage:number;releases_per_second:number;peak_releases_per_second:number;inverse_share:number|null;offbeat_release_share:number|null;short_share:number|null;indicators:string[]};
 type View7k = {categories:{id:string;label:string;coverage:number;main_bpm:number|null;msd:number|null;msd_source:string}[];ln:{id:string;label:string;value:number|null;unit:string;source:string}[]};
-type Rating = {mode:string;official:{skills:Record<string,number>;source:string};performance:{targets?:{accuracy:number;pp:number}[];reason?:string};checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number|null>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:Dan|null;prism?:Prism|null;patterns?:Patterns|null;ln?:LnStats|null;view7k?:View7k|null;dan7k?:Dan|null;unrated?:Record<string,Unrated>};
+type Rating = {mode:string;official:{skills:Record<string,number>;source:string};performance:{targets:{accuracy:number;pp:number}[];source:string};checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number|null>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:Dan|null;prism?:Prism|null;patterns?:Patterns|null;ln?:LnStats|null;view7k?:View7k|null;dan7k?:Dan|null;unrated?:Record<string,Unrated>};
 type Point = {time:number;value:number|null;nps:number};
 type Timeline = {duration:number;units:string;mode?:string;overall?:number|null;unrated?:string|null;window:number;hop:number;points:Point[]};
 const SYSTEMS = ['etterna','etterna-native','prism','quaver','interlude','osu','ln','nps'] as const;
@@ -95,8 +95,7 @@ const explain=(why:Unrated,rate:number)=>why.scope==='rate'?`Not rated at ${rate
 function cards(r:Rating) {
  const target=$('summary'); target.replaceChildren();
  $('performance').replaceChildren();
- if(r.performance?.targets)for(const t of r.performance.targets)$('performance').append(stat(`${t.accuracy}%`,fmt(t.pp),'pp'));
- else empty($('performance'),r.performance?.reason??'PP targets unavailable: enable Server pp calculator.');
+ for(const t of r.performance.targets)$('performance').append(stat(`${t.accuracy}%`,fmt(t.pp),'pp',r.official.source));
  if(r.mode!=='mania'){
   target.append(stat(`osu!${r.mode==='osu'?'standard':r.mode==='fruits'?'catch':r.mode}`,fmt(r.stars),'★',r.official.source));
   const tabs=$('tabs');tabs.replaceChildren();const button=document.createElement('button');button.textContent=r.mode==='fruits'?'Catch':r.mode==='osu'?'Standard':'Taiko';button.setAttribute('aria-pressed','true');tabs.append(button);

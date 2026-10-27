@@ -1,15 +1,5 @@
 # Server pp calculator
 
-Map analysis may optionally call `POST /v1/targets?mode=&mods=&rate=` with raw
-.osu bytes (maximum 1 MiB). It returns lazer-scoring pp at 95/98/99/100% accuracy,
-full combo and zero misses using the existing rosu-pp 4.0.1 dependency (lazer
-2025-10-13 algorithms, not a current-lazer parity claim). `mode` selects the
-played ruleset, `mods` accepts existing legacy bits/acronyms, and `rate` is an
-explicit total clock rate; speed mods are not applied a second time.
-This route does not require installing a custom calculator or configuring a
-private server, and adds no hard dependency to Map analysis.
-
-
 Service, CLI and browser UI for **recorded public calculator snapshots**, not a promise of parity with a private server's current production deployment, plus **your own pp formulas** as sandboxed WebAssembly calculators. No account credentials, remote score submission, or map downloads are used.
 
 ![Server pp calculator](../../docs/screenshots/server-pp.webp)

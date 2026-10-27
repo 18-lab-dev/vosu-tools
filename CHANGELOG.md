@@ -4,7 +4,7 @@
 
 - Rename Mania ratings to Map analysis (`map-analysis`), with catalog-only `replaces` metadata preserving migration support and legacy manifest compatibility.
 - Analyse standard, taiko, catch and mania at the selected mods and rate, using the existing rosu-pp 4.0.1 engine (lazer 2025-10-13 algorithms; newer lazer can differ).
-- Add optional Server pp calculator accuracy targets and explicitly labelled, documented per-mode section metrics (ours), using the shared ruleset converter for played maps.
+- Add in-process accuracy-target pp from the same rosu-pp attributes and explicitly labelled, documented per-mode section metrics (ours), using the shared ruleset converter for played maps.
 - Remove the rate-curve UI, CLI option, settings and `/v1/beatmap/<md5>/rates` route. Current-rate ratings and mania timelines remain.
 - Skin studio separates hit-position (press/receptor) and LN-length (release/hold-tail) calibration into independent, visible groups. Each names the play, client and key count, shows relative and absolute local play time, flags old plays, and explains blocked proposals.
 - Replay renderer: correct mania Classic + ScoreV2 judging to use modern hit windows, matching lazer's `ManiaHitWindows`; Classic's legacy windows apply only without ScoreV2.

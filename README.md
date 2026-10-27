@@ -28,7 +28,7 @@ See what the selected map is worth on recorded public Akatsuki and Mamestagram c
 
 ## Map analysis
 
-An osu!mania difficulty dashboard for a second monitor: Etterna (MinaCalc), Quaver, Interlude and osu!mania ratings for the selected map at the game's rate, with timelines and section ratings.
+One selected-map dashboard for every ruleset: official stars and skills, accuracy-target pp and descriptive section timelines (ours), with the complete mania calculator views retained. Follows the played ruleset, mods and exact rate. The rosu-pp 4.0.1 algorithms match lazer 2025-10-13; newer lazer can differ.
 
 ![Map analysis](docs/screenshots/map-analysis.webp)
 
@@ -97,7 +97,7 @@ A background service with no page of its own. It lets the other tools read your 
 
 Each tool is an out-of-process application hosted by vosu (tool protocol v1). It can have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
 
-UI/CLI tools can have a native **backend** for local files or rendering. vosu starts it on demand and stops it when idle; it is not a separate service interface. Only background services have Start/Stop/Restart and **Start with vosu** controls. That per-user setting overrides the manifest default and is available in Details, tool Settings, or `vosux --autostart <id> on|off|default`. Server pp, mania ratings and lazer library default to on-demand; enable startup for whichever background services you use.
+UI/CLI tools can have a native **backend** for local files or rendering. vosu starts it on demand and stops it when idle; it is not a separate service interface. Only background services have Start/Stop/Restart and **Start with vosu** controls. That per-user setting overrides the manifest default and is available in Details, tool Settings, or `vosux --autostart <id> on|off|default`. Server pp, map analysis and lazer library default to on-demand; enable startup for whichever background services you use.
 
 ## Layout
 

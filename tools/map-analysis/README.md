@@ -11,8 +11,9 @@ The former rate curve and `/rates` API route have been removed.
 Standard shows aim, speed, flashlight and slider factor. Taiko shows colour,
 rhythm, stamina and reading. Catch exposes its actual official attributes:
 fruit/droplet counts and approach preempt, not invented aim skills.
-PP at 95/98/99/100% uses the optional Server pp calculator's `/v1/targets` API.
-Without that tool the dashboard gives one reason and all analysis remains usable.
+PP at 95/98/99/100% is computed in-process from the same rosu-pp difficulty
+attributes, at full combo and zero misses with lazer scoring. Server pp remains
+separate for custom calculators; Map analysis has no dependency on that tool.
 
 Pattern/section timelines are **ours**, not official difficulty. They count events
 per second in centred windows (default 12 seconds, 1 second hop), clipped at map
@@ -73,3 +74,24 @@ vosux map-analysis chart.osu --section 1:30-2:15
 ## Settings
 
 Edited on the vosu dashboard (Tools → Map analysis → Settings): whether the page follows the game, which readouts it shows, the default timeline system and its window and hop sizes.
+
+## Verification
+
+`cargo test -p vosu-map-analysis --test official` compares stars and available skill
+attributes against 48 independently captured lazer results (three demo charts per
+mode; NM, HDHR, DT, HT). The pinned oracle revision is the one rosu-pp 4.0.1
+actually ports: `28c846b4d9366484792e27f4729cd1afa2cdeb66` (2025-10-13).
+Regenerate with `tests/reference/official.ts` and the existing ruleset-convert
+.NET oracle's `difficulty` command. This is deliberately separate from the
+converter's 2026.1005 object-parity fixtures.
+
+`tests/e2e.ts` launches the real Map analysis service and dashboard bundle against
+deterministic host selection/bridge inputs, including all four native modes and
+three standard converts. It captures dark/light at 1920×1080 and 1280×720,
+checks no page scroll, pp without server-pp installed and the removed route's 404.
+Run with a Playwright module path, vosu's `assets/server` theme directory and an
+evidence directory. It requires `MAP_ANALYSIS_SANDBOX=1`: run inside bwrap with
+private network/PID/IPC namespaces, private `/tmp` and `/run/user`, no GPU devices,
+a scratch HOME and every XDG root (including XDG_RUNTIME_DIR). Never point it at
+an existing vosu or a user's browser. Only synthetic project demo maps are used.
+

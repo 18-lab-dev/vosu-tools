@@ -15,10 +15,10 @@ struct Args {
     file: Option<String>,
     #[arg(long)]
     mode: Option<String>,
-    #[arg(long, default_value = "NM")]
-    mods: String,
-    #[arg(long, default_value="1", value_parser=rate)]
-    rate: f64,
+    #[arg(long)]
+    mods: Option<String>,
+    #[arg(long, value_parser=rate)]
+    rate: Option<f64>,
     #[arg(long, value_parser=score)]
     score: Option<f64>,
     #[arg(long)]
@@ -64,7 +64,16 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         std::iter::once("vosux map-analysis".to_owned()).chain(std::env::args().skip(2)),
     );
     let client = ToolEnv::from_env()?.client();
-    let mut query = format!("rate={}&mods={}", args.rate, vosu_map_analysis::official::mods(&args.mods)?);
+    let mut query = String::new();
+    if let Some(rate) = args.rate {
+        query.push_str(&format!("rate={rate}"));
+    }
+    if let Some(mods) = &args.mods {
+        query.push_str(&format!(
+            "&mods={}",
+            vosu_map_analysis::official::mods(mods)?
+        ));
+    }
     if let Some(mode) = &args.mode {
         vosu_map_analysis::official::mode(mode)?;
         query.push_str(&format!("&mode={mode}"));
@@ -103,7 +112,11 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let header = format!(
         "{} — {} · {} notes · {}×",
         args.file.as_deref().unwrap_or("Selected beatmap"),
-        if result["mode"] == "mania" { format!("{}K", result["keys"]) } else { text(&result["mode"]) },
+        if result["mode"] == "mania" {
+            format!("{}K", result["keys"])
+        } else {
+            text(&result["mode"])
+        },
         result["notes"],
         number(&result["rate"])
     );
@@ -121,14 +134,14 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         client
             .own_json::<Value>(&format!(
                 "v1/beatmap/{checksum}/timeline?rate={}&system={system}",
-                args.rate
+                result["rate"]
             ))
             .await?
     } else if let Some((start, end)) = args.section {
         client
             .own_json::<Value>(&format!(
                 "v1/beatmap/{checksum}/section?rate={}&start={start}&end={end}",
-                args.rate
+                result["rate"]
             ))
             .await?
     } else {
@@ -140,13 +153,28 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 fn human(result: &Value, header: &str) -> String {
     if result["official"].is_object() && result["mode"] != "mania" {
-        let rows = result["official"]["skills"].as_object().into_iter().flatten()
-            .map(|(name, value)| vec![name.clone(), number(value)]).collect::<Vec<_>>();
-        let targets = result["performance"]["targets"].as_array().map(|targets| targets.iter()
-            .map(|target| vec![number(&target["accuracy"]), number(&target["pp"])])
-            .collect::<Vec<_>>());
-        return format!("{header}\n{} stars · {}\n{}\n{}", number(&result["stars"]),text(&result["official"]["source"]),
-            table(&["Attribute", "Value"], &rows), targets.map_or_else(||text(&result["performance"]["reason"]),|rows|table(&["Accuracy / %", "pp"],&rows)));
+        let rows = result["official"]["skills"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, value)| vec![name.clone(), number(value)])
+            .collect::<Vec<_>>();
+        let targets = result["performance"]["targets"].as_array().map(|targets| {
+            targets
+                .iter()
+                .map(|target| vec![number(&target["accuracy"]), number(&target["pp"])])
+                .collect::<Vec<_>>()
+        });
+        return format!(
+            "{header}\n{} stars · {}\n{}\n{}",
+            number(&result["stars"]),
+            text(&result["official"]["source"]),
+            table(&["Attribute", "Value"], &rows),
+            targets.map_or_else(
+                || text(&result["performance"]["reason"]),
+                |rows| table(&["Accuracy / %", "pp"], &rows)
+            )
+        );
     }
     if let Some(points) = result["points"].as_array() {
         let rows = points
@@ -303,7 +331,11 @@ mod tests {
         ] {
             assert!(Args::try_parse_from(args).is_err());
         }
-        assert!(Args::try_parse_from(["difficulty", "--rates", "--json"]).is_ok());
+        assert!(Args::try_parse_from(["difficulty", "--rates", "--json"]).is_err());
+        assert!(
+            Args::try_parse_from(["difficulty", "--mode", "taiko", "--mods", "HDDT", "--json"])
+                .is_ok()
+        );
     }
 }
 
@@ -319,12 +351,6 @@ mod output_tests {
         assert!(output.contains("12.35") && output.contains("11.12"));
         assert!(output.contains("dan: — (no estimate"));
         assert!(!output.contains("12.345678"));
-        let output = human(
-            &serde_json::json!({"rates":[{"rate":0.7,"msd":{"overall":6.721776}}]}),
-            "Rate table",
-        );
-        assert!(output.contains("0.70×") && output.contains("6.72"));
-        assert!(!output.contains("rates["));
         let seven = human(
             &serde_json::json!({"keys":7,"msd":{"overall":31.0,"jumpstream":30.0},"ssr":null}),
             "7K",

@@ -6,7 +6,7 @@ export function sections(text:string,mode:Ruleset,mods:Mod[],rate:number,window=
  if(!Number.isFinite(window)||window<.1||window>60||!Number.isFinite(hop)||hop<.05||hop>60)throw Error('window must be 0.1–60s; hop must be 0.05–60s');
  if(!Number.isFinite(rate)||rate<.5||rate>2)throw Error('rate must be 0.5–2.0');
  const map=applyMods(convertBeatmap(parseOsu(text),mode,mods),mods);
- const objects=mode===2?catchObjects(map).filter(o=>o.kind==='fruit'||o.kind==='droplet').map(o=>({time:o.time,x:o.x,y:0,type:1,sound:0,hyper:o.hyper})):map.objects.map(o=>({...o,hyper:false}));
+ const objects=mode===2?catchObjects(map).filter(o=>o.kind==='fruit'||o.kind==='droplet').map(o=>({time:o.time,x:o.x,y:0,type:1,sound:0,hyper:o.hyper})):map.objects.filter(o=>mode===1?Boolean(o.type&1):Boolean(o.type&3)).map(o=>({...o,hyper:false}));
  const duration=(objects.at(-1)?.time??0)/1000/rate;
  const points:SectionPoint[]=[];
  const labels=mode===0?['Streams','Jumps','Bursts','Sliders']:mode===1?['Colour changes','Rhythm changes','Stamina hits']:['Hyperdashes','Direction changes'];

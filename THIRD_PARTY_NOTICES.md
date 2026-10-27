@@ -60,7 +60,7 @@ Each section records third-party code, data, or assets included in this reposito
   `tools/map-analysis/licenses/Prism-MIT.txt`. On Windows, the POSIX
   `clock_gettime` that `jsmath` declares comes from our own
   `tools/map-analysis/src/windows_clock.rs` (no third-party code).
-- osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
+- Official difficulty attributes and accuracy-target pp for all rulesets: rosu-pp 4.0.1, MIT, resolved in Cargo.lock; algorithms ported from lazer `28c846b4d9366484792e27f4729cd1afa2cdeb66` (2025-10-13).
 - Slider and spinner objects in native mania charts: port (translated code) of
   osu! (lazer) `2026.1005.0-lazer` (`9a10d935b05a3b896f4bd811d620f2023331db93`)
   `ManiaBeatmapConverter`, `PassThroughPatternGenerator`,
