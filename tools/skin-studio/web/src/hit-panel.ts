@@ -25,6 +25,9 @@ import {
   type Lost,
   columnOf,
   lostReport,
+  pieceReport,
+  refused,
+  unchanged,
   rederives,
   hitPositionFor,
   pieceOf,
@@ -336,13 +339,13 @@ export class HitPanel {
   #sizes = new Map<string, Promise<Dims>>();
   #derived = new Map<string, Promise<{ stored: string; lost: number }>>();
   /** Last re-derive: images made and time taken, for the screen and tests. */
-  lastRegeometry: { images: number; ms: number } | null = null;
+  lastRegeometry: { images: number; ms: number; skipped: string } | null = null;
 
   #size(skin: string, name: string) {
     const id = `${skin}\n${name}`;
     let size = this.#sizes.get(id);
     if (!size) {
-      size = this.#host.rows(skin, name).then((r) => ({ width: r.width, height: r.height }));
+      size = this.#host.rows(skin, name).then((r) => ({ width: r.width, height: r.height, blank: r.top >= r.height }));
       size.catch(() => this.#sizes.delete(id));
       this.#sizes.set(id, size);
     }
@@ -399,6 +402,7 @@ export class HitPanel {
       });
       const slots: Record<string, Slot | undefined> = {};
       const lost: Lost[] = [];
+      const skipped: { key: string; what: string }[] = [];
       let images = 0;
       // 1. Each piece's operations (sizes read in parallel, cached).
       const planned = await Promise.all(
@@ -414,9 +418,14 @@ export class HitPanel {
             };
             const files = original.slot.files;
             const dims = new Map<string, Dims>();
-            if (piece !== "key" || from.width !== then.columnWidth[column])
-              await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
-            return { key, original, ops: pieceOps(piece, from, geometry(then, target, column), files, dims) };
+            await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
+            // Left as it is, with the reason: nothing visible to scale, or an
+            // operation the service would refuse (a guard).
+            const blank = unchanged(files, dims);
+            const ops = blank ? null : pieceOps(piece, from, geometry(then, target, column), files, dims);
+            const why = blank ?? ops?.map((o) => refused(o.op)).find(Boolean) ?? null;
+            if (why) skipped.push({ key, what: why === blank ? why : `${why}, left as it is` });
+            return { key, original, ops: why ? null : ops };
           }),
       );
       // 2. One derive request per skin for what is not cached yet.
@@ -471,7 +480,9 @@ export class HitPanel {
           delete d.hit;
         else d.hit = hit;
       });
-      this.lastRegeometry = { images, ms: Math.round(performance.now() - started) };
+      const notes = skipped.length ? pieceReport(keys, skipped) : "";
+      this.lastRegeometry = { images, ms: Math.round(performance.now() - started), skipped: notes };
+      if (notes) this.#host.state(`${label}. ${notes}`);
       this.#host.error(lost.length ? lostReport(keys, lost) : "");
     } catch (error) {
       if (ticket === this.#geometryTicket) this.#host.error(error instanceof Error ? error.message : String(error));

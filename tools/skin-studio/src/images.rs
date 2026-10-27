@@ -196,13 +196,15 @@ pub fn apply(bytes: &[u8], op: Op, cap: Option<&[u8]>) -> Result<Derived, Failur
             if width == 0 || height == 0 || width > 8192 || height > MAX_HEIGHT {
                 return Err(failure("Resized images are 1–8192 × 1–65536 px."));
             }
-            if !(scale_y.is_finite()
-                && scale_y > 0.0
-                && scale_y <= 16.0
-                && up.is_finite()
-                && up.abs() <= height as f64)
-            {
-                return Err(failure("Invalid resize."));
+            if !(scale_y.is_finite() && scale_y > 0.0 && scale_y <= 16.0) {
+                return Err(failure(format!(
+                    "Resize: vertical scale {scale_y} is outside 0–16."
+                )));
+            }
+            if !(up.is_finite() && up.abs() <= height as f64) {
+                return Err(failure(format!(
+                    "Resize: a {up} px move is more than the {height} px image."
+                )));
             }
             if image.rows.is_empty() || image.width == 0 {
                 return Err(failure("The image is empty."));

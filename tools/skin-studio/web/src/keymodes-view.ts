@@ -805,7 +805,7 @@ export class KeymodesView {
     const first = localStorage.getItem("skin-studio:proportions-seen") === null;
     localStorage.setItem("skin-studio:proportions-seen", "1");
     this.#state(
-      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
+      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${done.skipped ? `. ${done.skipped}` : ""}${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
     );
   }
 

@@ -96,16 +96,29 @@ export interface Lost {
  * `7K columns 1, 2 and 5 hold body: 3073 rows cut from the end of …`.
  */
 export function lostReport(keys: number, lost: readonly Lost[]): string {
+  return pieceReport(
+    keys,
+    lost.map((l) => ({
+      key: l.key,
+      what:
+        l.op === "rows"
+          ? `${l.rows} rows cut from the end of ${l.file}`
+          : `${l.rows} rows of ${l.file} moved past the image edge`,
+    })),
+  );
+}
+
+/**
+ * One line per distinct note about pieces, the columns that share it named
+ * together: `10K columns 1, 2 and 10 key: <what>`.
+ */
+export function pieceReport(keys: number, notes: readonly { key: string; what: string }[]): string {
   const groups = new Map<string, number[]>();
-  for (const l of lost) {
-    const role = pieceName(keys, l.key).replace(/^\d+K column \d+ /, "");
-    const what =
-      l.op === "rows"
-        ? `${l.rows} rows cut from the end of ${l.file}`
-        : `${l.rows} rows of ${l.file} moved past the image edge`;
+  for (const { key, what } of notes) {
+    const role = pieceName(keys, key).replace(/^\d+K column \d+ /, "");
     const id = `${role}\n${what}`;
     const columns = groups.get(id) ?? [];
-    if (!columns.includes(columnOf(l.key) + 1)) columns.push(columnOf(l.key) + 1);
+    if (!columns.includes(columnOf(key) + 1)) columns.push(columnOf(key) + 1);
     groups.set(id, columns);
   }
   return [...groups]
@@ -131,6 +144,33 @@ export interface Geometry {
 export interface Dims {
   width: number;
   height: number;
+  /** Not one visible pixel (a placeholder that hides an element). */
+  blank?: boolean;
+}
+
+/**
+ * Why a piece is left as it is, or null when it can be made: an image with
+ * no visible pixel (skins hide receptors with a 1-px `blank.png`) has
+ * nothing to scale or move.
+ */
+export function unchanged(files: readonly { from: string }[], dims: ReadonlyMap<string, Dims>): string | null {
+  return files.length && files.every((f) => dims.get(f.from)?.blank) ? "blank image, left as it is" : null;
+}
+
+/**
+ * Why the service would refuse an operation (`images.rs`), or null. A
+ * guard: the operations made here stay inside these limits.
+ */
+export function refused(op: DeriveOp): string | null {
+  if (!("resize" in op)) return null;
+  const r = op.resize;
+  if (!(r.width >= 1 && r.width <= 8192 && r.height >= 1 && r.height <= 65536))
+    return `would be ${r.width}×${r.height} px, outside 1–8192 × 1–65536`;
+  if (!(Number.isFinite(r.scale_y) && r.scale_y > 0 && r.scale_y <= 16))
+    return `vertical scale ${r.scale_y} outside 0–16`;
+  if (!(Number.isFinite(r.up) && Math.abs(r.up) <= r.height))
+    return `a ${Math.round(Math.abs(r.up))} px move is more than its ${r.height} px height`;
+  return null;
 }
 /** One output file: an operation on a source file of the same image. */
 export interface FileOp {
@@ -184,13 +224,22 @@ export function pieceOps(
   };
   if (piece === "key") {
     // The receptor point that stood on the hit line stands on the new one.
-    const up = ((STAGE - to.hitPosition) - s * (STAGE - from.hitPosition)) * UNIT_PX;
+    // A key image shorter than its distance to the hit line (a bar under
+    // it, a 1-px placeholder) has nothing on the line: it scales from the
+    // stage bottom, where lazer anchors it (LegacyKeyArea), and stays.
+    const line = (STAGE - from.hitPosition) * UNIT_PX;
+    const reaches = (f: { from: string }) => {
+      const d = dims.get(f.from);
+      return !d || d.height / (hd(f.from) ? 2 : 1) >= line;
+    };
+    const moved = ((STAGE - to.hitPosition) - s * line / UNIT_PX) * UNIT_PX;
+    const up = (f: { from: string }) => (reaches(f) ? moved : 0);
     if (same(s, 1)) {
-      if (same(up, 0)) return null;
+      if (files.every((f) => same(up(f), 0))) return null;
       // No scale: the exact row move (no resampling).
-      return files.map((f) => ({ source: f.from, op: { shift: { up: Math.round(up * (hd(f.from) ? 2 : 1)) } } }));
+      return files.map((f) => ({ source: f.from, op: { shift: { up: Math.round(up(f) * (hd(f.from) ? 2 : 1)) } } }));
     }
-    return files.map((f) => resize(f, s, s, up));
+    return files.map((f) => resize(f, s, s, up(f)));
   }
   if (piece === "note") {
     const factor = (s * from.noteHeight) / to.noteHeight;
