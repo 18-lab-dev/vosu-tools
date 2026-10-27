@@ -19,5 +19,9 @@ writes the differential reference used by `tests/prism.rs`.
 `rustfmt.toml` here (ours) disables formatting so `cargo fmt --all` leaves the
 vendored sources byte-identical.
 
+On Windows, `jsmath`'s declared POSIX `clock_gettime` (used only by the
+uncalled `js::thread_cpu_seconds`) is supplied by
+`tools/mania-ratings/src/windows_clock.rs`; nothing here is patched.
+
 Dev builds disable overflow checks for `jsmath` (root `Cargo.toml`): its
 TimSort port relies on release-mode wrapping, and upstream ships release builds.

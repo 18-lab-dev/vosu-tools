@@ -15,6 +15,8 @@ pub mod playable;
 pub mod prism;
 pub mod quaver;
 pub mod view7k;
+#[cfg(windows)]
+mod windows_clock;
 
 pub const CALCULATOR: &str = "minacalc-527@2d706147-heads-v1";
 pub const DAN_MODEL: &str = "reform-v1-course-msd527@1";

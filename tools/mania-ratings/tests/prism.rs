@@ -57,3 +57,33 @@ fn compare(reference: &[Value], path_of: impl Fn(&str) -> String) {
         );
     }
 }
+
+/// The `clock_gettime` contract jsmath's (uncalled) `thread_cpu_seconds`
+/// declares: thread CPU time from clock 3. libc provides it on Linux; Windows
+/// builds get it from `src/windows_clock.rs`, without which they fail to link.
+#[test]
+fn thread_cpu_clock_jsmath_declares_links_and_advances() {
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: i64,
+        tv_nsec: i64,
+    }
+    unsafe extern "C" {
+        fn clock_gettime(clk: i32, ts: *mut Timespec) -> i32;
+    }
+    let seconds = || {
+        let mut ts = Timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        // SAFETY: `ts` is a live local, as in jsmath.
+        assert_eq!(unsafe { clock_gettime(3, &mut ts) }, 0);
+        ts.tv_sec as f64 + ts.tv_nsec as f64 * 1e-9
+    };
+    let start = seconds();
+    let mut x = 0u64;
+    while seconds() - start < 0.05 {
+        x = std::hint::black_box(x.wrapping_mul(6364136223846793005).wrapping_add(1));
+    }
+    assert!(start.is_finite() && start >= 0.0 && seconds() > start);
+}

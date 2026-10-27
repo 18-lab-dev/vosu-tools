@@ -6,6 +6,10 @@
 
 - Native osu!mania maps use the key count osu! plays everywhere (Practice, Map preview, Skin studio, Replay renderer, Mania ratings and the shared renderer and replay judging): CircleSize clamped to 1–18 and rounded half to even (6.5 is 6K, 7.5 is 8K), 11/13/15/17 as two stages of 10/12/14/16, and 5K when a map has no CircleSize. Before, the web UIs rounded half up and Practice's Rust side truncated or defaulted to 4K. Converted osu! maps keep lazer's conversion key count.
 
+### Mania ratings
+
+- Windows debug and test builds of Mania ratings and Replay renderer link again: the vendored Prism math crate declares POSIX `clock_gettime` for an unused CPU-time helper, and Windows now gets it from the thread's CPU times. Ratings are unchanged.
+
 ### Skin studio
 
 - Scroll mania previews (the Preview tab and the Keymodes stage) at your osu! scroll speed and direction, following changes live, instead of a fixed speed of 16. A Scroll field in the Preview tab overrides it; its hint says where the speed comes from, and lazer's default (8) applies without a client or a reported speed.
