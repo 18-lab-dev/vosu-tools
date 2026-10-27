@@ -3,13 +3,16 @@
 //! then rates the chart.
 use rosu_map::{Beatmap, section::hit_objects::HitObjectKind};
 use serde_json::Value;
-use vosu_mania_ratings::{Params, calculate, checksum, playable::playable};
+use vosu_mania_ratings::{
+    Params, calculate, checksum,
+    playable::{key_count, playable},
+};
 
 /// Notes and holds as lazer's oracle prints them: start, end, column, kind.
 fn played(bytes: &[u8]) -> (u32, Vec<(f64, f64, u32, &'static str)>) {
     let converted = playable(bytes).unwrap();
     let map = Beatmap::from_bytes(&converted).unwrap();
-    let keys = map.circle_size as u32;
+    let keys = key_count(map.circle_size).unwrap();
     let mut objects: Vec<_> = map
         .hit_objects
         .iter()
@@ -58,7 +61,7 @@ fn compare(reference: &[Value], path_of: impl Fn(&str) -> String) {
 fn matches_lazer_on_fixtures() {
     let reference: Vec<Value> =
         serde_json::from_str(include_str!("fixtures/lazer-reference.json")).unwrap();
-    assert_eq!(reference.len(), 5);
+    assert_eq!(reference.len(), 11);
     compare(&reference, |chart| {
         format!("{}/tests/fixtures/{chart}", env!("CARGO_MANIFEST_DIR"))
     });
@@ -120,6 +123,93 @@ fn every_system_rates_charts_with_sliders_and_spinners() {
                     .and_then(|k| k.parse::<i32>().ok())
                     .is_some_and(|k| k & 1 == 0 && k & 10 != 0);
             assert_eq!(before == after, !slider_or_spinner, "{chart}: {before}");
+        }
+    }
+}
+
+/// lazer's rule: clamp to 1–18, round half to even, two half stages above 10K.
+#[test]
+fn key_count_is_lazers() {
+    for (size, keys) in [
+        (1.111111, 1),
+        (0.0, 1),
+        (0.4, 1),
+        (4.0, 4),
+        (6.5, 6),
+        (7.49, 7),
+        (7.5, 8),
+        (8.5, 8),
+        (10.4, 10),
+        (10.5, 10),
+        (10.6, 10),
+        (11.0, 10),
+        (12.0, 12),
+        (13.0, 12),
+        (17.0, 16),
+        (18.0, 18),
+        (25.0, 18),
+    ] {
+        assert_eq!(key_count(size), Ok(keys), "CircleSize {size}");
+    }
+    assert!(key_count(f32::NAN).is_err());
+}
+
+/// Fractional, odd-above-10 and missing CircleSize: the chart is rewritten
+/// to lazer's key count and rated with it.
+#[test]
+fn every_system_uses_lazers_key_count() {
+    for (chart, keys) in [
+        ("cs-1.111111", 1),
+        ("cs-6.5", 6),
+        ("cs-7.49", 7),
+        ("cs-7.5", 8),
+        ("cs-11", 10),
+        ("cs-missing", 5),
+    ] {
+        let path = format!(
+            "{}/tests/fixtures/objects/{chart}.osu",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let bytes = std::fs::read(&path).unwrap();
+        let converted = String::from_utf8(playable(&bytes).unwrap().into_owned()).unwrap();
+        assert_eq!(
+            converted
+                .lines()
+                .filter(|l| l.starts_with("CircleSize:"))
+                .collect::<Vec<_>>(),
+            [format!("CircleSize:{keys}")],
+            "{chart}"
+        );
+        let d = calculate(&bytes, Params::new(1.0, None).unwrap()).unwrap();
+        assert_eq!(d.keys, keys, "{chart}");
+        assert_eq!(d.checksum, checksum(&bytes), "{chart}");
+        assert!(d.unsupported.is_none(), "{chart}: {:?}", d.unsupported);
+        assert!(
+            d.stars.is_some() && d.quaver.is_some() && d.ln.is_some(),
+            "{chart}"
+        );
+        assert_eq!(d.msd.is_some(), (4..=7).contains(&keys), "{chart}");
+        assert_eq!(d.interlude.is_some(), (3..=10).contains(&keys), "{chart}");
+        assert_eq!(d.patterns.is_some(), (3..=10).contains(&keys), "{chart}");
+        assert_eq!(d.prism.is_some(), (6..=8).contains(&keys), "{chart}");
+        for system in [
+            "etterna",
+            "quaver",
+            "interlude",
+            "osu",
+            "prism",
+            "ln",
+            "nps",
+        ] {
+            let t = vosu_mania_ratings::analysis::timeline(
+                &bytes,
+                Params::new(1.0, None).unwrap(),
+                system,
+                4.0,
+                1.0,
+            );
+            let supported = vosu_mania_ratings::support(system, keys).is_ok();
+            assert_eq!(t.is_ok(), supported, "{chart} {system}: {t:?}");
         }
     }
 }

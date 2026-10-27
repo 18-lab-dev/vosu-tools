@@ -4,17 +4,18 @@
 // native mania maps, PassThroughPatternGenerator, SpinnerPatternGenerator and
 // LegacyRandom. See tools/mania-ratings/PROVENANCE.md.
 
-//! Slider and spinner objects in a native osu!mania chart, converted the way
-//! the game plays them, so every calculator rates the chart that is played.
+//! A native osu!mania chart as the game plays it, so every calculator rates
+//! the chart that is played.
 //!
+//! - The key count is lazer's ([`key_count`]); `CircleSize` is rewritten to it.
 //! - A slider is a hold over the slider's duration (spans × path distance ÷
 //!   velocity), in the column of its x.
 //! - A spinner goes to a column drawn from the beatmap-seeded `LegacyRandom`
 //!   (column 0 on 8K for a finish spinner shorter than 1 s); it is a hold when
 //!   it lasts at least 100 ms, otherwise a note.
 //!
-//! Only those lines are rewritten (as `.osu` hold or circle lines); every other
-//! byte is kept, and a chart without such objects is returned unchanged.
+//! Only those lines are rewritten (objects as `.osu` hold or circle lines);
+//! every other byte is kept, and a chart that needs none is returned unchanged.
 
 use rosu_map::{
     Beatmap,
@@ -25,8 +26,31 @@ use rosu_map::{
 };
 use std::borrow::Cow;
 
-/// lazer's clamp for a native mania key count (`LegacyBeatmapDecoder`).
+/// `LegacyBeatmapDecoder.MAX_MANIA_KEY_COUNT`.
 const MAX_MANIA_KEYS: f32 = 18.0;
+/// `ManiaRuleset.MAX_STAGE_KEYS`.
+const MAX_STAGE_KEYS: u32 = 10;
+
+/// The number of columns lazer plays a native mania chart with:
+/// `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps `CircleSize` to
+/// 1–18 for mania, `ManiaBeatmapConverter.getColumnCount` takes
+/// `Math.Max(1, Math.Round(CircleSize))` for a native map (`Math.Round` rounds
+/// half to even: 6.5 → 6, 7.5 → 8), and above 10 keys the converter plays two
+/// stages of half that each (`TargetColumns /= 2`, `Dual`), so 11, 13, 15 and
+/// 17 lose a column. (Converted osu! maps derive the count from OD and the
+/// slider/spinner share instead; this tool only rates native maps.)
+pub fn key_count(circle_size: f32) -> Result<u32, String> {
+    if !circle_size.is_finite() {
+        return Err(format!("invalid CircleSize {circle_size}"));
+    }
+    let target =
+        (f64::from(circle_size.clamp(1.0, MAX_MANIA_KEYS)).round_ties_even() as u32).max(1);
+    Ok(if target > MAX_STAGE_KEYS {
+        target / 2 * 2
+    } else {
+        target
+    })
+}
 
 /// `osu.Game/Utils/LegacyRandom.cs`: osu!stable's xorshift generator.
 struct LegacyRandom {
@@ -95,13 +119,37 @@ struct Line {
 pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
     let lines: Vec<&[u8]> = bytes.split_inclusive(|&b| b == b'\n').collect();
     let mut objects = Vec::new();
-    let mut inside = false;
+    let mut section = String::new();
+    let mut mania = false;
+    let mut difficulty = None;
+    let mut hit_objects = None;
+    let mut sizes: Vec<(usize, Option<f32>)> = Vec::new();
     for (index, raw) in lines.iter().enumerate() {
         let line = String::from_utf8_lossy(raw);
         let line = line.trim();
         if line.starts_with('[') && line.ends_with(']') {
-            inside = line == "[HitObjects]";
-        } else if inside && !line.is_empty() && !line.starts_with("//") {
+            section = line.to_owned();
+            if line == "[Difficulty]" {
+                difficulty.get_or_insert(index);
+            } else if line == "[HitObjects]" {
+                hit_objects.get_or_insert(index);
+            }
+            continue;
+        }
+        let value = |key: &str| {
+            line.split_once(':')
+                .filter(|(k, _)| k.trim() == key)
+                .map(|(_, v)| v.trim().to_owned())
+        };
+        if section == "[General]" {
+            if let Some(mode) = value("Mode") {
+                mania = mode == "3";
+            }
+        } else if section == "[Difficulty]" {
+            if let Some(size) = value("CircleSize") {
+                sizes.push((index, size.parse().ok()));
+            }
+        } else if section == "[HitObjects]" && !line.is_empty() && !line.starts_with("//") {
             let Some(kind) = kind(line) else { continue };
             let Some(time) = line.split(',').nth(2).and_then(|t| t.trim().parse().ok()) else {
                 continue;
@@ -109,13 +157,74 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
             objects.push(Line { index, time, kind });
         }
     }
-    if objects.iter().all(|o| o.kind == Kind::Other) {
+    let convert = objects.iter().any(|o| o.kind != Kind::Other);
+    // osu!'s default CircleSize is 5 when the line is missing.
+    let size = sizes.last().map_or(Some(5.0), |s| s.1);
+    let resize = sizes.is_empty()
+        || size.is_none_or(|size| {
+            key_count(size).map_or(true, |keys| sizes.iter().any(|s| s.1 != Some(keys as f32)))
+        });
+    if !mania || (!convert && !resize) {
         return Ok(Cow::Borrowed(bytes));
     }
     let map = Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?;
     if map.mode != GameMode::Mania {
         return Ok(Cow::Borrowed(bytes));
     }
+    let total = key_count(map.circle_size)?;
+    let mut replaced: Vec<Option<String>> = vec![None; lines.len()];
+    for &(index, _) in &sizes {
+        replaced[index] = Some(format!("CircleSize:{total}"));
+    }
+    if convert {
+        convert_objects(&lines, &mut objects, map, total, &mut replaced)?;
+    }
+
+    // A missing CircleSize line goes into [Difficulty], or a new [Difficulty]
+    // section before [HitObjects].
+    let (after, before) = match (sizes.is_empty(), difficulty) {
+        (false, _) => (None, None),
+        (true, Some(header)) => (Some(header), None),
+        (true, None) => (None, hit_objects),
+    };
+    let mut out = Vec::with_capacity(bytes.len() + objects.len() * 8);
+    for (index, (raw, replacement)) in lines.iter().zip(replaced).enumerate() {
+        let ending: &[u8] = if raw.ends_with(b"\r\n") {
+            b"\r\n"
+        } else {
+            b"\n"
+        };
+        if before == Some(index) {
+            out.extend_from_slice(b"[Difficulty]");
+            out.extend_from_slice(ending);
+            out.extend_from_slice(format!("CircleSize:{total}").as_bytes());
+            out.extend_from_slice(ending);
+            out.extend_from_slice(ending);
+        }
+        match replacement {
+            Some(line) => {
+                out.extend_from_slice(line.as_bytes());
+                let content = raw.trim_ascii_end().len();
+                out.extend_from_slice(&raw[content..]);
+            }
+            None => out.extend_from_slice(raw),
+        }
+        if after == Some(index) {
+            out.extend_from_slice(format!("CircleSize:{total}").as_bytes());
+            out.extend_from_slice(ending);
+        }
+    }
+    Ok(Cow::Owned(out))
+}
+
+/// Slider and spinner lines rewritten as the hold or note lazer plays.
+fn convert_objects(
+    lines: &[&[u8]],
+    objects: &mut [Line],
+    map: Beatmap,
+    total: u32,
+    replaced: &mut [Option<String>],
+) -> Result<(), String> {
     if map.hit_objects.len() != objects.len() {
         return Err("cannot match the chart's slider and spinner lines to its objects".into());
     }
@@ -124,15 +233,13 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
     objects.sort_by(|a, b| a.time.total_cmp(&b.time));
     let offset = if map.format_version < 5 { 24.0 } else { 0.0 };
 
-    // ManiaBeatmapConverter: key count and the LegacyRandom seed from the
-    // decoder's clamped difficulty (floats, MathF.Round rounds half to even).
+    // ManiaBeatmapConverter: the LegacyRandom seed from the decoder's clamped
+    // difficulty (floats, MathF.Round rounds half to even).
     let hp = map.hp_drain_rate.clamp(0.0, 10.0);
     let cs = map.circle_size.clamp(1.0, MAX_MANIA_KEYS);
     let od = map.overall_difficulty.clamp(0.0, 10.0);
     let ar = map.approach_rate.clamp(0.0, 10.0);
-    let target = (f64::from(cs).round_ties_even() as i32).max(1);
-    let total = if target > 10 { target / 2 * 2 } else { target };
-    let keys = target as f64;
+    let columns = total as i32;
     let mut random = LegacyRandom::new(
         ((hp + cs).round_ties_even() as i32)
             .wrapping_mul(20)
@@ -140,7 +247,6 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
             .wrapping_add(ar.round_ties_even() as i32),
     );
 
-    let mut replaced: Vec<Option<String>> = vec![None; lines.len()];
     let mut bufs = CurveBuffers::default();
     for (line, mut object) in objects.iter().zip(map.hit_objects) {
         if (line.time + offset - object.start_time).abs() > 1e-6 {
@@ -171,12 +277,12 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
                 let end = (object.start_time + spinner.duration) as i32;
                 let length = f64::from(end) - object.start_time;
                 let finish = hitsound.parse::<i32>().is_ok_and(|h| h & 4 != 0);
-                let column = match total {
+                let column = match columns {
                     8 if finish && length < 1000.0 => 0,
-                    8 => random.next(1, total),
-                    _ => random.next(0, total),
+                    8 => random.next(1, columns),
+                    _ => random.next(0, columns),
                 };
-                let x = ((f64::from(column) + 0.5) * 512.0 / keys).floor();
+                let x = ((f64::from(column) + 0.5) * 512.0 / f64::from(total)).floor();
                 replaced[line.index] = Some(if length >= 100.0 {
                     format!(
                         "{x},192,{time},128,{hitsound},{}:0:0:0:0:",
@@ -194,19 +300,7 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
             }
         }
     }
-
-    let mut out = Vec::with_capacity(bytes.len() + objects.len() * 8);
-    for (raw, replacement) in lines.iter().zip(replaced) {
-        match replacement {
-            Some(line) => {
-                out.extend_from_slice(line.as_bytes());
-                let content = raw.trim_ascii_end().len();
-                out.extend_from_slice(&raw[content..]);
-            }
-            None => out.extend_from_slice(raw),
-        }
-    }
-    Ok(Cow::Owned(out))
+    Ok(())
 }
 
 #[cfg(test)]

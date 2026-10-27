@@ -1,6 +1,8 @@
 use rosu_map::Beatmap;
 use serde_json::Value;
-use vosu_mania_ratings::{Params, analysis, calculate, interlude, quaver, rows};
+use vosu_mania_ratings::{
+    Params, analysis, calculate, interlude, playable::key_count, quaver, rows,
+};
 #[test]
 fn upstream_reference_values_and_strain_arrays() {
     let fixtures: Vec<Value> =
@@ -13,15 +15,12 @@ fn upstream_reference_values_and_strain_arrays() {
         ))
         .unwrap();
         let map = Beatmap::from_bytes(&bytes).unwrap();
+        let keys = key_count(map.circle_size).unwrap();
         let rate = f["rate"].as_f64().unwrap() as f32;
         let (rating, series) = if f["system"] == "quaver" {
-            quaver::calculate(&map, rate)
+            quaver::calculate(&map, keys as usize, rate)
         } else {
-            interlude::calculate(
-                &rows(&map, map.circle_size as u32).unwrap(),
-                map.circle_size as usize,
-                rate,
-            )
+            interlude::calculate(&rows(&map, keys).unwrap(), keys as usize, rate)
         };
         let expected = f["rating"].as_f64().unwrap() as f32;
         assert!(

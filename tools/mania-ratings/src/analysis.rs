@@ -96,13 +96,7 @@ pub fn timeline(
     if map.mode != GameMode::Mania {
         return Err("native mania maps only".into());
     }
-    let keys = map.circle_size.round() as u32;
-    if keys as f32 != map.circle_size {
-        return Err(format!(
-            "non-integer key count (CircleSize {})",
-            map.circle_size
-        ));
-    }
+    let keys = crate::playable::key_count(map.circle_size)?;
     crate::support(system, keys)?;
     let rows = rows(&map, keys)?;
     let duration = rows.last().map_or(0.0, |r| r.seconds + 0.001);
@@ -120,7 +114,7 @@ pub fn timeline(
         Vec::new()
     };
     let quaver_series = if system == "quaver" {
-        crate::quaver::calculate(&map, p.rate()).1
+        crate::quaver::calculate(&map, keys as usize, p.rate()).1
     } else {
         Vec::new()
     };

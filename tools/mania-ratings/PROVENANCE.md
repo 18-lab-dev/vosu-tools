@@ -30,8 +30,19 @@ Alternatives evaluated:
 
 ## Input semantics
 
-`rosu-map =0.2.1` parses native mania with an integral CS of 1–18 (dual-stage
-included). Each calculator rates only the key counts its upstream supports and
+`rosu-map =0.2.1` parses native mania. The key count is the one osu! (lazer)
+`2026.1005.0-lazer` plays (`playable::key_count`, the only place the tool
+derives it): `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps a mania
+`CircleSize` to 1–18 (`MAX_MANIA_KEY_COUNT`), `ManiaBeatmapConverter.getColumnCount`
+returns `Math.Max(1, Math.Round(CircleSize))` for a native map (`Math.Round`
+rounds half to even: 1.111111 → 1, 6.5 → 6, 7.49 → 7, 7.5 → 8), and above
+`MAX_STAGE_KEYS` (10) the converter plays two stages of half the count each, so
+11, 13, 15 and 17 become 10, 12, 14 and 16 columns. A missing `CircleSize` is
+osu!'s default 5. (Converted osu! maps derive the count from OD and the
+slider/spinner share instead; they are not rated.) The chart's `CircleSize` line
+is rewritten to that count before any calculator reads it, so every system and
+the column mapping use it; `tests/playable.rs` checks the columns against
+lazer's own converter. Each calculator rates only the key counts its upstream supports and
 otherwise reports `unrated.<system> = {scope:"keys", reason}` instead of a value:
 MinaCalc 4K–7K (one dedicated `Ulbu` model each; 5K is Etterna's pump/5K model), Quaver.API
 1K–10K (its `LaneToFinger`, including the 10K two-thumb layout), Interlude 3K–10K

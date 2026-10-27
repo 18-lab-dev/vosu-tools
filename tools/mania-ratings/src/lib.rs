@@ -277,7 +277,12 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         GameMode::Catch => "fruits",
         GameMode::Mania => "mania",
     };
-    let keys = map.circle_size.round() as u32;
+    // Converted osu! maps are not rated; their CircleSize is only echoed.
+    let keys = if map.mode == GameMode::Mania {
+        playable::key_count(map.circle_size)?
+    } else {
+        map.circle_size.round() as u32
+    };
     let mut result = Difficulty {
         checksum: checksum(original),
         title: std::mem::take(&mut map.title),
@@ -317,13 +322,6 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         result.unsupported = Some("only native osu!mania beatmaps are supported".into());
         return Ok(result);
     }
-    if !(1..=MAX_KEYS).contains(&keys) || keys as f32 != map.circle_size {
-        result.unsupported = Some(format!(
-            "osu!mania key count must be a whole number from 1 to {MAX_KEYS} (CircleSize {})",
-            map.circle_size
-        ));
-        return Ok(result);
-    }
     let rows = rows(&map, keys)?;
     let rate = params.rate();
     let mut unrated = std::collections::BTreeMap::new();
@@ -335,7 +333,7 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         Err(reason) => refuse("interlude", reason),
     }
     match support("quaver", keys) {
-        Ok(()) => result.quaver = Some(quaver::calculate(&map, rate).0),
+        Ok(()) => result.quaver = Some(quaver::calculate(&map, keys as usize, rate).0),
         Err(reason) => refuse("quaver", reason),
     }
     let reform_keys = support("reform", keys);

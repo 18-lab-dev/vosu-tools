@@ -139,7 +139,7 @@ in `rosu-pp` `mania/difficulty/skills/strain.rs`), so stars work for any column
 count, including dual stage. osu!(lazer) splits native charts with more than
 `MAX_STAGE_KEYS = 10` columns into two stages
 ([ManiaBeatmapConverter.cs:65–72](https://github.com/ppy/osu/blob/4e11ab19feb423c905cf98d9b8fa34700a8aeffa/osu.Game.Rulesets.Mania/Beatmaps/ManiaBeatmapConverter.cs#L65-L72)).
-No skillsets. The tool accepts integral CS 1–18.
+No skillsets. The tool plays any `CircleSize` with lazer's key count (clamped to 1–18, rounded half to even; see `PROVENANCE.md`).
 
 ### Reform dan estimate
 
