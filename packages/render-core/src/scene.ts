@@ -4,6 +4,7 @@ import {
   pathPosition,
   scrollPosition,
 } from "@vosu-tools/osu-parse";
+import { maniaColumns, maniaKeyCount } from "@vosu-tools/osu-parse";
 import type { Beatmap, HitObject, Mod, Point } from "@vosu-tools/osu-parse";
 import { normaliseComboColour } from "./colour";
 import { catchPreempt, compileCatch } from "./fruits";
@@ -107,7 +108,7 @@ export function maniaKeysFor(
     if (mod.acronym.toUpperCase() === "DA")
       cs = Number(mod.settings?.circle_size ?? cs);
   if (options.cs !== undefined) cs = options.cs;
-  return [Math.max(1, Math.round(cs))];
+  return [cs === map.difficulty.cs ? maniaColumns(map) : maniaKeyCount(cs)];
 }
 
 /** The skin images a scene of this map draws: its ruleset and mania stage (`loadScope`). */
@@ -823,7 +824,7 @@ export function compileScene(
     // Legacy judgement pieces are proxied above the hit objects.
     judged?.above();
   } else if (map.mode === 3) {
-    const keys = Math.max(1, Math.round(map.difficulty.cs));
+    const keys = maniaColumns(map);
     const layout = maniaLayout(
       maniaConfig(skin, keys),
       atlasImageSize(regions),

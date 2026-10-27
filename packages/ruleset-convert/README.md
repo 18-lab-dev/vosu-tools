@@ -20,9 +20,12 @@ const fruits = catchObjects(applyMods(convertBeatmap(map, 2), [{ acronym: "HR" }
   osu! maps, and ruleset 0, come back unchanged (the clients only convert
   osu! maps).
   - **mania**: lazer's legacy pattern generators with their seeded
-    `LegacyRandom`; `difficulty.cs` is the total key count. Key count follows
-    lazer's rule (CS, OD and the share of sliders/spinners), then the key mods
-    `1K`…`10K`; `DS` (Dual Stages) doubles it. osu! slider velocity does not
+    `LegacyRandom`; `difficulty.cs` and `maniaColumns` are the total key
+    count. Key count follows lazer's convert rule (CS, OD and the share of
+    sliders/spinners), then the key mods `1K`…`10K`; `DS` (Dual Stages)
+    doubles it. Native mania maps use lazer's CircleSize rule instead
+    (`maniaKeyCount`, re-exported from `@vosu-tools/osu-parse`); read either
+    count with `maniaColumns(map)`. osu! slider velocity does not
     scroll mania converts (lazer only scrolls by effect points, which osu!
     maps never carry), so inherited lines are flattened to 1×, kiai kept.
   - **taiko**: hits (kat = whistle/clap, big = finish), drum rolls, swells,

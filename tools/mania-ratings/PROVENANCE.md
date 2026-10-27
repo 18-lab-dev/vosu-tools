@@ -31,8 +31,8 @@ Alternatives evaluated:
 ## Input semantics
 
 `rosu-map =0.2.1` parses native mania. The key count is the one osu! (lazer)
-`2026.1005.0-lazer` plays (`playable::key_count`, the only place the tool
-derives it): `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps a mania
+`2026.1005.0-lazer` plays (`crates/mania-keys`, the rule every tool shares
+with the web UIs' `maniaKeyCount`): `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps a mania
 `CircleSize` to 1–18 (`MAX_MANIA_KEY_COUNT`), `ManiaBeatmapConverter.getColumnCount`
 returns `Math.Max(1, Math.Round(CircleSize))` for a native map (`Math.Round`
 rounds half to even: 1.111111 → 1, 6.5 → 6, 7.49 → 7, 7.5 → 8), and above

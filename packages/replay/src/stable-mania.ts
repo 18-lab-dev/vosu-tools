@@ -28,7 +28,7 @@
  * fractional ones: judgements within half a map millisecond of a window edge
  * are settled with the replay's header counts.
  */
-import type { Beatmap } from "@vosu-tools/osu-parse";
+import { maniaColumns, type Beatmap } from "@vosu-tools/osu-parse";
 import type { Replay } from "./index";
 import { replayMods, replayRate } from "./mods";
 import { difficultyRange } from "./osu";
@@ -97,7 +97,7 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
   const mods = replayMods(replay),
     has = (acronym: string) => mods.some((m) => m.acronym === acronym);
   const scoreV2 = has("SV2");
-  const columns = Math.max(1, Math.round(map.difficulty.cs));
+  const columns = maniaColumns(map);
   const rate = replayRate(replay);
   // `map` keeps the original OD: stable's Hard Rock and Easy scale the windows.
   const real = stableManiaWindows(map.difficulty.od, { convert: options.convert, hardRock: has("HR"), easy: has("EZ"), scoreV2 });

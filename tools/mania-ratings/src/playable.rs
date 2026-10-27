@@ -7,7 +7,8 @@
 //! A native osu!mania chart as the game plays it, so every calculator rates
 //! the chart that is played.
 //!
-//! - The key count is lazer's ([`key_count`]); `CircleSize` is rewritten to it.
+//! - The key count is lazer's (`mania_keys::key_count`); `CircleSize` is
+//!   rewritten to it.
 //! - A slider is a hold over the slider's duration (spans × path distance ÷
 //!   velocity), in the column of its x.
 //! - A spinner goes to a column drawn from the beatmap-seeded `LegacyRandom`
@@ -17,6 +18,7 @@
 //! Only those lines are rewritten (objects as `.osu` hold or circle lines);
 //! every other byte is kept, and a chart that needs none is returned unchanged.
 
+use mania_keys::{DEFAULT_CIRCLE_SIZE, MAX_MANIA_KEYS, key_count};
 use rosu_map::{
     Beatmap,
     section::{
@@ -25,32 +27,6 @@ use rosu_map::{
     },
 };
 use std::borrow::Cow;
-
-/// `LegacyBeatmapDecoder.MAX_MANIA_KEY_COUNT`.
-const MAX_MANIA_KEYS: f32 = 18.0;
-/// `ManiaRuleset.MAX_STAGE_KEYS`.
-const MAX_STAGE_KEYS: u32 = 10;
-
-/// The number of columns lazer plays a native mania chart with:
-/// `LegacyBeatmapDecoder.applyDifficultyRestrictions` clamps `CircleSize` to
-/// 1–18 for mania, `ManiaBeatmapConverter.getColumnCount` takes
-/// `Math.Max(1, Math.Round(CircleSize))` for a native map (`Math.Round` rounds
-/// half to even: 6.5 → 6, 7.5 → 8), and above 10 keys the converter plays two
-/// stages of half that each (`TargetColumns /= 2`, `Dual`), so 11, 13, 15 and
-/// 17 lose a column. (Converted osu! maps derive the count from OD and the
-/// slider/spinner share instead; this tool only rates native maps.)
-pub fn key_count(circle_size: f32) -> Result<u32, String> {
-    if !circle_size.is_finite() {
-        return Err(format!("invalid CircleSize {circle_size}"));
-    }
-    let target =
-        (f64::from(circle_size.clamp(1.0, MAX_MANIA_KEYS)).round_ties_even() as u32).max(1);
-    Ok(if target > MAX_STAGE_KEYS {
-        target / 2 * 2
-    } else {
-        target
-    })
-}
 
 /// `osu.Game/Utils/LegacyRandom.cs`: osu!stable's xorshift generator.
 struct LegacyRandom {
@@ -158,8 +134,7 @@ pub fn playable(bytes: &[u8]) -> Result<Cow<'_, [u8]>, String> {
         }
     }
     let convert = objects.iter().any(|o| o.kind != Kind::Other);
-    // osu!'s default CircleSize is 5 when the line is missing.
-    let size = sizes.last().map_or(Some(5.0), |s| s.1);
+    let size = sizes.last().map_or(Some(DEFAULT_CIRCLE_SIZE), |s| s.1);
     let resize = sizes.is_empty()
         || size.is_none_or(|size| {
             key_count(size).map_or(true, |keys| sizes.iter().any(|s| s.1 != Some(keys as f32)))
@@ -236,7 +211,7 @@ fn convert_objects(
     // ManiaBeatmapConverter: the LegacyRandom seed from the decoder's clamped
     // difficulty (floats, MathF.Round rounds half to even).
     let hp = map.hp_drain_rate.clamp(0.0, 10.0);
-    let cs = map.circle_size.clamp(1.0, MAX_MANIA_KEYS);
+    let cs = map.circle_size.clamp(1.0, MAX_MANIA_KEYS as f32);
     let od = map.overall_difficulty.clamp(0.0, 10.0);
     let ar = map.approach_rate.clamp(0.0, 10.0);
     let columns = total as i32;

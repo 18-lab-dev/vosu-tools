@@ -228,7 +228,7 @@ fn solve(data: &mut Vec<Point>, additions: &[Point], density: f32, odd: bool) ->
     overall *= (0.25 * f64::from(drain / 60000.0).sqrt() + 0.75).clamp(0.75, 1.0) as f32;
     overall
 }
-/// `keys` is the chart's key count (`playable::key_count`).
+/// `keys` is the chart's key count (`mania_keys::key_count`).
 pub fn calculate(map: &Beatmap, keys: usize, rate: f32) -> (f32, Vec<(f32, f32)>) {
     if map.hit_objects.len() < 2 {
         return (0.0, Vec::new());

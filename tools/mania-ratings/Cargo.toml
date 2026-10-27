@@ -11,6 +11,7 @@ name = "vosu-mania-ratings"
 path = "src/main.rs"
 
 [dependencies]
+mania-keys = { path = "../../crates/mania-keys" }
 minacalc = { path = "../../crates/minacalc" }
 prism = { path = "../../vendor/prism/crates/prism" }
 chart-parser = { path = "../../vendor/prism/crates/chart-parser" }

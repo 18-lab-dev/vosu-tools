@@ -13,7 +13,12 @@
  * from the fixture (`lazerPixel`), for tests/slider_bodies_e2e.py: the GPU
  * rasteriser's own output, which the CPU golden test cannot see.
  */
-import { parseOsu, pathPosition, type Beatmap } from "@vosu-tools/osu-parse";
+import {
+  maniaColumns,
+  parseOsu,
+  pathPosition,
+  type Beatmap,
+} from "@vosu-tools/osu-parse";
 import { demo, type DemoId } from "@vosu-tools/demo-maps";
 import {
   builtinLook,
@@ -57,7 +62,7 @@ document.body.append(canvas);
 
 /** A hit for every object judged by `time`, as a replay's results would be. */
 function judgements(map: Beatmap, time: number): JudgementEvent[] {
-  const keys = Math.max(1, Math.round(map.difficulty.cs));
+  const keys = maniaColumns(map);
   return map.objects.flatMap((o, note): JudgementEvent[] => {
     if (o.time > time) return [];
     const object =
@@ -93,7 +98,7 @@ function judgements(map: Beatmap, time: number): JudgementEvent[] {
 /** Replay-style input: an osu! cursor walking the objects, mania columns held. */
 function input(map: Beatmap): InputFrame[] {
   const frames: InputFrame[] = [],
-    keys = Math.max(1, Math.round(map.difficulty.cs)),
+    keys = maniaColumns(map),
     objects = map.objects;
   for (let t = 0; t <= map.duration + 500; t += 16) {
     let x = 256,

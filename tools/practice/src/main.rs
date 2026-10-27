@@ -178,7 +178,10 @@ fn stats(text: &str) -> anyhow::Result<Value> {
         "cs": stat(text, "CircleSize"),
         "ar": stat(text, "ApproachRate"),
         "od": stat(text, "OverallDifficulty"),
-        "keys": (ruleset == "mania").then(|| stat(text, "CircleSize").round()),
+        // The key count lazer plays (the `mania-keys` rule shared with the web UIs).
+        "keys": (ruleset == "mania")
+            .then(|| mania_keys::key_count_of(map::value(text, "[Difficulty]", "CircleSize").as_deref()).ok())
+            .flatten(),
     }))
 }
 

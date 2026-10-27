@@ -279,7 +279,7 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
     };
     // Converted osu! maps are not rated; their CircleSize is only echoed.
     let keys = if map.mode == GameMode::Mania {
-        playable::key_count(map.circle_size)?
+        mania_keys::key_count(map.circle_size)?
     } else {
         map.circle_size.round() as u32
     };

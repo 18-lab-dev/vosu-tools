@@ -1,5 +1,6 @@
 import { vosu } from "/tools/_host/v1/bridge.js";
 import {
+  maniaColumns,
   parseOsu,
   type Beatmap,
   type Mod,
@@ -370,7 +371,7 @@ function describeMap(): void {
   if (!source) return;
   const shown = map ?? source,
     convert = shown.mode !== source.mode,
-    keys = shown.mode === 3 ? ` · ${Math.round(shown.difficulty.cs)}K` : "";
+    keys = shown.mode === 3 ? ` · ${maniaColumns(shown)}K` : "";
   overrideInputs[2].max = shown.mode === 3 ? "18" : "11";
   overrideInputs[2].step = shown.mode === 3 ? "1" : "0.1";
   seek.max = String(shown.duration + 2000);
