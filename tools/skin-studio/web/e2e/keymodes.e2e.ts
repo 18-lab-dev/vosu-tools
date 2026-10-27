@@ -24,6 +24,10 @@ const { values: opt } = parseArgs({
     skins: { type: "string" },
     keys: { type: "string" },
     notes: { type: "string" },
+    // A 10K skin (the user's 「シルビア」 v1.2, copied out of lazer): blank
+    // 1-px keys, one column with a line. Multi-select and the width change
+    // that said "Invalid resize." run on it.
+    ten: { type: "string" },
     out: { type: "string" },
   },
 });
@@ -58,7 +62,7 @@ for (const [key, dir] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data
 }
 mkdirSync(env.HOME, { recursive: true });
 const SKINS = join(LAB, "Skins");
-for (const name of [opt.keys!, opt.notes!]) cpSync(join(opt.skins!, name), join(SKINS, name), { recursive: true });
+for (const name of [opt.keys!, opt.notes!, ...(opt.ten ? [opt.ten] : [])]) cpSync(join(opt.skins!, name), join(SKINS, name), { recursive: true });
 spawnSync("chmod", ["-R", "a-w", SKINS]);
 const SERVER = 25950, DASHBOARD = 25951;
 mkdirSync(join(env.XDG_CONFIG_HOME, "vosu"), { recursive: true });
@@ -578,6 +582,91 @@ try {
   }, [mixStage.toString("base64"), exportStage.toString("base64")]);
   check("render-core draws the exported .osk like the Keymodes stage", diff.size && diff.changed < 0.005, JSON.stringify(diff));
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
+
+  // ── 10K: select value cells like slots, edit them together ─────────────
+  if (opt.ten) {
+    await page.click("#mix-reset");
+    await page.click("#tab-elements");
+    await page.locator("#skins .skin", { hasText: opt.ten }).first().click();
+    await page.click("#use-base");
+    await page.click("#tab-keymodes");
+    await pick(10);
+    const width = (c: number) => page.locator(`#km-grid input[aria-label="Column ${c} width"]`);
+    const widths = () => Promise.all(Array.from({ length: 10 }, (_, c) => width(c + 1).inputValue()));
+    const cell = (row: string, c: number) => page.locator(`#keymodes-view [data-vrow="${row}"][data-vcol="${c - 1}"]`).first();
+    const kmError = async () => ((await page.locator("#km-error").isVisible()) ? ((await page.locator("#km-error").textContent()) ?? "") : "");
+    const undoTitle = async () => (await page.locator("#km-undo").getAttribute("title")) ?? "";
+    const before = await widths();
+    // Ctrl+click columns 1–3, type 50 into the first: all three, one step.
+    for (const c of [1, 2, 3]) await width(c).click({ modifiers: ["Control"] });
+    const selected = await page.locator('#km-grid [data-vrow="ColumnWidth"][aria-selected="true"]').count();
+    await width(1).fill("50");
+    await width(1).press("Tab");
+    await until(async () => (await widths()).slice(0, 3).every((w) => w === "50"), "three widths", 60000);
+    await page.waitForTimeout(800);
+    const after = await widths();
+    const state = (await page.locator("#km-state").textContent()) ?? "";
+    check("Ctrl-selected widths: typing 50 sets all three, one undo step, no invalid resize", selected === 3 && after.slice(3).join() === before.slice(3).join() && (await undoTitle()).startsWith("Undo Set width of columns 1, 2 and 3") && !/Invalid resize/.test(await kmError()), `${selected} selected; ${after.join(",")}; ${await undoTitle()}; ${state}; ${await kmError()}`);
+    check("Blank 1-px keys are left as they are, and said so", /10K columns [\d, and]+ key: blank image, left as it is/.test(state), state);
+    await page.screenshot({ path: join(out, "ten-widths-selected.png") });
+    await page.click("#km-undo");
+    await until(async () => (await widths()).join() === before.join(), "width undo", 30000);
+    await page.click("#km-redo");
+    await until(async () => (await widths()).slice(0, 3).every((w) => w === "50"), "width redo", 30000);
+    check("Undo and redo restore and repeat the three widths", true);
+    // Apply to all columns from a focused width.
+    await width(1).focus();
+    const allLabel = (await page.locator("#km-all").textContent()) ?? "";
+    await page.click("#km-all");
+    await until(async () => (await widths()).every((w) => w === "50"), "all widths", 60000);
+    check("Apply to all columns copies the focused width to every column", allLabel === "Apply width to all columns" && !/Invalid resize/.test(await kmError()), `${allLabel}; ${await kmError()}`);
+    // Colours: Ctrl+click two swatches, pick one colour for both.
+    const colour = (c: number) => page.locator(`#km-grid input[aria-label^="Column ${c} colour"]`);
+    const colourOf = async (c: number) => (await cell("Colour", c).locator(".km-swatch__value").textContent()) ?? "";
+    const alphaOf = async (c: number) => (await colourOf(c)).split(",")[3];
+    const a2 = await alphaOf(2);
+    await cell("Colour", 2).click({ modifiers: ["Control"] });
+    await cell("Colour", 4).click({ modifiers: ["Control"] });
+    const pickerShown = await colour(2).evaluate((el) => el === document.activeElement);
+    await colour(2).fill("#ff0000");
+    await until(async () => (await colourOf(2)).startsWith("255,0,0") && (await colourOf(4)).startsWith("255,0,0"), "two colours", 30000);
+    check("Ctrl-selected colours: one pick sets both (each keeps its alpha), one undo step", (await alphaOf(2)) === a2 && (await undoTitle()).startsWith("Undo Set colour of columns 2 and 4") && !(await colourOf(3)).startsWith("255,0,0"), `${await colourOf(2)} / ${await colourOf(4)} / ${await colourOf(3)}; focus ${pickerShown}; ${await undoTitle()}`);
+    await page.screenshot({ path: join(out, "ten-colours-selected.png") });
+    await page.keyboard.press("Escape");
+    // Apply to all from a focused colour.
+    await colour(2).focus();
+    await page.click("#km-all");
+    await until(async () => (await Promise.all(Array.from({ length: 10 }, (_, c) => colourOf(c + 1)))).every((v) => v.startsWith("255,0,0")), "all colours", 30000);
+    check("Apply to all columns copies the focused colour", true);
+    // A flip in the [Mania] form: Shift+click selects a run; Apply to all.
+    if (!(await page.locator("details.km-settings").evaluate((d) => (d as HTMLDetailsElement).open)))
+      await page.locator(".km-settings > summary").click();
+    const flip = (c: number) => page.locator(`#km-settings input[aria-label="Column ${c} key flip"]`);
+    const flips = () => Promise.all(Array.from({ length: 10 }, (_, c) => flip(c + 1).isChecked()));
+    const flip1 = await flip(1).isChecked();
+    await flip(1).click({ modifiers: ["Control"] });
+    await flip(4).click({ modifiers: ["Shift"] });
+    const run = await page.locator('#km-settings [data-vrow="KeyFlipWhenUpsideDown#"][aria-selected="true"]').count();
+    const unchangedByClicks = (await flip(1).isChecked()) === flip1;
+    await flip(2).press("Space");
+    await until(async () => (await flips()).slice(0, 4).every((f) => f !== flip1), "four flips", 30000);
+    check("Shift-selected flips: a run of four, Space flips all four, modifier clicks flip nothing", run === 4 && unchangedByClicks && (await flips()).slice(4).every((f) => f === flip1), `${run} selected; ${(await flips()).join(",")}`);
+    await flip(5).focus();
+    await page.click("#km-all");
+    await until(async () => (await flips()).every((f) => f === flip1), "all flips", 30000);
+    check("Apply to all columns copies the focused flip", ((await page.locator("#km-undo").getAttribute("title")) ?? "").includes("Apply key flip to all columns"));
+    // Keyboard: Shift+arrows grow, Ctrl+A takes the row, Escape clears.
+    await width(5).focus();
+    await width(5).press("Shift+ArrowRight");
+    await page.keyboard.press("Shift+ArrowRight");
+    const grown = await page.locator('#km-grid [data-vrow="ColumnWidth"][aria-selected="true"]').count();
+    await page.keyboard.press("Control+a");
+    const rowAll = await page.locator('#km-grid [data-vrow="ColumnWidth"][aria-selected="true"]').count();
+    await page.keyboard.press("Escape");
+    const cleared = await page.locator('#keymodes-view [data-vrow][aria-selected="true"]').count();
+    check("Keyboard: Shift+arrows grow the run, Ctrl+A selects the row, Escape clears", grown === 3 && rowAll === 10 && cleared === 0, `${grown}, ${rowAll}, ${cleared}`);
+    check("No page errors on the 10K skin", !pageErrors.length, pageErrors.join(" | "));
+  }
 
   // ── Stage defaults: a whole 7K stage group from a block naming no images ─
   await page.click("#mix-reset");
