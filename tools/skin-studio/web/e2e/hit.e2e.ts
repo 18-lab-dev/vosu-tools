@@ -315,6 +315,12 @@ try {
   const width = (c: number) => page.locator(`#km-grid input[aria-label="Column ${c} width"]`);
   const kmState = async () => (await page.locator("#km-state").textContent()) ?? "";
   const timings: number[] = [];
+  // Service time of each derive request, to tell resampling from waiting
+  // for the page's main thread (SwiftShader frames of the preview).
+  const served: number[] = [];
+  page.on("requestfinished", (request: any) => {
+    if (request.url().includes("/v1/derive")) served.push(Math.round(request.timing().responseEnd));
+  });
   const setWidth = async (c: number, value: number) => {
     await width(c).fill(String(value));
     await width(c).press("Tab");
@@ -335,8 +341,10 @@ try {
   const hp1 = Math.round(480 - (480 - hp0) * 1.25);
   check(`Every column 1.25×: HitPosition = round(480 − (480 − ${hp0}) × 1.25) = ${hp1}`, Number(await hitValue()) === hp1, String(await hitValue()));
   check("Uniform widths keep notes as they are (the note height follows the narrowest column)", (await label("NoteImage1")) === note1);
+  const first = timings[0],
+    order = [...timings];
   timings.sort((a, b) => a - b);
-  check("Time per width change (resample + store), ms", true, `median ${timings[timings.length >> 1]}, max ${timings.at(-1)} over ${timings.length}`);
+  check("Time per width change (resample + store), ms", true, `in order ${order.join(", ")}; derive requests served in ${served.join(", ")} ms; first ${first}, median ${timings[timings.length >> 1]}, max ${timings.at(-1)} over ${timings.length}`);
   await page.locator("#export-target").selectOption("osk");
   const [download3] = await Promise.all([page.waitForEvent("download"), page.click("#export-run")]);
   const osk3 = join(out, "proportions.osk");

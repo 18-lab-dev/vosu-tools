@@ -35,7 +35,8 @@ export interface Document {
 }
 export function parse(text: string): Document {
   let section = "",
-    block = 0;
+    block = 0,
+    keyed = false;
   const lines: Line[] = [];
   for (const match of text.matchAll(/([^\r\n]*)(\r\n|\n|\r|$)/g)) {
     if (!match[0]) continue;
@@ -45,10 +46,18 @@ export function parse(text: string): Document {
     if (header) {
       section = header[1];
       block++;
+      keyed = false;
     }
     const entry = !/^(\/\/|;|\[)/.test(trimmed)
       ? raw.match(/^\s*([^:]+?)\s*:\s*(.*)$/)
       : null;
+    // A second `Keys` in one [Mania] section starts the next configuration,
+    // as osu!lazer's LegacyManiaSkinDecoder reads it (a new
+    // LegacyManiaSkinConfiguration per `Keys`, later lines flushed into it).
+    if (section === "Mania" && entry?.[1].trim() === "Keys") {
+      if (keyed) block++;
+      keyed = true;
+    }
     lines.push({
       raw,
       eol: match[2],

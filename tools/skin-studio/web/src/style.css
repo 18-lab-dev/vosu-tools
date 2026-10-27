@@ -1596,6 +1596,18 @@
   gap: var(--space-3);
   padding-top: var(--space-2);
 }
+/* Wide enough for a select's longest value ("Default", "Stretch", "Bottom");
+   aligned with the slot grid above whenever its columns are this wide. */
+.km-settings__columns {
+  grid-template-columns: 4.5rem repeat(var(--km-cols, 4), minmax(4rem, 1fr));
+}
+.km-settings__columns .km-settings__select {
+  padding: 0 1rem 0 0.25rem;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) calc(100% - 0.6rem) 50% / 0.3rem 0.3rem no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) calc(100% - 0.3rem) 50% / 0.3rem 0.3rem no-repeat,
+    var(--bg-sunken);
+}
 .km-settings__columns .km-rowhead {
   display: flex;
   gap: 2px;
@@ -1635,23 +1647,20 @@
 }
 .km-settings__field {
   display: grid;
-  grid-template-columns: minmax(7rem, 1fr) minmax(4.5rem, 7rem) minmax(0, auto) 1.25rem;
+  /* Label, control (an unset one shows its default: placeholder, swatch,
+     switch state, "Default"), reset. */
+  grid-template-columns: minmax(7rem, 1fr) minmax(4.5rem, 8rem) 1.25rem;
   gap: 2px var(--space-2);
   align-items: center;
   font-size: var(--step--1);
 }
 .km-settings__label {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.km-settings__default {
-  font-size: var(--step--2);
-  white-space: nowrap;
-}
-.km-settings__note {
-  grid-column: 1 / -1;
-  font-size: var(--step--2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-1);
+  align-items: center;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .km-settings__colour {
   display: grid;

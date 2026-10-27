@@ -18,7 +18,7 @@
 // periods), paused at the start of its loop window. Skin studio's clock is
 // frozen there too, so both pages draw the same moment. The skin is copied;
 // the original is only read.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -64,6 +64,8 @@ const LAB = await mkdtemp(path.join(tmpdir(), "skin-scroll-e2e-"));
 const osuDir = path.join(LAB, "osu");
 const skinDir = path.join(osuDir, "Skins", opt.skin!);
 await cp(path.join(opt.skins!, opt.skin!), skinDir, { recursive: true });
+// A copy of a read-only original keeps its modes: make it removable.
+spawnSync("chmod", ["-R", "u+w", skinDir]);
 const skinIndex = new Map<string, string>();
 for (const rel of new Bun.Glob("**/*").scanSync({ cwd: skinDir }))
   skinIndex.set(rel.replaceAll("\\", "/").toLowerCase(), path.join(skinDir, rel));
