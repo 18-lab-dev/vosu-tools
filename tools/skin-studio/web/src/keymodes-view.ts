@@ -782,9 +782,42 @@ export class KeymodesView {
     this.#renderImages();
   }
 
+  /**
+   * A field being typed into when `root` re-renders (the mix recomposes
+   * after the previous edit): its label and unsaved text, put back after.
+   */
+  #editing(root: HTMLElement) {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLInputElement) || !root.contains(active) || active.value === active.defaultValue) return null;
+    const label = active.getAttribute("aria-label");
+    return label ? { label, value: active.value } : null;
+  }
+  #keepEditing(root: HTMLElement, editing: { label: string; value: string } | null) {
+    if (!editing) return;
+    const input = root.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(editing.label)}"]`);
+    if (!input) return;
+    input.focus({ preventScroll: true });
+    input.value = editing.value;
+    // A value set from code may not count as the user's for the browser's
+    // own change event: commit it on blur or Enter unless that event came.
+    let fired = false;
+    input.addEventListener("change", () => (fired = true), { once: true });
+    const commit = () => {
+      if (!fired && input.isConnected && input.value !== input.defaultValue) {
+        fired = true;
+        input.dispatchEvent(new Event("change"));
+      }
+    };
+    input.addEventListener("blur", commit, { once: true });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") setTimeout(commit);
+    });
+  }
+
   #renderGrid() {
     const grid = $("#km-grid");
     const hadFocus = grid.contains(document.activeElement);
+    const editing = this.#editing(grid);
     const keys = this.#keys;
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
@@ -826,6 +859,7 @@ export class KeymodesView {
     const valueRows = this.#valueRows(keys, COLUMN_ROLES.length);
     grid.replaceChildren(...rows, ...valueRows);
     if (hadFocus) this.#focusCell(grid);
+    this.#keepEditing(grid, editing);
   }
 
   /**
@@ -855,6 +889,7 @@ export class KeymodesView {
     const keys = this.#keys;
     if (!keys) return root.replaceChildren();
     const hadFocus = root.contains(document.activeElement) ? document.activeElement?.getAttribute("aria-label") : null;
+    const editing = this.#editing(root);
     const text = this.#host.mixText();
     // The draft's own value first: the skin.ini text catches up a moment
     // later (the mix recomposes), and the form must not show the old value.
@@ -1022,6 +1057,7 @@ export class KeymodesView {
     );
     root.replaceChildren(columns, h("div", { class: "km-settings__groups" }, ...fieldsets));
     if (hadFocus) root.querySelector<HTMLElement>(`[aria-label="${CSS.escape(hadFocus)}"]`)?.focus();
+    this.#keepEditing(root, editing);
   }
 
   /** Width, line width, colour and light colour per column. */

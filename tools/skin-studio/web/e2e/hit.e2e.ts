@@ -324,7 +324,9 @@ try {
   const setWidth = async (c: number, value: number) => {
     await width(c).fill(String(value));
     await width(c).press("Tab");
-    await until(async () => (await width(c).inputValue()) === String(value) && new RegExp(`^Set column ${c} width: kept proportions \\((\\d+) images in (\\d+) ms\\)`).test(await kmState()), `column ${c} width`, 60000);
+    await until(async () => (await width(c).inputValue()) === String(value) && new RegExp(`^Set column ${c} width: kept proportions \\((\\d+) images in (\\d+) ms\\)`).test(await kmState()), `column ${c} width`, 60000).catch(async (error) => {
+      throw new Error(`${error.message}: state "${await kmState()}", error "${await page.locator("#km-error").textContent()}", value ${await width(c).inputValue()}`);
+    });
     timings.push(Number(/in (\d+) ms/.exec(await kmState())![1]));
   };
   const hp0 = Number(await hitValue());
