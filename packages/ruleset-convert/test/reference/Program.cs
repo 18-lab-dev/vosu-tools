@@ -6,6 +6,7 @@
 using System.Text.Json;
 using osu.Game.Beatmaps;
 using osu.Game.Rulesets;
+using osu.Game.Rulesets.Osu;
 using osu.Game.Rulesets.Catch;
 using osu.Game.Rulesets.Catch.Objects;
 using osu.Game.Rulesets.Mania;
@@ -18,6 +19,7 @@ using osu.Game.Rulesets.Taiko.Objects;
 
 Ruleset ruleset = args[0] switch
 {
+    "osu" => new OsuRuleset(),
     "taiko" => new TaikoRuleset(),
     "mania" => new ManiaRuleset(),
     "fruits" => new CatchRuleset(),
@@ -27,6 +29,16 @@ var mods = (args.Length > 2 && args[2].Length > 0 ? args[2].Split(',') : Array.E
     .Select(a => ruleset.CreateModFromAcronym(a) ?? throw new ArgumentException($"unknown mod {a}"))
     .ToArray();
 var working = new FlatWorkingBeatmap(args[1]);
+if (args.Length > 3 && args[3] == "difficulty")
+{
+    var attributes = ruleset.CreateDifficultyCalculator(working).Calculate(mods);
+    var numeric = attributes.GetType().GetFields().Where(f => f.FieldType == typeof(double) || f.FieldType == typeof(int))
+        .ToDictionary(f => f.Name, f => f.GetValue(attributes));
+    foreach (var property in attributes.GetType().GetProperties().Where(p => p.PropertyType == typeof(double) || p.PropertyType == typeof(int)))
+        numeric[property.Name] = property.GetValue(attributes);
+    Console.WriteLine(JsonSerializer.Serialize(numeric));
+    return;
+}
 var playable = working.GetPlayableBeatmap(ruleset.RulesetInfo, mods);
 
 object output = playable switch

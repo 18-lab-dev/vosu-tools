@@ -10,9 +10,9 @@ Files are byte-identical to upstream (`vendor-files.txt` lists their SHA-256).
 Only the crates Prism links are kept: `jsmath`, `chart-parser`, `dan-core`,
 `prism`; upstream's `ln-skill` crate and `.gitignore` are omitted. The root
 workspace manifest excludes this directory, so these crates build as plain path
-dependencies of `tools/mania-ratings`.
+dependencies of `tools/map-analysis`.
 
-`tools/mania-ratings/tests/reference/prism/generate.py` re-downloads the pinned
+`tools/map-analysis/tests/reference/prism/generate.py` re-downloads the pinned
 files, checks the vendored copies against them, builds the pristine crates and
 writes the differential reference used by `tests/prism.rs`.
 
@@ -21,7 +21,7 @@ vendored sources byte-identical.
 
 On Windows, `jsmath`'s declared POSIX `clock_gettime` (used only by the
 uncalled `js::thread_cpu_seconds`) is supplied by
-`tools/mania-ratings/src/windows_clock.rs`; nothing here is patched.
+`tools/map-analysis/src/windows_clock.rs`; nothing here is patched.
 `.gitattributes` marks these files `-text`, so Git for Windows keeps them
 byte-identical too (LF, as upstream).
 

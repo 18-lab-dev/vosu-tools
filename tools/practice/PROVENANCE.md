@@ -30,7 +30,7 @@ Canonical combination order: Invert/Hold Off, Random, Mirror, Constant Speed, ra
 
 Mania transforms (Invert, Hold Off, Mirror, Random) and the reported key count use the key count osu! (lazer) plays from `CircleSize` (`crates/mania-keys`, also `maniaKeyCount` in `@vosu-tools/osu-parse`): clamped to 1–18, rounded half to even, two stages of half the count above 10 keys, 5 when the line is missing.
 
-Generated deletion is index-based, validates containment and hashes before any removal, and preserves shared assets and user-modified files. Named option profiles (`profiles.json`) live in the tool data directory, never browser storage; profiles keep trim padding but not one map's trim ranges. Mania ratings are fetched from the optional `mania-ratings` tool and labeled as source-map data at the selected rate, never presented as post-transform ratings.
+Generated deletion is index-based, validates containment and hashes before any removal, and preserves shared assets and user-modified files. Named option profiles (`profiles.json`) live in the tool data directory, never browser storage; profiles keep trim padding but not one map's trim ranges. Map analysis are fetched from the optional `map-analysis` tool and labeled as source-map data at the selected rate, never presented as post-transform ratings.
 
 Resampled rate changes (pitch follows rate) previously dropped rubato's `output_delay()` frames although `SincFixedIn` output is already aligned with its input, so resampled maps were early by `sinc_len / 2 / rate` samples (≈1.9 ms at 1.5×). That drop is removed; `crates/osu-file/tests/trims.rs::resampled_clicks_stay_on_time` measures click placement for both pitch modes.
 

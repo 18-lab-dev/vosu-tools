@@ -26,15 +26,15 @@ See what the selected map is worth on recorded public Akatsuki and Mamestagram c
 
 [Details](tools/server-pp/README.md)
 
-## Mania ratings
+## Map analysis
 
-An osu!mania difficulty dashboard for a second monitor: Etterna (MinaCalc), Quaver, Interlude and osu!mania ratings for the selected map at the game's rate, with a rate curve, timelines and section ratings.
+One selected-map dashboard for every ruleset: official stars and skills, accuracy-target pp and descriptive section timelines (ours), with the complete mania calculator views retained. Follows the played ruleset, mods and exact rate. The rosu-pp 4.0.1 algorithms match lazer 2025-10-13; newer lazer can differ.
 
-![Mania ratings](docs/screenshots/mania-ratings.webp)
+![Map analysis](docs/screenshots/map-analysis.webp)
 
 *A generated 7K demo chart.*
 
-[Details](tools/mania-ratings/README.md)
+[Details](tools/map-analysis/README.md)
 
 ## Skin studio
 
@@ -88,7 +88,7 @@ A background service with no page of its own. It lets the other tools read your 
 | --- | --- | --- | --- | --- |
 | osu! practice tool | `practice` | yes | backend | `vosux practice` |
 | Server pp calculator | `server-pp` | yes | background | `vosux server-pp` |
-| Mania ratings | `mania-ratings` | yes | background | `vosux mania-ratings` |
+| Map analysis | `map-analysis` | yes | background | `vosux map-analysis` |
 | Skin studio | `skin-studio` | yes | backend | — |
 | Map preview | `map-preview` | yes | — | — |
 | Replay renderer | `replay-renderer` | yes | backend | `vosux replay-renderer` |
@@ -97,7 +97,7 @@ A background service with no page of its own. It lets the other tools read your 
 
 Each tool is an out-of-process application hosted by vosu (tool protocol v1). It can have a browser UI under `/tools/<id>/`, a supervised background service, and a command line run through `vosux <id>`. vosu installs them from this repository's releases through the dashboard's tool catalog.
 
-UI/CLI tools can have a native **backend** for local files or rendering. vosu starts it on demand and stops it when idle; it is not a separate service interface. Only background services have Start/Stop/Restart and **Start with vosu** controls. That per-user setting overrides the manifest default and is available in Details, tool Settings, or `vosux --autostart <id> on|off|default`. Server pp, mania ratings and lazer library default to on-demand; enable startup for whichever background services you use.
+UI/CLI tools can have a native **backend** for local files or rendering. vosu starts it on demand and stops it when idle; it is not a separate service interface. Only background services have Start/Stop/Restart and **Start with vosu** controls. That per-user setting overrides the manifest default and is available in Details, tool Settings, or `vosux --autostart <id> on|off|default`. Server pp, map analysis and lazer library default to on-demand; enable startup for whichever background services you use.
 
 ## Layout
 

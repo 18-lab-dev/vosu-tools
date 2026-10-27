@@ -534,16 +534,16 @@ const SHOTS = {
       await backend.stop();
     }
   },
-  async 'mania-ratings'() {
-    await cli('mania-ratings', maps.mania.file, '--json');
+  async 'map-analysis'() {
+    await cli('map-analysis', maps.mania.file, '--json');
     const page = await tab();
     await selectMap(page, maps.mania);
-    await page.route(/\/tools\/mania-ratings\/api\/v1\/beatmap\/current/, (route) =>
+    await page.route(/\/tools\/map-analysis\/api\/v1\/beatmap\/current/, (route) =>
       route.continue({ url: route.request().url().replace('/v1/beatmap/current', `/v1/beatmap/${maps.mania.md5}`) }));
-    await page.goto(await launch('mania-ratings'));
+    await page.goto(await launch('map-analysis'));
     await page.locator('#dot:not([data-state="busy"])').waitFor({ timeout: 120000 });
     await settle(page, 3000);
-    await save(page, 'mania-ratings', 'Mania ratings for a selected demo map (7K)');
+    await save(page, 'map-analysis', 'Map analysis for a selected demo map (7K)');
   },
   async 'server-pp'() {
     // Two of the tool's example calculators (tests/fixtures/calculators) as

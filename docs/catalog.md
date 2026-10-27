@@ -30,6 +30,21 @@ Official tool manifests must declare `icon` and `banner`, relative paths within 
 
 Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` fields for artwork before installation. Overlay metadata may declare `icon` and `banner` with the same constraints; otherwise packaging discovers a single `icon.*` / `banner.*` in the overlay directory. Overlay art is optional, stays in the ZIP, and is published as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`. Multiple matching files require explicit metadata. Art assets are versioned by release URL rather than filename.
 
+### Renamed tools
+
+Native tools may declare `replaces = ["old-id"]` under
+`[package.metadata.vosu-tools]` in their Cargo.toml. Packaging validates these
+IDs and writes the array to the catalog entry only. It never adds this field to
+the shipped tool.toml, whose schema remains compatible with vosu 1.2.0/1.2.1.
+A supporting vosu migrates an installed old ID only from the same trusted catalog
+source. Existing dependency IDs can be satisfied by the installed replacement;
+first-party dependencies here name the new ID directly.
+
+Map analysis replaces `mania-ratings`. Older vosu ignores the catalog field:
+install Map analysis manually as a new tool (the old tool remains usable but no
+longer updates), or upgrade vosu to preserve data and settings automatically.
+
+
 
 ## catalog.json
 
@@ -50,7 +65,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "banner_url": "https://github.com/…/vosu-tool-practice-banner.svg",
       "protocol": 1,
       "interfaces": ["ui", "cli"],
-      "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
+      "requires": [{"id": "map-analysis", "version": ">=0.1.0"}],
       "packages": {
         "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.2-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
         "x86_64-unknown-linux-gnu": {"url": "…", "sha256": "…", "size": 1234567}
@@ -60,7 +75,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
   "overlays": [
     {
       "id": "ratings-timeline",
-      "name": "Mania ratings timeline",
+      "name": "Map analysis timeline",
       "version": "0.1.0",
       "description": "…",
       "author": "18-LAB",
@@ -69,7 +84,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "preview": "https://…/ratings-timeline.png",
       "icon_url": "https://…/vosu-overlay-ratings-timeline-icon.png",
       "banner_url": "https://…/vosu-overlay-ratings-timeline-banner.png",
-      "requires_tools": [{"id": "mania-ratings", "version": ">=0.1.0"}],
+      "requires_tools": [{"id": "map-analysis", "version": ">=0.1.0"}],
       "package": {"url": "https://github.com/…/vosu-overlay-ratings-timeline-0.1.0.zip", "sha256": "<64 hex>", "size": 123456}
     }
   ]
@@ -86,7 +101,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
 
 Tool and overlay ZIP serialization also mirrors vosu 1.2.0's whole-file end-record preflight, including ZIP64 locators and its 10,000-entry limit. A false end-record signature in compressed data triggers a deterministic retry with DEFLATE levels 9 through 0, then stored entries; member contents, ordering and modes do not change. If no encoding passes, packaging fails before replacing the archive, naming its offset. Recheck existing archives with `python scripts/package.py --base-url https://example.invalid/x --check-archives dist/*.zip`.
 
-Catalog `interfaces` describes user-facing interfaces: `service` is present only for `[service] role = "background"` (also the default when omitted). `role = "backend"` is a native implementation detail for UI/CLI tools and requires `startup = "on-demand"`; its package still includes the service executable and uses a native target, not `any`. Skin studio and downloader are UI-only with backends, practice and replay renderer are UI + CLI with backends, map preview is UI-only without a backend, server pp and mania ratings are UI + service + CLI, and lazer library is service-only. Background services support the user's **Start with vosu** override; `startup` remains the author's default.
+Catalog `interfaces` describes user-facing interfaces: `service` is present only for `[service] role = "background"` (also the default when omitted). `role = "backend"` is a native implementation detail for UI/CLI tools and requires `startup = "on-demand"`; its package still includes the service executable and uses a native target, not `any`. Skin studio and downloader are UI-only with backends, practice and replay renderer are UI + CLI with backends, map preview is UI-only without a backend, server pp and map analysis are UI + service + CLI, and lazer library is service-only. Background services support the user's **Start with vosu** override; `startup` remains the author's default.
 
 Merge platform catalogs with:
 

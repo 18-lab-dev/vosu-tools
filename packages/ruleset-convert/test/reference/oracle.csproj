@@ -9,6 +9,7 @@
     <OsuSource Condition="'$(OsuSource)' == ''">/tmp/ppy-osu-full</OsuSource>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Osu/osu.Game.Rulesets.Osu.csproj" />
     <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Taiko/osu.Game.Rulesets.Taiko.csproj" />
     <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Mania/osu.Game.Rulesets.Mania.csproj" />
     <ProjectReference Include="$(OsuSource)/osu.Game.Rulesets.Catch/osu.Game.Rulesets.Catch.csproj" />

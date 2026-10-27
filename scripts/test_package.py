@@ -57,6 +57,25 @@ command=["bin/vosu-example", "cli"]
         with patch.object(package, 'rust_licenses', return_value=({'licenses/rust/example/LICENSE': b'MIT'}, [])), contextlib.redirect_stdout(io.StringIO()):
             return package.assemble(self.root, self.root / 'dist', target, 'https://example.com/releases/v1', self.metadata, package.discover(self.root))
 
+    def test_catalog_replaces_is_not_shipped_in_strict_manifest(self):
+        cargo = self.tool / 'Cargo.toml'
+        cargo.write_text(cargo.read_text() + '\n[package.metadata.vosu-tools]\nreplaces=["old-example"]\n')
+        self.assertEqual(self.assemble()['tools'][0]['replaces'], ['old-example'])
+        with zipfile.ZipFile(next((self.root / 'dist').glob('*.zip'))) as archive:
+            manifest = tomllib.loads(archive.read('tool.toml').decode())
+            self.assertNotIn('replaces', manifest)
+            # vosu 1.2.1's top-level serde deny_unknown_fields contract.
+            allowed = {'manifest_version', 'id', 'name', 'version', 'description', 'author', 'homepage', 'icon', 'banner', 'service', 'cli', 'ui', 'api', 'permissions', 'requires'}
+            self.assertFalse(set(manifest) - allowed)
+
+    def test_invalid_replacement_claims(self):
+        cargo = self.tool / 'Cargo.toml'
+        original = cargo.read_text()
+        for replaces in ['["example"]', '["../bad"]', '["old", "old"]', '"old"']:
+            cargo.write_text(original + '\n[package.metadata.vosu-tools]\nreplaces=' + replaces + '\n')
+            with self.subTest(replaces=replaces), self.assertRaises(ValueError):
+                self.assemble()
+
     def test_utf8_manifests_and_source_maps(self):
         (self.tool / 'tool.toml').write_text(self.manifest.replace('name="Example"', 'name="ā"'), encoding='utf-8')
         (self.tool / 'web/dist/assets/app.js.map').write_text(

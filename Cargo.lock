@@ -2841,8 +2841,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "vosu-mania-ratings"
-version = "0.2.0"
+name = "vosu-map-analysis"
+version = "0.3.0"
 dependencies = [
  "axum",
  "chart-parser",
@@ -2879,7 +2879,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "uuid",
- "vosu-mania-ratings",
+ "vosu-map-analysis",
  "vosu-tool-sdk",
  "walkdir",
  "windows-sys 0.61.2",

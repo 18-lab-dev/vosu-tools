@@ -18,7 +18,7 @@ from urllib.request import Request, ProxyHandler, build_opener
 
 DASHBOARD = 'http://127.0.0.1:25151'
 OVERLAY = 'http://127.0.0.1:25150'
-READ_ROUTES = {'practice': '/v1/generated', 'mania-ratings': '/v1/beatmap/current',
+READ_ROUTES = {'practice': '/v1/generated', 'map-analysis': '/v1/beatmap/current',
                'replay-renderer': '/v1/presets', 'server-pp': '/v1/servers',
                'skin-studio': '/v1/library', 'downloader': '/v1/state'}
 

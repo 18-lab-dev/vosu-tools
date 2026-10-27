@@ -113,9 +113,11 @@
         "vite": "^7.2.4",
       },
     },
-    "tools/mania-ratings/web": {
-      "name": "@vosu-tools/mania-ratings",
+    "tools/map-analysis/web": {
+      "name": "@vosu-tools/map-analysis",
       "dependencies": {
+        "@vosu-tools/osu-parse": "workspace:*",
+        "@vosu-tools/ruleset-convert": "workspace:*",
         "@vosu-tools/tool-web": "workspace:*",
       },
       "devDependencies": {
@@ -336,7 +338,7 @@
 
     "@vosu-tools/downloader": ["@vosu-tools/downloader@workspace:tools/downloader/web"],
 
-    "@vosu-tools/mania-ratings": ["@vosu-tools/mania-ratings@workspace:tools/mania-ratings/web"],
+    "@vosu-tools/map-analysis": ["@vosu-tools/map-analysis@workspace:tools/map-analysis/web"],
 
     "@vosu-tools/map-preview": ["@vosu-tools/map-preview@workspace:tools/map-preview/web"],
 

@@ -1,0 +1,785 @@
+{
+  "source": "ppy/osu 2025-10-13 / 28c846b4d9366484792e27f4729cd1afa2cdeb66",
+  "rows": [
+    {
+      "chart": "osu-1.osu",
+      "mode": "osu",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 0.700472624576079,
+        "AimDifficultSliderCount": 0.9975273768433653,
+        "SpeedDifficulty": 0.4767074448909544,
+        "SpeedNoteCount": 5.154524704255184,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.8200840212472927,
+        "AimTopWeightedSliderFactor": 0.3670709293988229,
+        "SpeedTopWeightedSliderFactor": 0.2062917849587476,
+        "AimDifficultStrainCount": 4.3609289943142695,
+        "SpeedDifficultStrainCount": 6.432234676636862,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 3060,
+        "DrainRate": 5,
+        "HitCircleCount": 8,
+        "SliderCount": 1,
+        "SpinnerCount": 1,
+        "StarRating": 1.2593222143704523,
+        "MaxCombo": 18
+      }
+    },
+    {
+      "chart": "osu-1.osu",
+      "mode": "osu",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 0.7811400700497569,
+        "AimDifficultSliderCount": 0.9975273768433653,
+        "SpeedDifficulty": 0.49909993646458656,
+        "SpeedNoteCount": 5.154524704255184,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.808982847507205,
+        "AimTopWeightedSliderFactor": 0.3632697542620609,
+        "SpeedTopWeightedSliderFactor": 0.2062917849587476,
+        "AimDifficultStrainCount": 4.30256532519239,
+        "SpeedDifficultStrainCount": 6.432234676636862,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 4,
+        "MaximumLegacyComboScore": 3060,
+        "DrainRate": 7,
+        "HitCircleCount": 8,
+        "SliderCount": 1,
+        "SpinnerCount": 1,
+        "StarRating": 1.3873100703125187,
+        "MaxCombo": 18
+      }
+    },
+    {
+      "chart": "osu-1.osu",
+      "mode": "osu",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "AimDifficulty": 0.8441049325109214,
+        "AimDifficultSliderCount": 0.9975273768433653,
+        "SpeedDifficulty": 0.5981261184106811,
+        "SpeedNoteCount": 4.6183485676031495,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.7729503629504729,
+        "AimTopWeightedSliderFactor": 0.32769197525621374,
+        "SpeedTopWeightedSliderFactor": 0.20593832725919822,
+        "AimDifficultStrainCount": 4.798540558138176,
+        "SpeedDifficultStrainCount": 6.4414045527042685,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 3060,
+        "DrainRate": 5,
+        "HitCircleCount": 8,
+        "SliderCount": 1,
+        "SpinnerCount": 1,
+        "StarRating": 1.5300001690846146,
+        "MaxCombo": 18
+      }
+    },
+    {
+      "chart": "osu-1.osu",
+      "mode": "osu",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "AimDifficulty": 0.6545946936094164,
+        "AimDifficultSliderCount": 0.9975273768433653,
+        "SpeedDifficulty": 0.4084463529404345,
+        "SpeedNoteCount": 5.44751182713182,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.763118624343319,
+        "AimTopWeightedSliderFactor": 0.357738402144308,
+        "SpeedTopWeightedSliderFactor": 0.20922011294075676,
+        "AimDifficultStrainCount": 3.0206813347339265,
+        "SpeedDifficultStrainCount": 6.357277248319201,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 3060,
+        "DrainRate": 5,
+        "HitCircleCount": 8,
+        "SliderCount": 1,
+        "SpinnerCount": 1,
+        "StarRating": 1.1591072788942087,
+        "MaxCombo": 18
+      }
+    },
+    {
+      "chart": "osu-2.osu",
+      "mode": "osu",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 0.9681213246515542,
+        "AimDifficultSliderCount": 1.9844334870919371,
+        "SpeedDifficulty": 0.6227434312388516,
+        "SpeedNoteCount": 11.406302603785244,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9094834324115109,
+        "AimTopWeightedSliderFactor": 0.4928589314469988,
+        "SpeedTopWeightedSliderFactor": 0.2543519016662694,
+        "AimDifficultStrainCount": 8.393519255185984,
+        "SpeedDifficultStrainCount": 10.69445269565186,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 12564,
+        "DrainRate": 5,
+        "HitCircleCount": 16,
+        "SliderCount": 2,
+        "SpinnerCount": 2,
+        "StarRating": 1.7200002925098181,
+        "MaxCombo": 36
+      }
+    },
+    {
+      "chart": "osu-2.osu",
+      "mode": "osu",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 1.0746954360019199,
+        "AimDifficultSliderCount": 1.9842540576089536,
+        "SpeedDifficulty": 0.6519957057439006,
+        "SpeedNoteCount": 11.406302603785244,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9000460666777549,
+        "AimTopWeightedSliderFactor": 0.4912143788304687,
+        "SpeedTopWeightedSliderFactor": 0.2543519016662694,
+        "AimDifficultStrainCount": 8.339124970840656,
+        "SpeedDifficultStrainCount": 10.69445269565186,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 4,
+        "MaximumLegacyComboScore": 12564,
+        "DrainRate": 7,
+        "HitCircleCount": 16,
+        "SliderCount": 2,
+        "SpinnerCount": 2,
+        "StarRating": 1.8905002270240856,
+        "MaxCombo": 36
+      }
+    },
+    {
+      "chart": "osu-2.osu",
+      "mode": "osu",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "AimDifficulty": 1.2072130279118056,
+        "AimDifficultSliderCount": 1.949543932209396,
+        "SpeedDifficulty": 0.8206484213978056,
+        "SpeedNoteCount": 9.735217681785018,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.8916557776389892,
+        "AimTopWeightedSliderFactor": 0.47090028716592075,
+        "SpeedTopWeightedSliderFactor": 0.26555811626523684,
+        "AimDifficultStrainCount": 9.89730857322011,
+        "SpeedDifficultStrainCount": 10.435316776866319,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 12564,
+        "DrainRate": 5,
+        "HitCircleCount": 16,
+        "SliderCount": 2,
+        "SpinnerCount": 2,
+        "StarRating": 2.1665155447809297,
+        "MaxCombo": 36
+      }
+    },
+    {
+      "chart": "osu-2.osu",
+      "mode": "osu",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "AimDifficulty": 0.8512376597507272,
+        "AimDifficultSliderCount": 1.9911940597271258,
+        "SpeedDifficulty": 0.5081695816367878,
+        "SpeedNoteCount": 12.004922207744,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.8757441714885257,
+        "AimTopWeightedSliderFactor": 0.5067552759344959,
+        "SpeedTopWeightedSliderFactor": 0.25529415311022713,
+        "AimDifficultStrainCount": 7.37397117741808,
+        "SpeedDifficultStrainCount": 10.481168457503896,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 12564,
+        "DrainRate": 5,
+        "HitCircleCount": 16,
+        "SliderCount": 2,
+        "SpinnerCount": 2,
+        "StarRating": 1.4953941425981738,
+        "MaxCombo": 36
+      }
+    },
+    {
+      "chart": "osu-4.osu",
+      "mode": "osu",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 1.118578995391587,
+        "AimDifficultSliderCount": 3.979488240647275,
+        "SpeedDifficulty": 0.6994214881419739,
+        "SpeedNoteCount": 24.50924401299371,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9494901729768638,
+        "AimTopWeightedSliderFactor": 0.5517470601777581,
+        "SpeedTopWeightedSliderFactor": 0.2823438057350212,
+        "AimDifficultStrainCount": 13.509338780695316,
+        "SpeedDifficultStrainCount": 17.13757816628621,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 51012,
+        "DrainRate": 5,
+        "HitCircleCount": 32,
+        "SliderCount": 4,
+        "SpinnerCount": 4,
+        "StarRating": 1.9767959001449442,
+        "MaxCombo": 72
+      }
+    },
+    {
+      "chart": "osu-4.osu",
+      "mode": "osu",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "AimDifficulty": 1.2399451623587276,
+        "AimDifficultSliderCount": 3.979308811161892,
+        "SpeedDifficulty": 0.7322755791520672,
+        "SpeedNoteCount": 24.50924401299371,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9404562854456153,
+        "AimTopWeightedSliderFactor": 0.5505031966575036,
+        "SpeedTopWeightedSliderFactor": 0.2823438057350212,
+        "AimDifficultStrainCount": 13.09697764622867,
+        "SpeedDifficultStrainCount": 17.13757816628621,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 4,
+        "MaximumLegacyComboScore": 51012,
+        "DrainRate": 7,
+        "HitCircleCount": 32,
+        "SliderCount": 4,
+        "SpinnerCount": 4,
+        "StarRating": 2.1716136356496407,
+        "MaxCombo": 72
+      }
+    },
+    {
+      "chart": "osu-4.osu",
+      "mode": "osu",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "AimDifficulty": 1.4290979058856708,
+        "AimDifficultSliderCount": 3.9445983305856047,
+        "SpeedDifficulty": 0.9712146207605313,
+        "SpeedNoteCount": 21.681058417209243,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9404669623960582,
+        "AimTopWeightedSliderFactor": 0.3893931082350866,
+        "SpeedTopWeightedSliderFactor": 0.31116744493328763,
+        "AimDifficultStrainCount": 16.562803461640566,
+        "SpeedDifficultStrainCount": 16.624235148927028,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 51012,
+        "DrainRate": 5,
+        "HitCircleCount": 32,
+        "SliderCount": 4,
+        "SpinnerCount": 4,
+        "StarRating": 2.563757425521957,
+        "MaxCombo": 72
+      }
+    },
+    {
+      "chart": "osu-4.osu",
+      "mode": "osu",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "AimDifficulty": 0.9728554416399184,
+        "AimDifficultSliderCount": 3.9862488134137757,
+        "SpeedDifficulty": 0.5536240732292794,
+        "SpeedNoteCount": 25.372375757034465,
+        "FlashlightDifficulty": 0,
+        "SliderFactor": 0.9033129301239636,
+        "AimTopWeightedSliderFactor": 0.5694876679735827,
+        "SpeedTopWeightedSliderFactor": 0.26417500519076886,
+        "AimDifficultStrainCount": 11.80081807340944,
+        "SpeedDifficultStrainCount": 17.578865342335376,
+        "NestedScorePerObject": 845,
+        "LegacyScoreBaseMultiplier": 3,
+        "MaximumLegacyComboScore": 51012,
+        "DrainRate": 5,
+        "HitCircleCount": 32,
+        "SliderCount": 4,
+        "SpinnerCount": 4,
+        "StarRating": 1.6972507262828982,
+        "MaxCombo": 72
+      }
+    },
+    {
+      "chart": "taiko-1.osu",
+      "mode": "taiko",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 0.9894495196842723,
+        "RhythmDifficulty": 0.004245017961032427,
+        "ReadingDifficulty": 1.5394836337834969e-10,
+        "ColourDifficulty": 0.3068718943269025,
+        "StaminaDifficulty": 0.6825776253573699,
+        "MonoStaminaFactor": 1.9748097157647457e-11,
+        "ConsistencyFactor": 0.6372811938698053,
+        "StaminaTopStrains": 12.077969618013093,
+        "StarRating": 0.993694537799253,
+        "MaxCombo": 16
+      }
+    },
+    {
+      "chart": "taiko-1.osu",
+      "mode": "taiko",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 0.9894225384042408,
+        "RhythmDifficulty": 0.004244902203718822,
+        "ReadingDifficulty": 0.00002709773755007744,
+        "ColourDifficulty": 0.3068635262430842,
+        "StaminaDifficulty": 0.6825590121611566,
+        "MonoStaminaFactor": 1.9748097157647457e-11,
+        "ConsistencyFactor": 0.6372811938337358,
+        "StaminaTopStrains": 12.077969618013093,
+        "StarRating": 0.9936945383455097,
+        "MaxCombo": 16
+      }
+    },
+    {
+      "chart": "taiko-1.osu",
+      "mode": "taiko",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "MechanicalDifficulty": 1.0390369455547517,
+        "RhythmDifficulty": 0.004295934848925189,
+        "ReadingDifficulty": 1.6815545433477486e-7,
+        "ColourDifficulty": 0.3114277651379835,
+        "StaminaDifficulty": 0.7276091804167683,
+        "MonoStaminaFactor": 1.5320922653356692e-11,
+        "ConsistencyFactor": 0.6274880030365986,
+        "StaminaTopStrains": 12.49906655830172,
+        "StarRating": 1.0433330485591312,
+        "MaxCombo": 16
+      }
+    },
+    {
+      "chart": "taiko-1.osu",
+      "mode": "taiko",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "MechanicalDifficulty": 0.9114300219356916,
+        "RhythmDifficulty": 0.004198379047928998,
+        "ReadingDifficulty": 4.663956148909336e-12,
+        "ColourDifficulty": 0.29267972686407895,
+        "StaminaDifficulty": 0.6187502950716126,
+        "MonoStaminaFactor": 1.457399132257452e-11,
+        "ConsistencyFactor": 0.655352948159641,
+        "StaminaTopStrains": 11.911890478300954,
+        "StarRating": 0.9156284009882846,
+        "MaxCombo": 16
+      }
+    },
+    {
+      "chart": "taiko-2.osu",
+      "mode": "taiko",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 1.2863185246956503,
+        "RhythmDifficulty": 0.027467571165128428,
+        "ReadingDifficulty": 2.2000270810983976e-10,
+        "ColourDifficulty": 0.31180594226182856,
+        "StaminaDifficulty": 0.9745125824338218,
+        "MonoStaminaFactor": 3.152522358763623e-11,
+        "ConsistencyFactor": 0.671963629841279,
+        "StaminaTopStrains": 18.213232305616863,
+        "StarRating": 1.3137860960807815,
+        "MaxCombo": 32
+      }
+    },
+    {
+      "chart": "taiko-2.osu",
+      "mode": "taiko",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 1.2862806114778709,
+        "RhythmDifficulty": 0.027466761580264756,
+        "ReadingDifficulty": 0.000038723881215560146,
+        "ColourDifficulty": 0.3117967520291086,
+        "StaminaDifficulty": 0.9744838594487623,
+        "MonoStaminaFactor": 3.152522358763623e-11,
+        "ConsistencyFactor": 0.6719636297842103,
+        "StaminaTopStrains": 18.213232305616863,
+        "StarRating": 1.3137860969393511,
+        "MaxCombo": 32
+      }
+    },
+    {
+      "chart": "taiko-2.osu",
+      "mode": "taiko",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "MechanicalDifficulty": 1.5571627676106816,
+        "RhythmDifficulty": 0.03216228009583513,
+        "ReadingDifficulty": 2.805827222416234e-7,
+        "ColourDifficulty": 0.34208928428927693,
+        "StaminaDifficulty": 1.2150734833214047,
+        "MonoStaminaFactor": 2.9071984730454562e-11,
+        "ConsistencyFactor": 0.6344162935394152,
+        "StaminaTopStrains": 19.141221011845232,
+        "StarRating": 1.589325328289239,
+        "MaxCombo": 32
+      }
+    },
+    {
+      "chart": "taiko-2.osu",
+      "mode": "taiko",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "MechanicalDifficulty": 1.0891940201545058,
+        "RhythmDifficulty": 0.025148435436743083,
+        "ReadingDifficulty": 6.0669952927374435e-12,
+        "ColourDifficulty": 0.2874465662275765,
+        "StaminaDifficulty": 0.8017474539269294,
+        "MonoStaminaFactor": 3.0033700999239985e-11,
+        "ConsistencyFactor": 0.6888172561756233,
+        "StaminaTopStrains": 17.412455740791618,
+        "StarRating": 1.114342455597316,
+        "MaxCombo": 32
+      }
+    },
+    {
+      "chart": "taiko-4.osu",
+      "mode": "taiko",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 1.379052067176258,
+        "RhythmDifficulty": 0.07493320797197839,
+        "ReadingDifficulty": 2.436220649382095e-10,
+        "ColourDifficulty": 0.29580570789625543,
+        "StaminaDifficulty": 1.0832463592800026,
+        "MonoStaminaFactor": 5.334935800942537e-11,
+        "ConsistencyFactor": 0.6826820461980643,
+        "StaminaTopStrains": 28.832144446536855,
+        "StarRating": 1.4539852753918583,
+        "MaxCombo": 64
+      }
+    },
+    {
+      "chart": "taiko-4.osu",
+      "mode": "taiko",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "MechanicalDifficulty": 1.3790113962006665,
+        "RhythmDifficulty": 0.07493099804332887,
+        "ReadingDifficulty": 0.000042882161414788525,
+        "ColourDifficulty": 0.29579698400031845,
+        "StaminaDifficulty": 1.083214412200348,
+        "MonoStaminaFactor": 5.334935800942537e-11,
+        "ConsistencyFactor": 0.6826820461788198,
+        "StaminaTopStrains": 28.832144446536855,
+        "StarRating": 1.45398527640541,
+        "MaxCombo": 64
+      }
+    },
+    {
+      "chart": "taiko-4.osu",
+      "mode": "taiko",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "MechanicalDifficulty": 1.7812960364128796,
+        "RhythmDifficulty": 0.0984162209988944,
+        "ReadingDifficulty": 3.354723039852531e-7,
+        "ColourDifficulty": 0.3226498673587856,
+        "StaminaDifficulty": 1.458646169054094,
+        "MonoStaminaFactor": 4.7421955236678055e-11,
+        "ConsistencyFactor": 0.6612163457451695,
+        "StaminaTopStrains": 29.12433326455589,
+        "StarRating": 1.8797125928840777,
+        "MaxCombo": 64
+      }
+    },
+    {
+      "chart": "taiko-4.osu",
+      "mode": "taiko",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "MechanicalDifficulty": 1.1351627850779398,
+        "RhythmDifficulty": 0.06219592511492119,
+        "ReadingDifficulty": 6.476389179841833e-12,
+        "ColourDifficulty": 0.27445429992748427,
+        "StaminaDifficulty": 0.8607084851504555,
+        "MonoStaminaFactor": 5.124216074681724e-11,
+        "ConsistencyFactor": 0.6958454198426567,
+        "StaminaTopStrains": 28.882623648777923,
+        "StarRating": 1.1973587101993373,
+        "MaxCombo": 64
+      }
+    },
+    {
+      "chart": "fruits-1.osu",
+      "mode": "fruits",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.580129616594863,
+        "MaxCombo": 19
+      }
+    },
+    {
+      "chart": "fruits-1.osu",
+      "mode": "fruits",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.8782978766545122,
+        "MaxCombo": 19
+      }
+    },
+    {
+      "chart": "fruits-1.osu",
+      "mode": "fruits",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 1.928640231844069,
+        "MaxCombo": 19
+      }
+    },
+    {
+      "chart": "fruits-1.osu",
+      "mode": "fruits",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 1.3760254060420019,
+        "MaxCombo": 19
+      }
+    },
+    {
+      "chart": "fruits-2.osu",
+      "mode": "fruits",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 2.14209519792646,
+        "MaxCombo": 38
+      }
+    },
+    {
+      "chart": "fruits-2.osu",
+      "mode": "fruits",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 2.4969518818644847,
+        "MaxCombo": 38
+      }
+    },
+    {
+      "chart": "fruits-2.osu",
+      "mode": "fruits",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 2.6432338584385726,
+        "MaxCombo": 38
+      }
+    },
+    {
+      "chart": "fruits-2.osu",
+      "mode": "fruits",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 1.8059831042215644,
+        "MaxCombo": 38
+      }
+    },
+    {
+      "chart": "fruits-4.osu",
+      "mode": "fruits",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 2.6931285476902938,
+        "MaxCombo": 76
+      }
+    },
+    {
+      "chart": "fruits-4.osu",
+      "mode": "fruits",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 3.078713714226217,
+        "MaxCombo": 76
+      }
+    },
+    {
+      "chart": "fruits-4.osu",
+      "mode": "fruits",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 3.370912185799792,
+        "MaxCombo": 76
+      }
+    },
+    {
+      "chart": "fruits-4.osu",
+      "mode": "fruits",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 2.239973228127645,
+        "MaxCombo": 76
+      }
+    },
+    {
+      "chart": "mania-4k.osu",
+      "mode": "mania",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.6983909188831983,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-4k.osu",
+      "mode": "mania",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.6983909188831983,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-4k.osu",
+      "mode": "mania",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 2.2067675038522445,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-4k.osu",
+      "mode": "mania",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 1.4537727909862543,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-7k.osu",
+      "mode": "mania",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.5160585929951433,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-7k.osu",
+      "mode": "mania",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.5160585929951433,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-7k.osu",
+      "mode": "mania",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 1.9419149492437273,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-7k.osu",
+      "mode": "mania",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 1.309955409487123,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-8k.osu",
+      "mode": "mania",
+      "mods": "",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.5194684906578764,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-8k.osu",
+      "mode": "mania",
+      "mods": "HDHR",
+      "rate": 1,
+      "attributes": {
+        "StarRating": 1.5194684906578764,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-8k.osu",
+      "mode": "mania",
+      "mods": "DT",
+      "rate": 1.5,
+      "attributes": {
+        "StarRating": 1.9317101033850737,
+        "MaxCombo": 364
+      }
+    },
+    {
+      "chart": "mania-8k.osu",
+      "mode": "mania",
+      "mods": "HT",
+      "rate": 0.75,
+      "attributes": {
+        "StarRating": 1.3140323469538104,
+        "MaxCombo": 364
+      }
+    }
+  ]
+}

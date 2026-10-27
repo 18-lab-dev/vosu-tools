@@ -307,6 +307,11 @@ def assemble(root, out, target, base_url, metadata, tools):
     for directory, manifest, package in tools:
         identity, version = manifest['id'], manifest['version']
         files = {'tool.toml': (directory / 'tool.toml').read_bytes()}
+        metadata = tomllib.loads((directory / 'Cargo.toml').read_text(encoding='utf-8')).get('package', {}).get('metadata', {}).get('vosu-tools', {}) if package else {}
+        replaces = metadata.get('replaces', [])
+        if (not isinstance(replaces, list) or any(not isinstance(old, str) or not valid_id(old) or old == identity for old in replaces)
+                or len(set(replaces)) != len(replaces)):
+            raise ValueError(f'invalid replacement ids for {identity}')
         art = artwork(directory, manifest, required=True)
         files.update({path: data for path, data in art.values()})
         for name in ('LICENSE-MIT', 'LICENSE-APACHE', 'THIRD_PARTY_NOTICES.md'):
@@ -347,6 +352,7 @@ def assemble(root, out, target, base_url, metadata, tools):
                                      if section in manifest and (section != 'service'
                                      or manifest['service'].get('role', 'background') == 'background')],
                       'requires': manifest.get('requires', []),
+                      'replaces': replaces,
                       'packages': {package_target: {'url': release_url(base_url, filename), **integrity}}})
         publish_art(art, identity, 'tool', out)
         entry.update(art_urls(art, identity, 'tool', base_url))
