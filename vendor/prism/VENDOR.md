@@ -22,6 +22,8 @@ vendored sources byte-identical.
 On Windows, `jsmath`'s declared POSIX `clock_gettime` (used only by the
 uncalled `js::thread_cpu_seconds`) is supplied by
 `tools/mania-ratings/src/windows_clock.rs`; nothing here is patched.
+`.gitattributes` marks these files `-text`, so Git for Windows keeps them
+byte-identical too (LF, as upstream).
 
 Dev builds disable overflow checks for `jsmath` (root `Cargo.toml`): its
 TimSort port relies on release-mode wrapping, and upstream ships release builds.

@@ -3,10 +3,17 @@
 use serde_json::Value;
 use vosu_mania_ratings::prism;
 
+/// Pristine upstream's output on this platform. Prism's jsmath takes `pow`
+/// from the C runtime, and glibc and the MSVC UCRT differ by a few ULP on some
+/// inputs, so Windows has its own reference (generated there by generate.py).
+#[cfg(not(windows))]
+const REFERENCE: &str = include_str!("fixtures/prism-reference.json");
+#[cfg(windows)]
+const REFERENCE: &str = include_str!("fixtures/prism-reference-windows.json");
+
 #[test]
 fn matches_pristine_upstream_prism() {
-    let reference: Vec<Value> =
-        serde_json::from_str(include_str!("fixtures/prism-reference.json")).unwrap();
+    let reference: Vec<Value> = serde_json::from_str(REFERENCE).unwrap();
     assert!(reference.iter().any(|r| r["supported"] == true));
     compare(&reference, |chart| {
         format!("{}/tests/fixtures/{chart}", env!("CARGO_MANIFEST_DIR"))

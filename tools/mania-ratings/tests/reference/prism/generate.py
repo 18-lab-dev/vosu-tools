@@ -3,8 +3,8 @@
 
 Fetches the pinned upstream Prism workspace from GitHub, checks that every
 vendored file in vendor/prism is byte-identical to it, builds driver.rs against
-the pristine copy and writes tests/fixtures/prism-reference.json for the
-committed fixtures. Extra .osu paths (e.g. read-only copies of local charts) are
+the pristine copy and writes tests/fixtures/prism-reference.json (on Windows
+prism-reference-windows.json) for the committed fixtures. Extra .osu paths (e.g. read-only copies of local charts) are
 written to FILE instead; point VOSU_PRISM_REFERENCE at it and run
 `cargo test -p vosu-mania-ratings --test prism` to compare our adapter:
 
@@ -80,7 +80,10 @@ with tempfile.TemporaryDirectory() as temp:
         target, charts, label = pathlib.Path(sys.argv[2]), [pathlib.Path(c).resolve() for c in sys.argv[3:]], str
     else:
         charts = [fixtures / 'cyclic.osu', fixtures / 'mixed7.osu'] + [fixtures / f'demo/mania-{k}k.osu' for k in range(5, 10)]
-        target, label = fixtures / 'prism-reference.json', lambda c: str(c.relative_to(fixtures))
+        # The C runtime's pow (glibc vs. the MSVC UCRT) moves some values by a
+        # few ULP, so Windows has its own reference.
+        name = 'prism-reference-windows.json' if os.name == 'nt' else 'prism-reference.json'
+        target, label = fixtures / name, lambda c: c.relative_to(fixtures).as_posix()
     results = []
     for chart in charts:
         for result in run(upstream, chart):
