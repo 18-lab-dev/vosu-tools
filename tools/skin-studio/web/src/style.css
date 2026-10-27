@@ -1511,6 +1511,10 @@
   padding: 0;
   color: var(--fg);
 }
+/* .v-panel sets display, which would show a closed dialog. */
+.apply-dialog:not([open]) {
+  display: none;
+}
 .apply-dialog::backdrop {
   background: var(--scrim);
 }

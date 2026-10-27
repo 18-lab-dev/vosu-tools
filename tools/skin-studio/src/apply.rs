@@ -339,8 +339,7 @@ pub fn mounted(hash: &str, temp: &[PathBuf]) -> Option<PathBuf> {
 fn temp_dirs() -> Vec<PathBuf> {
     // .NET's Path.GetTempPath: TMPDIR or /tmp on Unix, %TEMP% on Windows.
     let mut dirs = vec![std::env::temp_dir()];
-    #[cfg(unix)]
-    if !dirs.contains(&PathBuf::from("/tmp")) {
+    if cfg!(unix) && !dirs.contains(&PathBuf::from("/tmp")) {
         dirs.push("/tmp".into());
     }
     dirs
@@ -897,6 +896,7 @@ pub fn find_lazer() -> Option<Lazer> {
 }
 
 /// Scans a `/proc`-shaped directory for a running lazer.
+#[cfg(target_os = "linux")]
 pub fn lazer_in(proc: &Path) -> Option<Lazer> {
     let mut pids: Vec<u32> = fs::read_dir(proc)
         .ok()?

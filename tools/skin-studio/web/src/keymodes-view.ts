@@ -837,6 +837,7 @@ export class KeymodesView {
       fallback: string | undefined,
       onSet: (v: string | null) => void,
       alpha = false,
+      compact = false,
     ): HTMLElement => {
       if (f.control === "switch") {
         const box = h("input", { type: "checkbox", role: "switch", ariaLabel: label, checked: (current ?? fallback) === "1" });
@@ -848,7 +849,11 @@ export class KeymodesView {
         const select = h(
           "select",
           { class: "v-select km-settings__select", ariaLabel: label },
-          h("option", { value: "" }, fallback !== undefined ? `Default (${f.options?.find((o) => o.value === fallback)?.label ?? fallback})` : "Default"),
+          h(
+            "option",
+            { value: "", title: fallback !== undefined ? `Default: ${f.options?.find((o) => o.value === fallback)?.label ?? fallback}` : "Default" },
+            fallback !== undefined && !compact ? `Default (${f.options?.find((o) => o.value === fallback)?.label ?? fallback})` : "Default",
+          ),
           ...(f.options ?? []).map((o) => h("option", { value: o.value }, o.label)),
           // A value the list does not name (another spelling) stays selectable.
           ...(current !== undefined && !f.options?.some((o) => o.value === current) ? [h("option", { value: current }, current)] : []),
@@ -909,10 +914,17 @@ export class KeymodesView {
         const current = f.list ? raw?.[i] || undefined : value(key);
         const label = f.list && length < keys ? `${f.label} column ${i + 1}` : `Column ${i + 1} ${f.label.toLowerCase()}`;
         const fallback = f.list ? (f.key.startsWith("Lighting") ? fill(i) : f.fallback) : (global ?? MANIA_FIELDS.find((g) => g.key === f.key.replace(/#.*$/, ""))?.fallback);
-        const el = control(f, label, current, fallback, (v) =>
-          f.list
-            ? set(f.key, setListEntry(value(f.key), length, i, v, fill), `Set ${label.toLowerCase()}`)
-            : set(key, v, `Set ${label.toLowerCase()}`),
+        const el = control(
+          f,
+          label,
+          current,
+          fallback,
+          (v) =>
+            f.list
+              ? set(f.key, setListEntry(value(f.key), length, i, v, fill), `Set ${label.toLowerCase()}`)
+              : set(key, v, `Set ${label.toLowerCase()}`),
+          false,
+          true,
         );
         return h("div", { class: `km-value${f.list && length < keys ? " km-value--gap" : ""}` }, el);
       });
@@ -931,6 +943,8 @@ export class KeymodesView {
             }), set_),
         ),
         ...cells,
+        // Gap rows have one entry fewer: pad, so the next row starts in place.
+        ...Array.from({ length: Math.max(0, keys - length) }, () => h("span", { class: "km-value", ariaHidden: "true" })),
       );
     };
     const columns = h("div", { class: "km-grid km-settings__columns", role: "grid", ariaLabel: "Per-column settings" }, ...MANIA_COLUMNS.map(columnRow));
