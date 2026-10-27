@@ -17,7 +17,7 @@
 // tools/skin-studio/web. The skins are copied; the originals are only read.
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -54,7 +54,9 @@ if (process.env.KM_E2E_SANDBOX !== "1") {
 }
 
 // ── Isolated vosu ─────────────────────────────────────────────────────────
-const LAB = mkdtempSync(join(tmpdir(), "km-hit-"));
+const cache = join(homedir(), ".cache/vosu-agents/LnCalibration");
+mkdirSync(cache, { recursive: true });
+const LAB = mkdtempSync(join(cache, "km-hit-"));
 const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: join(LAB, "home"), VOSU_PROCESS_EVENTS: "poll" };
 for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"]) delete env[key];
 for (const [key, dir] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"], ["XDG_CACHE_HOME", "cache"], ["XDG_STATE_HOME", "state"], ["XDG_RUNTIME_DIR", "runtime"]]) {
@@ -189,6 +191,12 @@ try {
   check("Proposal names the last play, its key count and speed", /Last play: MYUKKE\. - FULi AUTO BUSTER \[Ignition x1\.1\], 7K, osu!stable \(Data\/r\/09be4f5b.*\), speed 24/.test(proposal), proposal.slice(proposal.indexOf("Last play"), proposal.indexOf("Last play") + 160));
   const press = /Presses: mean (-?[\d.]+) ms ± ([\d.]+) over ([\d,]+) hits → move receptors up (\d+) px \(HitPosition 455 → (\d+)\)/.exec(proposal);
   check("Early presses (mean −6.5 ms over 2,420 hits) move the receptors up: 455 → 450", !!press && press[1] === "-6.5" && press[3] === "2,420" && press[5] === "450", press?.[0] ?? proposal);
+  check("Hit calibration alone does not propose LN changes", !(await page.locator("#km-hit").textContent())?.includes("Releases:") && await page.locator("#km-ln .km-hit__play").count() === 0);
+  check("Play date is explicit and stale attempts are flagged", (await page.locator("#km-hit").textContent())?.includes("Older play:") ?? false);
+  await page.click("#km-calibrate-ln");
+  await until(() => page.locator("#km-ln .km-hit__play").count(), "independent LN proposal", 120000);
+  check("Both calibrations read one play independently", (await page.locator("#km-ln .km-hit__play").textContent()) === (await page.locator("#km-hit .km-hit__play").textContent()));
+  check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("Presses:"));
   await page.locator("#km-hit button", { hasText: "Apply to receptors" }).click();
   await until(async () => (await hitValue()) === "450", "calibrated 450");
   check("Applied: HitPosition 450", true);
@@ -197,19 +205,24 @@ try {
   // ── Hold ends from a 4K play (made the newest replay) ────────────────────
   const replay = "92a540fc22102bc423daac8693030616-134285366675131726.osr";
   spawnSync("chmod", ["u+w", join(LAB, "Data/r")]);
-  cpSync(join(opt.play!, replay), join(LAB, "Data/r", replay.replace("134285366675131726", "134399999999999999")));
+  cpSync(join(opt.play!, replay), join(LAB, "Data/r", replay.replace("134285366675131726", "134357000000000000")));
   await pick(4);
   const before4 = await label("NoteImage0L");
-  await page.click("#km-calibrate");
-  await until(() => page.locator(".km-hit__play").filter({ hasText: "Sheriruth" }).count(), "4K proposal", 120000);
-  const tails = (await page.locator("#km-hit").textContent()) ?? "";
+  await page.click("#km-calibrate-ln");
+  await until(() => page.locator("#km-ln .km-hit__play").filter({ hasText: "Sheriruth" }).count(), "4K proposal", 120000);
+  const tails = (await page.locator("#km-ln").textContent()) ?? "";
   const release = /Releases: mean \+?([\d.]+) ms ± [\d.]+ over ([\d,]+) holds → you release late/.exec(tails);
   check("Rate mods: DT play judged in real ms; late releases found", !!release && release[1] === "5.1" && release[2] === "424", release?.[0] ?? tails.slice(0, 300));
   await shot("hit-4k-proposal");
-  await page.locator("#km-hit button", { hasText: "Apply to hold tails" }).click();
+  await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await label("NoteImage0L")) !== before4, "hold ends applied");
   const state = (await page.locator("#km-state").textContent()) ?? "";
   check("Percy skin (blank tail): the body's end moves up 8 rows", state.includes("the body's end moves up 8 rows (late)"), state);
+  await page.click("#km-undo");
+  await until(async () => (await label("NoteImage0L")) === before4, "undo LN calibration");
+  await page.click("#km-redo");
+  await until(async () => (await label("NoteImage0L")) !== before4, "redo LN calibration");
+  check("LN calibration undo and redo restore the whole change", true);
   check("7K stays calibrated; only 4K hold ends change", (await label("NoteImage0L")).includes("mania/4k/holdbody-50"));
   await pick(7);
   check("7K HitPosition unchanged by the 4K calibration", (await hitValue()) === "450");
@@ -224,6 +237,13 @@ try {
       await shot(`hit-${theme}-${w}x${h}`);
       const scroll = await page.evaluate(() => document.scrollingElement!.scrollHeight - innerHeight);
       check(`No page scroll at ${w}x${h} (${theme})`, scroll <= 0, String(scroll));
+      await pick(4);
+      await page.evaluate(() => document.querySelector("#km-hit")!.closest("details")!.removeAttribute("open"));
+      await page.locator("#km-ln").scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+      await shot(`ln-${theme}-${w}x${h}`);
+      await page.evaluate(() => document.querySelector("#km-hit")!.closest("details")!.setAttribute("open", ""));
+      await pick(7);
     }
   await page.setViewportSize({ width: 1920, height: 1080 });
 
@@ -382,6 +402,43 @@ try {
   const key2x = size(`${value("KeyImage0")}@2x.png`);
   check("Exported receptor @2x is 1.25× in both axes (192×347 → 240×434, plus the row or two the HitPosition rounding moves it up into)", key2x[0] === 240 && key2x[1] >= 434 && key2x[1] <= 436, `${value("KeyImage0")}@2x.png ${key2x.join("×")}`);
   check("Exported HitPosition and widths", value("HitPosition") === String(hp1) && value("ColumnWidth").split(",").every((w) => Number(w) === w0 * 1.25), `${value("HitPosition")} ${value("ColumnWidth")}`);
+  // Exercise blocked states with the same real replay and a reduced map copy.
+  await page.click("#km-calibrate-ln");
+  await until(async () => (await page.locator("#km-ln").textContent())?.includes("Select 4K."), "LN key mismatch");
+  check("LN key mismatch is explained in its own group", true);
+  await page.click("#km-calibrate");
+  await until(async () => (await page.locator("#km-hit").textContent())?.includes("Select 4K."), "hit key mismatch");
+  check("Hit key mismatch is explained in its own group", true);
+  await pick(4);
+  let holdLimit = 0;
+  let objectLimit = Infinity;
+  await page.route("**/v1/plays/last", async (route: { fetch(): Promise<{ json(): Promise<{ osu: string }> }>; fulfill(options: { response: unknown; json: unknown }): Promise<void> }) => {
+    const response = await route.fetch();
+    const play = await response.json();
+    const [header, objects] = play.osu.split("[HitObjects]");
+    let holds = 0;
+    play.osu = header + "[HitObjects]" + objects.split("\n").slice(0, objectLimit).map((line: string) => {
+      const fields = line.trim().split(",");
+      if (fields.length < 6 || !(Number(fields[3]) & 128)) return line;
+      if (holds++ < holdLimit) return line;
+      fields[3] = String((Number(fields[3]) & ~128) | 1);
+      fields[5] = "0:0:0:0:";
+      return fields.join(",");
+    }).join("\n");
+    await route.fulfill({ response, json: play });
+  });
+  await page.click("#km-calibrate-ln");
+  await until(async () => (await page.locator("#km-ln").textContent())?.includes("no released holds"), "no holds");
+  check("No holds explains why LN calibration is blocked", await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).count() === 0);
+  holdLimit = 10;
+  await page.click("#km-calibrate-ln");
+  await until(async () => (await page.locator("#km-ln").textContent())?.includes("at least 50"), "few releases");
+  check("Too few releases explains why LN calibration is blocked", await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).count() === 0);
+  objectLimit = 10;
+  await page.click("#km-calibrate");
+  await until(async () => (await page.locator("#km-hit").textContent())?.includes("at least 50"), "few presses");
+  check("Too few presses blocks only the hit-position proposal", await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 0);
+  await page.unroute("**/v1/plays/last");
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));

@@ -1,6 +1,5 @@
-// The Keymodes screen's "Hit position" group for the shown key count:
-// HitPosition with a stepper that also moves the receptor graphics, and a
-// calibration from the last completed play for receptors and hold tails.
+// Keymodes hit-position controls and independent last-play calibrations:
+// press timings move receptors; release timings adjust LN hold ends.
 
 import { maniaColumns, parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
 import { maniaConfig, type ManiaImageResolution } from "@vosu-tools/render-core/mania";
@@ -36,6 +35,7 @@ import {
   referenceScale,
 } from "./proportions";
 import { UPLOADS } from "./uploads";
+import { playDate } from "./play-date";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
@@ -91,9 +91,10 @@ interface Calibration {
 
 export class HitPanel {
   #host: HitHost;
-  #calibration: Calibration | null = null;
+  #calibrations: Partial<Record<"press" | "release", Calibration>> = {};
+  #calibrationErrors: Partial<Record<"press" | "release", string>> = {};
+  #newestPlay = 0;
   #busy = false;
-  /** Scroll speed typed in when vosu reports none. */
 
   constructor(host: HitHost) {
     this.#host = host;
@@ -107,18 +108,20 @@ export class HitPanel {
 
   render() {
     const root = $("#km-hit");
+    const ln = $("#km-ln");
     const keys = this.#host.keys();
     if (!keys) {
       root.replaceChildren();
+      ln.replaceChildren();
       return;
     }
     // Focus survives the re-render: the control with the same label.
-    const focused = root.contains(document.activeElement)
+    const focused = root.contains(document.activeElement) || ln.contains(document.activeElement)
       ? document.activeElement?.getAttribute("aria-label") ?? (document.activeElement as HTMLElement | null)?.id
       : null;
     queueMicrotask(() => {
       if (!focused) return;
-      const again = [...root.querySelectorAll<HTMLElement>("input, button")].find(
+      const again = [...root.querySelectorAll<HTMLElement>("input, button"), ...ln.querySelectorAll<HTMLElement>("input, button")].find(
         (el) => el.getAttribute("aria-label") === focused || el.id === focused,
       );
       again?.focus();
@@ -181,13 +184,23 @@ export class HitPanel {
             id: "km-calibrate",
             disabled: this.#busy || !speed,
             title: speed ? "Reads the newest completed local osu!mania play" : "Needs your scroll speed",
-            onclick: () => void this.#calibrate(),
+            onclick: () => void this.#calibrate("press"),
           },
-          this.#busy ? "Reading the last play…" : "Calibrate from last play",
+          "Calibrate hit position",
         ),
         speedLine,
       ),
-      ...this.#proposal(),
+      ...this.#proposal("press"),
+    );
+    ln.replaceChildren(
+      h("p", { class: "v-muted" }, "Release timings calibrate hold tails and LN length, independently of hit position. Uses the scroll speed above."),
+      h("button", {
+        type: "button", class: "v-btn v-btn--sm", id: "km-calibrate-ln",
+        disabled: this.#busy || !speed,
+        title: speed ? "Reads the newest completed local osu!mania play" : "Set your scroll speed in Hit position first",
+        onclick: () => void this.#calibrate("release"),
+      }, "Calibrate LN length"),
+      ...this.#proposal("release"),
     );
   }
 
@@ -574,11 +587,12 @@ export class HitPanel {
 
   // ---- calibration ------------------------------------------------------------
 
-  async #calibrate() {
+  async #calibrate(kind: "press" | "release") {
     const speed = this.#speed();
     if (!speed) return;
     this.#busy = true;
-    this.#calibration = null;
+    delete this.#calibrations[kind];
+    delete this.#calibrationErrors[kind];
     this.render();
     try {
       const play = await this.#host.lastPlay();
@@ -586,7 +600,7 @@ export class HitPanel {
       const replay = await parseReplay(bytes);
       const { map, simulation } = judgeReplay(replay, parseOsu(play.osu));
       const rate = replayRate(replay);
-      this.#calibration = {
+      this.#calibrations[kind] = {
         play,
         map,
         keys: maniaColumns(map),
@@ -596,30 +610,32 @@ export class HitPanel {
       };
       this.#host.error("");
     } catch (error) {
-      this.#host.error(`Calibration: ${error instanceof Error ? error.message : String(error)}`);
+      this.#calibrationErrors[kind] = `Calibration: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       this.#busy = false;
       this.render();
     }
   }
 
-  #proposal(): Node[] {
-    const c = this.#calibration;
-    if (!c) return [];
+  #proposal(kind: "press" | "release"): Node[] {
+    const c = this.#calibrations[kind];
+    if (!c) return this.#calibrationErrors[kind] ? [h("p", { class: "km-hit__warn", role: "alert" }, this.#calibrationErrors[kind]!)] : [];
     const meta = c.map.metadata;
     const title = `${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}]`;
     const keys = this.#host.keys();
     const head = h("p", { class: "km-hit__play" }, `Last play: ${title}, ${c.keys}K, osu!${c.play.client} (${c.play.source}), speed ${c.speed.speed}`);
+    const date = playDate(c.play.date, this.#newestPlay);
+    this.#newestPlay = Math.max(this.#newestPlay, date.timestamp || 0);
+    const out: Node[] = [head, h("p", { class: date.stale ? "km-hit__warn" : "v-muted" }, date.text)];
     if (c.keys !== keys)
-      return [head, h("p", { class: "km-hit__warn" }, `It was played on ${c.keys}K: calibrations apply only to that key count. Select ${c.keys}K.`)];
-    const out: Node[] = [head];
+      return [...out, h("p", { class: "km-hit__warn" }, `It was played on ${c.keys}K: calibrations apply only to that key count. Select ${c.keys}K.`)];
     const fmt = (o: Offsets, what: string) =>
       `mean ${o.mean >= 0 ? "+" : ""}${o.mean.toFixed(1)} ms ± ${o.spread.toFixed(1)} over ${o.count.toLocaleString("en")} ${what}`;
     // Receptors.
     const current = this.#current();
-    if (c.press.count < MIN_HITS)
+    if (kind === "press" && c.press.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Receptors: ${c.press.count} presses; at least ${MIN_HITS} are needed.`));
-    else {
+    else if (kind === "press") {
       const target = calibratedHitPosition(current, c.press);
       const px = receptorShift(current, target, false).rows;
       out.push(
@@ -632,11 +648,12 @@ export class HitPanel {
             `Presses: ${fmt(c.press, "hits")} → ${target === current ? "receptors already sit where you hit" : `move receptors ${px > 0 ? "up" : "down"} ${Math.abs(px)} px (HitPosition ${current} → ${target})`}`,
           ),
           target !== current
-            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", onclick: () => void this.setHitPosition(target) }, "Apply to receptors")
+            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.setHitPosition(target) }, "Apply to receptors")
             : null,
         ),
       );
     }
+    if (kind === "press") return out;
     // Hold tails.
     if (!c.release.count) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
     else if (c.release.count < MIN_HITS)
@@ -654,7 +671,7 @@ export class HitPanel {
           "div",
           { class: "km-hit__row" },
           h("span", {}, `Releases: ${fmt(c.release, "holds")} → ${text}`),
-          h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", onclick: () => void this.#applyTails() }, "Apply to hold tails"),
+          h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails"),
         ),
       );
     }
@@ -666,8 +683,8 @@ export class HitPanel {
    * See `tailPlan` and `percyPlan` (calibrate.ts) for the geometry.
    */
   async #applyTails() {
-    const c = this.#calibration;
-    if (!c) return;
+    const c = this.#calibrations.release;
+    if (!c || c.keys !== this.#host.keys() || c.release.count < MIN_HITS) return;
     this.#busy = true;
     this.render();
     try {

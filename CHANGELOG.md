@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Skin studio separates hit-position (press/receptor) and LN-length (release/hold-tail) calibration into independent, visible groups. Each names the play, client and key count, shows relative and absolute local play time, flags old plays, and explains blocked proposals.
+
 ## v0.3.0 - 2026-10-26
 
 ### Consistent mania key counts
