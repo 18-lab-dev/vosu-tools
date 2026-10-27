@@ -21,6 +21,7 @@ import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
 import { lookupFiles } from "./mania";
 import {
   type Dims,
+  type FileOp,
   type Geometry,
   type Lost,
   columnOf,
@@ -38,7 +39,7 @@ import { UPLOADS } from "./uploads";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
-  | { shift: { up: number } }
+  | { shift: { up: number; grow?: boolean } }
   | { tail: { gap: number; at_top: boolean } }
   | { spacer: { rows: number } }
   | { percy: { height: number; cap_bottom: number } }
@@ -147,13 +148,15 @@ export class HitPanel {
         },
         by > 0 ? "+5" : "−5",
       );
+    // Hand moves only: a HitPosition a width change derived moves nothing
+    // inside the receptor images (the scaling carries them).
     const hit = this.#host.draft()?.hit;
-    const moved = hit
-      ? Object.values(hit.originals).map((o) => receptorShift(o.at, current, false))
-      : [];
-    const note = moved.length
-      ? `Receptors moved ${moved[0].rows >= 0 ? "up" : "down"} ${Math.abs(moved[0].rows)} px (${Math.abs(receptorShift(Object.values(hit!.originals)[0].at, current, true).rows)} px @2x) from HitPosition ${Object.values(hit!.originals)[0].at}.`
-      : "1 unit = 1.6 px (3.2 px @2x); a lower HitPosition moves the receptors up.";
+    const handMoved = hit?.moved ?? 0;
+    const at = hit && Object.values(hit.originals).find((o) => o.slot)?.at;
+    const note =
+      at !== undefined && Math.round(handMoved * 1e6) !== 0
+        ? `Receptors moved ${handMoved < 0 ? "up" : "down"} ${Math.abs(receptorShift(at, at + handMoved, false).rows)} px (${Math.abs(receptorShift(at, at + handMoved, true).rows)} px @2x) inside their images, from HitPosition ${at}.`
+        : "1 unit = 1.6 px (3.2 px @2x); a lower HitPosition moves the receptors up.";
     const speed = this.#speed(),
       live = this.#host.speed();
     const speedLine = this.#speedInput(live);
@@ -273,7 +276,7 @@ export class HitPanel {
     const keys = this.#host.keys();
     await this.#serial("HitPosition", async () => {
       if (target !== this.#current())
-        await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) });
+        await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) }, true);
     });
   }
 
@@ -284,13 +287,14 @@ export class HitPanel {
    * the receptors: HitPosition' = 480 − (480 − HitPosition) × s, s being the
    * scale most columns share. One undo step.
    */
-  async setWidths(column: number, value: string, label: string) {
+  async setWidths(columns: readonly number[], value: string, label: string) {
     this.lastRegeometry = null;
-    await this.#serial(`ColumnWidth${column}`, () => {
-      // The widths as the skin.ini has them now, this column changed.
+    await this.#serial(`ColumnWidth${columns.join(",")}`, () => {
+      // The widths as the skin.ini has them now, these columns changed (one
+      // change: one HitPosition, one undo step).
       const keys = this.#host.keys();
       const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
-      const widths = config.columnWidth.map((w, i) => (i === column ? value : String(Math.round((w / 1.6) * 1e4) / 1e4)));
+      const widths = config.columnWidth.map((w, i) => (columns.includes(i) ? value : String(Math.round((w / 1.6) * 1e4) / 1e4)));
       return this.#setWidths(widths, label);
     });
   }
@@ -310,8 +314,10 @@ export class HitPanel {
     const valid = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
     const was = referenceScale(config.columnWidth.map((w, i) => valid(w / base[i])));
     const scale = referenceScale(widths.map((w, i) => valid((Number(w) * 1.6) / base[i])));
-    // The HitPosition the current one means at the original widths.
-    const unscaled = 480 - (480 - this.#current()) / was;
+    // The HitPosition the current one means at the original widths: the
+    // captured one plus the hand moves (exact), else as the widths have it.
+    const keyAt = originals.find(([k]) => pieceOf(k) === "key")?.[1].at;
+    const unscaled = keyAt !== undefined ? keyAt + (this.#host.draft()?.hit?.moved ?? 0) : 480 - (480 - this.#current()) / was;
     const hitPosition = hitPositionFor(unscaled, scale);
     if (hitPosition < 240 || hitPosition > 480)
       return this.#host.error(`Keeping proportions would put HitPosition at ${hitPosition}, outside 240–480.`);
@@ -338,6 +344,35 @@ export class HitPanel {
   }
   #sizes = new Map<string, Promise<Dims>>();
   #derived = new Map<string, Promise<{ stored: string; lost: number }>>();
+  #pending = new Map<string, { source: string; op: DeriveOp; id: string; done: (r: { stored: string; lost: number }) => void; fail: (e: unknown) => void }[]>();
+  /**
+   * One derived file (cached by skin, source and operation). Requests made
+   * in the same tick go to the service together, 64 per request per skin.
+   */
+  #derive(skin: string, source: string, op: DeriveOp): Promise<{ stored: string; lost: number }> {
+    const id = JSON.stringify([skin, source, op]);
+    const known = this.#derived.get(id);
+    if (known) return known;
+    const result = new Promise<{ stored: string; lost: number }>((done, fail) => {
+      const queue = this.#pending.get(skin) ?? [];
+      if (!queue.length) this.#pending.set(skin, queue);
+      queue.push({ source, op, id, done, fail });
+      if (queue.length === 1)
+        queueMicrotask(() => {
+          this.#pending.delete(skin);
+          for (let i = 0; i < queue.length; i += 64) {
+            const chunk = queue.slice(i, i + 64);
+            this.#host.derive(skin, chunk.map((q) => ({ name: q.source, op: q.op }))).then(
+              (r) => chunk.forEach((q, n) => q.done(r[n])),
+              (error) => chunk.forEach((q) => q.fail(error)),
+            );
+          }
+        });
+    });
+    result.catch(() => this.#derived.delete(id));
+    this.#derived.set(id, result);
+    return result;
+  }
   /** Last re-derive: images made and time taken, for the screen and tests. */
   lastRegeometry: { images: number; ms: number; skipped: string } | null = null;
 
@@ -359,7 +394,14 @@ export class HitPanel {
    * stores values and images as one undoable change. A newer call cancels
    * an older one still deriving.
    */
-  async #regeometry(label: string, values: Record<string, string | null>) {
+  /**
+   * `byHand`: a HitPosition edit (stepper, field, calibration), recorded in
+   * the draft as units moved at the captured widths (`hit.moved`) and done
+   * as a move inside each key image's canvas. A width change records only
+   * widths; the HitPosition it derives is reached by scaling, never replayed
+   * as a move.
+   */
+  async #regeometry(label: string, values: Record<string, string | null>, byHand = false) {
     const ticket = ++this.#geometryTicket;
     const started = performance.now();
     this.#busy = true;
@@ -394,6 +436,13 @@ export class HitPanel {
             prior: had ? structuredClone(draft!.images[r.key]) : undefined,
           };
       }
+      // Hand moves are kept in units at the captured widths: one made after
+      // a width change counts at that change's scale.
+      if (byHand) {
+        const base = now.columnWidth.map((w, i) => Object.entries(hit.originals).find(([k, o]) => pieceOf(k) === "key" && columnOf(k) === i && o.width)?.[1].width ?? w);
+        const scale = referenceScale(now.columnWidth.map((w, i) => (w > 0 && base[i] > 0 ? w / base[i] : 1)));
+        hit.moved = (hit.moved ?? 0) + (target - current) / scale;
+      }
       const geometry = (config: typeof now, hitPosition: number, column: number): Geometry => ({
         hitPosition,
         width: config.columnWidth[column],
@@ -422,35 +471,32 @@ export class HitPanel {
             // Left as it is, with the reason: nothing visible to scale, or an
             // operation the service would refuse (a guard).
             const blank = unchanged(files, dims);
-            const ops = blank ? null : pieceOps(piece, from, geometry(then, target, column), files, dims);
-            const why = blank ?? ops?.map((o) => refused(o.op)).find(Boolean) ?? null;
+            const ops = blank ? null : pieceOps(piece, from, geometry(then, target, column), files, dims, hit.moved ?? 0);
+            const why = blank ?? ops?.flatMap((o) => [o.pre, o.op]).map((op) => (op ? refused(op) : null)).find(Boolean) ?? null;
             if (why) skipped.push({ key, what: why === blank ? why : `${why}, left as it is` });
             return { key, original, ops: why ? null : ops };
           }),
       );
-      // 2. One derive request per skin for what is not cached yet.
-      const id = (skin: string, o: { source: string; op: DeriveOp }) => JSON.stringify([skin, o.source, o.op]);
-      const wanted = new Map<string, Map<string, { source: string; op: DeriveOp }>>();
-      for (const { original, ops } of planned)
-        for (const o of ops ?? [])
-          if (!this.#derived.has(id(original.slot.skin, o)))
-            wanted.set(original.slot.skin, (wanted.get(original.slot.skin) ?? new Map()).set(id(original.slot.skin, o), o));
-      for (const [skin, requests] of wanted) {
-        const list = [...requests];
-        for (let i = 0; i < list.length; i += 64) {
-          const chunk = list.slice(i, i + 64);
-          const batch = this.#host.derive(skin, chunk.map(([, o]) => ({ name: o.source, op: o.op })));
-          batch.catch(() => chunk.forEach(([k]) => this.#derived.delete(k)));
-          chunk.forEach(([k], n) => this.#derived.set(k, batch.then((r) => r[n])));
-        }
-      }
+      // 2. The files, derived in batches per skin (cached); a hand move
+      // first, then the width change on its result.
+      const make = async (skin: string, o: FileOp) => {
+        const first = await this.#derive(skin, o.source, o.pre ?? o.op);
+        // Only a hand move cuts (inside the canvas); scaling and the moves it
+        // leaves grow the canvas, and a repeated body's rows scale.
+        const handOp = o.pre ?? o.op;
+        const hand = "shift" in handOp && !handOp.shift.grow ? first.lost : 0;
+        if (!o.pre) return { stored: first.stored, lost: hand };
+        const second = await this.#derive(UPLOADS, first.stored, o.op);
+        return { stored: second.stored, lost: hand };
+      };
+      const made = await Promise.all(planned.map(({ original, ops }) => Promise.all((ops ?? []).map((o) => make(original.slot.skin, o)))));
       // 3. The new slots.
-      for (const { key, original, ops } of planned) {
+      for (const [n, { key, original, ops }] of planned.entries()) {
         if (!ops) {
           slots[key] = original.had ? original.prior : undefined;
           continue;
         }
-        const derived = await Promise.all(ops.map((o) => this.#derived.get(id(original.slot.skin, o))!));
+        const derived = made[n];
         images += derived.length;
         const files = original.slot.files;
         slots[key] = {
@@ -461,8 +507,7 @@ export class HitPanel {
         // Reported when this change makes the image, not again on every
         // later change that keeps it.
         if (JSON.stringify(draft?.images[key]) !== JSON.stringify(slots[key]))
-          for (const [i, d] of derived.entries())
-            if (d.lost) lost.push({ key, file: files[i].from, rows: d.lost, op: "rows" in ops[i].op ? "rows" : "shift" in ops[i].op ? "shift" : "resize" });
+          for (const [i, d] of derived.entries()) if (d.lost) lost.push({ key, file: files[i].from, rows: d.lost, op: "shift" });
       }
       // A newer change superseded this one.
       if (ticket !== this.#geometryTicket) return;

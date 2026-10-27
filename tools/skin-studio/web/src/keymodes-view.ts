@@ -799,7 +799,7 @@ export class KeymodesView {
    */
   async #setWidths(column: number, value: string, label: string) {
     // The widths as they are when this edit runs (after any edit before it).
-    await this.#hit.setWidths(column, value, label);
+    await this.#hit.setWidths([column], value, label);
     const done = this.#hit.lastRegeometry;
     if (this.#draft()?.keepProportions === false || !done) return;
     const first = localStorage.getItem("skin-studio:proportions-seen") === null;

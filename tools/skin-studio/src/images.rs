@@ -136,7 +136,17 @@ pub enum Op {
     /// the rows freed at the top take the colour below them. A solid stage
     /// under a receptor stays seamless; transparent columns stay transparent.
     /// Rows pushed past an edge go (counted when not transparent).
-    Shift { up: i32 },
+    ///
+    /// `grow`: the move a width change leaves for a key image (Keep
+    /// proportions), not a hit-position edit, so nothing is cut: moving up
+    /// the canvas grows by `up` edge-clamped rows at the bottom; moving down
+    /// the bottom rows go, below the stage bottom the image is anchored to
+    /// (lazer's `LegacyKeyArea`), where nothing is drawn.
+    Shift {
+        up: i32,
+        #[serde(default)]
+        grow: bool,
+    },
     /// A hold tail: drop transparent rows at the end (`at_top`: the image's
     /// top) that lies on the hold's end time, add `gap` transparent rows
     /// there, and size the far side so the body (drawn to half the tail's
@@ -237,7 +247,23 @@ pub fn apply(bytes: &[u8], op: Op, cap: Option<&[u8]>) -> Result<Derived, Failur
                     .extend((source.len()..height).map(|i| source[i % source.len()].clone()));
             }
         }
-        Op::Shift { up } if up != 0 => {
+        Op::Shift { up, grow: true } if up != 0 => {
+            if image.rows.is_empty() {
+                return Err(failure("The image is empty."));
+            }
+            let moved = up.unsigned_abs() as usize;
+            if up > 0 {
+                if image.rows.len() + moved > MAX_HEIGHT as usize {
+                    return Err(failure(format!("Images are at most {MAX_HEIGHT} rows.")));
+                }
+                let edge = image.rows.last().unwrap().clone();
+                image.rows.extend((0..moved).map(|_| edge.clone()));
+            } else {
+                let keep = image.rows.len().saturating_sub(moved).max(1);
+                image.rows.truncate(keep);
+            }
+        }
+        Op::Shift { up, grow: false } if up != 0 => {
             let height = image.rows.len();
             let moved = (up.unsigned_abs() as usize).min(height);
             let gone: Vec<_> = if up > 0 {
@@ -600,7 +626,7 @@ mod tests {
                         height: (h as f64 / 1.25).round() as u32,
                     },
                 ),
-                ("shift 8", Op::Shift { up: 8 }),
+                ("shift 8", Op::Shift { up: 8, grow: false }),
             ] {
                 if label.starts_with("resize") && h > 4096 {
                     continue;
@@ -672,7 +698,7 @@ mod tests {
             &[(20, 255), (120, 200)],
             &[(30, 255), (130, 100)],
         ]);
-        let out = apply(&src, Op::Shift { up: 2 }, None).unwrap();
+        let out = apply(&src, Op::Shift { up: 2, grow: false }, None).unwrap();
         assert_eq!(
             pixels(&out.bytes),
             [
@@ -687,7 +713,15 @@ mod tests {
     #[test]
     fn shift_down_fills_the_top_with_the_colour_below() {
         let src = image(&[&[(10, 255)], &[(20, 255)], &[(30, 255)]]);
-        let out = apply(&src, Op::Shift { up: -1 }, None).unwrap();
+        let out = apply(
+            &src,
+            Op::Shift {
+                up: -1,
+                grow: false,
+            },
+            None,
+        )
+        .unwrap();
         assert_eq!(
             pixels(&out.bytes),
             [vec![(10, 255)], vec![(10, 255)], vec![(20, 255)]]
@@ -699,19 +733,60 @@ mod tests {
     fn transparent_columns_stay_transparent() {
         // A receptor with clear rows above and below it (the user's skin).
         let src = png(&[&[0, 0], &[255, 128], &[0, 0], &[0, 0]]);
-        let up = apply(&src, Op::Shift { up: 1 }, None).unwrap();
+        let up = apply(&src, Op::Shift { up: 1, grow: false }, None).unwrap();
         assert_eq!(
             alpha(&up.bytes),
             [vec![255, 128], vec![0, 0], vec![0, 0], vec![0, 0]]
         );
         assert_eq!(up.lost, 0);
-        let down = apply(&src, Op::Shift { up: -2 }, None).unwrap();
+        let down = apply(
+            &src,
+            Op::Shift {
+                up: -2,
+                grow: false,
+            },
+            None,
+        )
+        .unwrap();
         assert_eq!(
             alpha(&down.bytes),
             [vec![0, 0], vec![0, 0], vec![0, 0], vec![255, 128]]
         );
         // Exact pixels: the moved row keeps its colour.
         assert_eq!(&decode(&down.bytes).unwrap().rows[3][..4], &[1, 7, 9, 255]);
+    }
+
+    /// A width change's move cuts nothing: up grows the canvas (the bottom
+    /// row repeated), down drops rows under the stage bottom.
+    #[test]
+    fn growing_shift_cuts_nothing() {
+        let src = png(&[&[255, 0], &[255, 128], &[0, 0], &[10, 20]]);
+        let up = apply(&src, Op::Shift { up: 2, grow: true }, None).unwrap();
+        assert_eq!(
+            alpha(&up.bytes),
+            [
+                vec![255, 0],
+                vec![255, 128],
+                vec![0, 0],
+                vec![10, 20],
+                vec![10, 20],
+                vec![10, 20]
+            ]
+        );
+        assert_eq!(up.lost, 0);
+        let down = apply(&src, Op::Shift { up: -1, grow: true }, None).unwrap();
+        assert_eq!(
+            alpha(&down.bytes),
+            [vec![255, 0], vec![255, 128], vec![0, 0]]
+        );
+        assert_eq!(down.lost, 0);
+        // The same move inside the canvas (a hit-position edit) cuts the top.
+        assert_eq!(
+            apply(&src, Op::Shift { up: 2, grow: false }, None)
+                .unwrap()
+                .lost,
+            2
+        );
     }
 
     #[test]
@@ -726,7 +801,7 @@ mod tests {
                 .write_image_data(&[0, 0, 0, 0, 0x12, 0x34, 0xfe, 0xdc])
                 .unwrap();
         }
-        let shifted = apply(&out, Op::Shift { up: 1 }, None).unwrap();
+        let shifted = apply(&out, Op::Shift { up: 1, grow: false }, None).unwrap();
         let image = decode(&shifted.bytes).unwrap();
         assert_eq!(image.depth, 2);
         assert_eq!(

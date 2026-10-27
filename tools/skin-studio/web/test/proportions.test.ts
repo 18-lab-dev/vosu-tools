@@ -43,10 +43,16 @@ test("keys: both files from the @2x source, exact target sizes, receptor on the 
   // 383 instead of the exact 382.5: half a unit (0.8 px, 1.6 @2x) down.
   expect(sd.up).toBeCloseTo(-0.8);
   expect(hd.up).toBeCloseTo(-1.6);
-  // Only HitPosition: the exact row move, no resampling.
-  expect(pieceOps("key", g({}), g({ hitPosition: 397 }), files, dims)).toEqual([
+  // Only HitPosition, by hand: the exact row move inside the canvas.
+  expect(pieceOps("key", g({}), g({ hitPosition: 397 }), files, dims, -5)).toEqual([
     { source: "k.png", op: { shift: { up: 8 } } },
     { source: "k@2x.png", op: { shift: { up: 16 } } },
+  ]);
+  // The same line reached without a hand move (another column's width
+  // moved it): the canvas grows instead, nothing is cut.
+  expect(pieceOps("key", g({}), g({ hitPosition: 397 }), files, dims)).toEqual([
+    { source: "k.png", op: { shift: { up: 8, grow: true } } },
+    { source: "k@2x.png", op: { shift: { up: 16, grow: true } } },
   ]);
   expect(pieceOps("key", g({}), g({}), files, dims)).toBeNull();
 });
@@ -125,4 +131,47 @@ test("width changes on 7K, 10K and 18K with tall, short, blank and 2x keys stay 
     "7K column 3 hold body: 3 rows cut from the end of b.png",
   );
   expect(refused({ resize: { width: 4, height: 1, scale_y: 1, up: 8.75 } })).toBe("a 9 px move is more than its 1 px height");
+});
+
+// Where the receptor point (on the hit line before) ends, in px above the
+// bottom, after a key's operations: the hand move, then scale and offset.
+const lands = (op: { pre?: unknown; op: unknown }, line: number, k: number) => {
+  const pre = (op.pre as { shift?: { up: number } } | undefined)?.shift?.up ?? 0;
+  const r = (op.op as { resize?: { scale_y: number; up: number; height: number } }).resize;
+  const sh = (op.op as { shift?: { up: number } }).shift?.up ?? 0;
+  // resize scale_y is per source px (the @2x source); line in source px.
+  return r ? (line * 2 + pre) * r.scale_y + r.up : line * k + pre + sh;
+};
+
+test("a width change scales the canvas onto the derived HitPosition: no cut, under 1 px left", () => {
+  const files = [{ from: "k.png", suffix: ".png" }, { from: "k@2x.png", suffix: "@2x.png" }];
+  for (const [hp, s] of [[402, 1.25], [455, 65 / 60], [455, 0.8], [420, 50 / 35]] as const) {
+    const to = hitPositionFor(hp, s);
+    const ops = pieceOps("key", g({ hitPosition: hp }), g({ hitPosition: to, width: 48 * s }), files, dims)!;
+    for (const [i, o] of ops.entries()) {
+      expect(o.pre).toBeUndefined();
+      const r = (o.op as { resize: { up: number } }).resize;
+      expect(Math.abs(r.up)).toBeLessThanOrEqual(0.8 * (i ? 2 : 1) + 1e-9); // the rounding of HitPosition
+      // The receptor point lands on the new line.
+      expect(lands(o, (480 - hp) * 1.6, i ? 2 : 1)).toBeCloseTo((480 - to) * 1.6 * (i ? 2 : 1), 6);
+    }
+  }
+});
+
+test("hand moves and width changes in either order end on the line; only the hand move cuts", () => {
+  const files = [{ from: "k.png", suffix: ".png" }, { from: "k@2x.png", suffix: "@2x.png" }];
+  const s = 1.25;
+  // Stepper −5 first (5 units at the captured widths), then every column 1.25×.
+  const first = pieceOps("key", g({}), g({ hitPosition: hitPositionFor(397, s), width: 60 }), files, dims, -5)!;
+  // Width first (402 → 383), then the stepper −5 at that scale: 4 captured units.
+  const second = pieceOps("key", g({}), g({ hitPosition: hitPositionFor(402, s) - 5, width: 60 }), files, dims, -5 / s)!;
+  for (const [ops, target] of [[first, hitPositionFor(397, s)], [second, hitPositionFor(402, s) - 5]] as const)
+    for (const [i, o] of ops.entries()) {
+      // The hand move inside the original (@2x) canvas, then the scaling.
+      expect((o.pre as { shift: { up: number; grow?: boolean } }).shift.grow).toBeUndefined();
+      expect("resize" in o.op).toBe(true);
+      expect(Math.abs(lands(o, 78 * 1.6, i ? 2 : 1) - (480 - target) * 1.6 * (i ? 2 : 1))).toBeLessThan(1.6 * (i ? 2 : 1));
+    }
+  expect((first[0].pre as { shift: { up: number } }).shift.up).toBe(16); // 5 × 3.2 px on the @2x source
+  expect((second[0].pre as { shift: { up: number } }).shift.up).toBe(13); // 4 × 3.2 = 12.8
 });
