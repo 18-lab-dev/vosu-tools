@@ -28,6 +28,8 @@ import {
   compose,
   groupById,
   groupFiles,
+  hasEdits,
+  inPlaceRemovals,
   maniaGroup,
   maniaKeyCounts,
   recipeSkins,
@@ -57,6 +59,15 @@ import {
   type UploadFile,
 } from "./uploads";
 import { touchedKeys, type KeymodeDraft } from "./keymodes";
+import {
+  canWrite,
+  dashboardTools,
+  isSessionRefusal,
+  onSessionChange,
+  readOnlyReason,
+  sessionLost,
+} from "./session";
+import type { Speed } from "./calibrate";
 import {
   type ExportReport,
   type ExportTarget,
@@ -97,6 +108,8 @@ interface Snapshot {
   revision: string;
   files: { name: string; size: number }[];
   writable: boolean;
+  /** Files Skin studio generated (ownership manifests); absent from older services. */
+  owned?: string[];
 }
 interface Loaded {
   snapshot: Snapshot;
@@ -162,19 +175,37 @@ let lastPlan: Plan | null = null;
 let mixVersion = 0;
 let currentSkinName: string | null = null;
 
+// Two drafts: "current" edits a skin in place (by default the one osu! uses;
+// its `base` is that skin), "new" mixes a new skin. Each holds only skin
+// names/paths the user picked and the edits; never sessions. Nothing is
+// written to a skin until Apply changes (or an export).
+type EditMode = "current" | "new";
 const RECIPE_KEY = "skin-studio:recipe";
-// The recipe holds only skin names/paths the user picked; never sessions.
-let recipe: Recipe = (() => {
+const EDIT_KEY = "skin-studio:edit";
+const MODE_KEY = "skin-studio:mode";
+const readRecipe = (key: string, fallback: Recipe): Recipe => {
   try {
-    const stored = JSON.parse(localStorage.getItem(RECIPE_KEY) ?? "null");
+    const stored = JSON.parse(localStorage.getItem(key) ?? "null");
     if (stored && typeof stored.name === "string" && stored.picks)
       return stored as Recipe;
   } catch {
     /* fall through to a fresh recipe */
   }
-  return { name: "My mix", base: null, picks: {} };
-})();
-const persist = () => localStorage.setItem(RECIPE_KEY, JSON.stringify(recipe));
+  return fallback;
+};
+let editMode: EditMode =
+  localStorage.getItem(MODE_KEY) === "new" ? "new" : "current";
+const recipes: Record<EditMode, Recipe> = {
+  new: readRecipe(RECIPE_KEY, { name: "My mix", base: null, picks: {} }),
+  current: readRecipe(EDIT_KEY, { name: "", base: null, picks: {} }),
+};
+recipes.current.inPlace = true;
+let recipe: Recipe = recipes[editMode];
+const persist = () =>
+  localStorage.setItem(
+    editMode === "new" ? RECIPE_KEY : EDIT_KEY,
+    JSON.stringify(recipe),
+  );
 
 const toolBase = `/tools/${encodeURIComponent(vosu.tool.id)}/api/`;
 const assetUrl = (skin: string, name: string) =>
@@ -192,11 +223,17 @@ class HttpError extends Error {
 }
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await vosu.fetch(path, init);
-  if (!response.ok)
-    throw new HttpError(
-      (await response.text()) || response.statusText,
-      response.status,
-    );
+  if (!response.ok) {
+    const text = (await response.text()) || response.statusText;
+    if (isSessionRefusal(response.status, text)) {
+      sessionLost();
+      throw new HttpError(
+        "This tab can no longer write: vosu restarted and forgot its session. Open Skin studio from the dashboard again; the draft is kept.",
+        response.status,
+      );
+    }
+    throw new HttpError(text, response.status);
+  }
   return response.status === 204 ? (undefined as T) : response.json();
 }
 const post = <T>(path: string, body: unknown) =>
@@ -224,6 +261,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
       name: skinName(key),
       text: snapshot.text,
       files: snapshot.files.map((f) => f.name),
+      owned: snapshot.owned,
     },
   };
   loaded.set(key, entry);
@@ -285,11 +323,17 @@ function renderIni() {
   const model = iniMode === "focus" ? focusDoc : mixDoc;
   iniEditor?.show(model);
   const loadedFocus = focused ? loaded.get(focused) : undefined;
+  // The skin being edited in place changes only through the draft.
+  const drafted = editMode === "current" && !!focused && focused === recipe.base;
   const writable =
-    iniMode === "focus" && !!loadedFocus?.snapshot.writable && vosu.canWrite;
+    iniMode === "focus" &&
+    !!loadedFocus?.snapshot.writable &&
+    canWrite() &&
+    !drafted;
   iniEditor?.setReadOnly(iniMode === "focus" && !writable);
   $("#ini-focus").setAttribute("aria-pressed", String(iniMode === "focus"));
   $("#ini-mix").setAttribute("aria-pressed", String(iniMode === "mix"));
+  $("#ini-mix").textContent = editMode === "current" ? "Draft" : "Mix draft";
   save.hidden = reload.hidden = iniMode !== "focus";
   $("#ini-reset").hidden = iniMode !== "mix" || !mixEdited();
   save.disabled = !writable || saving || conflict || !focusDirty();
@@ -301,8 +345,10 @@ function renderIni() {
       ? mixEdited()
         ? "Edited"
         : ""
-      : focused && !writable
-        ? skin?.origin === "lazer" || skin?.origin === "osk" || vosu.canWrite
+      : drafted && iniMode === "focus"
+        ? "Edit it in the draft"
+        : focused && !writable
+        ? skin?.origin === "lazer" || skin?.origin === "osk" || canWrite()
           ? "Read-only"
           : "Read-only tab"
         : "";
@@ -453,7 +499,7 @@ function renderLibrary() {
                     class: "v-btn v-btn--sm v-btn--ghost forget",
                     title: "Remove from the library; files stay",
                     ariaLabel: `Forget ${skin.name}`,
-                    disabled: !vosu.canWrite,
+                    disabled: !canWrite(),
                     onclick: () => void forget(skin),
                   },
                   "Forget",
@@ -482,6 +528,7 @@ async function loadLibrary(): Promise<Library | null> {
     libraryError = message(error);
   }
   renderLibrary();
+  followCurrent();
   renderMix();
   explorer?.refreshSkins();
   if (!focused) renderFocus();
@@ -616,16 +663,26 @@ function renderFocus() {
         .join(" · ")
     : "";
   const useBase = $<HTMLButtonElement>("#use-base");
-  useBase.disabled = !focused;
+  useBase.disabled = !focused || (editMode === "current" && !editable(skin));
   useBase.setAttribute(
     "aria-pressed",
     String(!!focused && recipe.base === focused),
   );
   useBase.textContent =
-    recipe.base === focused && focused ? "Mix base" : "Use as mix base";
+    editMode === "current"
+      ? recipe.base === focused && focused
+        ? "Editing this skin"
+        : "Edit this skin"
+      : recipe.base === focused && focused
+        ? "Mix base"
+        : "Use as mix base";
+  useBase.title =
+    editMode === "current" && skin && !editable(skin)
+      ? ".osk files and dropped files are read-only: switch to New skin to mix from them"
+      : "";
   const focusOsk = $<HTMLButtonElement>("#focus-osk");
-  focusOsk.disabled = !entry || !vosu.canWrite;
-  focusOsk.title = vosu.canWrite ? "" : "Read-only tab";
+  focusOsk.disabled = !entry || !canWrite();
+  focusOsk.title = canWrite() ? "" : "Read-only tab";
   renderColours();
   $("#guide").hidden = !!focused || view !== "elements";
   $("#elements-view").hidden = !focused || view !== "elements";
@@ -1031,6 +1088,10 @@ function renderGroups() {
 
 $("#use-base").onclick = () => {
   if (!focused) return;
+  if (editMode === "current") {
+    if (recipe.base !== focused) setTarget(focused, true);
+    return;
+  }
   recipe.base = recipe.base === focused ? null : focused;
   persist();
   renderFocus();
@@ -1060,7 +1121,8 @@ function showView(next: typeof view) {
   $("#guide").hidden = !!focused || view !== "elements";
   $(".focus-head").hidden = view === "keymodes";
   if (view === "ini") {
-    if (!focused) iniMode = "mix";
+    // The skin edited in place opens on its draft.
+    if (!focused || (editMode === "current" && focused === recipe.base)) iniMode = "mix";
     renderIni();
     if (iniEditor) iniEditor.layout();
     else void ensureEditor();
@@ -1131,6 +1193,366 @@ async function planNow(fresh = false): Promise<Plan> {
   if (mixEdited() && mixDoc.getValue()) plan.ini = mixDoc.getValue();
   return plan;
 }
+
+// ---- edit in place: the draft, its review, Apply / Discard / Restore -------
+interface Change {
+  path: string;
+  action: "add" | "replace" | "remove";
+  bytes: number;
+}
+type Target =
+  | { kind: "folder"; path: string }
+  | { kind: "mounted"; path: string }
+  | { kind: "import"; name: string; lazer: string | null };
+interface Review {
+  target: Target;
+  changes: Change[];
+  revision: string;
+}
+interface Applied {
+  target: Target;
+  changes: Change[];
+  backup: string | null;
+  file: string | null;
+  opened: boolean;
+}
+let review: Review | null = null;
+/** Choose "Apply to current skin" once it can be offered (unless the user picked another). */
+let applyDefault =
+  editMode === "current" && localStorage.getItem("skin-studio:export-target") !== "stable";
+/** Why exporting is unavailable now (renderMix's reason, for renderApply). */
+let exportReason = "";
+let reviewError = "";
+let reviewTimer = 0;
+let reviewTicket = 0;
+let applying = false;
+/** The first apply in a tab shows exactly what goes where. */
+let applyConfirmed = false;
+let lastApply: { id: string; created: number; changes: number } | null = null;
+
+/** Skins an apply can write: folders and lazer skins (not .osk or drops). */
+const editable = (skin: Skin | undefined) =>
+  !!skin &&
+  skin.available &&
+  !skin.builtin &&
+  (skin.origin === "stable" || skin.origin === "added" || skin.origin === "lazer");
+const currentKey = () =>
+  library?.skins.find((s) => s.current && editable(s))?.key ?? null;
+
+/** The apply request for the draft as it is now. */
+async function applyRequest(fresh: boolean) {
+  const target = recipe.base;
+  if (!target) throw new Error("No skin to apply to");
+  const plan = await planNow(fresh);
+  plan.name = skinName(target);
+  const base = (await load(target, fresh)).data;
+  return { skin: target, plan, remove: inPlaceRemovals(plan, base) };
+}
+
+function scheduleReview() {
+  clearTimeout(reviewTimer);
+  const ticket = ++reviewTicket;
+  if (editMode !== "current" || !recipe.base || !canWrite() || composeError) {
+    review = null;
+    reviewError = "";
+    renderApply();
+    return;
+  }
+  reviewTimer = window.setTimeout(async () => {
+    try {
+      const next = await post<Review>("v1/review", await applyRequest(false));
+      if (ticket !== reviewTicket) return;
+      review = next;
+      reviewError = "";
+    } catch (error) {
+      if (ticket !== reviewTicket) return;
+      review = null;
+      reviewError = message(error);
+    }
+    renderApply();
+  }, 400);
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const describeTarget = (target: Target) =>
+  target.kind === "folder"
+    ? `Writes into the skin's folder, ${target.path}`
+    : target.kind === "mounted"
+      ? `Writes into osu!lazer's "Edit externally" folder (${target.path}); press "Finish editing" in lazer afterwards to replace the skin`
+      : `osu!lazer cannot have its skins replaced from outside: applying imports this as a new skin, "${target.name}". To edit in place, open lazer's skin editor and choose "Edit externally" first.`;
+
+function renderApply() {
+  const current = editMode === "current";
+  $("#edit-head").hidden = !current;
+  $("#mix-head").hidden = current;
+  // "Apply to current skin" exists while a skin is edited in place (and is
+  // the default choice then); its state line sits under the button.
+  const exportTarget = $<HTMLSelectElement>("#export-target");
+  const option = exportTarget.querySelector<HTMLOptionElement>('option[value="apply"]')!;
+  option.hidden = option.disabled = !current || !recipe.base;
+  if (option.hidden && exportTarget.value === "apply") exportTarget.value = "stable";
+  if (!option.hidden && applyDefault) {
+    exportTarget.value = "apply";
+    applyDefault = false;
+  }
+  $("#apply-area").hidden = option.hidden || exportTarget.value !== "apply";
+  $("#mode-current").setAttribute("aria-pressed", String(current));
+  $("#mode-new").setAttribute("aria-pressed", String(!current));
+  $("#mix-reset").textContent = current ? "Discard" : "Clear";
+  $("#mix-reset").hidden = current;
+  if (!current) return;
+  const target = recipe.base;
+  const skin = skinByKey(target);
+  $("#edit-target").textContent = target
+    ? `${skinName(target)}${target === currentKey() ? " (current skin)" : ""}`
+    : "No skin";
+  $("#edit-where").textContent = !target
+    ? "vosu reports no current skin (osu! not running?). Choose one in the library, then Edit this skin."
+    : review
+      ? describeTarget(review.target)
+      : skin?.origin === "lazer"
+        ? "osu!lazer skin"
+        : "Skin folder";
+  // osu! switched skins while this draft has edits for another one.
+  const now = currentKey();
+  const note = $("#edit-note");
+  note.hidden = !(target && now && now !== target && hasEdits(recipe) && !recipe.pinned);
+  if (!note.hidden && now)
+    note.replaceChildren(
+      `osu! now uses ${skinName(now)}; this draft still edits ${skinName(target ?? "")}. `,
+      h(
+        "button",
+        {
+          type: "button",
+          class: "v-btn v-btn--sm v-btn--ghost",
+          onclick: () => setTarget(now, false),
+        },
+        `Edit ${skinName(now)}`,
+      ),
+    );
+  const edits = hasEdits(recipe);
+  renderExport(exportReason);
+  const count = $("#apply-count");
+  count.classList.toggle("error", !!reviewError);
+  count.textContent = !target
+    ? ""
+    : !canWrite()
+      ? edits
+        ? "Unapplied draft. Applying needs a session from the dashboard."
+        : "No changes"
+      : reviewError
+        ? reviewError
+        : review
+          ? review.changes.length
+            ? `${plural(review.changes.length, "unapplied change")}`
+            : "No unapplied changes"
+          : edits
+            ? "Checking changes…"
+            : "No changes";
+  $<HTMLButtonElement>("#discard").disabled = applying || !edits;
+  const restore = $<HTMLButtonElement>("#restore");
+  restore.hidden = !lastApply;
+  restore.disabled = applying || !canWrite();
+  if (lastApply)
+    restore.title = `Puts back the ${plural(lastApply.changes, "file")} the apply of ${new Date(lastApply.created * 1000).toLocaleString()} changed`;
+}
+
+/** Edits nothing until the user picks a skin; `pinned` stops following osu!. */
+function setTarget(key: string, pinned: boolean) {
+  if (
+    hasEdits(recipe) &&
+    !confirm(`Discard the unapplied changes to ${skinName(recipe.base ?? "")} and edit ${skinName(key)}?`)
+  )
+    return;
+  clearDraft();
+  recipe.base = key;
+  recipe.pinned = pinned || undefined;
+  persist();
+  void refreshLastApply();
+  renderFocus();
+  renderLibrary();
+  renderMix();
+  scheduleCompose();
+}
+
+/** Follows osu!'s current skin while the draft has nothing unapplied. */
+function followCurrent() {
+  if (editMode !== "current") return;
+  const now = currentKey();
+  if (!now || now === recipe.base) return;
+  if (recipe.base && (hasEdits(recipe) || recipe.pinned)) return renderApply();
+  recipe.base = now;
+  persist();
+  void refreshLastApply();
+  renderFocus();
+  renderMix();
+  scheduleCompose();
+}
+
+function clearDraft() {
+  recipe.picks = {};
+  recipe.overrides = {};
+  recipe.keymodes = {};
+  delete recipe.ini;
+  persist();
+  keymodes.resetHistory();
+  composedIni = "";
+  mixDoc.setValue("");
+  review = null;
+}
+function discardDraft() {
+  if (!hasEdits(recipe)) return;
+  if (!confirm(`Discard ${review?.changes.length ? plural(review.changes.length, "unapplied change") : "the draft"}?`))
+    return;
+  clearDraft();
+  renderFocus();
+  renderMix();
+  scheduleCompose();
+}
+
+async function refreshLastApply() {
+  lastApply = null;
+  const target = recipe.base;
+  if (editMode === "current" && target && skinByKey(target)?.origin !== "lazer")
+    try {
+      lastApply = await request(`v1/applied?skin=${encodeURIComponent(target)}`);
+    } catch {
+      /* no backups to offer */
+    }
+  renderApply();
+}
+
+const formatSize = (bytes: number) =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
+
+/** Shows what an apply writes where; resolves to the user's answer. */
+function confirmApply(next: Review): Promise<boolean> {
+  const dialog = $<HTMLDialogElement>("#apply-dialog");
+  $("#apply-where").textContent = describeTarget(next.target);
+  const verb = { add: "Add", replace: "Replace", remove: "Remove" };
+  $("#apply-list").replaceChildren(
+    ...next.changes.map((c) =>
+      h(
+        "li",
+        {},
+        h("span", { class: `v-badge apply-${c.action}` }, verb[c.action]),
+        h("span", { class: "v-mono" }, c.path),
+        h("span", { class: "v-muted v-num" }, formatSize(c.bytes)),
+      ),
+    ),
+  );
+  $("#apply-safety").textContent =
+    next.target.kind === "import"
+      ? "Your lazer skin is not changed. The .osk is written to Skin studio's data folder and handed to the running osu!lazer."
+      : "Every file replaced or removed is copied into Skin studio's data folder first; Restore last apply puts them back. Other files are not touched.";
+  $("#apply-confirm").textContent =
+    next.target.kind === "import" ? `Import into osu!lazer` : `Apply ${plural(next.changes.length, "change")}`;
+  dialog.returnValue = "";
+  dialog.showModal();
+  return new Promise((resolve) =>
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "apply"), { once: true }),
+  );
+}
+
+async function applyNow() {
+  const result = $("#mix-result");
+  applying = true;
+  renderApply();
+  try {
+    // Re-read the skin so the review matches the files on disk now.
+    const body = await applyRequest(true);
+    const next = await post<Review>("v1/review", body);
+    if (!next.changes.length) {
+      result.replaceChildren(h("p", { class: "v-muted" }, "Nothing to apply"));
+      return;
+    }
+    if (!applyConfirmed) {
+      if (!(await confirmApply(next))) return;
+      applyConfirmed = true;
+    }
+    const applied = await post<Applied>("v1/apply", { ...body, revision: next.revision });
+    const n = plural(applied.changes.length, "change");
+    result.replaceChildren(
+      ...(applied.target.kind === "folder"
+        ? [
+            h("p", { class: "ok" }, `Applied ${n}`),
+            h("p", { class: "v-mono v-muted" }, applied.target.path),
+            h("p", { class: "v-muted" }, "Re-select the skin in osu! to see it."),
+          ]
+        : applied.target.kind === "mounted"
+          ? [
+              h("p", { class: "ok" }, `Applied ${n} to lazer's edit folder`),
+              h("p", { class: "v-muted" }, 'Press "Finish editing" in osu!lazer to replace the skin.'),
+            ]
+          : applied.opened
+            ? [
+                h("p", { class: "ok" }, `Sent to osu!lazer as "${applied.target.name}"`),
+                h("p", { class: "v-muted" }, 'lazer adds it as a new skin: click its "Imported … Click to view" notification to switch to it.'),
+              ]
+            : [
+                h("p", { class: "ok" }, `Saved "${applied.target.name}.osk"`),
+                h("p", { class: "v-muted" }, "osu!lazer is not running: drag this file into it."),
+                h("p", { class: "v-mono v-muted" }, applied.file ?? ""),
+              ]),
+    );
+    clearDraft();
+    loaded.delete(recipe.base ?? "");
+    await loadLibrary();
+    await refreshLastApply();
+    if (focused === recipe.base) await focus(focused);
+    scheduleCompose();
+  } catch (error) {
+    result.replaceChildren(h("p", { class: "error" }, message(error)));
+  } finally {
+    applying = false;
+    renderApply();
+  }
+}
+
+$("#discard").onclick = () => discardDraft();
+$("#restore").onclick = async () => {
+  const target = recipe.base;
+  if (!target || !lastApply) return;
+  if (!confirm(`Put back the ${plural(lastApply.changes, "file")} the last apply changed in ${skinName(target)}? Files changed since then are left alone.`))
+    return;
+  const result = $("#mix-result");
+  try {
+    const restored = await post<{ restored: number; skipped: string[] }>("v1/restore", { skin: target });
+    result.replaceChildren(
+      h("p", { class: "ok" }, `Restored ${plural(restored.restored, "file")}`),
+      ...(restored.skipped.length
+        ? [h("p", { class: "v-muted" }, `Left as they are (changed since): ${restored.skipped.join(", ")}`)]
+        : []),
+    );
+    loaded.delete(target);
+    if (focused === target) await focus(target);
+    await refreshLastApply();
+    scheduleCompose();
+  } catch (error) {
+    result.replaceChildren(h("p", { class: "error" }, message(error)));
+  }
+};
+
+function setMode(next: EditMode) {
+  if (next === editMode) return;
+  persist();
+  editMode = next;
+  localStorage.setItem(MODE_KEY, next);
+  recipe = recipes[next];
+  keymodes.resetHistory();
+  composedIni = "";
+  mixDoc.setValue("");
+  review = null;
+  mixName.value = recipe.name;
+  if (next === "current") followCurrent();
+  void refreshLastApply();
+  renderFocus();
+  renderLibrary();
+  renderMix();
+  scheduleCompose();
+}
+$("#mode-current").onclick = () => setMode("current");
+$("#mode-new").onclick = () => setMode("new");
 /**
  * Composes the recipe into the mix draft. A draft skin.ini edited by hand
  * is kept; the `[Mania]` keys a Keymodes change `touched` are written into
@@ -1147,7 +1569,10 @@ async function recompose(touched?: { keys: number; names: string[] }) {
     fallbacks = composed.fallbacks;
     lastPlan = composed.plan;
     composeError = "";
-    if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(composedIni);
+    if (!wasEdited || !mixDoc.getValue())
+      mixDoc.setValue(
+        editMode === "current" && recipe.ini !== undefined ? recipe.ini : composedIni,
+      );
     else if (touched) {
       const { keys, names } = touched;
       let text = mixDoc.getValue();
@@ -1166,6 +1591,7 @@ async function recompose(touched?: { keys: number; names: string[] }) {
   renderIni();
   updatePreview();
   keymodes.refresh();
+  scheduleReview();
 }
 
 const groupLabel = (id: string) =>
@@ -1402,14 +1828,16 @@ function renderMix() {
     !Object.keys(recipe.picks).length &&
     !overrides &&
     !Object.keys(recipe.keymodes ?? {}).length;
-  const reason = !vosu.canWrite
-    ? "Read-only tab"
+  const reason = !canWrite()
+    ? `Read-only tab: ${readOnlyReason()}`
     : empty
       ? "Pick a base, a group or an asset"
       : composeError;
+  exportReason = reason;
   renderExport(reason);
   explorer?.refreshMix();
   renderUploads();
+  renderApply();
 }
 
 // ---- export: one target choice and its button ------------------------------
@@ -1423,6 +1851,21 @@ const exportTarget = $<HTMLSelectElement>("#export-target");
 function renderExport(reason = "") {
   const target = isTarget(exportTarget.value) ? exportTarget.value : "stable";
   const run = $<HTMLButtonElement>("#export-run");
+  if (target === "apply") {
+    run.textContent = applying
+      ? "Applying…"
+      : review?.target.kind === "import"
+        ? "Import into osu!lazer"
+        : review?.target.kind === "mounted"
+          ? "Apply to lazer's edit folder"
+          : "Apply changes";
+    run.disabled = applying || !canWrite() || !review?.changes.length;
+    run.title = !canWrite() ? `Read-only tab: ${readOnlyReason()}` : "";
+    $("#export-note").textContent = review
+      ? describeTarget(review.target)
+      : targetNote("apply", []);
+    return;
+  }
   const keys = mixKeyCounts(mixDoc.getValue() || lastPlan?.ini || "");
   const playable =
     target === "stable" ||
@@ -1450,6 +1893,7 @@ function renderExport(reason = "") {
 }
 exportTarget.onchange = () => {
   localStorage.setItem(EXPORT_KEY, exportTarget.value);
+  applyDefault = false;
   renderMix();
 };
 
@@ -1482,8 +1926,8 @@ function renderUploads() {
     ),
   );
   const remove = $<HTMLButtonElement>("#mix-uploads-remove");
-  remove.disabled = !unused.length || !vosu.canWrite;
-  remove.title = !vosu.canWrite
+  remove.disabled = !unused.length || !canWrite();
+  remove.title = !canWrite()
     ? "Read-only tab"
     : unused.length
       ? "Files this draft uses are kept"
@@ -1514,8 +1958,9 @@ $("#mix-base-clear").onclick = () => {
   scheduleCompose();
 };
 $("#mix-reset").onclick = () => {
+  if (editMode === "current") return discardDraft();
   if (!confirm("Clear the mix?")) return;
-  recipe = { name: recipe.name, base: null, picks: {}, overrides: {} };
+  recipe = recipes.new = { name: recipe.name, base: null, picks: {}, overrides: {} };
   persist();
   mixDoc.setValue("");
   composedIni = "";
@@ -1604,7 +2049,7 @@ $("#focus-osk").onclick = async () => {
 };
 
 let building = false;
-async function buildMix(target: ExportTarget) {
+async function buildMix(target: Exclude<ExportTarget, "apply">) {
   building = true;
   renderMix();
   const result = $("#mix-result");
@@ -1664,7 +2109,9 @@ async function buildMix(target: ExportTarget) {
 }
 $("#export-run").onclick = () => {
   const target = exportTarget.value;
-  if (isTarget(target)) void buildMix(target);
+  if (!isTarget(target)) return;
+  if (target === "apply") void applyNow();
+  else void buildMix(target);
 };
 
 // ---- preview ----------------------------------------------------------------
@@ -1886,8 +2333,19 @@ mixDoc.onDidChangeContent(
   afterEdit(() => {
     mixVersion++;
     keymodes.refresh();
+    scheduleReview();
   }),
 );
+// The in-place draft keeps a hand-edited skin.ini until applied or discarded.
+mixDoc.onDidChangeContent(() => {
+  if (editMode !== "current" || !mixDoc.getValue()) return;
+  const text = mixEdited() ? mixDoc.getValue() : undefined;
+  if (text === recipe.ini) return;
+  if (text === undefined) delete recipe.ini;
+  else recipe.ini = text;
+  persist();
+  renderApply();
+});
 focusDoc.onDidChangeContent(afterEdit(() => focusVersion++));
 
 /** Hands the preview the skin it should draw now (cheap when unchanged). */
@@ -2077,11 +2535,21 @@ const keymodes = new KeymodesView({
     void refreshUploads();
     return stored.name;
   },
-  canWrite: () => vosu.canWrite,
+  canWrite: () => canWrite(),
   preview: (canvas, stage, onState) =>
     import("./preview").then(
       ({ Preview }) => new Preview(canvas, stage, onState, { rulesets: [3] }),
     ).then((shown) => (clientScroll.add(shown), shown)),
+  derive: (skin, files) => post("v1/derive", { skin, files }),
+  rows: (skin, name) =>
+    request(`v1/rows?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`),
+  lastPlay: () => request("v1/plays/last"),
+  speed: () => calibrationSpeed(),
+  setSpeed: (speed) => {
+    // The same speed for previews: the Preview tab's Scroll field.
+    pvScroll.value = speed ? String(speed) : "";
+    clientScroll.setOverride(speed);
+  },
   previewSource: () => ({
     key: "mix",
     version: mixVersion,
@@ -2125,6 +2593,28 @@ explorer = new Explorer({
 }
 
 // ---- live game state -------------------------------------------------------
+/** The attached client ("stable" or "lazer"), from vosu's live subscription. */
+let liveClient: "stable" | "lazer" | null = null;
+/**
+ * The scroll speed calibration converts offsets with: exactly the one the
+ * previews draw at (`clientScroll`: the Scroll field, the tool setting, else
+ * the client's own setting through the shared @vosu-tools/client-skin
+ * parser), with the client's BPM scaling. None while it would only be
+ * lazer's default (the page then asks for the speed).
+ */
+function calibrationSpeed(): (Speed & { upscroll: boolean; source: string }) | null {
+  const scroll = clientScroll.current;
+  if (scroll.source === "default") return null;
+  const settings = clientScroll.settings;
+  const client = liveClient ?? "lazer";
+  return {
+    source: scroll.source,
+    client,
+    speed: scroll.setting,
+    bpmScale: client === "stable" ? (settings?.bpmScale ?? false) : undefined,
+    upscroll: settings?.scrollUp ?? false,
+  };
+}
 const rulesets: Record<string, Category> = {
   osu: "osu",
   taiko: "taiko",
@@ -2167,6 +2657,7 @@ function subscribe() {
       });
     }
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
+    liveClient = values[2] === "stable" || values[2] === "lazer" ? values[2] : null;
     clientScroll.setClient(values[2], values[3]);
   };
   vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
@@ -2197,14 +2688,25 @@ new MutationObserver(() => iniEditor?.applyTheme()).observe(
     attributeFilter: ["data-theme"],
   },
 );
-const modeBadge = $("#mode");
-modeBadge.hidden = vosu.canWrite;
-modeBadge.textContent = "Read-only";
-modeBadge.title = "Open from the dashboard to save and build";
+const modeBadge = $<HTMLAnchorElement>("#mode");
+function renderSession() {
+  modeBadge.hidden = canWrite();
+  modeBadge.textContent = "Read-only · Open from the dashboard";
+  modeBadge.href = dashboardTools();
+  modeBadge.title = `Read-only: ${readOnlyReason()}. Edits stay in this browser's draft; applying, exporting and adding files need a tab opened from the dashboard (Tools → Skin studio → Open).`;
+}
+renderSession();
+onSessionChange(() => {
+  renderSession();
+  renderMix();
+  renderIni();
+  renderFocus();
+  keymodes.refresh();
+});
 for (const control of document.querySelectorAll<
   HTMLInputElement | HTMLButtonElement
 >("#add-folder input, #add-folder button, #add-toggle"))
-  control.disabled = !vosu.canWrite;
+  control.disabled = !canWrite();
 const initial = await loadLibrary();
 if (initial) {
   const library = initial;
@@ -2220,6 +2722,7 @@ if (initial) {
 } else renderFocus();
 renderMix();
 void refreshUploads();
+void refreshLastApply();
 scheduleCompose();
 subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.

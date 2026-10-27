@@ -68,7 +68,7 @@
       >
         Muted
       </button>
-      <span id="mode" class="v-badge"></span>
+      <a id="mode" class="v-badge v-badge--warn mode-link" target="_blank" rel="noopener" hidden></a>
     </header>
 
     <main class="v-main studio">
@@ -291,11 +291,19 @@
                 <span id="km-preview-state" class="v-muted km-preview-state" role="status"></span>
               </div>
               <div class="v-scroll km-sheet">
-                <div id="km-grid" class="km-grid" role="grid" aria-label="Column images and values"></div>
+                <div id="km-grid" class="km-grid" role="grid" aria-multiselectable="true" aria-label="Column images and values"></div>
                 <p id="km-error" class="km-error" role="alert" hidden></p>
+                <details class="km-hit" open>
+                  <summary class="v-label">Hit position</summary>
+                  <div id="km-hit" class="km-hit__body"></div>
+                </details>
                 <details class="km-shared" open>
                   <summary class="v-label">Stage images</summary>
-                  <div id="km-shared-grid" class="km-shared-grid" role="grid" aria-label="Stage images"></div>
+                  <div id="km-shared-grid" class="km-shared-grid" role="grid" aria-multiselectable="true" aria-label="Stage images"></div>
+                </details>
+                <details class="km-shared km-settings">
+                  <summary class="v-label">All [Mania] settings</summary>
+                  <div id="km-settings" class="km-settings__body"></div>
                 </details>
               </div>
             </div>
@@ -468,7 +476,10 @@
 
       <section class="v-panel mix" aria-label="Mix">
         <div class="v-panel__head">
-          <span class="v-label">Mix</span>
+          <div class="v-seg mix-mode" role="group" aria-label="What edits change">
+            <button id="mode-current" type="button" aria-pressed="true">Current skin</button>
+            <button id="mode-new" type="button" aria-pressed="false">New skin</button>
+          </div>
           <button
             id="mix-reset"
             type="button"
@@ -477,7 +488,17 @@
             Clear
           </button>
         </div>
-        <div class="mix-head">
+        <div id="edit-head" class="mix-head">
+          <div class="v-field">
+            <span>Editing</span>
+            <div class="mix-base">
+              <span id="edit-target" class="mix-base__name">No skin</span>
+            </div>
+          </div>
+          <p id="edit-where" class="v-muted mix-edit__where"></p>
+          <p id="edit-note" class="mix-edit__note" hidden></p>
+        </div>
+        <div id="mix-head" class="mix-head">
           <label class="v-field">
             <span>Name</span>
             <input
@@ -521,6 +542,7 @@
             <label class="v-field">
               <span>Export as</span>
               <select id="export-target" class="v-select">
+                <option value="apply">Apply to current skin</option>
                 <option value="stable">osu! stable folder</option>
                 <option value="osk">osu!lazer .osk</option>
                 <option value="quaver">Quaver</option>
@@ -541,6 +563,15 @@
             >
               Create stable skin
             </button>
+            <div id="apply-area" class="v-row mix-apply">
+              <span id="apply-count" class="mix-apply__count" aria-live="polite"></span>
+              <button id="discard" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
+                Discard
+              </button>
+              <button id="restore" type="button" class="v-btn v-btn--sm v-btn--ghost" hidden>
+                Restore last apply
+              </button>
+            </div>
           </div>
           <div class="v-row">
             <button
@@ -562,6 +593,23 @@
         </div>
       </section>
     </main>
+
+    <dialog id="apply-dialog" class="v-panel apply-dialog" aria-labelledby="apply-title">
+      <form method="dialog" class="apply-dialog__form">
+        <div class="v-panel__head">
+          <span id="apply-title" class="v-label">Apply changes</span>
+        </div>
+        <div class="apply-dialog__body">
+          <p id="apply-where" class="apply-dialog__where"></p>
+          <ul id="apply-list" class="v-scroll apply-dialog__list"></ul>
+          <p id="apply-safety" class="v-muted"></p>
+        </div>
+        <div class="v-row apply-dialog__foot">
+          <button value="cancel" class="v-btn">Cancel</button>
+          <button id="apply-confirm" value="apply" class="v-btn v-btn--primary">Apply</button>
+        </div>
+      </form>
+    </dialog>
     <audio id="player" preload="none" muted></audio>
     <script type="module" src="/src/main.ts"></script>
   </body>

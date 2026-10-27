@@ -1071,6 +1071,11 @@
 .km-slot[aria-selected="true"] {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* Shift+click selects ranges, not text. */
+.km-slot {
+  user-select: none;
 }
 .km-slot.km-drop {
   outline: 2px dashed var(--accent);
@@ -1417,4 +1422,230 @@
 .mix-uploads__foot {
   gap: var(--space-2);
   font-size: var(--step--1);
+}
+
+/* ---- hit position ---------------------------------------------------------- */
+.km-hit {
+  margin-top: var(--space-3);
+}
+.km-hit > summary {
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.km-hit__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  font-size: var(--step--1);
+}
+.km-hit__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.km-hit__label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  font-weight: 600;
+}
+.km-hit__value {
+  width: 5rem;
+  height: var(--control-h-sm);
+  font-family: var(--font-mono);
+}
+.km-hit__note {
+  min-width: 0;
+}
+.km-hit__play {
+  margin: 0;
+  font-weight: 600;
+}
+.km-hit__warn {
+  margin: 0;
+  color: var(--caution);
+}
+
+/* ---- edit in place ------------------------------------------------------ */
+.mix-mode {
+  flex: none;
+}
+.mix-edit__where,
+.mix-edit__note {
+  margin: 0;
+  font-size: var(--step--1);
+  overflow-wrap: anywhere;
+}
+.mix-edit__note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  color: var(--caution);
+}
+.mix-apply {
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+}
+.mix-apply__count {
+  flex: 1 1 auto;
+  font-size: var(--step--1);
+  font-weight: 600;
+}
+.mix-apply__count.error {
+  color: var(--danger);
+  font-weight: 400;
+}
+.mode-link {
+  text-decoration: none;
+}
+.mode-link:hover {
+  background: var(--hover);
+}
+.apply-dialog {
+  width: min(44rem, calc(100vw - 2 * var(--space-4)));
+  max-height: min(36rem, calc(100vh - 2 * var(--space-4)));
+  padding: 0;
+  color: var(--fg);
+}
+/* .v-panel sets display, which would show a closed dialog. */
+.apply-dialog:not([open]) {
+  display: none;
+}
+.apply-dialog::backdrop {
+  background: var(--scrim);
+}
+.apply-dialog__form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: inherit;
+}
+.apply-dialog__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  min-height: 0;
+  padding: var(--space-3);
+}
+.apply-dialog__where {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.apply-dialog__list {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: var(--hair) solid var(--rule);
+}
+.apply-dialog__list li {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: var(--hair) solid var(--rule);
+  font-size: var(--step--1);
+}
+.apply-dialog__list li > .v-mono {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.apply-dialog__list .apply-add {
+  color: var(--ok);
+}
+.apply-dialog__list .apply-remove {
+  color: var(--danger);
+}
+.apply-dialog__foot {
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--hair) solid var(--rule);
+}
+.km-hit__check {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* ---- all [Mania] settings ------------------------------------------------ */
+.km-settings__body {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+.km-settings__columns .km-rowhead {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.km-settings__columns .km-value input[type="checkbox"] {
+  margin: 0 auto;
+}
+/* A gap entry sits between the column it follows and the next one. */
+.km-value--gap {
+  transform: translateX(50%);
+}
+.km-settings__select {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h-sm);
+  font-size: var(--step--1);
+}
+.km-settings__groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: var(--space-2) var(--space-4);
+  align-items: start;
+}
+.km-settings__group {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.km-settings__group > legend {
+  margin-bottom: var(--space-1);
+}
+.km-settings__field {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) minmax(4.5rem, 7rem) minmax(0, auto) 1.25rem;
+  gap: 2px var(--space-2);
+  align-items: center;
+  font-size: var(--step--1);
+}
+.km-settings__label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.km-settings__default {
+  font-size: var(--step--2);
+  white-space: nowrap;
+}
+.km-settings__note {
+  grid-column: 1 / -1;
+  font-size: var(--step--2);
+}
+.km-settings__colour {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.25rem;
+  gap: 2px;
+}
+.km-reset[hidden] {
+  display: none;
+}
+.km-settings__field .km-reset,
+.km-settings__columns .km-reset {
+  position: static;
+  opacity: 1;
 }

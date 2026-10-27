@@ -1,0 +1,676 @@
+// The Keymodes screen's "Hit position" group for the shown key count:
+// HitPosition with a stepper that also moves the receptor graphics, and a
+// calibration from the last completed play for receptors and hold tails.
+
+import { parseOsu, type Beatmap } from "@vosu-tools/osu-parse";
+import { maniaConfig, type ManiaImageResolution } from "@vosu-tools/render-core/mania";
+import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
+import { judgeReplay, parseReplay, replayRate } from "@vosu-tools/replay";
+import { maniaValue, setManiaValue } from "@vosu-tools/skin-spec";
+import {
+  MIN_HITS,
+  calibratedHitPosition,
+  offsets,
+  receptorShift,
+  holdPlan,
+  type Offsets,
+  type Speed,
+} from "./calibrate";
+import { $, h } from "./dom";
+import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
+import { lookupFiles } from "./mania";
+import {
+  type Dims,
+  type Geometry,
+  columnOf,
+  hitPositionFor,
+  pieceOf,
+  pieceOps,
+  referenceScale,
+} from "./proportions";
+import { UPLOADS } from "./uploads";
+
+/** One image operation of the service's `/v1/derive`. */
+export type DeriveOp =
+  | { shift: { up: number } }
+  | { tail: { gap: number; at_top: boolean } }
+  | { spacer: { rows: number } }
+  | { percy: { height: number; cap_bottom: number } }
+  | { resize: { width: number; height: number; scale_y: number; up: number } }
+  | { rows: { height: number } };
+export interface LastPlay {
+  client: "stable" | "lazer";
+  source: string;
+  date: number | string;
+  md5: string;
+  replay: string;
+  osu: string;
+}
+export interface HitHost {
+  keys(): number;
+  mixText(): string;
+  /** The mix's files: lower-cased output path → source. */
+  mixFiles(): Map<string, { skin: string; from: string; to: string }>;
+  mixIndex(): Map<string, string[]>;
+  resolved(): ManiaImageResolution[];
+  draft(): KeymodeDraft | undefined;
+  /** One undoable change of the shown key count's draft. */
+  change(label: string, mutate: (draft: KeymodeDraft) => void): void;
+  derive(skin: string, files: { name: string; op: DeriveOp; cap?: string }[]): Promise<{ from: string; stored: string; lost: number }[]>;
+  rows(skin: string, name: string): Promise<{ width: number; height: number; top: number; bottom: number }>;
+  lastPlay(): Promise<LastPlay>;
+  /** The scroll speed the previews draw at, unless that is only lazer's default. */
+  speed(): (Speed & { upscroll: boolean; source?: string }) | null;
+  /** Sets the speed for calibration and the previews alike (null: follow the client). */
+  setSpeed(speed: number | null): void;
+  canWrite(): boolean;
+  state(text: string): void;
+  error(text: string): void;
+}
+
+const DEFAULT_HIT_POSITION = 402;
+const KEY = /^KeyImage\d+D?$/;
+const hd = (file: string) => /@2x\.[^.]+$/i.test(file);
+
+/** A judged play, summarised for the shown key count. */
+interface Calibration {
+  play: LastPlay;
+  map: Beatmap;
+  keys: number;
+  speed: Speed;
+  press: Offsets;
+  release: Offsets;
+}
+
+export class HitPanel {
+  #host: HitHost;
+  #calibration: Calibration | null = null;
+  #busy = false;
+  /** Scroll speed typed in when vosu reports none. */
+
+  constructor(host: HitHost) {
+    this.#host = host;
+  }
+
+  /** HitPosition of the shown key count (skin.ini, else lazer's default 402). */
+  #current() {
+    const raw = Number(maniaValue(this.#host.mixText(), this.#host.keys(), "HitPosition"));
+    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_HIT_POSITION;
+  }
+
+  render() {
+    const root = $("#km-hit");
+    const keys = this.#host.keys();
+    if (!keys) {
+      root.replaceChildren();
+      return;
+    }
+    // Focus survives the re-render: the control with the same label.
+    const focused = root.contains(document.activeElement)
+      ? document.activeElement?.getAttribute("aria-label") ?? (document.activeElement as HTMLElement | null)?.id
+      : null;
+    queueMicrotask(() => {
+      if (!focused) return;
+      const again = [...root.querySelectorAll<HTMLElement>("input, button")].find(
+        (el) => el.getAttribute("aria-label") === focused || el.id === focused,
+      );
+      again?.focus();
+    });
+    const current = this.#current();
+    const input = h("input", {
+      type: "number",
+      min: "240",
+      max: "480",
+      step: "1",
+      value: String(current),
+      class: "v-input km-hit__value",
+      ariaLabel: `${keys}K HitPosition`,
+      disabled: this.#busy || !this.#host.canWrite(),
+    });
+    input.onchange = () => void this.setHitPosition(Number(input.value));
+    const step = (by: number, label: string) =>
+      h(
+        "button",
+        {
+          type: "button",
+          class: "v-btn v-btn--sm v-btn--icon",
+          ariaLabel: `${label} (receptors move ${by < 0 ? "up" : "down"} 8 px, 16 px @2x)`,
+          title: `${by > 0 ? "+" : ""}${by}: receptors move ${by < 0 ? "up" : "down"} ${Math.abs(by) * 1.6} px (${Math.abs(by) * 3.2} px @2x)`,
+          disabled: this.#busy || !this.#host.canWrite(),
+          onclick: () => void this.setHitPosition(this.#current() + by),
+        },
+        by > 0 ? "+5" : "−5",
+      );
+    const hit = this.#host.draft()?.hit;
+    const moved = hit
+      ? Object.values(hit.originals).map((o) => receptorShift(o.at, current, false))
+      : [];
+    const note = moved.length
+      ? `Receptors moved ${moved[0].rows >= 0 ? "up" : "down"} ${Math.abs(moved[0].rows)} px (${Math.abs(receptorShift(Object.values(hit!.originals)[0].at, current, true).rows)} px @2x) from HitPosition ${Object.values(hit!.originals)[0].at}.`
+      : "1 unit = 1.6 px (3.2 px @2x); a lower HitPosition moves the receptors up.";
+    const speed = this.#speed(),
+      live = this.#host.speed();
+    const speedLine = this.#speedInput(live);
+    root.replaceChildren(
+      h(
+        "div",
+        { class: "km-hit__row" },
+        h("label", { class: "km-hit__label" }, "HitPosition", input),
+        step(-5, "Raise the hit line"),
+        step(5, "Lower the hit line"),
+        h("span", { class: "v-muted km-hit__note" }, note),
+      ),
+      this.#keepRow(),
+      h(
+        "div",
+        { class: "km-hit__row" },
+        h(
+          "button",
+          {
+            type: "button",
+            class: "v-btn v-btn--sm",
+            id: "km-calibrate",
+            disabled: this.#busy || !speed,
+            title: speed ? "Reads the newest completed local osu!mania play" : "Needs your scroll speed",
+            onclick: () => void this.#calibrate(),
+          },
+          this.#busy ? "Reading the last play…" : "Calibrate from last play",
+        ),
+        speedLine,
+      ),
+      ...this.#proposal(),
+    );
+  }
+
+  /** "Keep proportions when changing column width", per key count (on by default). */
+  #keepRow() {
+    const keys = this.#host.keys();
+    const on = this.#host.draft()?.keepProportions !== false;
+    const box = h("input", { type: "checkbox", id: "km-keep", checked: on });
+    box.onchange = () =>
+      this.#host.change(`${box.checked ? "Keep" : "Stretch"} ${keys}K proportions when changing column width`, (draft) => {
+        if (box.checked) delete draft.keepProportions;
+        else draft.keepProportions = false;
+      });
+    return h(
+      "div",
+      { class: "km-hit__row" },
+      h("label", { class: "km-hit__check" }, box, " Keep proportions when changing column width"),
+      h(
+        "span",
+        { class: "v-muted km-hit__note" },
+        on
+          ? "Receptors, notes and hold pieces are rescaled so a wider or narrower column looks scaled, not stretched; HitPosition follows the receptors."
+          : "Off: osu! stretches receptors and notes across the column width.",
+      ),
+    );
+  }
+
+  /**
+   * The scroll speed offsets are converted with: the one the previews draw
+   * at (the client's, the Preview tab's Scroll field, or typed here, which
+   * sets that field too), so calibration and previews always agree.
+   */
+  #speedInput(live: ReturnType<HitHost["speed"]>) {
+    const input = h("input", {
+      type: "number",
+      min: "1",
+      max: "40",
+      step: "any",
+      class: "v-input km-hit__value",
+      ariaLabel: "Your osu!mania scroll speed",
+      placeholder: "speed",
+      value: live && live.source !== "client" ? String(live.speed) : "",
+    });
+    input.onchange = () => {
+      const n = Number(input.value);
+      this.#host.setSpeed(input.value !== "" && n >= 1 && n <= 40 ? n : null);
+      this.render();
+    };
+    if (live?.source === "client")
+      return h(
+        "span",
+        { class: "v-muted" },
+        `Scroll speed ${live.speed} (${live.client}${live.client === "stable" ? `, BPM scaling ${live.bpmScale ? "on" : "off"}` : ""}) from vosu, as the previews; another: `,
+        input,
+      );
+    return h(
+      "span",
+      { class: "v-muted" },
+      live ? `Scroll speed ${live.speed}, as the previews: ` : "vosu reports no scroll speed (open osu!); enter yours: ",
+      input,
+    );
+  }
+
+  #speed(): Speed | null {
+    return this.#host.speed();
+  }
+
+  // ---- receptors -------------------------------------------------------------
+
+  /**
+   * Sets HitPosition and moves every key image's receptor graphic with it,
+   * from the images as they were before the first move (no shift of a shift)
+   * on the same canvas, edge-clamped per pixel column. LightPosition moves by
+   * the same amount: lazer places the column light from it, not from
+   * HitPosition (`LegacyColumnBackground`), so the light keeps its place on
+   * the receptors. StageHint, LightingN/L and judgements are already placed
+   * from HitPosition by lazer (`LegacyHitTarget` and `LegacyHitExplosion` in
+   * `HitTargetInsetContainer`, `LegacyManiaJudgementPiece`) and stay.
+   */
+  async setHitPosition(target: number) {
+    target = Math.round(target);
+    if (!(target >= 240 && target <= 480)) {
+      this.#host.error("HitPosition is 240–480 (lazer clamps it there).");
+      return;
+    }
+    const keys = this.#host.keys();
+    await this.#serial("HitPosition", async () => {
+      if (target !== this.#current())
+        await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) });
+    });
+  }
+
+  /**
+   * Sets column widths (comma list). With "Keep proportions" on (the
+   * default), receptors, notes and hold pieces are rescaled as if each
+   * column were scaled uniformly (proportions.ts), and HitPosition follows
+   * the receptors: HitPosition' = 480 − (480 − HitPosition) × s, s being the
+   * scale most columns share. One undo step.
+   */
+  async setWidths(column: number, value: string, label: string) {
+    this.lastRegeometry = null;
+    await this.#serial(`ColumnWidth${column}`, () => {
+      // The widths as the skin.ini has them now, this column changed.
+      const keys = this.#host.keys();
+      const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+      const widths = config.columnWidth.map((w, i) => (i === column ? value : String(Math.round((w / 1.6) * 1e4) / 1e4)));
+      return this.#setWidths(widths, label);
+    });
+  }
+  async #setWidths(widths: string[], label: string) {
+    const keys = this.#host.keys();
+    const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
+    if (this.#host.draft()?.keepProportions === false) {
+      this.#host.change(label, (draft) => Object.assign(draft.values, values));
+      return;
+    }
+    const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+    // Scales against the widths the pieces had when first captured (the
+    // originals), so changing columns one by one ends where changing them
+    // all at once would: HitPosition follows the scale most columns have.
+    const originals = Object.entries(this.#host.draft()?.hit?.originals ?? {});
+    const base = config.columnWidth.map((w, i) => originals.find(([k, o]) => pieceOf(k) && columnOf(k) === i && o.width)?.[1].width ?? w);
+    const valid = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
+    const was = referenceScale(config.columnWidth.map((w, i) => valid(w / base[i])));
+    const scale = referenceScale(widths.map((w, i) => valid((Number(w) * 1.6) / base[i])));
+    // The HitPosition the current one means at the original widths.
+    const unscaled = 480 - (480 - this.#current()) / was;
+    const hitPosition = hitPositionFor(unscaled, scale);
+    if (hitPosition < 240 || hitPosition > 480)
+      return this.#host.error(`Keeping proportions would put HitPosition at ${hitPosition}, outside 240–480.`);
+    values.HitPosition = String(hitPosition);
+    const wfnhs = Number(maniaValue(this.#host.mixText(), keys, "WidthForNoteHeightScale"));
+    if (wfnhs > 0) values.WidthForNoteHeightScale = String(Math.round(((wfnhs * scale) / was) * 100) / 100);
+    await this.#regeometry(label, values);
+  }
+
+  #geometryTicket = 0;
+  #queue: Promise<void> = Promise.resolve();
+  #latest = new Map<string, number>();
+  /**
+   * Geometry changes run one after another, each from the skin.ini the one
+   * before left (two quick edits of different columns both count); an edit
+   * still waiting when a newer one of the same field arrives is skipped.
+   */
+  #serial(field: string, run: () => Promise<void>) {
+    const ticket = (this.#latest.get(field) ?? 0) + 1;
+    this.#latest.set(field, ticket);
+    const job = this.#queue.then(() => (this.#latest.get(field) === ticket ? run() : undefined));
+    this.#queue = job.catch(() => undefined);
+    return job;
+  }
+  #sizes = new Map<string, Promise<Dims>>();
+  #derived = new Map<string, Promise<{ stored: string; lost: number }>>();
+  /** Last re-derive: images made and time taken, for the screen and tests. */
+  lastRegeometry: { images: number; ms: number } | null = null;
+
+  #size(skin: string, name: string) {
+    const id = `${skin}\n${name}`;
+    let size = this.#sizes.get(id);
+    if (!size) {
+      size = this.#host.rows(skin, name).then((r) => ({ width: r.width, height: r.height }));
+      size.catch(() => this.#sizes.delete(id));
+      this.#sizes.set(id, size);
+    }
+    return size;
+  }
+
+  /**
+   * Re-derives every captured piece for the geometry `values` give (they
+   * win over the mix's skin.ini), from the images as they were before the
+   * first change (no resampling of a resample, no shift of a shift), and
+   * stores values and images as one undoable change. A newer call cancels
+   * an older one still deriving.
+   */
+  async #regeometry(label: string, values: Record<string, string | null>) {
+    const ticket = ++this.#geometryTicket;
+    const started = performance.now();
+    this.#busy = true;
+    this.render();
+    try {
+      const keys = this.#host.keys();
+      const text = this.#host.mixText();
+      let next = text;
+      for (const [key, value] of Object.entries(values)) next = setManiaValue(next, keys, key, value ?? undefined);
+      const now = maniaConfig(readSkinIni(text), keys);
+      const then = maniaConfig(readSkinIni(next), keys);
+      const current = this.#current();
+      const target = Number(values.HitPosition ?? current);
+      const widthsChange = now.columnWidth.some((w, i) => w !== then.columnWidth[i]) || now.noteHeightWidth !== then.noteHeightWidth;
+      const draft = this.#host.draft();
+      const hit = structuredClone(draft?.hit) ?? { originals: {} };
+      // Pieces not changed yet are captured as they are now, with the draft's
+      // own slot so that going back restores exactly that. Keys always (the
+      // hit line moves them); notes and hold pieces once widths change.
+      for (const r of this.#host.resolved()) {
+        const piece = pieceOf(r.key);
+        if (!piece || hit.originals[r.key] || (piece !== "key" && !widthsChange)) continue;
+        const image = this.#mixImage(r);
+        const had = !!draft && r.key in draft.images;
+        if (image)
+          hit.originals[r.key] = {
+            at: current,
+            width: now.columnWidth[columnOf(r.key)],
+            noteHeight: now.noteHeightWidth,
+            slot: image,
+            had,
+            prior: had ? structuredClone(draft!.images[r.key]) : undefined,
+          };
+      }
+      const geometry = (config: typeof now, hitPosition: number, column: number): Geometry => ({
+        hitPosition,
+        width: config.columnWidth[column],
+        noteHeight: config.noteHeightWidth,
+        repeat: config.noteBodyStyle !== 0,
+      });
+      const slots: Record<string, Slot | undefined> = {};
+      const lost: string[] = [];
+      let images = 0;
+      // 1. Each piece's operations (sizes read in parallel, cached).
+      const planned = await Promise.all(
+        Object.entries(hit.originals).map(async ([key, original]) => {
+          const piece = pieceOf(key)!;
+          const column = columnOf(key);
+          const from: Geometry = {
+            ...geometry(now, original.at, column),
+            width: original.width ?? now.columnWidth[column],
+            noteHeight: original.noteHeight ?? now.noteHeightWidth,
+          };
+          const files = original.slot.files;
+          const dims = new Map<string, Dims>();
+          if (piece !== "key" || from.width !== then.columnWidth[column])
+            await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
+          return { key, original, ops: pieceOps(piece, from, geometry(then, target, column), files, dims) };
+        }),
+      );
+      // 2. One derive request per skin for what is not cached yet.
+      const id = (skin: string, o: { source: string; op: DeriveOp }) => JSON.stringify([skin, o.source, o.op]);
+      const wanted = new Map<string, Map<string, { source: string; op: DeriveOp }>>();
+      for (const { original, ops } of planned)
+        for (const o of ops ?? [])
+          if (!this.#derived.has(id(original.slot.skin, o)))
+            wanted.set(original.slot.skin, (wanted.get(original.slot.skin) ?? new Map()).set(id(original.slot.skin, o), o));
+      for (const [skin, requests] of wanted) {
+        const list = [...requests];
+        for (let i = 0; i < list.length; i += 64) {
+          const chunk = list.slice(i, i + 64);
+          const batch = this.#host.derive(skin, chunk.map(([, o]) => ({ name: o.source, op: o.op })));
+          batch.catch(() => chunk.forEach(([k]) => this.#derived.delete(k)));
+          chunk.forEach(([k], n) => this.#derived.set(k, batch.then((r) => r[n])));
+        }
+      }
+      // 3. The new slots.
+      for (const { key, original, ops } of planned) {
+        if (!ops) {
+          slots[key] = original.had ? original.prior : undefined;
+          continue;
+        }
+        const derived = await Promise.all(ops.map((o) => this.#derived.get(id(original.slot.skin, o))!));
+        images += derived.length;
+        const files = original.slot.files;
+        for (const [i, d] of derived.entries()) if (d.lost) lost.push(`${files[i].from}: ${d.lost} rows past the edge`);
+        slots[key] = {
+          skin: UPLOADS,
+          name: original.slot.name.split("/").pop()!,
+          files: files.map((f, i) => ({ from: derived[i].stored, suffix: f.suffix })),
+        };
+      }
+      // A newer change superseded this one.
+      if (ticket !== this.#geometryTicket) return;
+      const light = Number(maniaValue(text, keys, "LightPosition"));
+      if (values.HitPosition !== undefined && Number.isFinite(light) && light > 0 && target !== current)
+        values = { ...values, LightPosition: String(Math.round(light + target - current)) };
+      this.#host.change(label, (d) => {
+        for (const [key, slot] of Object.entries(slots))
+          if (slot === undefined) delete d.images[key];
+          else d.images[key] = slot;
+        Object.assign(d.values, values);
+        // Back where every image was made: nothing is changed any more.
+        if (Object.entries(hit.originals).every(([key, o]) => slots[key] === (o.had ? o.prior : undefined)))
+          delete d.hit;
+        else d.hit = hit;
+      });
+      this.lastRegeometry = { images, ms: Math.round(performance.now() - started) };
+      this.#host.error(lost.length ? `Moved past the image edge: ${lost.join("; ")}` : "");
+    } catch (error) {
+      if (ticket === this.#geometryTicket) this.#host.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (ticket === this.#geometryTicket) {
+        this.#busy = false;
+        this.render();
+      }
+    }
+  }
+
+  /** The files the mix draws for a lookup, as an image to copy (one source skin). */
+  #mixImage(r: ManiaImageResolution): SlotImage | null {
+    if (!r.drawn || r.drawn.builtin) return null;
+    const files = this.#host.mixFiles();
+    const paths = lookupFiles(this.#host.mixIndex(), r.drawn.name, r.animated);
+    const sources = paths.map((p) => files.get(p.toLowerCase())).filter((f) => !!f);
+    if (!sources.length) return null;
+    const skin = sources[0].skin;
+    const name = r.drawn.name;
+    return {
+      skin,
+      name,
+      files: sources
+        .filter((f) => f.skin === skin)
+        .map((f) => ({ from: f.from, suffix: f.to.replace(/\\/g, "/").slice(name.length) })),
+    };
+  }
+
+  // ---- calibration ------------------------------------------------------------
+
+  async #calibrate() {
+    const speed = this.#speed();
+    if (!speed) return;
+    this.#busy = true;
+    this.#calibration = null;
+    this.render();
+    try {
+      const play = await this.#host.lastPlay();
+      const bytes = Uint8Array.from(atob(play.replay), (c) => c.charCodeAt(0));
+      const replay = await parseReplay(bytes);
+      const { map, simulation } = judgeReplay(replay, parseOsu(play.osu));
+      const rate = replayRate(replay);
+      this.#calibration = {
+        play,
+        map,
+        keys: Math.max(1, Math.round(map.difficulty.cs)),
+        speed,
+        press: offsets(simulation, map, "press", speed, rate),
+        release: offsets(simulation, map, "release", speed, rate),
+      };
+      this.#host.error("");
+    } catch (error) {
+      this.#host.error(`Calibration: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      this.#busy = false;
+      this.render();
+    }
+  }
+
+  #proposal(): Node[] {
+    const c = this.#calibration;
+    if (!c) return [];
+    const meta = c.map.metadata;
+    const title = `${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}]`;
+    const keys = this.#host.keys();
+    const head = h("p", { class: "km-hit__play" }, `Last play: ${title}, ${c.keys}K, osu!${c.play.client} (${c.play.source}), speed ${c.speed.speed}`);
+    if (c.keys !== keys)
+      return [head, h("p", { class: "km-hit__warn" }, `It was played on ${c.keys}K: calibrations apply only to that key count. Select ${c.keys}K.`)];
+    const out: Node[] = [head];
+    const fmt = (o: Offsets, what: string) =>
+      `mean ${o.mean >= 0 ? "+" : ""}${o.mean.toFixed(1)} ms ± ${o.spread.toFixed(1)} over ${o.count.toLocaleString("en")} ${what}`;
+    // Receptors.
+    const current = this.#current();
+    if (c.press.count < MIN_HITS)
+      out.push(h("p", { class: "km-hit__warn" }, `Receptors: ${c.press.count} presses; at least ${MIN_HITS} are needed.`));
+    else {
+      const target = calibratedHitPosition(current, c.press);
+      const px = receptorShift(current, target, false).rows;
+      out.push(
+        h(
+          "div",
+          { class: "km-hit__row" },
+          h(
+            "span",
+            {},
+            `Presses: ${fmt(c.press, "hits")} → ${target === current ? "receptors already sit where you hit" : `move receptors ${px > 0 ? "up" : "down"} ${Math.abs(px)} px (HitPosition ${current} → ${target})`}`,
+          ),
+          target !== current
+            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", onclick: () => void this.setHitPosition(target) }, "Apply to receptors")
+            : null,
+        ),
+      );
+    }
+    // Hold tails.
+    if (!c.release.count) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
+    else if (c.release.count < MIN_HITS)
+      out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${c.release.count} releases; at least ${MIN_HITS} are needed.`));
+    else {
+      const units = c.release.distance;
+      const text =
+        Math.abs(units) < 0.5
+          ? "hold ends already sit where you release"
+          : units > 0
+            ? `you release late: hold ends move up ${units.toFixed(1)} units (cap's bottom edge on your release point, body reaching it)`
+            : `you release early: hold ends move down ${(-units).toFixed(1)} units, as percy holds (normal holds are converted: blank tail, cap drawn into the body)`;
+      out.push(
+        h(
+          "div",
+          { class: "km-hit__row" },
+          h("span", {}, `Releases: ${fmt(c.release, "holds")} → ${text}`),
+          h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", onclick: () => void this.#applyTails() }, "Apply to hold tails"),
+        ),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * Hold ends for the release calibration, per distinct tail and body image.
+   * See `tailPlan` and `percyPlan` (calibrate.ts) for the geometry.
+   */
+  async #applyTails() {
+    const c = this.#calibration;
+    if (!c) return;
+    this.#busy = true;
+    this.render();
+    try {
+      const keys = this.#host.keys();
+      const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+      const atTop = !(this.#host.speed()?.upscroll ?? false);
+      const resolved = this.#host.resolved();
+      const by = new Map(resolved.map((r) => [r.key, r]));
+      const images: Record<string, SlotImage> = {};
+      const report: string[] = [];
+      let style = false;
+      const done = new Map<string, Record<string, SlotImage>>();
+      for (let column = 0; column < keys; column++) {
+        const tailLookup = by.get(`NoteImage${column}T`)!;
+        const tail = tailLookup.drawn ? this.#mixImage(by.get(tailLookup.drawn.key)!) : null;
+        const bodyLookup = by.get(`NoteImage${column}L`);
+        const body = bodyLookup?.drawn ? this.#mixImage(bodyLookup) : null;
+        if (!tail || !body) {
+          report.push(`column ${column + 1}: built-in hold images, left as is`);
+          continue;
+        }
+        const id = `${tail.skin}\n${tail.name}\n${body.skin}\n${body.name}`;
+        let result = done.get(id);
+        if (!result) {
+          result = await this.#holdEnd(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
+          done.set(id, result);
+        }
+        for (const [suffix, slot] of Object.entries(result)) images[`NoteImage${column}${suffix}`] = slot;
+        if (result.L && config.noteBodyStyle === 0) style = true;
+      }
+      this.#host.change(`Calibrate ${keys}K hold ends`, (draft) => {
+        Object.assign(draft.images, images);
+        // The calibrated pieces are the new originals for later width changes
+        // (captured then, at that geometry): the calibration is kept.
+        if (draft.hit) for (const key of Object.keys(images)) delete draft.hit.originals[key];
+        // A percy body is drawn from the tail end only by repeating styles.
+        if (style) draft.values.NoteBodyStyle = "1";
+      });
+      this.#host.state(`Hold ends: ${[...new Set(report)].join("; ") || "changed"}`);
+    } catch (error) {
+      this.#host.error(error instanceof Error ? error.message : String(error));
+    } finally {
+      this.#busy = false;
+      this.render();
+    }
+  }
+
+  /** New tail (`T`) and body (`L`) images for one pair; empty when nothing changes. */
+  async #holdEnd(
+    release: Offsets,
+    tail: SlotImage,
+    body: SlotImage,
+    noteWidth: number,
+    bodyStyle: number,
+    atTop: boolean,
+    report: string[],
+  ): Promise<Record<string, SlotImage>> {
+    const sd = (image: SlotImage) => image.files.find((f) => !hd(f.from)) ?? image.files[0];
+    const tailFile = sd(tail).from,
+      bodyFile = sd(body).from;
+    const [t, b] = await Promise.all([this.#host.rows(tail.skin, tailFile), this.#host.rows(body.skin, bodyFile)]);
+    const slot = (image: SlotImage, stored: string, from: string): SlotImage => ({
+      skin: UPLOADS,
+      name: image.name.split("/").pop()!,
+      files: [{ from: stored, suffix: from.slice(from.lastIndexOf(".")) }],
+    });
+    const capRows = t.height - t.top - t.bottom;
+    const plan = holdPlan(release, { capRows, tailWidth: t.width, bodyHeight: b.height, bodyTop: b.top, noteWidth, percy: capRows === 0 && bodyStyle !== 0 });
+    report.push(plan.note);
+    if (plan.kind === "none") return {};
+    if (plan.kind === "shift-body") {
+      const [d] = await this.#host.derive(body.skin, [{ name: bodyFile, op: { shift: { up: plan.up } } }]);
+      return { L: slot(body, d.stored, bodyFile) };
+    }
+    if (plan.kind === "gap") {
+      const [d] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { tail: { gap: plan.gap, at_top: atTop } } }]);
+      return { T: slot(tail, d.stored, tailFile) };
+    }
+    // Percy: a spacer tail and a body carrying the cap (both new, 1x).
+    const [spacer] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { spacer: { rows: plan.spacer } } }]);
+    if (tail.skin !== body.skin) throw new Error("The tail and body come from different skins; take both from one skin first.");
+    const [percy] = await this.#host.derive(body.skin, [
+      { name: bodyFile, cap: tailFile, op: { percy: { height: plan.height, cap_bottom: plan.capBottom } } },
+    ]);
+    return { T: slot(tail, spacer.stored, tailFile), L: slot(body, percy.stored, bodyFile) };
+  }
+}

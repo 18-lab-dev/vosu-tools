@@ -14,7 +14,9 @@
     "@vosu-tools/tool-web": "workspace:*",
     "monaco-editor": "0.52.2",
     "@vosu-tools/render-core": "workspace:*",
-    "@vosu-tools/demo-maps": "workspace:*"
+    "@vosu-tools/demo-maps": "workspace:*",
+    "@vosu-tools/replay": "workspace:*",
+    "@vosu-tools/osu-parse": "workspace:*"
   },
   "devDependencies": {
     "vite": "^6.1.0",

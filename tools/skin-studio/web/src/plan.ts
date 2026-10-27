@@ -44,15 +44,17 @@ import {
   imageIndex,
   lookupFiles,
   lookupName,
-  stageFolder,
 } from "./mania";
 import { type Keymodes, applyKeymodes } from "./keymodes";
+import { finishStageFolders, freeName, occupied, stageFolder } from "./layout";
 
 export interface SkinData {
   key: string;
   name: string;
   text: string;
   files: string[];
+  /** Files Skin studio generated in this skin (its ownership manifests). */
+  owned?: string[];
 }
 export type Pick =
   { kind: "skin"; key: string } | { kind: "default" } | { kind: "blank" };
@@ -64,6 +66,15 @@ export interface Recipe {
   overrides?: Record<string, Override>;
   /** The Keymodes screen's slots and values per key count; they win over both. */
   keymodes?: Keymodes;
+  /**
+   * Edit in place: the skin.ini text when edited by hand (the draft keeps it
+   * across reloads until applied or discarded).
+   */
+  ini?: string;
+  /** Edit in place: the user chose this skin, so it does not follow osu!'s. */
+  pinned?: boolean;
+  /** Edit in place: the base is the skin itself, its [General] untouched. */
+  inPlace?: boolean;
 }
 export type FileMap = string | [string, string];
 export interface Plan {
@@ -72,6 +83,8 @@ export interface Plan {
   ini: string;
   sources: { skin: string; files: FileMap[] }[];
   blanks: { to: string; kind: "png" | "wav" }[];
+  /** Ownership manifests (layout.ts). */
+  texts: { to: string; text: string }[];
 }
 
 const MANIA_PREFIX = "mania-keys-";
@@ -190,6 +203,29 @@ const ignored = (name: string) =>
   /\.bak$/i.test(name) ||
   /^skin-studio-credits\.txt$/i.test(name);
 
+/**
+ * Files an in-place apply removes: the edited skin's own files the composed
+ * plan no longer has (a group set to the built-in look or blanked). Files the
+ * plan never copies from a base (backups, credits) are not the draft's to
+ * remove.
+ */
+export function inPlaceRemovals(plan: Plan, base: SkinData): string[] {
+  const kept = new Set<string>();
+  for (const source of plan.sources)
+    for (const file of source.files)
+      kept.add((typeof file === "string" ? file : file[1]).toLowerCase());
+  for (const blank of plan.blanks) kept.add(blank.to.toLowerCase());
+  for (const text of plan.texts) kept.add(text.to.toLowerCase());
+  return base.files.filter((f) => !ignored(f) && !kept.has(f.toLowerCase()));
+}
+
+/** Whether a recipe holds edits (an in-place draft with nothing to apply is empty). */
+export const hasEdits = (recipe: Recipe) =>
+  !!Object.keys(recipe.picks).length ||
+  !!Object.keys(recipe.overrides ?? {}).length ||
+  Object.values(recipe.keymodes ?? {}).some((d) => !!d) ||
+  recipe.ini !== undefined;
+
 export interface Composed {
   plan: Plan;
   /** Files per contributing skin, for the summary. */
@@ -258,16 +294,20 @@ export function compose(
       // its block, the way lazer would find them in the source.
       if (source && block) {
         const target = maniaBlock(ini, keys);
+        const folder = stageFolder(keys);
+        const taken = occupied(out.keys(), folder);
+        // Columns sharing a default image share its copy.
+        const named = new Map<string, string>();
         for (const lookup of stageDefaults(source.files, block, keys)) {
+          // A file the skin already has there is never replaced.
+          const name = lookupName(lookup.files, lookup.fallback);
+          const free = named.get(name.toLowerCase()) ?? freeName(taken, folder, name);
+          named.set(name.toLowerCase(), free);
           for (const from of lookup.files) {
-            const to = `${stageFolder(keys)}/${from}`;
+            const to = `${folder}/${free}${from.slice(from.lastIndexOf("/") + 1 + name.length)}`;
             out.set(to.toLowerCase(), { skin: source.key, from, to });
           }
-          setInSection(
-            target,
-            lookup.key,
-            `${stageFolder(keys)}/${lookupName(lookup.files, lookup.fallback)}`,
-          );
+          setInSection(target, lookup.key, `${folder}/${free}`);
         }
       }
     } else {
@@ -340,6 +380,12 @@ export function compose(
         if (files.length) have.add(target);
       }
   }
+  const texts = finishStageFolders(
+    ini,
+    out,
+    base?.key,
+    new Set((base?.owned ?? []).map((f) => f.toLowerCase())),
+  );
   const fallbacks = new Map<string, string[]>();
   const have = present(out);
   for (const [id, files] of removed) {
@@ -371,9 +417,12 @@ export function compose(
     if (lost.size) fallbacks.set(id, [...lost].sort());
   }
 
-  setValue(ini, "General", "Name", recipe.name.trim());
-  if (!getValue(ini, "General", "Version"))
-    setValue(ini, "General", "Version", "latest");
+  // A skin edited in place keeps its own [General]; a new skin is named.
+  if (!recipe.inPlace) {
+    setValue(ini, "General", "Name", recipe.name.trim());
+    if (!getValue(ini, "General", "Version"))
+      setValue(ini, "General", "Version", "latest");
+  }
 
   const sources = new Map<string, FileMap[]>();
   const blanks: Plan["blanks"] = [];
@@ -395,6 +444,7 @@ export function compose(
       ini: serializeIni(ini),
       sources: [...sources].map(([skin, files]) => ({ skin, files })),
       blanks,
+      texts,
     },
     counts,
     notes,

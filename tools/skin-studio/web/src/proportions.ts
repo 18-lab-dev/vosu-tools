@@ -1,0 +1,147 @@
+// "Keep proportions when changing column width": what each mania piece
+// needs so a column drawn wider or narrower looks as if it were scaled
+// uniformly, instead of osu!'s stretch. From lazer 2026.1005.0:
+//
+// - **Keys** (KeyImage#, KeyImage#D; `LegacyKeyArea`): the sprite spans the
+//   column's width (`RelativeSizeAxes = X, Width = 1`) and keeps the
+//   texture's height (DisplayHeight: pixels, halved for @2x), anchored to the
+//   stage's bottom. A width change stretches them sideways only. Fix: scale
+//   the image by s in both axes about its bottom edge; the hit line moves the
+//   same way (HitPosition counts down from the 480-unit stage's top, the
+//   receptors stand on its bottom): HitPosition' = 480 − (480 − HitPosition) × s.
+// - **Notes, hold heads and tails** (NoteImage#, #H, #T; `LegacyNotePiece`):
+//   scaled by (column width, note height width) / texture width, where the
+//   note height width is WidthForNoteHeightScale, else the stage's narrowest
+//   column (`LegacySkin.GetConfig`). They keep their look when every column
+//   changes by the same s (WidthForNoteHeightScale is scaled along); with
+//   different scales a column's note is stretched by s_i × nh / nh', undone
+//   by resampling its height by that factor.
+// - **Hold bodies** (NoteImage#L; `LegacyBodyPiece`): as wide as the column
+//   and as long as the hold. Stretched (NoteBodyStyle 0): their detail
+//   across the column scales with it, along it follows the hold: nothing to
+//   do. Repeated (other styles): the image is stretched over 32800 units
+//   whatever its height, so its pattern keeps its size along the hold while
+//   the width changes: the image's height becomes H / s (rows cut, or
+//   repeated from its top), so the pattern scales by s too.
+//
+// Order of changes to one piece (all in one undo step): the image as it was
+// before the first geometry change (its "original", which carries any tail
+// calibration made before), then the proportion scale, then the receptor's
+// hit-line move (keys only), filled by the edge-clamp rule.
+
+import type { DeriveOp } from "./hit-panel";
+
+/** The stage height HitPosition is measured in (legacy units). */
+export const STAGE = 480;
+/** Image pixels (1x) per legacy unit: lazer draws the stage 768 tall. */
+export const UNIT_PX = 1.6;
+
+/** HitPosition after the receptors grow by `scale` about the stage bottom. */
+export const hitPositionFor = (hitPosition: number, scale: number) =>
+  Math.round(STAGE - (STAGE - hitPosition) * scale);
+
+/**
+ * The scale the shared hit line follows when columns change by different
+ * scales: the one most columns share (ties: the one nearest 1, so the line
+ * moves least). Every other column's receptor is then placed on that line
+ * by its own vertical offset.
+ */
+export function referenceScale(scales: readonly number[]): number {
+  const groups = new Map<string, { scale: number; n: number }>();
+  for (const scale of scales) {
+    const id = scale.toFixed(6);
+    const group = groups.get(id) ?? { scale, n: 0 };
+    group.n++;
+    groups.set(id, group);
+  }
+  return [...groups.values()].sort((a, b) => b.n - a.n || Math.abs(a.scale - 1) - Math.abs(b.scale - 1))[0]?.scale ?? 1;
+}
+
+export type Piece = "key" | "note" | "body";
+export function pieceOf(key: string): Piece | null {
+  if (/^KeyImage\d+D?$/.test(key)) return "key";
+  if (/^NoteImage\d+[HT]?$/.test(key)) return "note";
+  if (/^NoteImage\d+L$/.test(key)) return "body";
+  return null;
+}
+export const columnOf = (key: string) => Number(/\d+/.exec(key)?.[0] ?? -1);
+
+/** One column's geometry: HitPosition, its width, the note height width, body style. */
+export interface Geometry {
+  hitPosition: number;
+  width: number;
+  noteHeight: number;
+  repeat: boolean;
+}
+export interface Dims {
+  width: number;
+  height: number;
+}
+/** One output file: an operation on a source file of the same image. */
+export interface FileOp {
+  source: string;
+  op: DeriveOp;
+}
+
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+const hd = (name: string) => /@2x\.[^./]+$/i.test(name);
+/** The @2x file of the same frame, if the image has one. */
+function hdTwin(files: readonly { from: string; suffix: string }[], file: { from: string; suffix: string }) {
+  if (hd(file.from)) return file;
+  const want = file.suffix.replace(/(\.[^.]+)$/, "@2x$1").toLowerCase();
+  return files.find((f) => f.suffix.toLowerCase() === want) ?? file;
+}
+
+/**
+ * The files a piece becomes when its column goes from `from` to `to`
+ * geometry, or null when it is unchanged (the original is used as is).
+ * `dims` has the size of every file of the image.
+ */
+export function pieceOps(
+  piece: Piece,
+  from: Geometry,
+  to: Geometry,
+  files: readonly { from: string; suffix: string }[],
+  dims: ReadonlyMap<string, Dims>,
+): FileOp[] | null {
+  const s = to.width / from.width;
+  const size = (name: string) => {
+    const d = dims.get(name);
+    if (!d) throw new Error(`No size for ${name}`);
+    return d;
+  };
+  // Resampled from the largest source (the @2x file when there is one), so
+  // the 1x file is a downscale of it, never an upscale of a smaller image.
+  const resize = (file: { from: string; suffix: string }, sx: number, sy: number, up: number): FileOp => {
+    const source = hdTwin(files, file).from;
+    const target = size(file.from), src = size(source);
+    return {
+      source,
+      op: {
+        resize: {
+          width: Math.max(1, Math.round(target.width * sx)),
+          height: Math.max(1, Math.round(target.height * sy)),
+          scale_y: (sy * target.height) / src.height,
+          up: up * (hd(file.from) ? 2 : 1),
+        },
+      },
+    };
+  };
+  if (piece === "key") {
+    // The receptor point that stood on the hit line stands on the new one.
+    const up = ((STAGE - to.hitPosition) - s * (STAGE - from.hitPosition)) * UNIT_PX;
+    if (same(s, 1)) {
+      if (same(up, 0)) return null;
+      // No scale: the exact row move (no resampling).
+      return files.map((f) => ({ source: f.from, op: { shift: { up: Math.round(up * (hd(f.from) ? 2 : 1)) } } }));
+    }
+    return files.map((f) => resize(f, s, s, up));
+  }
+  if (piece === "note") {
+    const factor = (s * from.noteHeight) / to.noteHeight;
+    if (same(factor, 1)) return null;
+    return files.map((f) => resize(f, 1, factor, 0));
+  }
+  if (!to.repeat || same(s, 1)) return null;
+  return files.map((f) => ({ source: f.from, op: { rows: { height: Math.max(1, Math.round(size(f.from).height / s)) } } }));
+}

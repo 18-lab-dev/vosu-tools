@@ -2872,9 +2872,12 @@ name = "vosu-skin-studio"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "clap",
  "futures-util",
  "image",
+ "md-5 0.10.6",
+ "osu-db",
  "png",
  "reqwest",
  "serde",

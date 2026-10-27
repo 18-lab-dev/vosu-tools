@@ -26,6 +26,11 @@ export class ClientScroll {
     this.#onChange = onChange;
   }
 
+  /** The client's settings as read from vosu, or null without a client. */
+  get settings(): ClientManiaSettings | null {
+    return this.#client;
+  }
+
   get current(): ManiaScroll {
     return maniaScroll({ override: this.#override, client: this.#client, rate: 1 });
   }

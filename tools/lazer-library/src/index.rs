@@ -171,6 +171,9 @@ struct Beatmap {
 struct Skin {
     name: Option<Arc<str>>,
     creator: Option<Arc<str>>,
+    /// lazer's skin hash (SHA-256 of its .ini/.json files): names the folder
+    /// "Edit externally" mounts.
+    hash: Option<Arc<str>>,
     files: Box<[StoredFile]>,
 }
 struct Score {
@@ -316,6 +319,7 @@ impl Index {
                 Skin {
                     name: strings.field(row, "Name"),
                     creator: strings.field(row, "Creator"),
+                    hash: strings.field(row, "Hash"),
                     files: files(row, &mut strings),
                 },
             );
@@ -395,7 +399,7 @@ impl Index {
     pub fn skin_list(&self) -> Value {
         let mut skins:Vec<_> = self.skins.iter().map(|(id,skin)| {
             let builtin = match id.as_ref() {"2991cfd8-2140-469a-bcb9-2ec23fbce4ad"=>Some("triangles"),"cffa69de-b3e3-4dee-8563-3c4f425c05d0"=>Some("argon"),"9fc9cf5d-0f16-4c71-8256-98868321ac43"=>Some("argon-pro"),"81f02cd3-eec6-4865-ac23-fae26a386187"=>Some("legacy"),"0555c76a-cc6b-4bb4-9548-df76ba72ef25"=>Some("retro"),_=>None};
-            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"builtin":builtin,"files":skin.files.len()})
+            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"hash":skin.hash.as_deref(),"builtin":builtin,"files":skin.files.len()})
         }).collect();
         skins.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
         json!({"skins":skins})
@@ -425,12 +429,45 @@ impl Index {
             .find(|f| unicase::UniCase::new(f.name.as_ref()) == unicase::UniCase::new(name))
             .map(|f| f.describe(&self.base))
     }
+    fn score_json(&self, key: &Md5, score: &Score) -> Value {
+        let replay_hash = score.replay.map(|h| hex_text(&h));
+        json!({"id":score.id.as_deref(),"beatmap_md5":hex_text(key),"username":score.username.as_deref(),"ruleset":score.ruleset.as_deref(),"mods":score.mods.as_deref(),"total_score":score.total_score,"date":score.date.as_deref(),"replay_hash":replay_hash,"replay_path":replay_hash.as_ref().map(|h|store_path(&self.base,h))})
+    }
     pub fn score_list(&self, md5: &str) -> Value {
         let key = hex::<16>(md5);
-        let scores:Vec<_> = key.as_ref().and_then(|k|self.scores.get(k)).into_iter().flatten().map(|score| {
-            let replay_hash = score.replay.map(|h|hex_text(&h));
-            json!({"id":score.id.as_deref(),"beatmap_md5":key.map(|k|hex_text(&k)),"username":score.username.as_deref(),"ruleset":score.ruleset.as_deref(),"mods":score.mods.as_deref(),"total_score":score.total_score,"date":score.date.as_deref(),"replay_hash":replay_hash,"replay_path":replay_hash.as_ref().map(|h|store_path(&self.base,h))})
-        }).collect();
+        let scores: Vec<_> = key
+            .as_ref()
+            .and_then(|k| self.scores.get(k).map(|list| (k, list)))
+            .into_iter()
+            .flat_map(|(k, list)| list.iter().map(move |score| self.score_json(k, score)))
+            .collect();
+        json!({"scores":scores})
+    }
+    /// The newest local scores with a replay file, newest first, optionally of
+    /// one ruleset (lazer's short name, e.g. `mania`). Dates are lazer's UTC
+    /// ISO-8601 strings, which order as text.
+    pub fn recent_scores(&self, ruleset: Option<&str>, limit: usize) -> Value {
+        let mut all: Vec<_> = self
+            .scores
+            .iter()
+            .flat_map(|(k, list)| list.iter().map(move |score| (k, score)))
+            .filter(|(_, s)| s.replay.is_some() && s.date.is_some())
+            // A score without its own ruleset played the map's.
+            .filter(|(k, s)| {
+                ruleset.is_none_or(|r| {
+                    s.ruleset.as_deref().map_or_else(
+                        || self.beatmaps.get(*k).is_some_and(|b| b.ruleset.name() == r),
+                        |own| own == r,
+                    )
+                })
+            })
+            .collect();
+        all.sort_by(|a, b| b.1.date.cmp(&a.1.date));
+        let scores: Vec<_> = all
+            .into_iter()
+            .take(limit)
+            .map(|(k, s)| self.score_json(k, s))
+            .collect();
         json!({"scores":scores})
     }
 }
@@ -456,5 +493,55 @@ mod tests {
         assert_eq!(hex::<2>("../a"), None);
         assert_eq!(hex::<2>("abc"), None);
         assert_eq!(hex_text(&[0xab, 1]), "ab01");
+    }
+}
+
+#[cfg(test)]
+mod recent_tests {
+    use super::*;
+    fn score(date: &str, ruleset: &str, replay: bool) -> Score {
+        Score {
+            id: Some(date.into()),
+            username: None,
+            ruleset: Some(ruleset.into()),
+            mods: None,
+            total_score: None,
+            date: Some(date.into()),
+            replay: replay.then_some([7; 32]),
+        }
+    }
+    #[test]
+    fn recent_scores_are_newest_first_with_replays_only() {
+        let mut index = Index::default();
+        index.scores.insert(
+            [1; 16],
+            vec![
+                score("2026-01-02T00:00:00Z", "mania", true),
+                score("2026-03-01T00:00:00Z", "osu", true),
+            ],
+        );
+        index.scores.insert(
+            [2; 16],
+            vec![
+                score("2026-02-01T00:00:00Z", "mania", true),
+                score("2026-04-01T00:00:00Z", "mania", false),
+            ],
+        );
+        let recent = index.recent_scores(Some("mania"), 5);
+        let dates: Vec<_> = recent["scores"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["date"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(dates, ["2026-02-01T00:00:00Z", "2026-01-02T00:00:00Z"]);
+        assert_eq!(recent["scores"][0]["beatmap_md5"], hex_text(&[2u8; 16]));
+        assert_eq!(
+            index.recent_scores(None, 1)["scores"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

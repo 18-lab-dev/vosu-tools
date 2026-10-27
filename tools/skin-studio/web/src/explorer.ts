@@ -38,8 +38,11 @@ export interface ExplorerHost {
   status(text: string): void;
   /** The Keymodes screen: its selected slot, assigning to it, dragging onto slots. */
   keymodes: {
-    /** The selected slot's label (`column 3 note`), or null. */
-    target(): string | null;
+    /**
+     * The selected slots, or null: the button's label (`Use as 7K column 3
+     * note`, `Use for 7 slots`) and what they are.
+     */
+    target(): { label: string; slots: string } | null;
     assign(skin: string, name: string): void;
     drag(data: DataTransfer, skin: string, name: string): void;
   };
@@ -404,11 +407,11 @@ export class Explorer {
     const target = this.#host.keymodes.target();
     const unit = this.#keymodeUnit();
     this.#keymodes.disabled = !unit || !target;
-    this.#keymodes.textContent = target ? `Use as ${target}` : "Use in Keymodes";
+    this.#keymodes.textContent = target?.label ?? "Use in Keymodes";
     this.#keymodes.title = !target
       ? "Select a slot on the Keymodes tab first"
       : unit
-        ? `Set ${target} to ${unit.name} and show it on the Keymodes tab`
+        ? `Set ${target.slots} to ${unit.name} and show it on the Keymodes tab`
         : "Select one image";
   }
 

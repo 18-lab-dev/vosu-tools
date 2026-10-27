@@ -139,6 +139,8 @@ try {
 
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
+  // These checks export a new mix (the Mix panel's New skin mode).
+  await page.click("#mode-new");
   await page.locator("#skins .skin", { hasText: opt.skin! }).click();
   await page.click("#use-base");
   const NAME = "Arturia export";
@@ -217,6 +219,7 @@ try {
   light.on("pageerror", (e: Error) => pageErrors.push(e.message));
   await light.goto(await launch("light"));
   await light.waitForSelector("#skins .skin");
+  await light.click("#mode-new");
   await light.locator("#skins .skin", { hasText: opt.skin! }).click();
   await light.click("#use-base");
   await light.fill("#mix-name", NAME);

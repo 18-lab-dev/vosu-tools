@@ -1,7 +1,11 @@
 mod anim;
+mod apply;
 mod build;
 mod export;
+mod images;
 mod library;
+mod plays;
+mod resample;
 mod uploads;
 
 use axum::{
@@ -50,6 +54,10 @@ pub struct App {
     exports: Arc<Mutex<HashMap<String, build::Pending>>>,
     /// Images dropped from the desktop (canonical; `uploads::KEY`).
     pub uploads: Arc<Path>,
+    /// Backups of files an apply replaced or removed (`apply`).
+    pub backups: Arc<Path>,
+    /// `.osk` files handed to osu!lazer by an apply.
+    pub imports: Arc<Path>,
 }
 
 async fn list(State(app): State<App>) -> Result<Json<Library>, Failure> {
@@ -66,6 +74,10 @@ struct Snapshot {
     revision: String,
     files: Vec<FileEntry>,
     writable: bool,
+    /// Files Skin studio generated in this skin: listed by the ownership
+    /// manifests `mania/<N>k/.skin-studio.json`, plus the `skin-studio/`
+    /// folder earlier versions wrote.
+    owned: Vec<String>,
 }
 async fn read(
     State(app): State<App>,
@@ -79,12 +91,60 @@ async fn read(
     let revision = fingerprint(&bytes);
     // Saving lossily decoded text would corrupt non-UTF-8 files.
     let utf8 = std::str::from_utf8(&bytes).is_ok();
+    let files = source.files(&app).await?;
+    let owned = owned_files(&app, &source, &files).await;
     Ok(Json(Snapshot {
         text: String::from_utf8_lossy(&bytes).into_owned(),
         revision,
-        files: source.files(&app).await?,
+        files,
         writable: skin.writable && utf8,
+        owned,
     }))
+}
+
+/// The manifest Skin studio writes in each key count's folder.
+pub const MANIFEST: &str = ".skin-studio.json";
+
+/// Files a skin's ownership manifests list that exist, and `skin-studio/`
+/// files (the folder earlier versions wrote). A manifest naming a file
+/// outside its own folder is ignored for that file.
+async fn owned_files(app: &App, source: &Source, files: &[FileEntry]) -> Vec<String> {
+    #[derive(Deserialize)]
+    struct Manifest {
+        files: Vec<String>,
+    }
+    let present: std::collections::HashSet<String> =
+        files.iter().map(|f| f.name.to_lowercase()).collect();
+    let mut owned: Vec<String> = files
+        .iter()
+        .filter(|f| f.name.to_lowercase().starts_with("skin-studio/"))
+        .map(|f| f.name.clone())
+        .collect();
+    for file in files {
+        let Some(folder) = file
+            .name
+            .strip_suffix(MANIFEST)
+            .and_then(|f| f.strip_suffix('/'))
+        else {
+            continue;
+        };
+        let Ok(bytes) = source.read(app, &file.name).await else {
+            continue;
+        };
+        let Ok(manifest) = serde_json::from_slice::<Manifest>(&bytes) else {
+            continue;
+        };
+        for name in manifest.files {
+            if name.contains('/') || name.contains('\\') || name.starts_with('.') {
+                continue;
+            }
+            let path = format!("{folder}/{name}");
+            if present.contains(&path.to_lowercase()) {
+                owned.push(path);
+            }
+        }
+    }
+    owned
 }
 
 fn content_type(name: &str) -> &'static str {
@@ -497,6 +557,140 @@ async fn remove_uploads(
     Ok(Json(Removed { files, bytes }))
 }
 
+/// `GET /v1/plays/last`: the newest completed local osu!mania play.
+async fn last_play(State(app): State<App>) -> Result<Json<plays::LastPlay>, Failure> {
+    Ok(Json(plays::last(&app).await?))
+}
+
+#[derive(Deserialize)]
+struct RowsQuery {
+    skin: String,
+    name: String,
+}
+/// `GET /v1/rows`: an image's size and transparent top/bottom rows.
+async fn image_rows(
+    State(app): State<App>,
+    Query(query): Query<RowsQuery>,
+) -> Result<Json<images::Rows>, Failure> {
+    let (source, _) = library::resolve(&app, &query.skin).await?;
+    let bytes = source.read(&app, &query.name).await?;
+    Ok(Json(
+        tokio::task::spawn_blocking(move || images::rows(&bytes))
+            .await
+            .map_err(failure)??,
+    ))
+}
+
+#[derive(Deserialize)]
+struct DeriveFile {
+    name: String,
+    op: images::Op,
+    /// A second image of the same skin the operation uses (a percy body's cap).
+    #[serde(default)]
+    cap: Option<String>,
+}
+#[derive(Deserialize)]
+struct Derive {
+    skin: String,
+    files: Vec<DeriveFile>,
+}
+#[derive(Serialize)]
+struct DerivedFile {
+    from: String,
+    /// The new file under `uploads::KEY`.
+    stored: String,
+    /// Non-transparent rows the operation dropped.
+    lost: usize,
+}
+/// `POST /v1/derive`: new images made from skin files by exact row
+/// operations ([`images::Op`]), kept with the dropped files (sources are
+/// never written). The same input and operation always give the same file.
+async fn derive(
+    State(app): State<App>,
+    Json(request): Json<Derive>,
+) -> Result<Json<Vec<DerivedFile>>, Failure> {
+    if request.files.len() > 64 {
+        return Err(failure("At most 64 images at once."));
+    }
+    let (source, _) = library::resolve(&app, &request.skin).await?;
+    // Files are read in turn, then derived in parallel (one blocking task each).
+    let mut tasks = Vec::with_capacity(request.files.len());
+    for file in request.files {
+        if !file.name.to_ascii_lowercase().ends_with(".png") {
+            return Err(failure(format!(
+                "{}: only PNG images can be adjusted",
+                file.name
+            )));
+        }
+        let bytes = source.read(&app, &file.name).await?;
+        let cap = match &file.cap {
+            Some(name) => Some(source.read(&app, name).await?),
+            None => None,
+        };
+        let base = file
+            .name
+            .rsplit('/')
+            .next()
+            .unwrap_or("image.png")
+            .to_owned();
+        let name = uploads::name(&base)
+            .map(str::to_owned)
+            .unwrap_or_else(|_| "image.png".into());
+        let dir = app.uploads.clone();
+        let op = file.op;
+        let from = file.name;
+        tasks.push(tokio::task::spawn_blocking(move || {
+            let derived = images::apply(&bytes, op, cap.as_deref())?;
+            let mut key = Sha256::new();
+            key.update(serde_json::to_vec(&op).map_err(failure)?);
+            key.update(&bytes);
+            if let Some(cap) = &cap {
+                key.update(cap);
+            }
+            let group = format!("{:x}", key.finalize())[..16].to_owned();
+            uploads::store(&dir, &group, &name, &derived.bytes).map(|stored| DerivedFile {
+                from,
+                stored,
+                lost: derived.lost,
+            })
+        }));
+    }
+    let mut out = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        out.push(task.await.map_err(failure)??);
+    }
+    Ok(Json(out))
+}
+
+async fn review(
+    State(app): State<App>,
+    Json(request): Json<apply::Request>,
+) -> Result<Json<apply::Review>, Failure> {
+    Ok(Json(apply::review(&app, request).await?))
+}
+async fn apply_changes(
+    State(app): State<App>,
+    Json(request): Json<apply::Request>,
+) -> Result<Json<apply::Applied>, Failure> {
+    Ok(Json(apply::apply(&app, request).await?))
+}
+#[derive(Deserialize)]
+struct SkinKey {
+    skin: String,
+}
+async fn restore(
+    State(app): State<App>,
+    Json(key): Json<SkinKey>,
+) -> Result<Json<apply::Restored>, Failure> {
+    Ok(Json(apply::restore(&app, &key.skin).await?))
+}
+async fn applied(
+    State(app): State<App>,
+    Query(key): Query<SkinKey>,
+) -> Result<Json<Option<apply::LastApply>>, Failure> {
+    Ok(Json(apply::last(&app, &key.skin).await?))
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -514,6 +708,13 @@ pub fn router(app: App) -> Router {
             post(upload).layer(DefaultBodyLimit::max(uploads::MAX_BYTES as usize + 1)),
         )
         .route("/v1/uploads/remove", post(remove_uploads))
+        .route("/v1/plays/last", get(last_play))
+        .route("/v1/rows", get(image_rows))
+        .route("/v1/derive", post(derive))
+        .route("/v1/review", post(review))
+        .route("/v1/apply", post(apply_changes))
+        .route("/v1/restore", post(restore))
+        .route("/v1/applied", get(applied))
         .with_state(app)
 }
 
@@ -537,6 +738,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         known: Arc::new(Mutex::new(None)),
         exports: Arc::new(Mutex::new(HashMap::new())),
         uploads: uploads.into(),
+        backups: env.data_dir.join("backups").into(),
+        imports: env.data_dir.join("lazer-imports").into(),
     };
     vosu_tool_sdk::serve(&env, router(app)).await?;
     Ok(())

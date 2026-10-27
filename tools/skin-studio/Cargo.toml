@@ -18,5 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tempfile = "3"
+base64 = "0.22"
+md-5 = "0.10"
+osu-db = { path = "../../crates/osu-db" }
 zip = { version = "=8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }

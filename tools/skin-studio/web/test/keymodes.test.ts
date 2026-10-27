@@ -5,6 +5,7 @@ import { maniaValue } from "@vosu-tools/skin-spec";
 import {
   History,
   applyToAll,
+  assignSlots,
   copyStage,
   defaultPattern,
   imageUnit,
@@ -13,9 +14,10 @@ import {
   stageImages,
   stageStatus,
   touchedKeys,
+  type KeymodeDraft,
   type Slot,
 } from "../src/keymodes";
-import { compose, type SkinData } from "../src/plan";
+import { compose, hasEdits, inPlaceRemovals, type SkinData } from "../src/plan";
 import {
   MAX_UPLOAD_BYTES,
   UPLOADS,
@@ -53,7 +55,7 @@ test("an image unit carries its @2x and frames with their suffixes", () => {
   expect(imageUnit(notesSkin.files, "nothing")).toEqual([]);
 });
 
-test("a 7K draft from two skins writes keys and copies files under skin-studio/7k", () => {
+test("a 7K draft from two skins writes keys and copies files under mania/7k", () => {
   const key = { skin: keysSkin.key, name: "mania-key1", files: imageUnit(keysSkin.files, "mania-key1") };
   const note = { skin: notesSkin.key, name: "arrows/left", files: imageUnit(notesSkin.files, "arrows/left") };
   // Another image with the same file name gets "(2)", never "-2" (a frame).
@@ -65,7 +67,7 @@ test("a 7K draft from two skins writes keys and copies files under skin-studio/7
       picks: {},
       keymodes: {
         "7": {
-          images: { KeyImage0: key, KeyImage6: key, NoteImage0: note, KeyImage1: other, KeyImage2: { value: "skin-studio/7k/key" }, NoteImage3: null },
+          images: { KeyImage0: key, KeyImage6: key, NoteImage0: note, KeyImage1: other, KeyImage2: { value: "mania/7k/key" }, NoteImage3: null },
           values: { ColumnWidth: "40,40,40,50,40,40,40", Colour4: "10,20,30,255" },
         },
       },
@@ -73,27 +75,27 @@ test("a 7K draft from two skins writes keys and copies files under skin-studio/7
     skins,
   );
   const ini = plan.ini;
-  expect(maniaValue(ini, 7, "KeyImage0")).toBe("skin-studio/7k/mania-key1");
-  expect(maniaValue(ini, 7, "KeyImage6")).toBe("skin-studio/7k/mania-key1");
-  expect(maniaValue(ini, 7, "NoteImage0")).toBe("skin-studio/7k/left");
-  expect(maniaValue(ini, 7, "KeyImage1")).toBe("skin-studio/7k/key");
+  expect(maniaValue(ini, 7, "KeyImage0")).toBe("mania/7k/mania-key1");
+  expect(maniaValue(ini, 7, "KeyImage6")).toBe("mania/7k/mania-key1");
+  expect(maniaValue(ini, 7, "NoteImage0")).toBe("mania/7k/left");
+  expect(maniaValue(ini, 7, "KeyImage1")).toBe("mania/7k/key");
   expect(maniaValue(ini, 7, "ColumnWidth")).toBe("40,40,40,50,40,40,40");
   expect(maniaValue(ini, 7, "NoteImage3")).toBeUndefined();
   const files = plan.sources.flatMap((s) => s.files.map((f) => [s.skin, ...(typeof f === "string" ? [f, f] : f)]));
-  expect(files).toContainEqual([keysSkin.key, "mania-key1@2x.png", "skin-studio/7k/mania-key1@2x.png"]);
-  expect(files).toContainEqual([notesSkin.key, "arrows/left-0@2x.png", "skin-studio/7k/left-0@2x.png"]);
-  expect(files).toContainEqual([notesSkin.key, "up/key.png", "skin-studio/7k/key.png"]);
+  expect(files).toContainEqual([keysSkin.key, "mania-key1@2x.png", "mania/7k/mania-key1@2x.png"]);
+  expect(files).toContainEqual([notesSkin.key, "arrows/left-0@2x.png", "mania/7k/left-0@2x.png"]);
+  expect(files).toContainEqual([notesSkin.key, "up/key.png", "mania/7k/key.png"]);
   // One copy for two columns.
-  expect(files.filter((f) => f[2] === "skin-studio/7k/mania-key1.png")).toHaveLength(1);
+  expect(files.filter((f) => f[2] === "mania/7k/mania-key1.png")).toHaveLength(1);
   // The values read back through render-core as the renderer reads them.
   const config = maniaConfig(readSkinIni(ini), 7);
-  expect(config.images.get("NoteImage0")).toBe("skin-studio/7k/left");
+  expect(config.images.get("NoteImage0")).toBe("mania/7k/left");
   expect(config.columnWidth[3]).toBeCloseTo(50 * 1.6);
   // And the stage resolves the copies from the mix's files.
   const out = plan.sources.flatMap((s) => s.files.map((f) => (typeof f === "string" ? f : f[1])));
   const by = new Map(stageImages(ini, out, 7).map((r) => [r.key, r]));
   expect(by.get("KeyImage0")!.source).toBe("skin.ini");
-  expect(by.get("NoteImage0")!.drawn?.name).toBe("skin-studio/7k/left");
+  expect(by.get("NoteImage0")!.drawn?.name).toBe("mania/7k/left");
   expect(by.get("KeyImage3")!.source).toBe("built-in");
 });
 
@@ -233,4 +235,59 @@ test("dropped files: a referenced upload is kept, only unused ones are offered",
   expect(question).toContain("Delete 1 dropped file (1 KB)");
   expect(question).toContain("Other open Skin studio tabs or saved drafts in other browsers may still use these");
   expect(formatBytes(3 * 1048576)).toBe("3.0 MB");
+});
+
+test("one image for several selected slots is one undo step", () => {
+  const history = new History();
+  const before = { images: { KeyImage0: { value: "old/key" } }, values: {} } as KeymodeDraft;
+  const after = structuredClone(before);
+  const slot = { skin: "stable:/Skins/A", name: "mania/circle", files: [{ from: "mania/circle.png", suffix: ".png" }] };
+  assignSlots(after, ["KeyImage0", "NoteImage3", "StageHint"], slot);
+  history.push({ keys: 7, before, after, label: "Set 3 slots to circle.png" });
+  expect(Object.keys(after.images).sort()).toEqual(["KeyImage0", "NoteImage3", "StageHint"]);
+  // Each slot gets its own copy, so later edits of one never change another.
+  expect(after.images.NoteImage3).not.toBe(after.images.StageHint);
+  const undone = history.undo()!;
+  expect(undone.before).toEqual({ images: { KeyImage0: { value: "old/key" } }, values: {} });
+  expect(history.canUndo).toBe(false);
+  expect(history.redo()!.after.images.StageHint).toEqual(slot);
+  // Clearing several slots is one step too.
+  const cleared = structuredClone(after);
+  assignSlots(cleared, ["KeyImage0", "StageHint"], null);
+  expect(cleared.images).toEqual({ KeyImage0: null, NoteImage3: slot, StageHint: null });
+});
+
+test("an in-place draft removes only the skin's own files the plan dropped", () => {
+  const base: SkinData = {
+    key: "/Skins/A",
+    name: "A",
+    text: "[General]\nName: A\n",
+    files: ["skin.ini", "hitcircle.png", "mania-key1.png", "old.bak", "skin-studio-credits.txt", "mania-note1.png"],
+  };
+  const plan = {
+    name: "A",
+    overwrite: false,
+    ini: base.text,
+    sources: [{ skin: base.key, files: ["hitcircle.png", "mania-note1.png"] }],
+    blanks: [{ to: "mania-key1.png", kind: "png" as const }],
+    texts: [] as { to: string; text: string }[],
+  };
+  // The blanked key is replaced, not removed; backups and credits are not the draft's.
+  expect(inPlaceRemovals(plan, base)).toEqual([]);
+  plan.blanks = [];
+  expect(inPlaceRemovals(plan, base)).toEqual(["mania-key1.png"]);
+});
+
+test("a draft with nothing in it has no edits", () => {
+  expect(hasEdits({ name: "", base: "a", picks: {} })).toBe(false);
+  expect(hasEdits({ name: "", base: "a", picks: {}, keymodes: {} })).toBe(false);
+  expect(hasEdits({ name: "", base: "a", picks: {}, ini: "x" })).toBe(true);
+  expect(hasEdits({ name: "", base: "a", picks: {}, keymodes: { "7": { images: {}, values: {} } } })).toBe(true);
+});
+
+test("an in-place recipe leaves [General] as the skin has it", () => {
+  const skin: SkinData = { key: "/Skins/A", name: "A", text: "[General]\r\nName: Arturia\r\n\r\n[Mania]\r\nKeys: 4\r\n", files: ["skin.ini"] };
+  const { plan } = compose({ name: "", base: skin.key, picks: {}, inPlace: true }, new Map([[skin.key, skin]]));
+  expect(plan.ini).toContain("Name: Arturia");
+  expect(plan.ini).not.toContain("Version");
 });

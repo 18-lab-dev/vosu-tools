@@ -32,7 +32,13 @@ export interface ClientManiaSettings {
   scrollSpeed: number | null;
   /** Upward scrolling (lazer's ManiaScrollingDirection.Up). */
   scrollUp: boolean;
-  /** stable's "BPM scale" scroll speed mode instead of the fixed speed. */
+  /**
+   * stable's "BPM scale" scroll speed mode instead of the fixed speed. Off
+   * when vosu leaves it out: vosu reports stable's own ManiaSpeedBPMScale
+   * (src/memory/stable/settings.rs), false for lazer, which has no such
+   * mode (src/state/bundle/models.rs), and false for a missing value
+   * (src/api/v2/wire.rs, setting_bool).
+   */
   bpmScale: boolean;
 }
 

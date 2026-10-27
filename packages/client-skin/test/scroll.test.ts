@@ -98,3 +98,10 @@ test("rate: notes move as fast on screen at any clock rate", () => {
   // Nonsense rates fall back to 1.
   for (const rate of [0, -1, Number.NaN]) expect(maniaScroll({ client: stable, rate }).speed).toBe(27);
 });
+
+test("a missing speedBPMScale is off, as vosu reports it", () => {
+  expect(readManiaSettings({ scrollSpeed: 20 }).bpmScale).toBe(false);
+  expect(readManiaSettings({ scrollSpeed: 20, speedBPMScale: null }).bpmScale).toBe(false);
+  expect(readManiaSettings({ scrollSpeed: 20, speedBPMScale: 1 }).bpmScale).toBe(false);
+  expect(readManiaSettings({ scrollSpeed: 20, speedBPMScale: true }).bpmScale).toBe(true);
+});

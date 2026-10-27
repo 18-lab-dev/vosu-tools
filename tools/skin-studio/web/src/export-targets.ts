@@ -18,7 +18,7 @@ import { maniaBlocks, parseIni } from "./ini";
 import { frameNames, hasImage, imageIndex } from "./mania";
 import type { Plan } from "./plan";
 
-export type ExportTarget = "stable" | "osk" | "quaver" | "etterna";
+export type ExportTarget = "apply" | "stable" | "osk" | "quaver" | "etterna";
 export type ConvertTarget = "quaver" | "etterna";
 
 export const TARGETS: readonly {
@@ -26,6 +26,8 @@ export const TARGETS: readonly {
   label: string;
   button: string;
 }[] = [
+  // Edit in place: shown while the Mix panel edits a skin (Current skin).
+  { id: "apply", label: "Apply to current skin", button: "Apply changes" },
   { id: "stable", label: "osu! stable folder", button: "Create stable skin" },
   { id: "osk", label: "osu!lazer .osk", button: "Download .osk" },
   { id: "quaver", label: "Quaver", button: "Download Quaver skin" },
@@ -69,6 +71,8 @@ const list = (keys: readonly number[]) =>
 
 /** What a target exports and skips, for the line under the choice. */
 export function targetNote(target: ExportTarget, keys: readonly number[]) {
+  if (target === "apply")
+    return "Writes the unapplied changes into the skin being edited.";
   if (target === "stable")
     return "A new skin in the stable Skins folder; replacing one asks first.";
   if (target === "osk") return "One file lazer imports; nothing is written here.";
