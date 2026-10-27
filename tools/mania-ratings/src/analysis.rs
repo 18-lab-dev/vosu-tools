@@ -40,7 +40,9 @@ pub fn section(bytes: &[u8], p: Params, start: f32, end: f32) -> Result<Value, S
     if !start.is_finite() || !end.is_finite() || start < 0.0 || end <= start || end > 24001.0 {
         return Err("section requires 0 <= start < end <= 24001 (chart seconds)".into());
     }
-    let text = std::str::from_utf8(bytes).map_err(|e| e.to_string())?;
+    // Convert first: spinner columns depend on every spinner in the chart.
+    let converted = crate::playable::playable(bytes)?;
+    let text = std::str::from_utf8(&converted).map_err(|e| e.to_string())?;
     let mut objects = false;
     let mut clipped = String::with_capacity(text.len());
     for line in text.lines() {
@@ -87,6 +89,9 @@ pub fn timeline(
     {
         return Err("window must be 0.1–60s; hop must be 0.05–60s".into());
     }
+    let original = bytes;
+    let converted = crate::playable::playable(original)?;
+    let bytes: &[u8] = &converted;
     let map = Beatmap::from_bytes(bytes).map_err(|e| e.to_string())?;
     if map.mode != GameMode::Mania {
         return Err("native mania maps only".into());
@@ -102,7 +107,7 @@ pub fn timeline(
     let rows = rows(&map, keys)?;
     let duration = rows.last().map_or(0.0, |r| r.seconds + 0.001);
     if system == "etterna" {
-        return local_msd(bytes, &rows, keys, p, window, hop, duration);
+        return local_msd(original, &rows, keys, p, window, hop, duration);
     }
     let native = if system == "etterna-native" {
         minacalc::intervals(&rows, keys, p.rate())?
@@ -207,7 +212,7 @@ pub fn timeline(
         points.push(json!({"time":start,"value":value,"nps":nps,"skills":skills}));
     }
     Ok(
-        json!({"checksum":checksum(bytes),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna-native"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", "prism"=>"Prism (mania-tracker) rating of the centred window; not Etterna MSD", "ln"=>"LN releases per playback second (ours)", _=>"notes per playback second"},"duration":duration,"points":points}),
+        json!({"checksum":checksum(original),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna-native"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", "prism"=>"Prism (mania-tracker) rating of the centred window; not Etterna MSD", "ln"=>"LN releases per playback second (ours)", _=>"notes per playback second"},"duration":duration,"points":points}),
     )
 }
 

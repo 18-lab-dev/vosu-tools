@@ -59,6 +59,12 @@ Each section records third-party code, data, or assets included in this reposito
   `vendor/prism/LICENSE`, also shipped as
   `tools/mania-ratings/licenses/Prism-MIT.txt`.
 - osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
+- Slider and spinner objects in native mania charts: port (translated code) of
+  osu! (lazer) `2026.1005.0-lazer` (`9a10d935b05a3b896f4bd811d620f2023331db93`)
+  `ManiaBeatmapConverter`, `PassThroughPatternGenerator`,
+  `SpinnerPatternGenerator` and `LegacyRandom`, copyright 2025 ppy Pty Ltd, MIT,
+  in `tools/mania-ratings/src/playable.rs`; license
+  `tools/mania-ratings/licenses/osu-MIT.txt`.
 - 7K Regular dan calibration: course chart identities and checksums for
   Jinjin's osu!mania 7K Regular Dan courses are in
   `tools/mania-ratings/calibration-7k-sources.json`; the charts are not

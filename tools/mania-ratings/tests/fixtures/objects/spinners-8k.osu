@@ -1,0 +1,33 @@
+osu file format v14
+
+[General]
+AudioFilename: audio.mp3
+Mode: 3
+
+[Metadata]
+Title:Slider and spinner objects
+Artist:vosu-tools
+Creator:vosu-tools
+Version:spinners-8k
+
+[Difficulty]
+HPDrainRate:6.5
+CircleSize:8
+OverallDifficulty:8.3
+ApproachRate:9.5
+SliderMultiplier:1.4
+SliderTickRate:1
+
+[TimingPoints]
+0,400,4,2,0,40,1,0
+
+[HitObjects]
+32,192,1000,1,0,0:0:0:0:
+256,192,1500,8,0,2500,0:0:0:0:
+256,192,3000,12,4,3500,0:0:0:0:
+256,192,4000,8,4,5200,0:0:0:0:
+256,192,6000,8,0,6050,0:0:0:0:
+96,192,6500,128,0,7000:0:0:0:0:
+256,192,7000,8,0,7000,0:0:0:0:
+256,192,8000,8,2,9000,0:0:0:0:
+256,192,9500,8,4,9999,0:0:0:0:
