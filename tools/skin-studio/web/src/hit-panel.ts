@@ -22,7 +22,10 @@ import { lookupFiles } from "./mania";
 import {
   type Dims,
   type Geometry,
+  type Lost,
   columnOf,
+  lostReport,
+  rederives,
   hitPositionFor,
   pieceOf,
   pieceOps,
@@ -395,24 +398,26 @@ export class HitPanel {
         repeat: config.noteBodyStyle !== 0,
       });
       const slots: Record<string, Slot | undefined> = {};
-      const lost: string[] = [];
+      const lost: Lost[] = [];
       let images = 0;
       // 1. Each piece's operations (sizes read in parallel, cached).
       const planned = await Promise.all(
-        Object.entries(hit.originals).map(async ([key, original]) => {
-          const piece = pieceOf(key)!;
-          const column = columnOf(key);
-          const from: Geometry = {
-            ...geometry(now, original.at, column),
-            width: original.width ?? now.columnWidth[column],
-            noteHeight: original.noteHeight ?? now.noteHeightWidth,
-          };
-          const files = original.slot.files;
-          const dims = new Map<string, Dims>();
-          if (piece !== "key" || from.width !== then.columnWidth[column])
-            await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
-          return { key, original, ops: pieceOps(piece, from, geometry(then, target, column), files, dims) };
-        }),
+        Object.entries(hit.originals)
+          .filter(([key]) => rederives(key, widthsChange))
+          .map(async ([key, original]) => {
+            const piece = pieceOf(key)!;
+            const column = columnOf(key);
+            const from: Geometry = {
+              ...geometry(now, original.at, column),
+              width: original.width ?? now.columnWidth[column],
+              noteHeight: original.noteHeight ?? now.noteHeightWidth,
+            };
+            const files = original.slot.files;
+            const dims = new Map<string, Dims>();
+            if (piece !== "key" || from.width !== then.columnWidth[column])
+              await Promise.all(files.map(async (f) => dims.set(f.from, await this.#size(original.slot.skin, f.from))));
+            return { key, original, ops: pieceOps(piece, from, geometry(then, target, column), files, dims) };
+          }),
       );
       // 2. One derive request per skin for what is not cached yet.
       const id = (skin: string, o: { source: string; op: DeriveOp }) => JSON.stringify([skin, o.source, o.op]);
@@ -439,12 +444,16 @@ export class HitPanel {
         const derived = await Promise.all(ops.map((o) => this.#derived.get(id(original.slot.skin, o))!));
         images += derived.length;
         const files = original.slot.files;
-        for (const [i, d] of derived.entries()) if (d.lost) lost.push(`${files[i].from}: ${d.lost} rows past the edge`);
         slots[key] = {
           skin: UPLOADS,
           name: original.slot.name.split("/").pop()!,
           files: files.map((f, i) => ({ from: derived[i].stored, suffix: f.suffix })),
         };
+        // Reported when this change makes the image, not again on every
+        // later change that keeps it.
+        if (JSON.stringify(draft?.images[key]) !== JSON.stringify(slots[key]))
+          for (const [i, d] of derived.entries())
+            if (d.lost) lost.push({ key, file: files[i].from, rows: d.lost, op: "rows" in ops[i].op ? "rows" : "shift" in ops[i].op ? "shift" : "resize" });
       }
       // A newer change superseded this one.
       if (ticket !== this.#geometryTicket) return;
@@ -457,12 +466,13 @@ export class HitPanel {
           else d.images[key] = slot;
         Object.assign(d.values, values);
         // Back where every image was made: nothing is changed any more.
-        if (Object.entries(hit.originals).every(([key, o]) => slots[key] === (o.had ? o.prior : undefined)))
+        const shown = (key: string) => (key in slots ? slots[key] : d.images[key]);
+        if (Object.entries(hit.originals).every(([key, o]) => JSON.stringify(shown(key)) === JSON.stringify(o.had ? o.prior : undefined)))
           delete d.hit;
         else d.hit = hit;
       });
       this.lastRegeometry = { images, ms: Math.round(performance.now() - started) };
-      this.#host.error(lost.length ? `Moved past the image edge: ${lost.join("; ")}` : "");
+      this.#host.error(lost.length ? lostReport(keys, lost) : "");
     } catch (error) {
       if (ticket === this.#geometryTicket) this.#host.error(error instanceof Error ? error.message : String(error));
     } finally {

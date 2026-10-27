@@ -341,6 +341,25 @@ try {
   const hp1 = Math.round(480 - (480 - hp0) * 1.25);
   check(`Every column 1.25×: HitPosition = round(480 − (480 − ${hp0}) × 1.25) = ${hp1}`, Number(await hitValue()) === hp1, String(await hitValue()));
   check("Uniform widths keep notes as they are (the note height follows the narrowest column)", (await label("NoteImage1")) === note1);
+  // The last widening shortened column 7's repeated hold body: said once,
+  // by column and piece. A HitPosition change after it moves only the keys:
+  // nothing about hold bodies again (it used to re-report every body).
+  const kmError = async () => ((await page.locator("#km-error").isVisible()) ? ((await page.locator("#km-error").textContent()) ?? "") : "");
+  const widened = await kmError();
+  const parts = widened.split("; ").filter(Boolean);
+  check("A shortened hold body is reported once, by column and piece", parts.length === new Set(parts).size && parts.every((p) => /^7K columns? [\d, and]+ [a-z ]+: \d+ rows /.test(p)) && !/rows past the edge/.test(widened), widened || "(none)");
+  const bodies = await Promise.all(Array.from({ length: 7 }, (_, c) => label(`NoteImage${c}L`)));
+  const hpBefore = await hitValue();
+  await page.locator('#km-hit button[aria-label^="Raise the hit line"]').click();
+  await until(async () => (await hitValue()) !== hpBefore, "hit position after widths", 30000);
+  await page.waitForTimeout(500);
+  const afterHit = await kmError();
+  await page.locator("#km-error").scrollIntoViewIfNeeded().catch(() => undefined);
+  await page.screenshot({ path: join(out, "hitpos-after-widths.png") });
+  const bodiesAfter = await Promise.all(Array.from({ length: 7 }, (_, c) => label(`NoteImage${c}L`)));
+  check("After a width change, a HitPosition change leaves the hold bodies alone and reports nothing", afterHit === "" && bodiesAfter.every((b, c) => b === bodies[c]), afterHit || "no message");
+  await page.keyboard.press("Control+z");
+  await until(async () => (await hitValue()) === hpBefore, "hit position undo", 30000);
   const first = timings[0],
     order = [...timings];
   timings.sort((a, b) => a - b);

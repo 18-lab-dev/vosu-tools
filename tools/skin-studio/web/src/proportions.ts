@@ -66,6 +66,61 @@ export function pieceOf(key: string): Piece | null {
 }
 export const columnOf = (key: string) => Number(/\d+/.exec(key)?.[0] ?? -1);
 
+/**
+ * Whether a geometry change re-derives a captured piece. HitPosition moves
+ * only the keys (lazer places LegacyKeyArea's receptors on the hit line;
+ * notes and hold pieces are drawn by the scrolling, not from the image), so
+ * notes and hold pieces follow width changes only.
+ */
+export const rederives = (key: string, widthsChange: boolean) => widthsChange || pieceOf(key) === "key";
+
+const ROLE: Record<string, string> = { "": "note", H: "hold head", L: "hold body", T: "hold tail" };
+/** A piece as the screen names it: `7K column 3 hold body`. */
+export function pieceName(keys: number, key: string): string {
+  const m = /^(KeyImage|NoteImage)(\d+)([DHLT]?)$/.exec(key);
+  if (!m) return `${keys}K ${key}`;
+  const role = m[1] === "KeyImage" ? (m[3] === "D" ? "key pressed" : "key") : ROLE[m[3]];
+  return `${keys}K column ${Number(m[2]) + 1} ${role}`;
+}
+
+/** Rows an image operation dropped. */
+export interface Lost {
+  key: string;
+  file: string;
+  rows: number;
+  /** `rows`: a repeated body's tile made shorter; else moved past the edge. */
+  op: "shift" | "resize" | "rows";
+}
+/**
+ * One line per distinct loss, the columns that share it named together:
+ * `7K columns 1, 2 and 5 hold body: 3073 rows cut from the end of …`.
+ */
+export function lostReport(keys: number, lost: readonly Lost[]): string {
+  const groups = new Map<string, number[]>();
+  for (const l of lost) {
+    const role = pieceName(keys, l.key).replace(/^\d+K column \d+ /, "");
+    const what =
+      l.op === "rows"
+        ? `${l.rows} rows cut from the end of ${l.file}`
+        : `${l.rows} rows of ${l.file} moved past the image edge`;
+    const id = `${role}\n${what}`;
+    const columns = groups.get(id) ?? [];
+    if (!columns.includes(columnOf(l.key) + 1)) columns.push(columnOf(l.key) + 1);
+    groups.set(id, columns);
+  }
+  return [...groups]
+    .map(([id, columns]) => {
+      const [role, what] = id.split("\n");
+      columns.sort((a, b) => a - b);
+      const named =
+        columns.length === 1
+          ? `column ${columns[0]}`
+          : `columns ${columns.slice(0, -1).join(", ")} and ${columns.at(-1)}`;
+      return `${keys}K ${named} ${role}: ${what}`;
+    })
+    .join("; ");
+}
+
 /** One column's geometry: HitPosition, its width, the note height width, body style. */
 export interface Geometry {
   hitPosition: number;
