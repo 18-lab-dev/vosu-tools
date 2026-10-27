@@ -23,11 +23,11 @@ export type ManiaWindows = [number, number, number, number, number, number];
  */
 export function maniaHitWindows(
   od: number,
-  options: { rate?: number; difficulty?: number; classic?: boolean; convert?: boolean } = {},
+  options: { rate?: number; difficulty?: number; classic?: boolean; scoreV2?: boolean; convert?: boolean } = {},
 ): ManiaWindows {
   const multiplier = (options.rate ?? 1) / (options.difficulty ?? 1);
   const at = (value: number) => Math.floor(value * multiplier) + 0.5;
-  if (options.classic) {
+  if (options.classic && !options.scoreV2) {
     if (options.convert) {
       const easy = Math.round(od) <= 4;
       return [at(16), at(easy ? 47 : 34), at(easy ? 77 : 67), at(97), at(121), at(158)];
@@ -99,6 +99,7 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     rate: replayRate(replay),
     difficulty: has("HR") ? 1.4 : has("EZ") ? 1 / 1.4 : 1,
     classic: isClassic(replay),
+    scoreV2: has("SV2"),
     convert: options.convert,
   });
   const [, , , , meh, missWindow] = windows;

@@ -79,6 +79,20 @@ describe("lazer mania rules", () => {
     expect(maniaHitWindows(8, { rate: 1.5 })[1]).toBe(60.5);
   });
 
+  test("Classic with ScoreV2 uses modern windows for heads and tails", () => {
+    // ManiaHitWindows.updateWindows: Classic is conditional on !ScoreV2Active.
+    // https://github.com/ppy/osu/blob/97e94babde9d5ecbe574ecdd33509db27452cd0f/osu.Game.Rulesets.Mania/Scoring/ManiaHitWindows.cs#L134-L169
+    expect(maniaHitWindows(0, { classic: true, scoreV2: true })).toEqual(maniaHitWindows(0));
+    expect(maniaHitWindows(0, { classic: true, scoreV2: true, convert: true, rate: 1.5, difficulty: 1.4 }))
+      .toEqual(maniaHitWindows(0, { rate: 1.5, difficulty: 1.4 }));
+    const chart = map(3, "64,192,1000,128,0,2000:0:0:0:0:", "CircleSize:4\nOverallDifficulty:0");
+    const frames = keys([1020, 1], [2028, 0], [2400, 0]);
+    const classic = simulateMania(replayOf(3, frames, lazerMods([{ acronym: "CL" }])), chart);
+    const scoreV2 = simulateMania(replayOf(3, frames, lazerMods([{ acronym: "CL" }, { acronym: "SV2" }])), chart);
+    expect(classic.events.filter((e) => e.object === "head" || e.object === "tail").map((e) => e.kind)).toEqual(["great", "great"]);
+    expect(scoreV2.events.filter((e) => e.object === "head" || e.object === "tail").map((e) => e.kind)).toEqual(["perfect", "perfect"]);
+  });
+
   // A note in column 0, a hold in column 1, a note in column 2.
   const MANIA = map(3, "64,192,1000,1,0,0:0:0:0:\n192,192,2000,128,0,2500:0:0:0:0:\n320,192,3000,1,0,0:0:0:0:");
 
