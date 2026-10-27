@@ -22,17 +22,38 @@ pub fn calculate(rows: &[Row], keys: usize, rate: f32) -> (f32, Vec<(f32, f32)>)
     if rows.is_empty() {
         return (0.0, Vec::new());
     }
+    let heads: Vec<(f32, u32)> = rows.iter().map(|r| (r.seconds * 1000.0, r.notes)).collect();
+    let strains = finger_strains(&heads, keys, rate);
+    let series = rows
+        .iter()
+        .zip(&strains)
+        .map(|(row, s)| {
+            (
+                row.seconds / rate,
+                s.iter().copied().fold(0.0_f32, f32::max),
+            )
+        })
+        .collect();
+    (overall(strains.iter().flatten().copied()), series)
+}
+
+/// Upstream `Strain.calculate_finger_strains` (`StrainV1Notes`): one array per
+/// row of `(time ms, head bitmask)`, holding the burst strain of each column
+/// with a head in that row and 0 elsewhere. Rows without heads (hold tails in
+/// Prelude's native chart) keep their index and yield zeros.
+pub fn finger_strains(rows: &[(f32, u32)], keys: usize, rate: f32) -> Vec<Vec<f32>> {
+    let Some(&(first, _)) = rows.first() else {
+        return Vec::new();
+    };
     let split = keys.div_ceil(2);
-    let mut previous = vec![rows[0].seconds * 1000.0 - 1_000_000.0; keys];
+    let mut previous = vec![first - 1_000_000.0; keys];
     let mut previous_strain = vec![0.0; keys];
     let mut strain = vec![0.0; keys];
-    let mut values = Vec::new();
-    let mut series = Vec::with_capacity(rows.len());
-    for row in rows {
-        let time = row.seconds * 1000.0;
-        let mut peak = 0.0_f32;
+    let mut out = Vec::with_capacity(rows.len());
+    for &(time, notes) in rows {
+        let mut row = vec![0.0_f32; keys];
         for k in 0..keys {
-            if row.notes & (1 << k) == 0 {
+            if notes & (1 << k) == 0 {
                 continue;
             }
             let delta = (time - previous[k]) / rate;
@@ -68,18 +89,21 @@ pub fn calculate(rows: &[Row], keys: usize, rate: f32) -> (f32, Vec<(f32, f32)>)
             let b = total * total * 0.01626;
             strain[k] = b - (b - a) * decay;
             previous_strain[k] = time;
-            if strain[k] > 0.0 {
-                values.push(strain[k]);
-            }
-            peak = peak.max(strain[k]);
+            row[k] = strain[k];
         }
         for (k, p) in previous.iter_mut().enumerate() {
-            if row.notes & (1 << k) != 0 {
+            if notes & (1 << k) != 0 {
                 *p = time;
             }
         }
-        series.push((row.seconds / rate, peak));
+        out.push(row);
     }
+    out
+}
+
+/// Upstream `Difficulty.weighted_overall_difficulty` over the positive values.
+pub fn weighted_overall(values: impl Iterator<Item = f32>) -> f32 {
+    let mut values: Vec<f32> = values.filter(|v| *v > 0.0).collect();
     values.sort_by(f32::total_cmp);
     let len = values.len() as f32;
     let (mut weight, mut total) = (0.0, 0.0);
@@ -88,6 +112,10 @@ pub fn calculate(rows: &[Row], keys: usize, rate: f32) -> (f32, Vec<(f32, f32)>)
         weight += w;
         total += value * w;
     }
-    let rating = (total / weight).powf(0.6) * 0.4056;
-    (if rating.is_finite() { rating } else { 0.0 }, series)
+    (total / weight).powf(0.6) * 0.4056
+}
+
+fn overall(values: impl Iterator<Item = f32>) -> f32 {
+    let rating = weighted_overall(values);
+    if rating.is_finite() { rating } else { 0.0 }
 }

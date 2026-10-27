@@ -1,0 +1,2 @@
+# Vendored upstream code stays byte-identical (see VENDOR.md).
+disable_all_formatting = true

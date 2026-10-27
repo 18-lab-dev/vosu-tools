@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 minacalc = { path = "../../crates/minacalc" }
+prism = { path = "../../vendor/prism/crates/prism" }
+chart-parser = { path = "../../vendor/prism/crates/chart-parser" }
 vosu-tool-sdk = { path = "../../crates/vosu-tool-sdk" }
 clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 axum = { version = "=0.8.9", features = ["query"] }

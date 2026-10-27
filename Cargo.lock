@@ -316,6 +316,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-parser"
+version = "0.1.0"
+dependencies = [
+ "jsmath",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -475,6 +482,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "dan-core"
+version = "0.1.0"
+dependencies = [
+ "chart-parser",
+ "jsmath",
 ]
 
 [[package]]
@@ -1311,6 +1326,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsmath"
+version = "0.1.0"
+
+[[package]]
 name = "kqueue"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1692,6 +1711,15 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "prism"
+version = "0.25.0"
+dependencies = [
+ "chart-parser",
+ "dan-core",
+ "jsmath",
 ]
 
 [[package]]
@@ -2809,9 +2837,11 @@ name = "vosu-mania-ratings"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chart-parser",
  "clap",
  "md-5 0.11.0",
  "minacalc",
+ "prism",
  "rosu-map 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rosu-pp",
  "rusqlite",

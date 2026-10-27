@@ -12,6 +12,11 @@ Interfaces: **service + CLI + UI**. The background service computes and caches r
 - **Rate curve**: MinaCalc MSD from 0.50× to 2.00× in the configured step (or, for key counts MinaCalc does not rate, the first calculator that does), with the neighbouring rates of the current one. Rates past a calculator's range are gaps with its reason.
 - **Timeline**: local MSD from centred windows (Etterna) or each system's native strain, plus note density.
 - **Sections**: ratings for a chosen start and end time.
+- **Prism (mania-tracker)** for 6K–8K: mania-tracker's MSD-scale calculator with its skillsets and LN rating, vendored unmodified; never shown as Etterna.
+- **Interlude patterns** for 3K–10K: Interlude's own pattern analysis (category, BPM clusters, shares), ported and checked against Interlude's code.
+- **7K skills, pattern analysis (ours)**: jack, chordjack, speed/stream, chordstream, bracket and tech coverage from Interlude's 7K patterns beside MinaCalc's 7K skillsets, plus the LN family.
+- **≈ 7K dan (ours)** (experimental): MinaCalc 7K MSD interpolated between Jinjin's 7K Regular dan courses, shown with its held-out error (± 0.2).
+- **LN statistics (ours)** for every key count: hold share, coverage, release density, inverse and off-row release shares.
 - **Reform dan estimate** (experimental): an interpolation of overall MSD against the Reform v1 course charts. It describes similarity to those courses, not a course clear; only 4K maps have one.
 
 The page follows the beatmap selected in osu! at the game's actual rate (DT/HT/NC and lazer rate mods included). Turn **Follow game** off to set the rate yourself, or open an `.osu` file. Long notes count by their heads only, so MSD measures a chart's head patterns, not LN release or holding strain.

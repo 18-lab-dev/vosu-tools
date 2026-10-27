@@ -7,10 +7,17 @@ pub fn systems(value: Option<&str>) -> Result<(), String> {
         for system in value.split(',') {
             if !matches!(
                 system,
-                "etterna" | "etterna-native" | "quaver" | "interlude" | "osu" | "nps"
+                "etterna"
+                    | "etterna-native"
+                    | "quaver"
+                    | "interlude"
+                    | "osu"
+                    | "nps"
+                    | "prism"
+                    | "ln"
             ) {
                 return Err(format!(
-                    "unsupported system {system}; available: etterna,etterna-native,quaver,interlude,osu,nps"
+                    "unsupported system {system}; available: etterna,etterna-native,quaver,interlude,osu,nps,prism,ln"
                 ));
             }
         }
@@ -122,13 +129,34 @@ pub fn timeline(
     } else {
         Vec::new()
     };
+    let windows: Vec<(f32, f32)> = (0..=(duration / hop).ceil() as usize)
+        .map(|i| (i as f32 * hop, i as f32 * hop + window))
+        .take_while(|(start, _)| *start <= duration)
+        .collect();
+    let prism_series = if system == "prism" {
+        let spans: Vec<(f64, f64)> = windows
+            .iter()
+            // Centred on each point, like local MSD.
+            .map(|&(s, _)| {
+                let half = f64::from(window) * 500.0;
+                (
+                    (f64::from(s) * 1000.0 - half).max(0.0),
+                    f64::from(s) * 1000.0 + half,
+                )
+            })
+            .collect();
+        crate::prism::local(&String::from_utf8_lossy(bytes), p.rate(), &spans)
+            .ok_or("Prism returned no rating for this chart")?
+    } else {
+        Vec::new()
+    };
+    let releases = if system == "ln" {
+        crate::ln::releases(&map)
+    } else {
+        Vec::new()
+    };
     let mut points = Vec::new();
-    for i in 0..=(duration / hop).ceil() as usize {
-        let start = i as f32 * hop;
-        if start > duration {
-            break;
-        }
-        let end = start + window;
+    for (i, &(start, end)) in windows.iter().enumerate() {
         let heads: u32 = rows
             .iter()
             .filter(|r| r.seconds >= start && r.seconds < end)
@@ -167,12 +195,19 @@ pub fn timeline(
                 })
                 .map(|(_, v)| *v as f32)
                 .fold(0.0_f32, f32::max),
+            "prism" => prism_series[i] as f32,
+            "ln" => {
+                let (lo, hi) = (f64::from(start) * 1000.0, f64::from(end) * 1000.0);
+                let count =
+                    releases.partition_point(|&t| t < hi) - releases.partition_point(|&t| t < lo);
+                count as f32 * p.rate() / window
+            }
             _ => nps,
         };
         points.push(json!({"time":start,"value":value,"nps":nps,"skills":skills}));
     }
     Ok(
-        json!({"checksum":checksum(bytes),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna-native"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", _=>"notes per playback second"},"duration":duration,"points":points}),
+        json!({"checksum":checksum(bytes),"rate":p.rate(),"system":system,"window":window,"hop":hop,"time_unit":"chart_seconds","smoothing":"none","aggregation":"overlapping-window maximum of native full-chart strains; NPS counts heads / playback window duration","units":match system {"etterna-native"=>"native base-adjusted interval difficulty (max hand); NOT local MSD", "quaver"=>"action strain", "interlude"=>"finger strain", "osu"=>"strain peak (rosu-pp 4.0.1, 400ms playback sections)", "prism"=>"Prism (mania-tracker) rating of the centred window; not Etterna MSD", "ln"=>"LN releases per playback second (ours)", _=>"notes per playback second"},"duration":duration,"points":points}),
     )
 }
 

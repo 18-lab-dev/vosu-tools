@@ -9,7 +9,11 @@ use serde::{Deserialize, Serialize};
 
 pub mod analysis;
 pub mod interlude;
+pub mod ln;
+pub mod patterns;
+pub mod prism;
 pub mod quaver;
+pub mod view7k;
 
 pub const CALCULATOR: &str = "minacalc-527@2d706147-heads-v1";
 pub const DAN_MODEL: &str = "reform-v1-course-msd527@1";
@@ -48,7 +52,8 @@ impl Skills {
 pub const MAX_KEYS: u32 = 18;
 
 /// Whether `system` rates `keys`-key charts; `Err` carries the calculator's own
-/// limit. Systems: etterna, quaver, interlude, osu, reform, nps.
+/// limit. Systems: etterna, quaver, interlude, osu, reform, nps, prism,
+/// patterns (Interlude patterns), view7k, dan7k, ln.
 pub fn support(system: &str, keys: u32) -> Result<(), String> {
     let (ok, reason) = match system {
         "etterna" | "etterna-native" => (
@@ -64,7 +69,17 @@ pub fn support(system: &str, keys: u32) -> Result<(), String> {
             "Interlude's hand layout covers 3K–10K only",
         ),
         "reform" => (keys == 4, "Reform dan courses are 4K only"),
-        "osu" | "nps" => (true, ""),
+        "prism" => (
+            prism::supports(keys),
+            "Prism (mania-tracker) rates 6K–8K only",
+        ),
+        "patterns" => (
+            patterns::supports(keys),
+            "Interlude imports 3K–10K charts only",
+        ),
+        "view7k" => (keys == 7, "the 7K skill view is for 7K charts"),
+        "dan7k" => (keys == 7, "Jinjin's Regular dan courses are 7K only"),
+        "osu" | "nps" | "ln" => (true, ""),
         _ => return Err(format!("unknown system {system}")),
     };
     if ok {
@@ -79,6 +94,9 @@ pub struct Dan {
     pub label: String,
     pub value: f32,
     pub experimental: bool,
+    /// ± in dan steps (held-out calibration error), where measured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uncertainty: Option<f32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Calculator {
@@ -87,6 +105,9 @@ pub struct Calculator {
     pub quaver: String,
     pub interlude: String,
     pub osu: String,
+    pub prism: String,
+    pub patterns: String,
+    pub dan7k: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Difficulty {
@@ -106,6 +127,16 @@ pub struct Difficulty {
     pub score: Option<f32>,
     pub ssr: Option<Skills>,
     pub dan: Option<Dan>,
+    /// Prism (mania-tracker) for 6K–8K; not Etterna.
+    pub prism: Option<prism::Rating>,
+    /// Interlude patterns for 3K–10K.
+    pub patterns: Option<patterns::Report>,
+    /// LN statistics (ours), every key count.
+    pub ln: Option<ln::Stats>,
+    /// 7K skill view, pattern analysis (ours).
+    pub view7k: Option<view7k::View>,
+    /// ≈ Jinjin 7K Regular dan (ours), with its held-out uncertainty.
+    pub dan7k: Option<Dan>,
     pub calculator: Calculator,
     /// Whole-map refusal (not a native osu!mania map, invalid key count).
     pub unsupported: Option<String>,
@@ -160,11 +191,13 @@ impl Params {
     }
     pub fn key(self, checksum: &str) -> String {
         format!(
-            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:ratings4",
+            "{checksum}:{}:{:?}:{CALCULATOR}:{DAN_MODEL}:{}:{}:rosu-pp4.0.1:{}:{}:{DAN7K_MODEL}:ratings5",
             self.rate_tick,
             self.score.map(f32::to_bits),
             quaver::REVISION,
             interlude::REVISION,
+            prism::REVISION,
+            patterns::REVISION,
         )
     }
 }
@@ -256,12 +289,20 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
         score: params.score,
         ssr: None,
         dan: None,
+        prism: None,
+        patterns: None,
+        ln: None,
+        view7k: None,
+        dan7k: None,
         calculator: Calculator {
             msd: CALCULATOR.into(),
             dan: DAN_MODEL.into(),
             quaver: quaver::REVISION.into(),
             interlude: interlude::REVISION.into(),
             osu: "rosu-pp@4.0.1".into(),
+            prism: prism::REVISION.into(),
+            patterns: patterns::REVISION.into(),
+            dan7k: DAN7K_MODEL.into(),
         },
         unsupported: None,
         unrated: Default::default(),
@@ -336,8 +377,136 @@ pub fn calculate(bytes: &[u8], params: Params) -> Result<Difficulty, String> {
             }
         }
     }
+    let ln = ln::stats(&map, keys, rate);
+    let text = String::from_utf8_lossy(bytes);
+    match support("prism", keys) {
+        Ok(()) => match prism::rate(&text, rate) {
+            Some(rating) => result.prism = Some(rating),
+            None => {
+                unrated.insert(
+                    "prism".into(),
+                    Unrated::new(Scope::Rate, "Prism returned no rating for this chart."),
+                );
+            }
+        },
+        Err(reason) => {
+            unrated.insert("prism".into(), Unrated::new(Scope::Keys, reason));
+        }
+    }
+    let mut matches = None;
+    match support("patterns", keys) {
+        Ok(()) => match patterns::convert(&text) {
+            Ok(chart) => {
+                let length = chart.last() - chart.first();
+                let (found, report) = patterns::analyse(&chart, rate);
+                result.patterns = Some(report);
+                matches = Some((found, length));
+            }
+            Err(reason) => {
+                unrated.insert(
+                    "patterns".into(),
+                    Unrated::new(
+                        Scope::Rate,
+                        format!("Interlude refuses this chart: {reason}."),
+                    ),
+                );
+            }
+        },
+        Err(reason) => {
+            unrated.insert("patterns".into(), Unrated::new(Scope::Keys, reason));
+        }
+    }
+    if keys == 7 {
+        match &matches {
+            Some((found, length)) => {
+                result.view7k = Some(view7k::build(
+                    found,
+                    *length,
+                    rate,
+                    result.msd.as_ref(),
+                    &ln,
+                ));
+            }
+            None => {
+                unrated.insert(
+                    "view7k".into(),
+                    Unrated::new(
+                        Scope::Estimate,
+                        "The 7K skill view needs Interlude patterns.",
+                    ),
+                );
+            }
+        }
+        let dan = match &result.msd {
+            None => Err("The 7K dan estimate needs a MinaCalc 7K rating.".to_owned()),
+            Some(_) if ln.ln_share >= DAN7K_MAX_LN_SHARE => Err(format!(
+                "{:.0}% of the notes are holds; Jinjin's Regular courses are rice, so LN-heavy charts are not estimated.",
+                ln.ln_share * 100.0
+            )),
+            Some(msd) => estimate_dan_7k(msd.overall).ok_or_else(|| {
+                format!(
+                    "MSD {:.2} is outside the 7K Regular dan calibration range.",
+                    msd.overall
+                )
+            }),
+        };
+        match dan {
+            Ok(dan) => result.dan7k = Some(dan),
+            Err(reason) => {
+                unrated.insert("dan7k".into(), Unrated::new(Scope::Estimate, reason));
+            }
+        }
+    } else {
+        for (system, why) in [
+            ("view7k", "the 7K skill view is for 7K charts"),
+            ("dan7k", "Jinjin's Regular dan courses are 7K only"),
+        ] {
+            unrated.insert(
+                system.into(),
+                Unrated::new(Scope::Keys, format!("Not rated for {keys}K: {why}.")),
+            );
+        }
+    }
+    result.ln = Some(ln);
     result.unrated = unrated;
     Ok(result)
+}
+
+pub const DAN7K_MODEL: &str = "jinjin-7k-regular-msd527@1";
+/// Charts with at least this hold share get no 7K Regular dan estimate.
+pub const DAN7K_MAX_LN_SHARE: f32 = 0.3;
+/// Held-out (leave-one-out) maximum error of the 7K course interpolation, in
+/// dan steps; `calibration-7k-sources.json` records the measurement.
+pub const DAN7K_UNCERTAINTY: f32 = 0.2;
+/// Jinjin's 7K Regular course names, in calibration order.
+pub const DAN7K_NAMES: [&str; 14] = [
+    "0th", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "Gamma",
+    "Azimuth", "Zenith",
+];
+
+/// Piecewise-linear interpolation of 7K overall MSD between the 14 Jinjin
+/// Regular course charts (`calibration-7k.json`); `None` outside them.
+pub fn estimate_dan_7k(overall: f32) -> Option<Dan> {
+    static ANCHORS: std::sync::LazyLock<[f32; 14]> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../calibration-7k.json")).expect("embedded calibration")
+    });
+    let anchors = &*ANCHORS;
+    if !overall.is_finite() || overall < anchors[0] || overall > anchors[13] {
+        return None;
+    }
+    let index = anchors
+        .windows(2)
+        .position(|w| overall <= w[1])
+        .unwrap_or(12);
+    let value = index as f32 + (overall - anchors[index]) / (anchors[index + 1] - anchors[index]);
+    let nearest = DAN7K_NAMES[(value.round() as usize).min(13)];
+    Some(Dan {
+        system: "dan7k".into(),
+        label: format!("≈ {nearest} Dan"),
+        value,
+        experimental: true,
+        uncertainty: Some(DAN7K_UNCERTAINTY),
+    })
 }
 
 pub fn estimate_dan(overall: f32) -> Option<Dan> {
@@ -359,5 +528,6 @@ pub fn estimate_dan(overall: f32) -> Option<Dan> {
         label: format!("Reform {}", value.floor() as u32),
         value,
         experimental: true,
+        uncertainty: None,
     })
 }

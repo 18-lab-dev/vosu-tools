@@ -160,7 +160,7 @@ fn human(result: &Value, header: &str) -> String {
                 std::iter::once(format!("{}×", number(&r["rate"])))
                     .chain(SKILLS.iter().map(|s| number(&r["msd"][s])))
                     .chain(
-                        ["quaver", "interlude", "stars"]
+                        ["prism", "quaver", "interlude", "stars"]
                             .iter()
                             .map(|s| number(&r[s])),
                     )
@@ -169,7 +169,7 @@ fn human(result: &Value, header: &str) -> String {
             .collect::<Vec<_>>();
         let headers = std::iter::once("Rate")
             .chain(labels)
-            .chain(["Quaver", "Interlude", "osu! stars"])
+            .chain(["Prism", "Quaver", "Interlude", "osu! stars"])
             .collect::<Vec<_>>();
         return format!("{header}\n\n{}", table(&headers, &rows));
     }
@@ -197,13 +197,101 @@ fn human(result: &Value, header: &str) -> String {
         .filter_map(|system| unrated(system).map(|why| format!("\n{why}")))
         .collect::<String>();
     format!(
-        "{header}\n\n{msd}\n\nQuaver: {} · Interlude: {} · osu!mania: {} ★{notes}\n\n{}{}",
+        "{header}\n\n{msd}\n\nQuaver: {} · Interlude: {} · osu!mania: {} ★{notes}\n\n{}{}{}",
         number(&result["quaver"]),
         number(&result["interlude"]),
         number(&result["stars"]),
         dan(&result["dan"], &reason),
+        extras(result),
         unsupported
     )
+}
+/// Prism, Interlude patterns, the 7K view and dan, and LN statistics, each
+/// named by its source; only the ones that apply to the chart.
+fn extras(result: &Value) -> String {
+    let mut out = String::new();
+    let pct = |v: &Value| {
+        v.as_f64()
+            .map_or("—".to_owned(), |v| format!("{:.0}%", v * 100.0))
+    };
+    if result["prism"].is_object() {
+        let p = &result["prism"];
+        out.push_str(&format!(
+            "\n\nPrism (mania-tracker, not Etterna): {}{}",
+            number(&p["overall"]),
+            if p["ln"].is_null() {
+                String::new()
+            } else {
+                format!(" · LN {}", number(&p["ln"]))
+            }
+        ));
+    }
+    if let Some(clusters) = result["patterns"]["clusters"].as_array() {
+        let names: Vec<String> = clusters
+            .iter()
+            .take(3)
+            .map(|c| format!("{} BPM {}", number(&c["bpm"]), text(&c["pattern"])))
+            .collect();
+        out.push_str(&format!(
+            "\nInterlude patterns: {}{}",
+            text(&result["patterns"]["category"]),
+            if names.is_empty() {
+                String::new()
+            } else {
+                format!(" ({}, chart BPM)", names.join(", "))
+            }
+        ));
+    }
+    if let Some(categories) = result["view7k"]["categories"].as_array() {
+        let rows = categories
+            .iter()
+            .map(|c| {
+                vec![
+                    text(&c["label"]),
+                    pct(&c["coverage"]),
+                    c["main_bpm"].as_u64().map_or("—".into(), |b| b.to_string()),
+                    c["msd"].as_f64().map_or("—".into(), |v| format!("{v:.1}")),
+                ]
+            })
+            .collect::<Vec<_>>();
+        out.push_str(&format!(
+            "\n\n7K skills, pattern analysis (ours)\n{}",
+            table(&["Category", "Coverage", "Main BPM", "MinaCalc"], &rows)
+        ));
+    }
+    if result["dan7k"].is_object() {
+        let d = &result["dan7k"];
+        out.push_str(&format!(
+            "\n7K Regular dan (ours, Jinjin courses): {} ({} ± {})",
+            text(&d["label"]),
+            d["value"]
+                .as_f64()
+                .map_or("—".into(), |v| format!("{v:.1}")),
+            number(&d["uncertainty"])
+        ));
+    } else if let Some(why) = result["unrated"]["dan7k"]["reason"]
+        .as_str()
+        .filter(|_| result["keys"] == 7)
+    {
+        out.push_str(&format!("\n7K Regular dan (ours): — ({why})"));
+    }
+    if result["ln"].is_object() {
+        let l = &result["ln"];
+        out.push_str(&format!(
+            "\nLN (ours): {} holds · coverage {} · {}/s releases (peak {}) · inverse {} · off-row releases {}{}",
+            pct(&l["ln_share"]),
+            pct(&l["coverage"]),
+            l["releases_per_second"].as_f64().map_or("—".into(), |v| format!("{v:.1}")),
+            number(&l["peak_releases_per_second"]),
+            pct(&l["inverse_share"]),
+            pct(&l["offbeat_release_share"]),
+            l["indicators"]
+                .as_array()
+                .filter(|a| !a.is_empty())
+                .map_or(String::new(), |a| format!(" · {}", a.iter().map(text).collect::<Vec<_>>().join(", ")))
+        ));
+    }
+    out
 }
 #[cfg(test)]
 mod tests {
