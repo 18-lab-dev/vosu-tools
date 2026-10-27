@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "tools/downloader", "tools/lazer-library", "tools/mania-ratings", "tools/practice", "tools/replay-renderer", "tools/server-pp", "tools/skin-studio"]
+members = ["crates/*", "tools/downloader", "tools/lazer-library", "tools/map-analysis", "tools/practice", "tools/replay-renderer", "tools/server-pp", "tools/skin-studio"]
 resolver = "3"
 # Unmodified upstream Prism workspace (MIT); see vendor/prism/VENDOR.md.
 exclude = ["vendor/prism"]

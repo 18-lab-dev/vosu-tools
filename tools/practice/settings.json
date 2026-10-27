@@ -42,10 +42,10 @@
     "value": ""
   },
   {
-    "uniqueID": "mania_ratings_timeline",
+    "uniqueID": "map_analysis_timeline",
     "type": "checkbox",
-    "title": "Use Mania ratings for the trim timeline",
-    "description": "For mania maps, draw the trim strip from the Mania ratings tool's local MSD when it is installed; otherwise notes per second.",
+    "title": "Use Map analysis for the trim timeline",
+    "description": "For mania maps, draw the trim strip from the Map analysis tool's local MSD when it is installed; otherwise notes per second.",
     "value": true
   }
 ]

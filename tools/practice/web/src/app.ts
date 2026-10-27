@@ -253,7 +253,7 @@ function renderStats() {
     item.className = 'stat-msd';
     item.innerHTML = '<dt>MSD at rate</dt><dd></dd>';
     item.querySelector('dd')!.textContent = msd.toFixed(2);
-    item.title = 'Mania ratings, source map at the selected rate, before transforms';
+    item.title = 'Map analysis, source map at the selected rate, before transforms';
     list.append(item);
   }
 }
@@ -407,7 +407,7 @@ async function loadTimeline() {
     const data = await api<TimelineData>(`v1/timeline?rate=${options.rate}`);
     if (seq !== timelineSeq) return;
     timeline.setData(data);
-    $('timeline-label').textContent = data.source === 'mania-ratings' ? `${data.label} · Mania ratings at ${options.rate.toFixed(2)}×` : `${data.label} at ${options.rate.toFixed(2)}×`;
+    $('timeline-label').textContent = data.source === 'map-analysis' ? `${data.label} · Map analysis at ${options.rate.toFixed(2)}×` : `${data.label} at ${options.rate.toFixed(2)}×`;
     $('timeline-note').textContent = data.note ?? '';
     renderTrims();
   } catch (e) {

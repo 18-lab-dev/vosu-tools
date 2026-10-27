@@ -1,0 +1,27 @@
+manifest_version = 1
+id = "map-analysis"
+name = "Map analysis"
+version = "0.3.0"
+description = "Selected-map analysis for every osu! ruleset: official stars and skills, pp accuracy targets, section timelines and retained mania calculators."
+author = "18-LAB"
+icon = "art/icon.svg"
+banner = "art/banner.svg"
+
+[service]
+role = "background"
+command = ["bin/vosu-map-analysis"]
+startup = "on-demand"
+
+[api]
+read = ["/v1/beatmap"]
+write = ["/v1/calculate"]
+
+[permissions]
+host = ["context"]
+
+[cli]
+command = ["bin/vosu-map-analysis", "cli"]
+summary = "Analyse the selected map, difficulty attributes, timelines and sections"
+
+[ui]
+root = "web/dist"

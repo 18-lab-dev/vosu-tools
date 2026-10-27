@@ -1,10 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Rename Mania ratings to Map analysis (`map-analysis`), with catalog-only `replaces` metadata preserving migration support and legacy manifest compatibility.
+- Analyse standard, taiko, catch and mania at the selected mods and rate, using the existing rosu-pp 4.0.1 engine (lazer 2025-10-13 algorithms; newer lazer can differ).
+- Add optional Server pp calculator accuracy targets and explicitly labelled, documented per-mode section metrics (ours), using the shared ruleset converter for played maps.
+- Remove the rate-curve UI, CLI option, settings and `/v1/beatmap/<md5>/rates` route. Current-rate ratings and mania timelines remain.
+
 ## v0.3.0 - 2026-10-26
 
 ### Consistent mania key counts
 
-- Practice, Map preview, Skin studio, Replay renderer and Mania ratings now use the key count osu! actually plays. Native mania maps share one rule in Rust and TypeScript: clamp CircleSize to 1–18 and round ties to even (6.5 is 6K, 7.5 is 8K); play 11/13/15/17 as two stages of 10/12/14/16; use 5K when CircleSize is absent. Converted osu! maps keep lazer's conversion key count.
+- Practice, Map preview, Skin studio, Replay renderer and Map analysis now use the key count osu! actually plays. Native mania maps share one rule in Rust and TypeScript: clamp CircleSize to 1–18 and round ties to even (6.5 is 6K, 7.5 is 8K); play 11/13/15/17 as two stages of 10/12/14/16; use 5K when CircleSize is absent. Converted osu! maps keep lazer's conversion key count.
 
 ### Skin studio 0.3.0
 
@@ -18,13 +25,13 @@
 - Select per-column values like image slots and apply a value to all columns. Keep typing intact when Keymodes redraws.
 - Show the note nearest the receptors in the still stage, with hold pieces placed so they do not overlap.
 
-### Mania ratings 0.2.0
+### Map analysis 0.2.0
 
 - Rate charts across 1K–18K, with each calculator's supported key counts and unavailable results explained instead of silently dropping them.
 - Add Interlude pattern breakdowns, Prism (mania-tracker) ratings for 6K–8K, a 7K view and Regular dan estimates, and long-note statistics.
 - Use MinaCalc's dedicated 5K model, name its 6K/7K skillsets as upstream does, and explain rating-cap gaps.
 - Parse native mania slider and spinner objects as lazer plays them, and use lazer's key-count rounding.
-- Build Mania ratings and Replay renderer on Windows with Prism's required CPU timer supplied by Windows thread times. The vendored calculator and its rating arithmetic remain unchanged.
+- Build Map analysis and Replay renderer on Windows with Prism's required CPU timer supplied by Windows thread times. The vendored calculator and its rating arithmetic remain unchanged.
 
 ### Lazer library 0.2.0
 
@@ -73,4 +80,4 @@
 
 - Check every tool and overlay ZIP against vosu 1.2.0's end-record preflight, including ZIP64. Retry deterministic compression encodings when compressed bytes resemble an invalid end record, so users do not need to update vosu first.
 - Add tool README previews and usage documentation.
-- Downloader, lazer-library, mania-ratings and server-pp remain at 0.1.0: their code, Rust shared dependencies and dependency lockfile have no changes since v0.1.0.
+- Downloader, lazer-library, map-analysis and server-pp remain at 0.1.0: their code, Rust shared dependencies and dependency lockfile have no changes since v0.1.0.

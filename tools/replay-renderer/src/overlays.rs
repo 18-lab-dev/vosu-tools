@@ -691,14 +691,14 @@ pub(super) async fn ratings(
     if (rate - configured_rate).abs() > 0.000001 {
         return Err(error("Replay ratings use the render's fixed playback rate"));
     }
-    let params = vosu_mania_ratings::Params::new(rate, None).map_err(error)?;
+    let params = vosu_map_analysis::Params::new(rate, None).map_err(error)?;
     let mut native = state.native.lock().await;
     let native = native.as_mut().ok_or_else(|| error("No replay map"))?;
     if path == "v1/beatmap/current" {
         if native.rating.is_none() {
             native.rating = Some(
                 serde_json::to_value(
-                    vosu_mania_ratings::calculate(&native.bytes, params).map_err(error)?,
+                    vosu_map_analysis::calculate(&native.bytes, params).map_err(error)?,
                 )
                 .map_err(error)?,
             );
@@ -721,7 +721,7 @@ pub(super) async fn ratings(
     let key = format!("{rate}:{system}:{window}:{hop}");
     if !native.timelines.contains_key(&key) {
         let timeline =
-            vosu_mania_ratings::analysis::timeline(&native.bytes, params, system, window, hop)
+            vosu_map_analysis::analysis::timeline(&native.bytes, params, system, window, hop)
                 .map_err(error)?;
         native.timelines.insert(key.clone(), timeline);
     }

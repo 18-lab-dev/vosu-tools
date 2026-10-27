@@ -32,49 +32,49 @@ Each section records third-party code, data, or assets included in this reposito
 - The Quaver and Etterna exports follow those games' skin formats as read in Quaver `d22a4a312479e73cd652a5f4683d3607e6795620` (MPL-2.0) and Etterna `2d706147cc4bcf95a8ceb24dc4f4129be207f803` (MIT); sources per rule in `tools/skin-studio/EXPORT.md`. No code, Lua, metrics or images of either game are copied: exported images come from the user's mix or are drawn by Skin studio, and the generated `NoteSkin.lua` and `metrics.ini` are original.
 - `packages/skin-spec/spec.json` contains interoperability facts extracted from the osu! wiki skin.ini reference at revision `c9fa3ff277dba4c620d4731fd2c3fbb74770c20b`: https://github.com/ppy/osu-wiki/blob/c9fa3ff277dba4c620d4731fd2c3fbb74770c20b/wiki/Skinning/skin.ini/en.md. Wiki prose and images (CC-BY-NC-4.0) are not redistributed; hover wording is independently authored. Regenerate factual fields with `bun packages/skin-spec/generate.ts`.
 
-## Mania ratings
+## Map analysis
 
 - MinaCalc 527: Etterna `2d706147cc4bcf95a8ceb24dc4f4129be207f803`,
   copyright 2016–2023 Etterna, MIT. Vendored in `crates/minacalc/vendor`;
-  package license `tools/mania-ratings/licenses/MinaCalc.txt`.
+  package license `tools/map-analysis/licenses/MinaCalc.txt`.
 - Quaver.API calculator 0.0.5: Quaver/Quaver.API
   `a921d561b2ece7f6bf3682446696c06c17b81649`,
   copyright 2017–2018 Swan & The Quaver Team, MPL-2.0. Separate port
-  `tools/mania-ratings/src/quaver.rs` and unmodified test reference source.
+  `tools/map-analysis/src/quaver.rs` and unmodified test reference source.
   Covered source is available in this repository; license
-  `tools/mania-ratings/licenses/Quaver-MPL-2.0.txt`.
+  `tools/map-analysis/licenses/Quaver-MPL-2.0.txt`.
 - Interlude/YAVSRG Prelude calculator:
   `1fe55766ae1fece3d433c966bf25822647bc8af6`, copyright 2024 percyqaz,
-  MIT. Separate port `tools/mania-ratings/src/interlude.rs` and unmodified test
-  reference files; license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
+  MIT. Separate port `tools/map-analysis/src/interlude.rs` and unmodified test
+  reference files; license `tools/map-analysis/licenses/Interlude-MIT.txt`.
 - Interlude patterns: port of YAVSRG Prelude `Calculator/Patterns` and
   `OsuConverter.convert_hit_objects` at the same revision (copyright 2024
-  percyqaz, MIT) in `tools/mania-ratings/src/patterns.rs`, with unmodified
-  upstream test reference files in `tools/mania-ratings/tests/reference/patterns`;
-  license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
+  percyqaz, MIT) in `tools/map-analysis/src/patterns.rs`, with unmodified
+  upstream test reference files in `tools/map-analysis/tests/reference/patterns`;
+  license `tools/map-analysis/licenses/Interlude-MIT.txt`.
 - Prism 0.25 (mania-tracker): aleju03/mania-hub
   `9ab23951357831a0dbbc48da20dd2140f22bd850` `algorithms/prism`, copyright 2026
   aleju03, MIT. Crates `jsmath`, `chart-parser`, `dan-core` and `prism` are
   vendored unmodified in `vendor/prism` (see `vendor/prism/VENDOR.md`); license
   `vendor/prism/LICENSE`, also shipped as
-  `tools/mania-ratings/licenses/Prism-MIT.txt`. On Windows, the POSIX
+  `tools/map-analysis/licenses/Prism-MIT.txt`. On Windows, the POSIX
   `clock_gettime` that `jsmath` declares comes from our own
-  `tools/mania-ratings/src/windows_clock.rs` (no third-party code).
+  `tools/map-analysis/src/windows_clock.rs` (no third-party code).
 - osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
 - Slider and spinner objects in native mania charts: port (translated code) of
   osu! (lazer) `2026.1005.0-lazer` (`9a10d935b05a3b896f4bd811d620f2023331db93`)
   `ManiaBeatmapConverter`, `PassThroughPatternGenerator`,
   `SpinnerPatternGenerator` and `LegacyRandom`, copyright 2025 ppy Pty Ltd, MIT,
-  in `tools/mania-ratings/src/playable.rs`; license
-  `tools/mania-ratings/licenses/osu-MIT.txt`.
+  in `tools/map-analysis/src/playable.rs`; license
+  `tools/map-analysis/licenses/osu-MIT.txt`.
 - 7K Regular dan calibration: course chart identities and checksums for
   Jinjin's osu!mania 7K Regular Dan courses are in
-  `tools/mania-ratings/calibration-7k-sources.json`; the charts are not
+  `tools/map-analysis/calibration-7k-sources.json`; the charts are not
   distributed.
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
-  and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
+  and checksums are in `tools/map-analysis/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.
-- Icon and banner art (`tools/mania-ratings/art`) are original to this project.
+- Icon and banner art (`tools/map-analysis/art`) are original to this project.
 
 ## Beatmap downloader / osu-db
 
@@ -103,7 +103,7 @@ The icon and banner artwork in `tools/downloader/art/` is original.
 - LZMA-JS (`lzma` 2.3.2): MIT, Copyright (c) 2015 Nathan Rugg; https://github.com/nmrugg/LZMA-JS. Unmodified decompression dependency.
 - webm-muxer 5.1.4: MIT, Copyright (c) Vanilagy; https://github.com/Vanilagy/webm-muxer. WebCodecs chunk muxing; no encoders or codecs are bundled.
 - Native dependencies: clap (MIT OR Apache-2.0), uuid (MIT OR Apache-2.0), md-5 (MIT OR Apache-2.0), walkdir (Unlicense OR MIT; choose MIT), plus the shared vosu-tool-sdk. Release packaging includes the selected permissive dependency license texts.
-- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-mania-ratings library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
+- Replay overlay compositing additionally uses rosu-pp 4.0.1 (MIT) for replay-driven pp, the existing vosu-map-analysis library and its retained calculator notices for timelines, tokio-tungstenite/tungstenite (MIT) for the private browser protocol transport, and base64 (MIT OR Apache-2.0). The release license collector retains their resolved dependency texts. Installed overlay pages remain user-owned external inputs.
 - Chrome Headless Shell 156.0.8078.47 is downloaded as an external subprocess runtime from Google's [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/) archive, SHA-256-pinned for Linux/Windows x86_64. Its entire upstream `LICENSE.headless_shell` and other archive notices remain beside the executable in the tool cache. It is not bundled into the tool package or linked into Rust code. `VOSU_RENDER_CHROMIUM` supports an explicit external runtime override. FFmpeg remains user-installed (`VOSU_RENDER_FFMPEG` override); MP4 uses VP9 (libvpx) and AAC, not libx264. Prefer an LGPL-only external FFmpeg distribution.
 - The tool icon and banner are original artwork. The UI uses vosu's shared theme and bundles no fonts.
 - No beatmaps, replays, skins, audio or third-party overlay content are distributed. Tests use synthetic inputs or explicit temporary copies of locally installed user files.

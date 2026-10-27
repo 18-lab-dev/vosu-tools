@@ -446,7 +446,7 @@ impl Discovery {
     async fn msd_filter(&self, sets: &mut Vec<Mapset>, notices: &mut Vec<String>) {
         let rating = self
             .host
-            .tool_json::<Value>("mania-ratings", "v1/beatmap/current?rate=1")
+            .tool_json::<Value>("map-analysis", "v1/beatmap/current?rate=1")
             .await
             .ok();
         let Some(overall) = rating.as_ref().and_then(|r| r["msd"]["overall"].as_f64()) else {
@@ -471,7 +471,7 @@ impl Discovery {
                 };
                 match self
                     .host
-                    .tool_json::<Value>("mania-ratings", &format!("v1/beatmap/{hash}?rate=1"))
+                    .tool_json::<Value>("map-analysis", &format!("v1/beatmap/{hash}?rate=1"))
                     .await
                 {
                     Ok(v) => match v["msd"]["overall"].as_f64() {

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Map analysis</title>
+<link rel="stylesheet" href="/tools/_host/v1/theme.css" vite-ignore>
+</head>
+<body class="v-app">
+<header class="v-bar">
+<span class="v-bar__title">Map analysis</span>
+<span id="dot" class="v-dot"></span><span id="live" class="v-muted live">Connecting</span>
+<span class="v-toolbar__sep"></span>
+<span class="map"><span id="title" class="map__title">No map yet</span><span id="meta" class="v-muted v-mono map__meta"></span></span>
+<span class="v-bar__spacer"></span>
+<span id="mods" class="v-badge" hidden></span>
+<label class="v-field v-field--inline rate"><span>Rate</span><input id="rate" class="v-input" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+<button id="follow" class="v-btn v-btn--sm" type="button" aria-pressed="true">Follow game</button>
+<label class="v-btn v-btn--sm v-file"><input id="file" type="file" accept=".osu">Open .osu</label>
+<a id="dashboard" class="v-btn v-btn--ghost v-btn--sm">Dashboard ↗</a>
+</header>
+<main class="v-main ratings">
+<section class="v-panel readouts" aria-label="Ratings">
+<div id="summary" class="v-panel__body readouts__grid"></div>
+</section>
+<div class="column column--left">
+<section class="v-panel">
+<div class="v-panel__head"><span class="v-label"><b>01</b></span><div id="tabs" class="v-seg" role="group" aria-label="Breakdown source"></div></div>
+<div id="skills" class="v-panel__body skills"></div>
+</section>
+<section class="v-panel">
+<div class="v-panel__head"><span class="v-label"><b>02</b> / PP at accuracy</span></div>
+<div id="performance" class="v-panel__body skills"></div>
+<div id="pattern-metrics" class="v-panel__body" aria-label="Section metrics (ours)"></div>
+</section>
+</div>
+<div class="column column--right">
+<section class="v-panel timeline">
+<div class="v-panel__head"><span class="v-label"><b>03</b> / Timeline</span>
+<label class="v-field v-field--inline"><span>System</span><select id="system" class="v-select"><option value="etterna">Etterna · local MSD</option><option value="etterna-native">Etterna · native strain</option><option value="prism">Prism (mania-tracker) · local</option><option value="quaver">Quaver</option><option value="interlude">Interlude</option><option value="osu">osu!mania</option><option value="ln">LN releases/s (ours)</option><option value="nps">NPS</option></select></label>
+<label class="v-field v-field--inline"><span>Window (s)</span><input id="window" class="v-input" type="number" min="0.1" max="60" step="0.25" value="12"></label>
+<label class="v-field v-field--inline"><span>Hop (s) <span class="v-help" tabindex="0" role="img" aria-label="Seconds between window starts." data-tip="Seconds between window starts." data-tip-pos="left"></span></span><input id="hop" class="v-input" type="number" min="0.05" max="60" step="0.05" value="1"></label>
+</div>
+<div class="v-panel__body fill">
+<div class="plot-frame"><canvas id="timeline" class="plot" title="Drag to rate a section" aria-label="Difficulty timeline; drag to rate a section"></canvas><p id="empty" class="v-empty">No selected map yet.</p></div>
+<div class="v-toolbar section">
+<label class="v-field v-field--inline"><span>Start (s)</span><input id="start" class="v-input" type="number" min="0" step="0.1" value="0"></label>
+<label class="v-field v-field--inline"><span>End (s)</span><input id="end" class="v-input" type="number" min="0" step="0.1" value="30"></label>
+<button id="section" class="v-btn v-btn--sm" type="button">Rate section</button>
+<output id="section-result" class="v-mono" for="start end"></output>
+</div>
+</div>
+</section>
+<section class="v-panel density">
+<div class="v-panel__head"><span class="v-label"><b>04</b> / Density</span></div>
+<div class="v-panel__body fill"><div class="plot-frame"><canvas id="density" class="plot" aria-label="Note heads per second"></canvas></div></div>
+</section>
+</div>
+</main>
+<div id="toast" class="v-toast" role="status" hidden></div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>

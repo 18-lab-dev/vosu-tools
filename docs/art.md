@@ -34,7 +34,7 @@ Each picture has one accent element: the part that is the tool's job (the arrow 
 | --- | --- |
 | Beatmap downloader | Arrow into a tray |
 | Lazer library | Carousel of sets, the selected one pulled forward |
-| Mania ratings | Falling 4K notes beside skillset rating bars, the top skill in accent |
+| Map analysis | Falling 4K notes beside skillset rating bars, the top skill in accent |
 | Map preview | Hit circle with its approach circle, follow point, next circle |
 | Practice | A section held between handles on the map, and its shorter, faster copy (fast-forward chevrons) |
 | Replay renderer | Cursor trail inside a video frame |

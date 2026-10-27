@@ -30,6 +30,21 @@ Official tool manifests must declare `icon` and `banner`, relative paths within 
 
 Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` fields for artwork before installation. Overlay metadata may declare `icon` and `banner` with the same constraints; otherwise packaging discovers a single `icon.*` / `banner.*` in the overlay directory. Overlay art is optional, stays in the ZIP, and is published as `vosu-overlay-<id>-icon.<ext>` / `vosu-overlay-<id>-banner.<ext>`. Multiple matching files require explicit metadata. Art assets are versioned by release URL rather than filename.
 
+### Renamed tools
+
+Native tools may declare `replaces = ["old-id"]` under
+`[package.metadata.vosu-tools]` in their Cargo.toml. Packaging validates these
+IDs and writes the array to the catalog entry only. It never adds this field to
+the shipped tool.toml, whose schema remains compatible with vosu 1.2.0/1.2.1.
+A supporting vosu migrates an installed old ID only from the same trusted catalog
+source. Existing dependency IDs can be satisfied by the installed replacement;
+first-party dependencies here name the new ID directly.
+
+Map analysis replaces `mania-ratings`. Older vosu ignores the catalog field:
+install Map analysis manually as a new tool (the old tool remains usable but no
+longer updates), or upgrade vosu to preserve data and settings automatically.
+
+
 
 ## catalog.json
 
@@ -50,7 +65,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "banner_url": "https://github.com/…/vosu-tool-practice-banner.svg",
       "protocol": 1,
       "interfaces": ["ui", "cli"],
-      "requires": [{"id": "mania-ratings", "version": ">=0.1.0"}],
+      "requires": [{"id": "map-analysis", "version": ">=0.1.0"}],
       "packages": {
         "x86_64-pc-windows-msvc": {"url": "https://github.com/…/vosu-tool-practice-0.1.2-x86_64-pc-windows-msvc.zip", "sha256": "<64 hex>", "size": 1234567},
         "x86_64-unknown-linux-gnu": {"url": "…", "sha256": "…", "size": 1234567}
@@ -60,7 +75,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
   "overlays": [
     {
       "id": "ratings-timeline",
-      "name": "Mania ratings timeline",
+      "name": "Map analysis timeline",
       "version": "0.1.0",
       "description": "…",
       "author": "18-LAB",
@@ -69,7 +84,7 @@ Catalog tool and overlay entries may include HTTPS `icon_url` and `banner_url` f
       "preview": "https://…/ratings-timeline.png",
       "icon_url": "https://…/vosu-overlay-ratings-timeline-icon.png",
       "banner_url": "https://…/vosu-overlay-ratings-timeline-banner.png",
-      "requires_tools": [{"id": "mania-ratings", "version": ">=0.1.0"}],
+      "requires_tools": [{"id": "map-analysis", "version": ">=0.1.0"}],
       "package": {"url": "https://github.com/…/vosu-overlay-ratings-timeline-0.1.0.zip", "sha256": "<64 hex>", "size": 123456}
     }
   ]

@@ -175,7 +175,7 @@ Each player's overlays get their own throwaway loopback server (`src/overlays/se
 | `/websocket/commands?l=<overlay>` | `getSettings:<overlay>` answers `{"command":"getSettings","message":{…}}` with the overlay's effective settings (below); another overlay's name answers vosu's `Wrong overlay` error; `updateSettings` echoes; `saveSettings` and `applyFilters` are accepted without effect (read-only) |
 | `/files/beatmap/file`, `…/audio`, `…/background`, `/backgroundImage`, `/files/beatmap/<path>`, `/Songs/<map folder>/<path>` | the replay's map and its folder's files |
 | `/files/skin/`, `/files/skin/<path>` | that track's skin, as vosu describes and serves the current skin |
-| `/tools/mania-ratings/api/…` | the local ratings endpoints `ratings-timeline` reads |
+| `/tools/map-analysis/api/…` | the local ratings endpoints `ratings-timeline` reads |
 | `/<overlay id>/…` | the overlay's own files at the path vosu serves them, HTML ending with vosu's `window.COUNTER_PATH` |
 
 Anything else answers 404 (WebSocket paths do not upgrade), as vosu does for unknown routes, so no page waits on a route the server lacks. `/api/calculate/pp` is not served.

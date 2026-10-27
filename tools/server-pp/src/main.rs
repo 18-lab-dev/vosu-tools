@@ -261,12 +261,44 @@ async fn servers(State(app): State<App>) -> Json<Value> {
     value["calculators"] = config;
     Json(value)
 }
+#[derive(serde::Deserialize)]
+struct TargetOptions {
+    #[serde(default)]
+    mods: String,
+    mode: Option<String>,
+    #[serde(default = "target_rate")]
+    rate: f64,
+}
+fn target_rate() -> f64 { 1.0 }
+async fn targets(Query(options): Query<TargetOptions>, bytes: Bytes) -> Result<Json<Value>, ApiError> {
+    if bytes.len() > 1024 * 1024 { return Err(bad("beatmap exceeds 1 MiB")); }
+    if !options.rate.is_finite() || !(0.5..=2.0).contains(&options.rate) { return Err(bad("invalid clock rate")); }
+    let bits = engine::mods(&options.mods).map_err(bad)?;
+    let mut map = rosu_pp::Beatmap::from_bytes(&bytes).map_err(bad)?;
+    if let Some(mode) = options.mode.as_deref() {
+        let mode = match custom::parse_mode(mode).map_err(bad)? {
+            0 => rosu_pp::model::mode::GameMode::Osu,
+            1 => rosu_pp::model::mode::GameMode::Taiko,
+            2 => rosu_pp::model::mode::GameMode::Catch,
+            _ => rosu_pp::model::mode::GameMode::Mania,
+        };
+        map.convert_mut(mode, &bits.into()).map_err(bad)?;
+    }
+    let difficulty = rosu_pp::Difficulty::new().mods(bits).clock_rate(options.rate).calculate(&map);
+    let targets: Vec<Value> = [95.0,98.0,99.0,100.0].into_iter().map(|acc| {
+        let result = rosu_pp::Performance::new(difficulty.clone()).mods(bits).clock_rate(options.rate).lazer(true).accuracy(acc).calculate();
+        json!({"accuracy":acc,"pp":result.pp()})
+    }).collect();
+    Ok(Json(json!({"source":"rosu-pp 4.0.1 / lazer 2025-10-13","targets":targets})))
+}
+
 fn router(app: App) -> Router {
     Router::new()
         .route("/v1/servers", get(servers))
         .route("/v1/pp", get(pp))
         .route("/v1/current", get(current))
         .route("/v1/calculate", post(upload))
+        .route("/v1/targets", post(targets))
         .with_state(app)
 }
 

@@ -74,6 +74,10 @@ pub fn mods(text: &str) -> Result<u32, String> {
             b"PF" => 16384 | 32,
             b"SO" => 4096,
             b"V2" => 1 << 29,
+            b"4K" => 1 << 15, b"5K" => 1 << 16, b"6K" => 1 << 17,
+            b"7K" => 1 << 18, b"8K" => 1 << 19, b"9K" => 1 << 24,
+            b"DS" => 1 << 25, b"1K" => 1 << 26, b"3K" => 1 << 27,
+            b"2K" => 1 << 28, b"MR" => 1 << 30,
             _ => return Err(format!("unsupported mod {}", String::from_utf8_lossy(pair))),
         };
     }

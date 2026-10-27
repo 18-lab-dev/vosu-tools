@@ -48,7 +48,7 @@ pub fn routes(state: Arc<Overlays>) -> Router {
         .route("/Songs/{*path}", get(songs_file))
         .route("/files/skin/", get(skin_descriptor))
         .route("/files/skin/{*path}", get(skin_file))
-        .route("/tools/mania-ratings/api/{*path}", get(super::ratings))
+        .route("/tools/map-analysis/api/{*path}", get(super::ratings))
         .fallback(page)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

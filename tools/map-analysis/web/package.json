@@ -1,0 +1,1 @@
+{"name":"@vosu-tools/map-analysis","private":true,"type":"module","scripts":{"check":"tsc --noEmit","build":"tsc --noEmit && vite build"},"dependencies":{"@vosu-tools/tool-web":"workspace:*","@vosu-tools/osu-parse":"workspace:*","@vosu-tools/ruleset-convert":"workspace:*"},"devDependencies":{"vite":"^7.2.2","typescript":"^5.9.3"}}

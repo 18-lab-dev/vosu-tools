@@ -51,7 +51,7 @@ pub struct Settings {
     pub fade_ms: f64,
     pub pitch_with_rate: bool,
     pub export_dir: String,
-    pub mania_ratings_timeline: bool,
+    pub map_analysis_timeline: bool,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -63,7 +63,7 @@ impl Default for Settings {
             fade_ms: options.fade_ms,
             pitch_with_rate: !options.pitch_preserving,
             export_dir: String::new(),
-            mania_ratings_timeline: true,
+            map_analysis_timeline: true,
         }
     }
 }
@@ -217,7 +217,7 @@ async fn current(
     let text = String::from_utf8(bytes).map_err(error)?;
     let ratings = if ruleset(&text) == "mania" {
         app.client
-            .tool_json::<Value>("mania-ratings", &format!("v1/beatmap/current?rate={rate}"))
+            .tool_json::<Value>("map-analysis", &format!("v1/beatmap/current?rate={rate}"))
             .await
             .ok()
     } else {
@@ -240,7 +240,7 @@ async fn current(
     })))
 }
 
-/// Difficulty over source time for the trim strip: mania-ratings' local MSD for
+/// Difficulty over source time for the trim strip: map-analysis' local MSD for
 /// mania maps when that tool answers, otherwise notes per second.
 async fn timeline(
     State(app): State<App>,
@@ -253,12 +253,12 @@ async fn timeline(
     let duration = spans.iter().fold(0.0_f64, |a, s| a.max(s.1));
     let mut note = None;
     if ruleset(&text) == "mania" {
-        if settings(&app).await.mania_ratings_timeline {
+        if settings(&app).await.map_analysis_timeline {
             let md5 = &ctx.beatmap.as_ref().expect("selected").checksum;
             match msd_timeline(&app, md5, rate).await {
                 Ok(points) => {
                     return Ok(Json(json!({
-                        "source": "mania-ratings",
+                        "source": "map-analysis",
                         "label": "Local MSD",
                         "duration_ms": duration,
                         "points": points,
@@ -267,13 +267,13 @@ async fn timeline(
                 }
                 Err(e) => {
                     note = Some(format!(
-                        "Mania ratings unavailable ({e}); showing notes per second."
+                        "Map analysis unavailable ({e}); showing notes per second."
                     ))
                 }
             }
         } else {
             note = Some(
-                "Mania ratings timeline is turned off in settings; showing notes per second."
+                "Map analysis timeline is turned off in settings; showing notes per second."
                     .into(),
             );
         }
@@ -298,14 +298,14 @@ async fn timeline(
 }
 
 async fn msd_timeline(app: &App, md5: &str, rate: f64) -> anyhow::Result<Vec<[f64; 2]>> {
-    // Looking the map up first makes mania-ratings store it for the timeline.
+    // Looking the map up first makes map-analysis store it for the timeline.
     app.client
-        .tool_json::<Value>("mania-ratings", &format!("v1/beatmap/current?rate={rate}"))
+        .tool_json::<Value>("map-analysis", &format!("v1/beatmap/current?rate={rate}"))
         .await?;
     let v: Value = app
         .client
         .tool_json(
-            "mania-ratings",
+            "map-analysis",
             &format!("v1/beatmap/{md5}/timeline?rate={rate}&system=etterna&hop=1"),
         )
         .await?;

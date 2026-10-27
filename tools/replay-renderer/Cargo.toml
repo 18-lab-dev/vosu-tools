@@ -22,7 +22,7 @@ tokio-tungstenite = "0.29"
 futures-util = { version = "0.3", features = ["sink"] }
 base64 = "0.22"
 rosu-pp = { version = "=4.0.1", features = ["sync"] }
-vosu-mania-ratings = { path = "../mania-ratings" }
+vosu-map-analysis = { path = "../map-analysis" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

@@ -8,8 +8,8 @@
 // settings, /files/beatmap/{audio,background}, and the tool API proxy, which like
 // vosu refuses [api].write routes without a UI session. The practice service runs
 // from target/debug with isolated HOME/XDG_* on temporary copies of both map
-// folders; when target/debug/vosu-mania-ratings exists it runs too and answers as
-// `mania-ratings`. The source Songs folders are never written.
+// folders; when target/debug/vosu-map-analysis exists it runs too and answers as
+// `map-analysis`. The source Songs folders are never written.
 import { spawn } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -172,7 +172,7 @@ function proxy(request, url, port, prefix, token) {
 const host = Bun.serve({
   hostname: '127.0.0.1',
   port: 25250,
-  // mania-ratings' local-MSD timeline takes a while in a debug build.
+  // map-analysis' local-MSD timeline takes a while in a debug build.
   idleTimeout: 255,
   websocket: {
     open(ws) { ws.data = { pointers: null, last: [] }; sockets.add(ws); },
@@ -222,10 +222,10 @@ const host = Bun.serve({
     if (url.pathname === '/files/beatmap/background') {
       return context.beatmap.background ? new Response(Bun.file(context.beatmap.background)) : new Response(null, { status: 404 });
     }
-    if (url.pathname.startsWith('/tools/mania-ratings/api/')) {
+    if (url.pathname.startsWith('/tools/map-analysis/api/')) {
       if (token !== TOKENS.practice) return new Response(null, { status: 401 });
       if (!services.ratings) return Response.json({ error: 'tool not installed' }, { status: 404 });
-      return proxy(request, url, services.ratings.port, '/tools/mania-ratings/api/', TOKENS.ratings);
+      return proxy(request, url, services.ratings.port, '/tools/map-analysis/api/', TOKENS.ratings);
     }
     if (url.pathname.startsWith('/tools/practice/api/')) {
       const route = '/' + url.pathname.slice('/tools/practice/api/'.length);
@@ -275,7 +275,7 @@ async function start(id, binary) {
   services[id] = { child, port: Number(line.split(' ')[1]) };
 }
 await start('practice', path.join(root, 'target/debug/vosu-practice'));
-if (existsSync(path.join(root, 'target/debug/vosu-mania-ratings'))) await start('ratings', path.join(root, 'target/debug/vosu-mania-ratings'));
+if (existsSync(path.join(root, 'target/debug/vosu-map-analysis'))) await start('ratings', path.join(root, 'target/debug/vosu-map-analysis'));
 
 const report = { maps: { osu: path.basename(osuSource), mania: path.basename(maniaSource) }, ratings: Boolean(services.ratings), subscriptions: [], checks: [] };
 const check = (name, ok, detail) => {
@@ -545,10 +545,10 @@ try {
   }
   await page.waitForFunction((rated) => {
     const label = document.getElementById('timeline-label').textContent;
-    return rated ? label.includes('Mania ratings') : label.startsWith('Notes per second');
+    return rated ? label.includes('Map analysis') : label.startsWith('Notes per second');
   }, Boolean(services.ratings), { timeout: 240_000 }).catch(() => {});
   const timelineLabel = await page.textContent('#timeline-label');
-  check(`timeline source: ${services.ratings ? 'mania-ratings local MSD' : 'notes per second'}`, services.ratings ? timelineLabel.includes('Mania ratings') : timelineLabel.includes('Notes per second'), { label: timelineLabel, note: await page.textContent('#timeline-note') });
+  check(`timeline source: ${services.ratings ? 'map-analysis local MSD' : 'notes per second'}`, services.ratings ? timelineLabel.includes('Map analysis') : timelineLabel.includes('Notes per second'), { label: timelineLabel, note: await page.textContent('#timeline-note') });
 
   // Gestures: a plain drag scrubs (live clock updates, no section), Shift+drag
   // makes sections, the focused strip nudges with the arrow keys.

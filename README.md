@@ -26,15 +26,15 @@ See what the selected map is worth on recorded public Akatsuki and Mamestagram c
 
 [Details](tools/server-pp/README.md)
 
-## Mania ratings
+## Map analysis
 
-An osu!mania difficulty dashboard for a second monitor: Etterna (MinaCalc), Quaver, Interlude and osu!mania ratings for the selected map at the game's rate, with a rate curve, timelines and section ratings.
+An osu!mania difficulty dashboard for a second monitor: Etterna (MinaCalc), Quaver, Interlude and osu!mania ratings for the selected map at the game's rate, with timelines and section ratings.
 
-![Mania ratings](docs/screenshots/mania-ratings.webp)
+![Map analysis](docs/screenshots/map-analysis.webp)
 
 *A generated 7K demo chart.*
 
-[Details](tools/mania-ratings/README.md)
+[Details](tools/map-analysis/README.md)
 
 ## Skin studio
 
@@ -88,7 +88,7 @@ A background service with no page of its own. It lets the other tools read your 
 | --- | --- | --- | --- | --- |
 | osu! practice tool | `practice` | yes | backend | `vosux practice` |
 | Server pp calculator | `server-pp` | yes | background | `vosux server-pp` |
-| Mania ratings | `mania-ratings` | yes | background | `vosux mania-ratings` |
+| Map analysis | `map-analysis` | yes | background | `vosux map-analysis` |
 | Skin studio | `skin-studio` | yes | backend | — |
 | Map preview | `map-preview` | yes | — | — |
 | Replay renderer | `replay-renderer` | yes | backend | `vosux replay-renderer` |

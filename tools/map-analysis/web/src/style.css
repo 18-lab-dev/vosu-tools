@@ -1,0 +1,98 @@
+/* Map analysis: layout for the shared 18-LAB system (/tools/_host/v1/theme.css).
+   Colours, type and components come from the theme; this file only places
+   panels and sizes the charts. */
+
+/* Bar: the map title gives way first; name, status and controls keep their size. */
+.v-bar > :not(.map) { flex-shrink: 0; }
+.live { white-space: nowrap; }
+.map { display: flex; flex: 1 1 0; gap: var(--space-2); align-items: baseline; min-width: 0; overflow: hidden; }
+.map__title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.map__meta { flex: none; font-size: var(--step--2); white-space: nowrap; }
+.v-bar .rate { gap: var(--space-2); }
+.v-bar .rate .v-input { width: 4.75rem; height: var(--control-h-sm); }
+@media (max-width: 75rem) { .map__meta { display: none; } }
+.v-file[aria-disabled="true"] { cursor: not-allowed; opacity: 0.45; }
+
+/* One screen: readouts across, skills + pp left, timeline + density right. */
+.ratings {
+  grid-template-columns: minmax(17rem, 1fr) minmax(0, 2.7fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "readouts readouts" "left right";
+}
+.readouts { grid-area: readouts; }
+.column { display: grid; gap: var(--space-2); min-height: 0; }
+.column--left { grid-area: left; grid-template-rows: auto minmax(0, 1fr); container-type: inline-size; }
+.column--right { grid-area: right; grid-template-rows: minmax(0, 2.2fr) minmax(0, 1fr); }
+
+.readouts__grid { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); padding: var(--space-2) var(--space-3); }
+.readouts__grid .v-stat + .v-stat { padding-left: var(--space-3); border-left: var(--hair) solid var(--rule); }
+:is(.v-stat__label, .v-field > span) .v-help { margin-left: var(--space-1); text-transform: none; letter-spacing: 0; }
+
+/* Breakdown: source tabs in the head, rows of label / meter / numbers. */
+.column--left > .v-panel:first-child .v-panel__head { gap: var(--space-2); }
+.column--left .v-seg { flex-wrap: wrap; }
+.ln-family .v-stat__label { white-space: nowrap; }
+.skills { gap: var(--space-1); }
+.skill { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 3rem; gap: var(--space-3); align-items: center; min-height: 1.5rem; }
+.skill[data-cols="4"] { grid-template-columns: minmax(8rem, 1.4fr) minmax(0, 1fr) 2.75rem 2.75rem; }
+.skill[data-cols="5"] { grid-template-columns: 7rem minmax(0, 1fr) 2.75rem 2.75rem 3.25rem; }
+.skill > span:first-child { overflow: hidden; color: var(--fg-dim); text-overflow: ellipsis; white-space: nowrap; }
+.skills:not([data-tab="patterns"]) .skill > span:first-child { text-transform: capitalize; }
+.skill > .v-num { text-align: right; }
+.skill[aria-current="true"] > span:first-child { color: var(--fg); font-weight: 600; }
+.skill--head { min-height: 1rem; color: var(--muted); font-size: var(--step--2); text-transform: uppercase; letter-spacing: 0.04em; }
+.skill--head > span { text-align: right; }
+.skill--head > span:is(:first-child, :nth-child(2)) { text-align: left; }
+.skill--category > span:first-child { color: var(--fg); font-size: var(--step-0); text-transform: none; letter-spacing: 0; }
+.ladder:is(.ln-family, .ln-stats) { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--space-2); }
+.skills[data-tab="prism"] .skill { grid-template-columns: 8.5rem minmax(0, 1fr) 3rem; }
+.ln-stats li:nth-child(4n + 1) { padding-left: 0; border-left: 0; }
+.ln-family li:first-child { padding-left: 0; border-left: 0; }
+.badges { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+
+/* Panels whose body is a chart: the chart takes the remaining height. */
+.v-panel__body.fill { display: flex; flex-direction: column; padding: var(--space-2); }
+.plot-frame { position: relative; flex: 1; min-height: 0; }
+.plot { position: absolute; inset: 0; display: block; width: 100%; height: 100%; background: var(--bg-sunken); border: var(--hair) solid var(--rule); border-radius: var(--radius); }
+canvas.plot { touch-action: none; cursor: crosshair; }
+#density { cursor: default; }
+.plot-frame .v-empty { position: absolute; inset: 0; }
+
+.ladder { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+.ladder:empty { display: none; }
+.ladder li { padding-left: var(--space-2); border-left: var(--hair) solid var(--rule); }
+.ladder li:first-child { padding-left: 0; border-left: 0; }
+.ladder [aria-current="true"] .v-stat__value { color: var(--accent); }
+@container (max-width: 21rem) {
+  #ladder { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #ladder li:is(:first-child, :nth-child(5)) { display: none; }
+  #ladder li:nth-child(2) { padding-left: 0; border-left: 0; }
+  .ladder:is(.ln-family, .ln-stats) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ln-stats li:nth-child(odd), .ln-family li:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .skill[data-cols="5"] { grid-template-columns: 5.5rem minmax(0, 1fr) 2.5rem 2.5rem 2.75rem; gap: var(--space-2); }
+}
+
+.timeline .v-panel__head .v-field { gap: var(--space-2); }
+.timeline .v-panel__head :is(.v-input, .v-select) { height: var(--control-h-sm); }
+.timeline .v-panel__head .v-select { width: 12rem; }
+.timeline .v-panel__head .v-input, .section .v-input { width: 5rem; }
+.section { margin-top: var(--space-2); }
+.section .v-field { gap: var(--space-2); }
+.section .v-input { height: var(--control-h-sm); }
+#section-result { color: var(--fg-dim); font-size: var(--step--1); }
+
+/* Analysis on screen is not the current selection (unsupported map, bad rate). */
+.stale :is(.readouts__grid, .skills, .plot, .ladder) { opacity: 0.45; }
+
+/* Narrow split-screen: panels stack and the work area scrolls. */
+@media (max-width: 52rem) {
+  .v-bar { flex-wrap: wrap; height: auto; min-height: var(--bar-h); padding-block: var(--space-1); }
+  .v-app { grid-template-rows: auto minmax(0, 1fr); }
+  .map { order: 10; flex-basis: 100%; }
+  /* Rows keep their content height; the work area scrolls instead of squeezing panels. */
+  .ratings { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; grid-template-areas: "readouts" "right" "left"; overflow: auto; }
+  .column { grid-template-rows: none; grid-auto-rows: max-content; }
+  .v-panel__head { flex-wrap: wrap; height: auto; min-height: var(--control-h); padding-block: var(--space-1); row-gap: var(--space-1); }
+  .plot-frame { flex: none; height: 14rem; }
+  .density .plot-frame, .column--left .plot-frame { height: 10rem; }
+}
