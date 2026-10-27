@@ -1,25 +1,32 @@
 import { vosu } from '/tools/_host/v1/bridge.js';
 import './style.css';
 type Unrated = {scope:'keys'|'rate'|'estimate';reason:string};
-type Rating = {checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number|null>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:{label:string;value:number}|null;unrated?:Record<string,Unrated>};
+type Dan = {label:string;value:number;uncertainty?:number};
+type Prism = {version:string;overall:number;skillsets:[string,number][];ln:number|null;centre_hand:number};
+type Cluster = {pattern:string;specific:[string,number][];bpm:number;mixed:boolean;rating:number|null;amount:number};
+type Patterns = {category:string;clusters:Cluster[];ln_percent:number;duration:number};
+type LnStats = {notes:number;holds:number;ln_share:number;coverage:number;releases_per_second:number;peak_releases_per_second:number;inverse_share:number|null;offbeat_release_share:number|null;short_share:number|null;indicators:string[]};
+type View7k = {categories:{id:string;label:string;coverage:number;main_bpm:number|null;msd:number|null;msd_source:string}[];ln:{id:string;label:string;value:number|null;unit:string;source:string}[]};
+type Rating = {checksum:string;title:string;artist:string;version:string;rate:number;keys:number;notes:number;msd:Record<string,number|null>|null;interlude:number|null;quaver:number|null;stars:number|null;unsupported:string|null;dan:Dan|null;prism?:Prism|null;patterns?:Patterns|null;ln?:LnStats|null;view7k?:View7k|null;dan7k?:Dan|null;unrated?:Record<string,Unrated>};
 type Point = {time:number;value:number|null;nps:number};
 type Timeline = {duration:number;units:string;mode?:string;overall?:number|null;unrated?:string|null;window:number;hop:number;points:Point[]};
-type RatePoint = {rate:number;msd:{overall:number}|null;quaver:number|null;interlude:number|null;stars:number|null;unrated?:Record<string,Unrated>};
-const SYSTEMS = ['etterna','etterna-native','quaver','interlude','osu','nps'] as const;
+type RatePoint = {rate:number;msd:{overall:number}|null;prism?:number|null;quaver:number|null;interlude:number|null;stars:number|null;unrated?:Record<string,Unrated>};
+const SYSTEMS = ['etterna','etterna-native','prism','quaver','interlude','osu','ln','nps'] as const;
 type System = typeof SYSTEMS[number];
-type Settings = {follow_game:boolean;show_etterna:boolean;show_quaver:boolean;show_interlude:boolean;show_osu:boolean;show_reform:boolean;timeline_system:System;local_window:number;local_hop:number;strain_window:number;strain_hop:number;rate_step:string};
+type Settings = {follow_game:boolean;show_etterna:boolean;show_prism:boolean;show_quaver:boolean;show_interlude:boolean;show_osu:boolean;show_reform:boolean;show_dan7k:boolean;timeline_system:System;local_window:number;local_hop:number;strain_window:number;strain_hop:number;rate_step:string};
 type Notice = {message:string;tone:'busy'|'warn'|'error'};
 const $ = <T extends HTMLElement>(id:string) => document.getElementById(id) as T;
 const input = (id:string) => $<HTMLInputElement>(id);
 const fmt = (n:number|null|undefined) => n == null ? '—' : n.toFixed(2);
+const pct = (n:number|null|undefined) => n == null ? '—' : `${Math.round(n*100)}%`;
 
 // Effective settings: bridge helper, then the UI-readable route, then schema defaults.
 const flag=(value:unknown,fallback:boolean)=>typeof value==='boolean'?value:fallback;
 const bounded=(value:unknown,fallback:number,min:number,max:number)=>{const n=Number(value);return Number.isFinite(n)&&n>=min&&n<=max?n:fallback;};
 function normalize(v:Record<string,unknown>={}):Settings {
  return {
-  follow_game:flag(v.follow_game,true),show_etterna:flag(v.show_etterna,true),show_quaver:flag(v.show_quaver,true),
-  show_interlude:flag(v.show_interlude,true),show_osu:flag(v.show_osu,true),show_reform:flag(v.show_reform,true),
+  follow_game:flag(v.follow_game,true),show_etterna:flag(v.show_etterna,true),show_prism:flag(v.show_prism,true),show_quaver:flag(v.show_quaver,true),
+  show_interlude:flag(v.show_interlude,true),show_osu:flag(v.show_osu,true),show_reform:flag(v.show_reform,true),show_dan7k:flag(v.show_dan7k,true),
   timeline_system:SYSTEMS.find(s=>s===v.timeline_system)??'etterna',
   local_window:bounded(v.local_window,12,.1,60),local_hop:bounded(v.local_hop,1,.05,60),
   strain_window:bounded(v.strain_window,1,.1,60),strain_hop:bounded(v.strain_hop,.25,.05,60),
@@ -80,46 +87,139 @@ function stat(label:string,value:string,unit?:string,help?:string,tag:'div'|'li'
 // A missing value says why: "not rated" plus the calculator's own reason on hover.
 // Key-count reasons already name the key count; rate-scoped ones get the rate.
 const explain=(why:Unrated,rate:number)=>why.scope==='rate'?`Not rated at ${rate.toFixed(2)}×: ${why.reason}`:why.reason;
-function readout(r:Rating,system:string,label:string,value:number|null|undefined,unit?:string){
- const why=r.unrated?.[system];
- if(value!=null||!why)return stat(label,fmt(value),unit);
- return stat(label,'—',why.scope==='keys'?`not rated for ${r.keys}K`:'not rated',explain(why,r.rate));
-}
+// Readouts show only the systems that apply to the chart's key count; the
+// ones that cannot rate it are listed in one cell with their own reasons.
 function cards(r:Rating) {
  const target=$('summary'); target.replaceChildren();
- if(settings.show_etterna)target.append(readout(r,'etterna','Etterna',r.msd?.overall,'MSD'));
- if(settings.show_quaver)target.append(readout(r,'quaver','Quaver',r.quaver));
- if(settings.show_interlude)target.append(readout(r,'interlude','Interlude',r.interlude));
- if(settings.show_osu)target.append(readout(r,'osu','osu!mania',r.stars,'★'));
- if(settings.show_reform){
-  const why=r.unrated?.reform;
-  target.append(r.dan||!why
-   ?stat('Reform',r.dan?r.dan.label.replace(/^Reform /,''):'—',r.dan?fmt(r.dan.value):undefined,'Experimental dan estimate from MinaCalc overall MSD (4K); not a certification.')
-   :stat('Reform','—',why.scope==='keys'?'4K only':'not rated',why.reason));
+ const notFor:[string,string][]=[];
+ const add=(show:boolean,system:string,label:string,value:number|null|undefined,unit?:string,help?:string)=>{
+  if(!show)return;
+  const why=r.unrated?.[system];
+  if(value!=null||!why){target.append(stat(label,fmt(value),unit,help));return;}
+  if(why.scope==='keys'){notFor.push([label,why.reason]);return;}
+  target.append(stat(label,'—','not rated',explain(why,r.rate)));
+ };
+ const dan=(show:boolean,system:string,label:string,d:Dan|null|undefined,text:(d:Dan)=>[string,string],help:string)=>{
+  if(!show)return;
+  const why=r.unrated?.[system];
+  if(d){const [value,unit]=text(d);target.append(stat(label,value,unit,help));return;}
+  if(why?.scope==='keys'){notFor.push([label,why.reason]);return;}
+  target.append(stat(label,'—','not rated',why?explain(why,r.rate):help));
+ };
+ add(settings.show_etterna,'etterna','Etterna',r.msd?.overall,'MSD');
+ add(settings.show_prism,'prism','Prism',r.prism?.overall,undefined,"mania-tracker's 6K–8K calculator on the MSD scale; not Etterna.");
+ add(settings.show_quaver,'quaver','Quaver',r.quaver);
+ add(settings.show_interlude,'interlude','Interlude',r.interlude);
+ add(settings.show_osu,'osu','osu!mania',r.stars,'★');
+ dan(settings.show_reform,'reform','Reform',r.dan,d=>[d.label.replace(/^Reform /,''),fmt(d.value)],'Experimental dan estimate from MinaCalc overall MSD (4K); not a certification.');
+ dan(settings.show_dan7k,'dan7k','7K dan (ours)',r.dan7k,d=>[d.label.replace(/ Dan$/,''),`${d.value.toFixed(1)} ± ${d.uncertainty?.toFixed(1)??'?'}`],"Our interpolation of MinaCalc 7K MSD between Jinjin's 7K Regular dan courses; ± is the held-out error on those courses. Not a certification.");
+ if(notFor.length)target.append(stat(`Not for ${r.keys}K`,notFor.map(n=>n[0]).join(' · '),undefined,notFor.map(n=>`${n[0]}: ${n[1]}`).join(' ')));
+ tabs(r);
+}
+
+// Breakdown panel: one source at a time, only the sources that apply.
+type Tab = {id:string;label:string;heading:string;title:string;render:(r:Rating,body:HTMLElement)=>void};
+const TABS:Tab[]=[
+ {id:'etterna',label:'Etterna',heading:'Etterna skills',title:'Etterna MinaCalc 527 skillsets',render:renderEtterna},
+ {id:'prism',label:'Prism',heading:'Prism (mania-tracker)',title:"Prism (mania-tracker) skillsets, MSD scale; not Etterna",render:renderPrism},
+ {id:'view7k',label:'7K (ours)',heading:'7K skills (ours)',title:'7K skills: pattern analysis (ours) from Interlude patterns and MinaCalc 7K',render:render7k},
+ {id:'patterns',label:'Interlude patterns',heading:'Interlude patterns',title:'Interlude patterns',render:renderPatterns},
+ {id:'ln',label:'LN (ours)',heading:'LN statistics (ours)',title:'LN statistics (ours)',render:renderLn},
+];
+let chosenTab:string|undefined;
+function tabs(r:Rating){
+ const available=TABS.filter(t=>t.id==='ln'||r.unrated?.[t.id]?.scope!=='keys');
+ const preferred=r.keys===7?'view7k':r.keys===8?'prism':[3,9,10].includes(r.keys)?'patterns':r.keys>=4&&r.keys<=6?'etterna':'ln';
+ const active=available.find(t=>t.id===chosenTab)??available.find(t=>t.id===preferred)??available[0];
+ const group=$('tabs');group.replaceChildren();
+ for(const t of available){
+  const button=document.createElement('button');button.type='button';button.textContent=t.label;button.title=t.title;
+  button.setAttribute('aria-pressed',String(t===active));
+  button.onclick=()=>{chosenTab=t.id;if(rating)tabs(rating);};
+  group.append(button);
  }
- $('skills').replaceChildren();
- if(!r.msd){
-  const empty=document.createElement('p');empty.className='v-empty';
-  const why=r.unrated?.etterna;
-  empty.textContent=why?explain(why,r.rate):'No MinaCalc rating.';
-  $('skills').append(empty);return;
- }
+ const body=$('skills');body.replaceChildren();body.dataset.tab=active.id;
+ body.setAttribute('aria-label',active.heading);
+ active.render(r,body);
+}
+function empty(body:HTMLElement,text:string){const p=document.createElement('p');p.className='v-empty';p.textContent=text;body.append(p);}
+function row(body:HTMLElement,cells:(string|HTMLElement)[],opts:{current?:boolean;title?:string;head?:boolean}={}){
+ const el=document.createElement('div');el.className=opts.head?'skill skill--head':'skill';el.dataset.cols=String(cells.length);
+ if(opts.current)el.setAttribute('aria-current','true');
+ if(opts.title)el.title=opts.title;
+ for(const c of cells){if(typeof c==='string'){const s=document.createElement('span');s.textContent=c;el.append(s);}else el.append(c);}
+ body.append(el);return el;
+}
+function meter(value:number,max:number,label:string){
+ const bar=document.createElement('div');bar.className='v-meter';bar.style.setProperty('--v-value',String(Math.max(0,Math.min(1,value/max))));
+ bar.setAttribute('role','meter');bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax',String(max));bar.setAttribute('aria-valuenow',String(value));bar.setAttribute('aria-label',label);
+ return bar;
+}
+function num(text:string,title?:string){const s=document.createElement('span');s.className='v-num';s.textContent=text;if(title)s.title=title;return s;}
+function renderEtterna(r:Rating,body:HTMLElement){
+ if(!r.msd){const why=r.unrated?.etterna;empty(body,why?explain(why,r.rate):'No MinaCalc rating.');return;}
  // MinaCalc's own skillset names; Technical is null where it has no model (6K, 7K).
- // Outside 4K its Jumpstream/Handstream slots are the generic chordstream and
- // bracketing models (upstream GenericSkillset), so they carry those names.
- const generic:Record<string,string>=r.keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
  const skills=Object.entries(r.msd).filter((e):e is [string,number]=>e[0]!=='overall'&&e[1]!=null);
  const top=skills.filter(([key])=>key!=='stamina').reduce<[string,number]|undefined>((best,entry)=>!best||entry[1]>best[1]?entry:best,undefined);
  const max=Math.max(30,...skills.map(e=>e[1]),r.msd.overall??0);
- for(const [name,value] of skills) {
-  const row=document.createElement('div');row.className='skill';
-  if(name===top?.[0])row.setAttribute('aria-current','true');
-  const label=document.createElement('span');label.textContent=(generic[name]??name).replace('speed',' speed');
-  const bar=document.createElement('div');bar.className='v-meter';bar.style.setProperty('--v-value',String(value/max));
-  bar.setAttribute('role','meter');bar.setAttribute('aria-valuemin','0');bar.setAttribute('aria-valuemax',String(max));bar.setAttribute('aria-valuenow',String(value));bar.setAttribute('aria-label',label.textContent);
-  const number=document.createElement('span');number.className='v-num';number.textContent=fmt(value);
-  row.append(label,bar,number);$('skills').append(row);
+ for(const [name,value] of skills){const label=skillLabel(name,r.keys);row(body,[label,meter(value,max,label),num(fmt(value))],{current:name===top?.[0]});}
+}
+// Same names as the overlay chip: MinaCalc's generic 5K–7K slots and spaced
+// Prism names.
+function skillLabel(name:string,keys:number){
+ const generic:Record<string,string>=keys===4?{}:{jumpstream:'chordstream',handstream:'bracketing'};
+ return (generic[name]??name).replace('speed',' speed');
+}
+const prismLabel=(name:string)=>name.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/ Only$/,' only').replace(/^(\w)(.*)$/,(_,a:string,b:string)=>a+b.toLowerCase());
+function renderPrism(r:Rating,body:HTMLElement){
+ const p=r.prism;
+ if(!p){const why=r.unrated?.prism;empty(body,why?explain(why,r.rate):'No Prism rating.');return;}
+ const max=Math.max(30,p.overall,...p.skillsets.map(s=>s[1]));
+ const top=p.skillsets.reduce<[string,number]|undefined>((b,s)=>!b||s[1]>b[1]?s:b,undefined);
+ for(const [name,value] of p.skillsets){const label=prismLabel(name);row(body,[label,meter(value,max,label),num(fmt(value))],{current:name===top?.[0]});}
+ if(p.ln!=null)row(body,['LN rating',meter(p.ln,max,'Prism LN rating'),num(fmt(p.ln))],{title:"Prism's LN model"});
+}
+function render7k(r:Rating,body:HTMLElement){
+ const v=r.view7k;
+ if(!v){const why=r.unrated?.view7k;empty(body,why?explain(why,r.rate):'No 7K view.');return;}
+ row(body,['','Coverage','','BPM','MinaCalc'],{head:true});
+ const top=v.categories.reduce<typeof v.categories[number]|undefined>((b,c)=>!b||c.coverage>b.coverage?c:b,undefined);
+ for(const c of v.categories)row(body,[c.label,meter(c.coverage,1,`${c.label} coverage`),num(pct(c.coverage)),num(c.main_bpm==null?'—':String(c.main_bpm),'BPM covering most of this category, counting each row as a 1/16 note (Interlude convention), at this rate'),num(c.msd==null?'—':c.msd.toFixed(1),c.msd_source)],{current:c===top&&c.coverage>0});
+ const grid=document.createElement('ol');grid.className='ladder ln-family';
+ for(const l of v.ln){
+  const value=l.value==null?'—':l.unit==='share'?pct(l.value):`${l.value.toFixed(0)}/s`;
+  // The source goes on hover of the whole cell: four help icons do not fit.
+  const item=stat(l.label,value,undefined,undefined,'li');item.classList.add('v-stat--sm');item.title=`${l.label}: ${l.source}`;grid.append(item);
  }
+ body.append(grid);
+}
+function renderPatterns(r:Rating,body:HTMLElement){
+ const p=r.patterns;
+ if(!p){const why=r.unrated?.patterns;empty(body,why?explain(why,r.rate):'No pattern report.');return;}
+ // Covers = the cluster's share of the chart's length; clusters overlap.
+ row(body,[p.category,'Covers','','Rating'],{head:true}).classList.add('skill--category');
+ if(!p.clusters.length){empty(body,'No recognised patterns.');return;}
+ for(const [i,c] of p.clusters.slice(0,6).entries()){
+  const name=c.specific[0]&&c.specific[0][1]>.4?c.specific[0][0]:c.pattern;
+  const bpm=Math.round(c.bpm*r.rate);
+  const label=c.mixed?`~${bpm} BPM Mixed ${name}`:`${bpm} BPM ${name}`;
+  const share=p.duration>0?c.amount/p.duration:0;
+  row(body,[label,meter(share,1,`${label} covers`),num(pct(share)),num(c.rating==null?'—':c.rating.toFixed(1),'Interlude strain rating of the cluster')],{current:i===0,title:label});
+ }
+}
+function renderLn(r:Rating,body:HTMLElement){
+ const l=r.ln;
+ if(!l){empty(body,'No LN statistics.');return;}
+ const grid=document.createElement('ol');grid.className='ladder ln-stats';
+ const items:[string,string,string][]=[
+  ['Holds',pct(l.ln_share),'Holds / all notes'],['Coverage',pct(l.coverage),'Held time / (columns × chart length)'],
+  ['Releases',`${l.releases_per_second.toFixed(1)}/s`,'Releases per playback second'],['Peak',`${l.peak_releases_per_second.toFixed(0)}/s`,'Most releases in one playback second'],
+  ['Inverse',pct(l.inverse_share),'Holds whose column is pressed again within 150 ms of the release'],['Off-row',pct(l.offbeat_release_share),'Releases not on a press row'],
+  ['Short',pct(l.short_share),'Holds shorter than 150 ms'],
+ ];
+ for(const [label,value,help] of items){const item=stat(label,value,undefined,help,'li');item.classList.add('v-stat--sm');grid.append(item);}
+ body.append(grid);
+ if(l.indicators.length){const badges=document.createElement('div');badges.className='badges';for(const i of l.indicators){const b=document.createElement('span');b.className='v-badge v-badge--accent';b.textContent=i;badges.append(b);}body.append(badges);}
 }
 function frame(element:Element){return element.parentElement as HTMLElement;}
 function draw(target:HTMLCanvasElement,points:Point[],field:'value'|'nps',range?:[number,number]) {
@@ -183,6 +283,7 @@ function svg<K extends keyof SVGElementTagNameMap>(tag:K,attributes:Record<strin
 // system that does; rates a system cannot rate are gaps with one reason line.
 const CURVE_SYSTEMS=[
  {id:'etterna',label:'Etterna MSD',value:(p:RatePoint)=>p.msd?.overall??null},
+ {id:'prism',label:'Prism (mania-tracker)',value:(p:RatePoint)=>p.prism??null},
  {id:'quaver',label:'Quaver',value:(p:RatePoint)=>p.quaver},
  {id:'interlude',label:'Interlude',value:(p:RatePoint)=>p.interlude},
  {id:'osu',label:'osu!mania ★',value:(p:RatePoint)=>p.stars},
@@ -190,7 +291,7 @@ const CURVE_SYSTEMS=[
 function rateCurve() {
  const target=$('curve'),ladder=$('ladder'),note=$('curve-note');target.replaceChildren();ladder.replaceChildren();note.hidden=true;
  if(!curve)return;
- const system=CURVE_SYSTEMS.find(s=>curve!.some(p=>s.value(p)!=null))??CURVE_SYSTEMS[3];
+ const system=CURVE_SYSTEMS.find(s=>curve!.some(p=>s.value(p)!=null))??CURVE_SYSTEMS[4];
  $('curve-label').textContent=`Rate curve · ${system.label}`;
  const value=system.value;
  // Drawn in CSS pixels so labels keep their size whatever the cell's aspect.
@@ -237,7 +338,8 @@ function redraw(){
  rateCurve();
 }
 function applyTimelineDefaults(system:System){
- const local=system==='etterna';
+ // Rated windows (local MSD, Prism) use the long-window defaults.
+ const local=system==='etterna'||system==='prism';
  input('window').value=String(local?settings.local_window:settings.strain_window);
  input('hop').value=String(local?settings.local_hop:settings.strain_hop);
 }
@@ -302,7 +404,7 @@ function section() {
  if(!rating)return;
  const r0=rating;
  void api<{rating:Rating}>(`v1/beatmap/${r0.checksum}/section?start=${input('start').value}&end=${input('end').value}&rate=${r0.rate}`)
-  .then(result=>{const r=result.rating;$('section-result').textContent=`Etterna ${fmt(r.msd?.overall)} · Quaver ${fmt(r.quaver)} · Interlude ${fmt(r.interlude)} · ${fmt(r.stars)} ★`;})
+  .then(result=>{const r=result.rating;$('section-result').textContent=`Etterna ${fmt(r.msd?.overall)}${r.prism?` · Prism ${fmt(r.prism.overall)}`:''} · Quaver ${fmt(r.quaver)} · Interlude ${fmt(r.interlude)} · ${fmt(r.stars)} ★`;})
   .catch(e=>{$('section-result').textContent=e instanceof Error?e.message:String(e);});
 }
 

@@ -28,10 +28,27 @@
 .readouts__grid .v-stat + .v-stat { padding-left: var(--space-3); border-left: var(--hair) solid var(--rule); }
 :is(.v-stat__label, .v-field > span) .v-help { margin-left: var(--space-1); text-transform: none; letter-spacing: 0; }
 
+/* Breakdown: source tabs in the head, rows of label / meter / numbers. */
+.column--left > .v-panel:first-child .v-panel__head { gap: var(--space-2); }
+.column--left .v-seg { flex-wrap: wrap; }
+.ln-family .v-stat__label { white-space: nowrap; }
 .skills { gap: var(--space-1); }
 .skill { display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 3rem; gap: var(--space-3); align-items: center; min-height: 1.5rem; }
-.skill > span:first-child { color: var(--fg-dim); text-transform: capitalize; }
+.skill[data-cols="4"] { grid-template-columns: minmax(8rem, 1.4fr) minmax(0, 1fr) 2.75rem 2.75rem; }
+.skill[data-cols="5"] { grid-template-columns: 7rem minmax(0, 1fr) 2.75rem 2.75rem 3.25rem; }
+.skill > span:first-child { overflow: hidden; color: var(--fg-dim); text-overflow: ellipsis; white-space: nowrap; }
+.skills:not([data-tab="patterns"]) .skill > span:first-child { text-transform: capitalize; }
+.skill > .v-num { text-align: right; }
 .skill[aria-current="true"] > span:first-child { color: var(--fg); font-weight: 600; }
+.skill--head { min-height: 1rem; color: var(--muted); font-size: var(--step--2); text-transform: uppercase; letter-spacing: 0.04em; }
+.skill--head > span { text-align: right; }
+.skill--head > span:is(:first-child, :nth-child(2)) { text-align: left; }
+.skill--category > span:first-child { color: var(--fg); font-size: var(--step-0); text-transform: none; letter-spacing: 0; }
+.ladder:is(.ln-family, .ln-stats) { grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: var(--space-2); }
+.skills[data-tab="prism"] .skill { grid-template-columns: 8.5rem minmax(0, 1fr) 3rem; }
+.ln-stats li:nth-child(4n + 1) { padding-left: 0; border-left: 0; }
+.ln-family li:first-child { padding-left: 0; border-left: 0; }
+.badges { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
 
 /* Panels whose body is a chart: the chart takes the remaining height. */
 .v-panel__body.fill { display: flex; flex-direction: column; padding: var(--space-2); }
@@ -53,9 +70,12 @@ canvas.plot { touch-action: none; cursor: crosshair; }
 .ladder li:first-child { padding-left: 0; border-left: 0; }
 .ladder [aria-current="true"] .v-stat__value { color: var(--accent); }
 @container (max-width: 21rem) {
-  .ladder { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ladder li:is(:first-child, :nth-child(5)) { display: none; }
-  .ladder li:nth-child(2) { padding-left: 0; border-left: 0; }
+  #ladder { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #ladder li:is(:first-child, :nth-child(5)) { display: none; }
+  #ladder li:nth-child(2) { padding-left: 0; border-left: 0; }
+  .ladder:is(.ln-family, .ln-stats) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ln-stats li:nth-child(odd), .ln-family li:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .skill[data-cols="5"] { grid-template-columns: 5.5rem minmax(0, 1fr) 2.5rem 2.5rem 2.75rem; gap: var(--space-2); }
 }
 
 .timeline .v-panel__head .v-field { gap: var(--space-2); }
@@ -75,8 +95,10 @@ canvas.plot { touch-action: none; cursor: crosshair; }
   .v-bar { flex-wrap: wrap; height: auto; min-height: var(--bar-h); padding-block: var(--space-1); }
   .v-app { grid-template-rows: auto minmax(0, 1fr); }
   .map { order: 10; flex-basis: 100%; }
-  .ratings { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "readouts" "right" "left"; overflow: auto; }
-  .column { grid-template-rows: none; }
+  /* Rows keep their content height; the work area scrolls instead of squeezing panels. */
+  .ratings { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: max-content; grid-template-areas: "readouts" "right" "left"; overflow: auto; }
+  .column { grid-template-rows: none; grid-auto-rows: max-content; }
+  .v-panel__head { flex-wrap: wrap; height: auto; min-height: var(--control-h); padding-block: var(--space-1); row-gap: var(--space-1); }
   .plot-frame { flex: none; height: 14rem; }
   .density .plot-frame, .column--left .plot-frame { height: 10rem; }
 }
