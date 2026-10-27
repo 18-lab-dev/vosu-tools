@@ -11,6 +11,7 @@ written to FILE instead; point VOSU_PRISM_REFERENCE at it and run
     python3 generate.py [--out FILE chart.osu ...]
 """
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -51,7 +52,13 @@ def pristine(dest):
 def build(workspace_crates, target):
     project = target / 'driver'
     (project / 'src').mkdir(parents=True, exist_ok=True)
-    (project / 'src/main.rs').write_text((here / 'driver.rs').read_text())
+    main = (here / 'driver.rs').read_text()
+    if os.name == 'nt':
+        # Upstream jsmath declares POSIX clock_gettime, which MSVC lacks; link
+        # the same shim the tool uses (src/windows_clock.rs).
+        shim = (tool / 'src/windows_clock.rs').resolve()
+        main += f'\n#[path = r"{shim}"]\nmod windows_clock;\n'
+    (project / 'src/main.rs').write_text(main)
     (project / 'Cargo.toml').write_text(
         '[package]\nname = "prism-reference"\nversion = "0.0.0"\nedition = "2021"\n[workspace]\n'
         f'[dependencies]\nprism = {{ path = "{workspace_crates}/prism" }}\n'
