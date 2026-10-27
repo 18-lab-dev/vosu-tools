@@ -180,27 +180,57 @@ Nothing established covers 9K–10K or dual stage beyond star ratings.
 | 3K | Quaver, Interlude, stars | none | Quaver |
 | 12K–18K | stars | none | stars |
 
-This is what the branch now does (commits `d34843a`, `2e4da06`, `4666f06`).
+This was Phase 1 (commits `d34843a`, `2e4da06`, `4666f06`).
 
-**Options for Phase 2 (need a decision):**
+## Phase 2 (implemented)
 
-1. **Interlude pattern breakdown, 3K–10K** (port of Prelude's `Patterns`, MIT).
-   An upstream analysis, labelled "Interlude patterns": per-key-count pattern
-   names with their share of the chart and BPM. This is the closest real source
-   for 7K categories (brackets, chordstream, jacks) and the only one for 8K–10K.
-2. **Prism for 6K–8K** (mania-hub, MIT, Rust): a community MSD calculator,
-   labelled "Prism 0.25 (mania-tracker)", never "Etterna". Adds 8K and an LN
-   rating. It is young and fitted to one site's data; MinaCalc stays the
-   Etterna number.
-3. **Our own 7K view** of the community categories (jack, chordjack, speed,
-   chordstream, bracket, tech, LN), computed from Interlude pattern shares and
-   MinaCalc 7K skillsets, labelled "pattern analysis (ours)". Never presented as
-   a rating.
-4. **A 7K dan estimate** like Reform: interpolate MinaCalc 7K MSD against
-   Jinjin's Regular dan course charts (beatmapsets 450069, 451788, 930218).
-   Needs those packs as calibration sources and inherits the 57.14 ceiling.
-5. **LN facts** for every key count (hold share, LN density, inverse-style
-   coverage), labelled ours. None of our calculators rates LN beyond heads.
+All five options were chosen. What each key count now shows (✓ = value, with
+its source named in the UI):
 
-Not recommended: showing MinaCalc's generic model for 8K+, scaling 4K skillsets
-to other key counts, or vendoring Sunny (no licence).
+| Key count | Etterna | Prism | Quaver | Interlude | stars | Interlude patterns | 7K view (ours) | Dan | LN stats (ours) | Rate curve |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1K–2K | | | ✓ | | ✓ | | | | ✓ | Quaver |
+| 3K | | | ✓ | ✓ | ✓ | ✓ | | | ✓ | Quaver |
+| 4K | ✓ | | ✓ | ✓ | ✓ | ✓ | | Reform | ✓ | MinaCalc |
+| 5K | ✓ | | ✓ | ✓ | ✓ | ✓ | | | ✓ | MinaCalc |
+| 6K | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | ✓ | MinaCalc |
+| 7K | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ≈ 7K dan (ours) | ✓ | MinaCalc |
+| 8K | | ✓ | ✓ | ✓ | ✓ | ✓ | | | ✓ | Prism |
+| 9K–10K | | | ✓ | ✓ | ✓ | ✓ | | | ✓ | Quaver |
+| 11K–18K | | | | | ✓ | | | | ✓ | stars |
+
+1. **Interlude patterns** (`src/patterns.rs`): Prelude's pattern module ported
+   to Rust, differentially tested against the unmodified F# on the 3K–10K demo
+   maps and 74 local charts.
+2. **Prism (mania-tracker)** (`vendor/prism`, `src/prism.rs`): vendored
+   unmodified, bit-identical to a pristine upstream build on the fixtures and 40
+   local 6K–8K charts. Also a rate-curve system (8K) and a timeline system.
+3. **7K skill view, pattern analysis (ours)** (`src/view7k.rs`). Method:
+   Interlude's 7K pattern matches, before clustering, are sorted into the
+   community categories, and each category shows (a) the share of the chart's
+   length its matches cover and (b) the MinaCalc 527 7K skillset that measures
+   it. Where each category comes from:
+
+   | Category | Community source | Interlude 7K matches | MinaCalc 7K value |
+   | --- | --- | --- | --- |
+   | Jack | Jinjin Regular map 1 (jack), Ez2Lazer/mania-tracker "jack" | Longjacks, Minijacks, plain Jacks | Jack Speed |
+   | Chordjack | Jinjin map 1 (chordjacks), mania-tracker Chordjack | Chordjacks | Chordjack |
+   | Speed / stream | Jinjin map 3 (speed), Ez2Lazer "speed", "stream" (6/7/8K) | Stream, Double Stream | Stream |
+   | Chordstream | Jinjin map 4 (chordstream endurance), Interlude 7K | Dense/Light/plain Chordstream | Chordstream (Jumpstream slot) |
+   | Bracket | Interlude 7K "Brackets", MinaCalc `GBracketing` | Brackets | Bracketing (Handstream slot) |
+   | Tech | Jinjin map 2 (tech), Ez2Lazer "tech", Interlude "Tech" (mixed rhythm) | any match with mixed rhythm | none: MinaCalc 527 has no 7K technical model |
+   | LN general / tech / inverse / release | Jinjin 7K LN dans, Ez2Lazer 7K LN tiles | — | none: LN statistics (ours) |
+
+   Honest scale: coverage is a whole percent of chart length; BPM is the steady
+   rhythm covering most of the category (rows counted as 1/16 notes, Interlude's
+   convention); MinaCalc values have one decimal; LN values are percentages or
+   releases per second. Nothing is combined into a score.
+4. **≈ 7K dan (ours)**: MinaCalc 7K MSD interpolated between Jinjin's 14
+   Regular course charts; held-out error ± 0.2 dan steps; nothing outside the
+   range or on LN-heavy charts (`PROVENANCE.md`, `calibration-7k-sources.json`).
+5. **LN statistics (ours)** (`src/ln.rs`) for every key count, with indicator
+   thresholds documented in `PROVENANCE.md`.
+
+Still not done, deliberately: MinaCalc's generic model for 8K+, scaling 4K
+skillsets to other key counts, vendoring Sunny (no licence), and SV detection in
+Interlude patterns.

@@ -109,6 +109,79 @@ its shipped `dans.json` contains -1 unset anchors. We reuse neither its model no
 its code. Its Daniel implementation credits TheBagelOfMan under MIT, but adds a
 separate strain calculator, not a simple calibration of current MinaCalc.
 
+## Experimental 7K Regular dan model (ours)
+
+Model id: **`jinjin-7k-regular-msd527@1`**, 7K only. Piecewise-linear
+interpolation of MinaCalc 527 **7K** overall MSD (1.00×, 0.93 goal, rate-specific
+like Reform) between the 14 charts of Jinjin's osu!mania 7K Regular Dan courses
+(0th–10th, Gamma, Azimuth, Zenith; [forum topic 981680](https://osu.ppy.sh/community/forums/topics/981680)).
+`calibration-7k.json` holds the anchors; `calibration-7k-sources.json` records
+beatmapset/beatmap ids (450069, 451788, 930218), versions, MD5 and SHA-256, and
+where to get them: the sets on osu! or any mirror by set id, checked by MD5
+(retrieved 2026-10-26 through osu.direct). Charts are not redistributed. With
+`VOSU_JINJIN_DIR` pointing at the 14 `.osu` files, `tests/keymodes.rs`
+re-derives every anchor.
+
+The anchors increase strictly (13.78 → 41.58 MSD). Held-out error: predicting
+each interior course from its two neighbours (leave-one-out) gives MAE 0.095,
+RMSE 0.121 and max 0.225 dan steps; the estimate is shown as "≈ <dan>" with
+**± 0.2**. That number measures how well 7K MSD orders this marathon ladder, not
+the error on ordinary single songs, which is larger and unmeasured. No estimate is
+given outside the course range, without a MinaCalc 7K value (e.g. past the 7K
+ceiling at high rates) or when ≥ 30% of the notes are holds (the Regular courses
+are rice; their hold share is under 2%). `experimental:true` is always set;
+course rules (96%, no pauses) and stamina are not modelled.
+
+## Prism (mania-tracker), Interlude patterns, LN statistics, 7K view
+
+* **Prism 0.25** (6K–8K), vendored unmodified from mania-hub
+  `9ab23951357831a0dbbc48da20dd2140f22bd850` (`vendor/prism`, MIT). `src/prism.rs`
+  feeds the `.osu` text to Prism's own parser and calls `analyze_prism` /
+  `analyze_prism_ln` at the playback rate with Prism's defaults (96.5% goal, map
+  OD). Values are Prism's MSD-scale numbers in its own skillset names (Stamina
+  omitted: Prism reports 0 there); never shown as Etterna. The rate curve uses
+  Prism overall where MinaCalc has no model (8K); the `prism` timeline rates
+  centred windows with `PrismPrepared::within`. `tests/reference/prism/generate.py`
+  checks the vendored files against the pinned upstream, builds the pristine
+  crates and writes `tests/fixtures/prism-reference.json`; `tests/prism.rs`
+  requires bit-identical results.
+* **Interlude patterns** (3K–10K): `src/patterns.rs` ports Prelude's
+  `Calculator/Patterns` (Density, Primitives, Patterns, FindPatterns,
+  Clustering, Categorise, Summary) and `OsuConverter.convert_hit_objects` (holds
+  as HOLDHEAD/HOLDBODY/HOLDTAIL rows), f32 in upstream order, with Interlude's
+  finger strains (`interlude::finger_strains`) for cluster ratings. Upstream
+  quirks are kept (the last pattern's end uses the absolute last-note time;
+  charts with a note inside a hold are refused, as Interlude's importer does).
+  SV conversion is not ported, so categories never carry "SV". BPMs are chart
+  BPMs counting each row as a 1/16 note (Interlude's convention) and are shown
+  × the rate. `tests/reference/patterns` runs the unmodified F# through a small
+  type adapter; `tests/patterns.rs` compares categories, cluster patterns, BPM,
+  mixed flags, specific-type shares, amounts, densities and ratings on the
+  fixtures (3K–10K demo maps, cyclic 4K, refused mixed 7K). With
+  `VOSU_PATTERNS_REFERENCE` it compares any charts; on 2026-10-26 it matched
+  Interlude on 74 local charts (3K–10K, 30 of them 7K) at 1.00× and 1.50×: 72
+  analysed identically, 2 refused by both for stacked holds.
+* **LN statistics (ours)**, every key count, `src/ln.rs`: hold share, hold
+  coverage (held time / columns × length), releases per playback second and
+  the most in one second, inverse share (holds whose column is pressed again
+  within 150 ms of the release), off-row release share (releases not within 2 ms
+  of any head) and short-hold share (< 150 ms). Indicators: "full LN" (≥ 90%
+  holds), "LN-heavy" (≥ 30%), "inverse" (inverse share ≥ 50% and coverage
+  ≥ 40%), "release tech" (≥ 30% holds and ≥ 50% off-row releases). Thresholds
+  are ours. The `ln` timeline counts releases per playback second.
+* **7K skill view (ours)**, `src/view7k.rs`: the community 7K categories (see
+  `KEYMODES.md`) from Interlude's 7K matches before clustering — jack
+  (Longjacks, Minijacks, plain Jacks), chordjack (Chordjacks), speed/stream
+  (Stream, Double Stream), chordstream (Dense/Light/plain Chordstream), bracket
+  (Brackets), tech (any match with mixed rhythm) — as the share of the chart's
+  length their spans cover (whole percent) and the BPM whose matches span the
+  most time. Each category shows the MinaCalc 7K skillset that measures it
+  (Jack Speed, Chordjack, Stream, Chordstream, Bracketing; one decimal); tech has
+  none (MinaCalc 527 has no 7K technical model). The LN family shows LN
+  statistics: general = hold share, tech = off-row releases, inverse = inverse
+  share, release = peak releases per second. Nothing here is combined into a
+  rating.
+
 ## Golden fixture
 
 `tests/fixtures/cyclic.osu` is project-authored synthetic data dedicated to CC0:
@@ -122,7 +195,8 @@ checks absolute tolerance 0.0001 to accommodate compiler floating-point variatio
 The package provides a service, thin CLI and browser analysis UI. SQLite in
 `VOSU_TOOL_DATA_DIR/ratings.sqlite3` retains submitted bytes and JSON results.
 Cache identity includes body MD5, rounded rate in 0.05 ticks, exact f32 score
-bits or absent score, calculator revision/adapter id, and dan model id.
+bits or absent score, calculator revision/adapter id, the Quaver, Interlude,
+Prism and patterns revisions, and both dan model ids.
 GET lookup can compute new rates from stored bytes. Missing MD5 is 404.
 `/rates?step=0.05` returns rates 0.50–2.00 inclusive, 31 entries.
 
@@ -169,6 +243,10 @@ All query times are **chart seconds**, not playback seconds. Read routes:
 `POST /v1/calculate?rate=` accepts raw .osu bytes, up to 1 MiB. CLI file/stdin
 imports use this route; read routes never modify osu! data. `systems` validates
 comma-separated identifiers; the result retains the fixed comparison schema.
+Results also carry `prism` (6K–8K), `patterns` (3K–10K), `ln` (every key count),
+`view7k` and `dan7k` (7K), with `unrated.<system>` reasons where they do not
+apply. Rate points carry `prism` overall; timelines accept `system=` `etterna`,
+`etterna-native`, `prism`, `quaver`, `interlude`, `osu`, `ln` or `nps`.
 
 ### Local MSD (default Etterna timeline)
 
@@ -232,8 +310,12 @@ Reset-context section results need not equal plotted contextual strain peaks.
 
 The UI uses the shared 18-LAB system (`/tools/_host/v1/theme.css`) and is one
 screen with no page scroll at 1920 × 1080, 2560 × 1440, 1280 × 720 and 960 × 1080
-(below ~830 px it stacks). Labels only; the Reform readout and the timeline hop
-carry the only help hovers. Through `vosu.subscribe` (the bridge owns reconnects;
+(below ~830 px it stacks). Readouts show only the systems that rate the chart's
+key count; the others are listed in one "Not for NK" cell with their reasons on
+hover. The breakdown panel switches between the sources that apply (Etterna,
+Prism, 7K (ours), Interlude patterns, LN (ours)); its default is the 7K view on
+7K, Prism on 8K, Interlude patterns on 3K/9K/10K, Etterna on 4K–6K and LN
+statistics elsewhere. Labels only, with help hovers on ambiguous labels. Through `vosu.subscribe` (the bridge owns reconnects;
 its status shows as the bar's status dot) it subscribes to
 `/websocket/v2/subscribe` (`/beatmap/checksum`, `/play/mods/rate`,
 `/play/mods/name`, `/state/number`, `/beatmap/time/live`, `/beatmap/mode/name`)
@@ -241,7 +323,8 @@ and re-analyses the selected chart at the game's rate, rounded to 0.05×; during
 play it marks the live position. Manual mode (a typed rate or an opened .osu)
 re-rates the chart on screen by checksum and ignores the game until Follow game.
 Non-mania selections keep the last mania analysis dimmed and state why.
-Defaults come from `settings.json` (follow, readouts shown, timeline system,
+Defaults come from `settings.json` (follow, readouts shown incl. Prism and the
+7K dan, timeline system,
 window/hop, rate-curve step), read through the bridge or `/tools/<id>/_settings`.
 It draws Canvas timelines/NPS and an SVG rate curve without chart libraries.
 Drag a range or enter explicit times to request section ratings. Reform estimates

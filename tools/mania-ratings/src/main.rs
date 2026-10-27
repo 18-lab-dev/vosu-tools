@@ -222,7 +222,7 @@ async fn rates(
                 },
             )?;
             keys = d.keys;
-            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars,"unrated":d.unrated}));
+            rates.push(json!({"rate":f64::from(tick)/20.0,"msd":d.msd,"prism":d.prism.as_ref().map(|r| r.overall),"quaver":d.quaver,"interlude":d.interlude,"stars":d.stars,"unrated":d.unrated}));
         }
         Ok(json!({"checksum":md5,"keys":keys,"rates":rates}))
     })

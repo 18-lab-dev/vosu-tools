@@ -47,7 +47,22 @@ Each section records third-party code, data, or assets included in this reposito
   `1fe55766ae1fece3d433c966bf25822647bc8af6`, copyright 2024 percyqaz,
   MIT. Separate port `tools/mania-ratings/src/interlude.rs` and unmodified test
   reference files; license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
+- Interlude patterns: port of YAVSRG Prelude `Calculator/Patterns` and
+  `OsuConverter.convert_hit_objects` at the same revision (copyright 2024
+  percyqaz, MIT) in `tools/mania-ratings/src/patterns.rs`, with unmodified
+  upstream test reference files in `tools/mania-ratings/tests/reference/patterns`;
+  license `tools/mania-ratings/licenses/Interlude-MIT.txt`.
+- Prism 0.25 (mania-tracker): aleju03/mania-hub
+  `9ab23951357831a0dbbc48da20dd2140f22bd850` `algorithms/prism`, copyright 2026
+  aleju03, MIT. Crates `jsmath`, `chart-parser`, `dan-core` and `prism` are
+  vendored unmodified in `vendor/prism` (see `vendor/prism/VENDOR.md`); license
+  `vendor/prism/LICENSE`, also shipped as
+  `tools/mania-ratings/licenses/Prism-MIT.txt`.
 - osu!mania reference ratings: rosu-pp 4.0.1, MIT, resolved in Cargo.lock.
+- 7K Regular dan calibration: course chart identities and checksums for
+  Jinjin's osu!mania 7K Regular Dan courses are in
+  `tools/mania-ratings/calibration-7k-sources.json`; the charts are not
+  distributed.
 - Reform calibration metadata inherited from vosu `4c06922`; course sources
   and checksums are in `tools/mania-ratings/calibration-sources.json`. No third-party
   beatmaps or audio are distributed. Synthetic test charts are CC0.

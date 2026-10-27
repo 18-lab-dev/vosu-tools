@@ -1,0 +1,171 @@
+{
+  "courses": "Jinjin's osu!mania 7K Regular Dan courses (Phase I 0th-3rd, Phase II 4th-8th, Phase III 9th-Zenith)",
+  "source_page": "https://osu.ppy.sh/community/forums/topics/981680",
+  "download": "Beatmapsets 450069, 451788 and 930218 on osu! (https://osu.ppy.sh/beatmapsets/<id>), or by set id through a mirror; verify each chart by MD5. Retrieved 2026-10-26 via https://osu.direct/api/d/<id>.",
+  "pass_rule": "96% accuracy, no pauses (course rules, not modelled)",
+  "model": "jinjin-7k-regular-msd527@1: piecewise-linear interpolation of MinaCalc 527 7K overall MSD (1.00x, goal 0.93) between the 14 course charts",
+  "charts": [
+    {
+      "index": 0,
+      "dan": "0th",
+      "beatmapset": 450069,
+      "beatmap": 965651,
+      "version": "0th Dan (Marathon)",
+      "title": "Regular Dan Phase I",
+      "md5": "403ddeb24d4deeecc75a09942640401e",
+      "sha256": "60dcca88070590d1b53cc4b6f7e82dc50a9ef77c31f31dfa5bb22aeb2d808d5d",
+      "msd_7k_1x": 13.776285
+    },
+    {
+      "index": 1,
+      "dan": "1st",
+      "beatmapset": 450069,
+      "beatmap": 965652,
+      "version": "1st Dan (Marathon)",
+      "title": "Regular Dan Phase I",
+      "md5": "d2dde2e1cdfb0fdeaa975aea4ae33e42",
+      "sha256": "87870841347df8ba0f5221e49eb67fef3c26b959b55ba760e4a566528b5386a8",
+      "msd_7k_1x": 16.3947
+    },
+    {
+      "index": 2,
+      "dan": "2nd",
+      "beatmapset": 450069,
+      "beatmap": 965653,
+      "version": "2nd Dan (Marathon)",
+      "title": "Regular Dan Phase I",
+      "md5": "f33d7c8df46e579996951e63746c3217",
+      "sha256": "57d70ed4e3069e4119f857e3c1de0ce60c4e4f55b0b61a254e6ac35282203896",
+      "msd_7k_1x": 18.159603
+    },
+    {
+      "index": 3,
+      "dan": "3rd",
+      "beatmapset": 450069,
+      "beatmap": 965654,
+      "version": "3rd Dan (Marathon)",
+      "title": "Regular Dan Phase I",
+      "md5": "b2deac5abe831acc34b4cb053f1949a1",
+      "sha256": "7fc82f13de5a8db56b739569e55013e4ebdc49df69985f082cf28dc60ac4466a",
+      "msd_7k_1x": 19.935602
+    },
+    {
+      "index": 4,
+      "dan": "4th",
+      "beatmapset": 451788,
+      "beatmap": 969187,
+      "version": "4th Dan (Marathon)",
+      "title": "Regular Dan Phase II",
+      "md5": "6ef18aaf72c4f71756b0da87f7a289bc",
+      "sha256": "d47372f728841f8981a6ec63d0118b60fd061c10c92a01efa2f477d36b23e297",
+      "msd_7k_1x": 21.5895
+    },
+    {
+      "index": 5,
+      "dan": "5th",
+      "beatmapset": 451788,
+      "beatmap": 969188,
+      "version": "5th Dan (Marathon)",
+      "title": "Regular Dan Phase II",
+      "md5": "f198256f6da1b0a95f8e267196333045",
+      "sha256": "15f1e51840cac4303abaf12ca9ec30305a12c6bf236bba9e8ba3d1987defb2d8",
+      "msd_7k_1x": 22.9437
+    },
+    {
+      "index": 6,
+      "dan": "6th",
+      "beatmapset": 451788,
+      "beatmap": 969189,
+      "version": "6th Dan (Marathon)",
+      "title": "Regular Dan Phase II",
+      "md5": "e0f009741295dc2912d6991f15e3fa43",
+      "sha256": "b07836df6fc593c50156baaa944bf6b078a744daefe1faaa08f4ffc2e1c3979f",
+      "msd_7k_1x": 24.719702
+    },
+    {
+      "index": 7,
+      "dan": "7th",
+      "beatmapset": 451788,
+      "beatmap": 969190,
+      "version": "7th Dan (Marathon)",
+      "title": "Regular Dan Phase II",
+      "md5": "a0c3d30d75911706ef371d5bec636de3",
+      "sha256": "bde480e304a383a5fe60015813c8dd5d1cda733a34e0aafa552c712c4cad73e5",
+      "msd_7k_1x": 27.061802
+    },
+    {
+      "index": 8,
+      "dan": "8th",
+      "beatmapset": 451788,
+      "beatmap": 1673133,
+      "version": "8th Dan (Marathon)",
+      "title": "Regular Dan Phase II",
+      "md5": "c7040fa644b4649be60f1586e37fe1fa",
+      "sha256": "8a922a80f3246af2f19a4b6a4dee3c48a7cfccf44ac84849c7ca1ddd90cfec8f",
+      "msd_7k_1x": 29.2929
+    },
+    {
+      "index": 9,
+      "dan": "9th",
+      "beatmapset": 930218,
+      "beatmap": 1942650,
+      "version": "9th Dan",
+      "title": "Regular Dan Phase III",
+      "md5": "4bddef566f968374652f4ec365179435",
+      "sha256": "e98d8b78d4581dadc61e7dc6b362059b0d1344a447cc7470374db03a6131c304",
+      "msd_7k_1x": 30.8247
+    },
+    {
+      "index": 10,
+      "dan": "10th",
+      "beatmapset": 930218,
+      "beatmap": 1966467,
+      "version": "10th Dan",
+      "title": "Regular Dan Phase III",
+      "md5": "71bb06db9d7acb6381aee08cb32d6d74",
+      "sha256": "d01b93efa936a0510cff7523e35880e2f9b8f939002990df76a02ca84b5f6f38",
+      "msd_7k_1x": 33.2445
+    },
+    {
+      "index": 11,
+      "dan": "Gamma",
+      "beatmapset": 930218,
+      "beatmap": 1979885,
+      "version": "Gamma Dan",
+      "title": "Regular Dan Phase III",
+      "md5": "22c436600e746a04e7ede85765f382c8",
+      "sha256": "fd96784af98e2716c247979ef43791524d6ad3e75ad7357bdd38148b265cd417",
+      "msd_7k_1x": 35.830803
+    },
+    {
+      "index": 12,
+      "dan": "Azimuth",
+      "beatmapset": 930218,
+      "beatmap": 2030894,
+      "version": "Azimuth Dan",
+      "title": "Regular Dan Phase III",
+      "md5": "c9927b9b467c5958994ad215abb60609",
+      "sha256": "249c0ba35905aa4af074703e1ed1606dc37c27f31bfea390ec63e4fab2d8d53e",
+      "msd_7k_1x": 38.6058
+    },
+    {
+      "index": 13,
+      "dan": "Zenith",
+      "beatmapset": 930218,
+      "beatmap": 2194084,
+      "version": "Zenith Dan",
+      "title": "Regular Dan Phase III",
+      "md5": "90492cfc1244bb1db82bba87eafe9cda",
+      "sha256": "731a60b53a1150695b2d839675c24974264b681b3aec2193ec0f532008ed5b3c",
+      "msd_7k_1x": 41.580597
+    }
+  ],
+  "held_out": {
+    "method": "leave-one-out: each interior course (1st-Azimuth) predicted from its two neighbours",
+    "mae": 0.095,
+    "rmse": 0.121,
+    "max": 0.225,
+    "uncertainty_shown": 0.2,
+    "caveat": "Measures how well MinaCalc 7K MSD orders this ladder; ordinary single-song charts are not marathons, so their error is larger and unmeasured."
+  }
+}

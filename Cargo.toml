@@ -1,6 +1,8 @@
 [workspace]
 members = ["crates/*", "tools/downloader", "tools/lazer-library", "tools/mania-ratings", "tools/practice", "tools/replay-renderer", "tools/server-pp", "tools/skin-studio"]
 resolver = "3"
+# Unmodified upstream Prism workspace (MIT); see vendor/prism/VENDOR.md.
+exclude = ["vendor/prism"]
 
 [workspace.package]
 edition = "2024"
@@ -13,3 +15,8 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+# Prism's TimSort port relies on release-mode wrapping (`stack_size - 3` with two
+# runs); upstream only ships release builds, so keep that arithmetic in dev too.
+[profile.dev.package.jsmath]
+overflow-checks = false
