@@ -311,11 +311,25 @@ try {
   check("After apply the draft is empty", true, (await page.locator("#apply-count").textContent()) ?? "");
   await shot("edit-applied");
 
-  // ── Restore last apply puts the folder back exactly ───────────────────────
+  // ── An unfinished apply is offered for restore when the studio opens ──────
+  // The backup is marked as a rollback that could not put skin.ini back
+  // (what the service writes when a restore step fails; the failure itself
+  // is covered by apply.rs's fault-injection tests).
   await until(() => page.locator("#restore").isVisible(), "restore button");
-  await page.click("#restore");
+  writeFileSync(join(LAB, manifests[0]), JSON.stringify({ ...manifest, status: "rollback_incomplete", failed: [{ path: "skin.ini", error: "injected: file in use" }] }, null, 2));
+  await page.goto("about:blank");
+  await page.goto(await launch("dark"));
+  await page.waitForSelector("#skins .skin");
+  await until(() => page.locator("#unfinished").isVisible(), "unfinished apply shown", 30000);
+  const banner = (await page.locator("#unfinished").textContent()) ?? "";
+  check("An unfinished apply is reported when the studio opens", banner.includes("Last apply to Arturia (sxlvia mania+taiko) didn't finish") && banner.includes("skin.ini"), banner);
+  await shot("edit-unfinished");
+  await page.locator("#unfinished button", { hasText: "Restore" }).click();
   await until(async () => ((await page.locator("#mix-result").textContent()) ?? "").includes("Restored"), "restored", 30000);
-  check("Restore last apply returns the folder to its original files", digest(EDITED) === original, (await page.locator("#mix-result").textContent()) ?? "");
+  await until(async () => !(await page.locator("#unfinished").isVisible()), "unfinished cleared", 30000);
+  check("Its Restore returns the folder to its original files and clears the notice", digest(EDITED) === original && !(await page.locator("#restore").isVisible()), (await page.locator("#mix-result").textContent()) ?? "");
+  await page.click("#tab-keymodes");
+  await pick(7);
 
   // ── vosu restarts: the tab loses its session and says so ──────────────────
   await slot("KeyImage0").click();

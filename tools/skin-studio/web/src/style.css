@@ -757,6 +757,23 @@
   color: var(--danger);
 }
 
+.mix-unfinished {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hair) solid var(--rule);
+}
+.mix-unfinished__item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: center;
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--step--1);
+  overflow-wrap: anywhere;
+}
+
 /* ---- narrower ------------------------------------------------------------ */
 @media (max-width: 75rem) {
   .studio {
