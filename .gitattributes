@@ -1,3 +1,6 @@
 # Beatmap golden fixtures and section-insertion tests require identical bytes.
 **/tests/fixtures/*.osu text eol=lf
 **/test/fixtures/*.osu text eol=lf
+# Vendored upstream sources stay byte-identical to upstream on every checkout
+# (vendor/prism/vendor-files.txt and the Prism reference generator check them).
+vendor/prism/** -text
