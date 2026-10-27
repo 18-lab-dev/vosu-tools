@@ -12,7 +12,7 @@
 // tools/skin-studio/web. The skins are copied; the originals are only read.
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -53,7 +53,9 @@ if (process.env.KM_E2E_SANDBOX !== "1") {
 }
 
 // ── Isolated vosu ─────────────────────────────────────────────────────────
-const LAB = mkdtempSync(join(tmpdir(), "km-e2e-"));
+const cache = join(homedir(), ".cache/vosu-agents/LnCalibration");
+mkdirSync(cache, { recursive: true });
+const LAB = mkdtempSync(join(cache, "km-e2e-"));
 const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: join(LAB, "home"), VOSU_PROCESS_EVENTS: "poll" };
 for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"]) delete env[key];
 for (const [key, dir] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"], ["XDG_CACHE_HOME", "cache"], ["XDG_STATE_HOME", "state"], ["XDG_RUNTIME_DIR", "runtime"]]) {

@@ -23,11 +23,11 @@ export type ManiaWindows = [number, number, number, number, number, number];
  */
 export function maniaHitWindows(
   od: number,
-  options: { rate?: number; difficulty?: number; classic?: boolean; convert?: boolean } = {},
+  options: { rate?: number; difficulty?: number; classic?: boolean; scoreV2?: boolean; convert?: boolean } = {},
 ): ManiaWindows {
   const multiplier = (options.rate ?? 1) / (options.difficulty ?? 1);
   const at = (value: number) => Math.floor(value * multiplier) + 0.5;
-  if (options.classic) {
+  if (options.classic && !options.scoreV2) {
     if (options.convert) {
       const easy = Math.round(od) <= 4;
       return [at(16), at(easy ? 47 : 34), at(easy ? 77 : 67), at(97), at(121), at(158)];
@@ -99,6 +99,7 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     rate: replayRate(replay),
     difficulty: has("HR") ? 1.4 : has("EZ") ? 1 / 1.4 : 1,
     classic: isClassic(replay),
+    scoreV2: has("SV2"),
     convert: options.convert,
   });
   const [, , , , meh, missWindow] = windows;
@@ -111,6 +112,9 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
 
   const objects: ManiaHitObject[] = [];
   const byColumn: ManiaHitObject[][] = Array.from({ length: columns }, () => []);
+  // Keep physical inputs after timeout too: late key-up still counts as an excluded release.
+  const heldInputs: Set<Hold>[] = Array.from({ length: columns }, () => new Set());
+  const releases: { note: number; time: number; offset: number; outcome?: Outcome }[] = [];
   const perfect: (Outcome & { order: number })[] = [],
     outcomes: Outcome[] = [];
   const record = (
@@ -177,8 +181,10 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
             ? { object: "note", end: o.time, top: true }
             : { object: which, end: which === "head" ? o.time : o.end, top: false };
     const max: HitResult = which === "body" || which === "self" ? "ignore_hit" : "perfect";
-    outcomes.push(record(o, time, type, max, hp, offset));
+    const outcome = record(o, time, type, max, hp, offset);
+    outcomes.push(outcome);
     if (part.hit && which !== "body" && which !== "self") handleHit(o, which === "tail" ? o.end : o.time, time);
+    return outcome;
   };
   const missForcefully = (o: ManiaHitObject, time: number) => {
     if (o.kind === "note") {
@@ -223,7 +229,10 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
       }
       // A hold can no longer be grabbed once its tail cannot be hit.
       if (time > o.end && time - o.end > meh) continue;
-      if (time - o.time >= -missWindow) o.holding = true;
+      if (time - o.time >= -missWindow) {
+        o.holding = true;
+        heldInputs[column].add(o);
+      }
       if (o.head.judged) continue;
       const result = resultFor(time - o.time);
       if (!result) continue;
@@ -243,6 +252,9 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     return broken && RESULTS.indexOf(result) < RESULTS.indexOf("meh") ? "meh" : result;
   };
   const release = (column: number, time: number) => {
+    const samples = [...heldInputs[column]].map((o) => ({ note: o.index, time, offset: time - o.end, outcome: undefined as Outcome | undefined }));
+    releases.push(...samples);
+    heldInputs[column].clear();
     const list = byColumn[column];
     for (let i = firstOpen[column]; i < list.length; i++) {
       const o = list[i];
@@ -258,7 +270,9 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
           const sides = [early, late].map((r) => (r ? capped(o, r) : null));
           const alternative = sides.find((r) => r !== null && r !== capped(o, result));
           if (alternative) ambiguous.push({ index: outcomes.length, alternative });
-          judge(o, o.tail, "tail", time, capped(o, result), time - o.end);
+          const outcome = judge(o, o.tail, "tail", time, capped(o, result), time - o.end);
+          const sample = samples.find((s) => s.note === o.index);
+          if (sample) sample.outcome = outcome;
         }
       }
       if (!o.body.judged) judge(o, o.body, "body", time, o.tail.hit ? "ignore_hit" : "combo_break", null);
@@ -333,5 +347,8 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     { perfect: perfectWindow, great, good, ok, meh, miss: missWindow },
     replayRate(replay),
   );
+  simulation.releases = releases.map(({ outcome, ...release }) => ({
+    ...release, hit: !!outcome && outcome.type !== "miss" && outcome.type !== "combo_break" && outcome.type !== "ignore_miss", veryLate: false,
+  }));
   return simulation;
 }

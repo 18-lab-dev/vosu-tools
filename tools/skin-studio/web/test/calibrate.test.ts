@@ -46,7 +46,9 @@ test("speed formulas: lazer's 11485 ms time range, scaled by beat length and SV"
 });
 
 const simulation = (events: { object: string; offset: number; time: number; kind?: string }[]): Simulation =>
-  ({ events: events.map((e) => ({ ...e, timed: true, result: null, x: 0, y: 0, note: 0, combo: 0, counts: {}, accuracy: 1 })) }) as unknown as Simulation;
+  ({ events: events.map((e) => ({ ...e, timed: true, result: null, x: 0, y: 0, note: 0, combo: 0, counts: {}, accuracy: 1 })),
+    releases: events.filter((e) => e.object === "tail").map((e) => ({ note: 0, time: e.time, offset: e.offset, hit: e.kind !== "miss", veryLate: false })),
+  }) as unknown as Simulation;
 
 test("early presses move the hit line up: a lower HitPosition", () => {
   const plain = map("0,500,4,2,0,60,1,0");

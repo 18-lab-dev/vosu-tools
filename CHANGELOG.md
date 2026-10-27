@@ -6,6 +6,9 @@
 - Analyse standard, taiko, catch and mania at the selected mods and rate, using the existing rosu-pp 4.0.1 engine (lazer 2025-10-13 algorithms; newer lazer can differ).
 - Add optional Server pp calculator accuracy targets and explicitly labelled, documented per-mode section metrics (ours), using the shared ruleset converter for played maps.
 - Remove the rate-curve UI, CLI option, settings and `/v1/beatmap/<md5>/rates` route. Current-rate ratings and mania timelines remain.
+- Skin studio separates hit-position (press/receptor) and LN-length (release/hold-tail) calibration into independent, visible groups. Each names the play, client and key count, shows relative and absolute local play time, flags old plays, and explains blocked proposals.
+- Replay renderer: correct mania Classic + ScoreV2 judging to use modern hit windows, matching lazer's `ManiaHitWindows`; Classic's legacy windows apply only without ScoreV2.
+- Skin studio LN-length means now use only non-miss/non-combo-break physical releases under the replay client's timing rules. Show used/total/excluded counts, block calibration when fewer than 50 remain, and explicitly report very late held releases which stable ScoreV1 still accepts.
 
 ## v0.3.0 - 2026-10-26
 

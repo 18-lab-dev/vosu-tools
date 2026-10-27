@@ -116,6 +116,8 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
   const byColumn: Note[][] = Array.from({ length: columns }, () => []);
   const perfect: Outcome[] = [];
   const outcomes: Judged[] = [];
+  const heldInputs: (Note | undefined)[] = new Array(columns);
+  const releases: { note: number; time: number; offset: number; veryLate: boolean; outcome?: Outcome }[] = [];
   const outcome = (note: Note, time: number, index: number, offset: number | null, part: "note" | "head" | "tail"): Judged => {
     const hp: HealthInfo =
       part === "note"
@@ -206,6 +208,7 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
       if (scoreV2) {
         if (time - note.end > okWindow * TAIL_LENIENCE) continue;
         note.holding = true;
+        heldInputs[column] = note;
         if (note.head === "open") judgeHead(note, time);
         else note.dropped = true;
         return;
@@ -216,11 +219,16 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
       }
       note.headError = time < note.time - mehWindow ? (note.end - 1 - note.time) / rate : error(time - note.time);
       note.holding = true;
+      heldInputs[column] = note;
       note.nextTick ??= Math.max(time, note.time) + COMBO_TICK;
       return;
     }
   };
   const release = (column: number, time: number) => {
+    const held = heldInputs[column];
+    heldInputs[column] = undefined;
+    const sample = held ? { note: held.index, time, offset: time - held.end, veryLate: !scoreV2 && time - held.end > mehWindow, outcome: undefined as Outcome | undefined } : null;
+    if (sample) releases.push(sample);
     const list = byColumn[column];
     for (let i = first[column]; i < list.length; i++) {
       const note = list[i];
@@ -237,7 +245,8 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
         }
         let index = offset > okWindow * TAIL_LENIENCE ? 5 : resultIndex(error(offset) / TAIL_LENIENCE);
         if ((note.dropped || note.head !== "hit") && index < 4) index = 4;
-        judge(note, time, index, offset, "tail");
+        const outcome = judge(note, time, index, offset, "tail");
+        if (sample && sample.note === note.index) sample.outcome = outcome;
         return;
       }
       if (offset < -mehWindow) {
@@ -250,6 +259,7 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
       const capped = (index: number) => (note.dropped && index < 2 ? 2 : index);
       const index = capped(holdIndex(head, total));
       const judged = judge(note, time, index, offset);
+      if (sample && sample.note === note.index) sample.outcome = judged;
       if (!note.dropped) {
         const q = 0.5 / rate;
         const shifts = [
@@ -326,5 +336,8 @@ export function simulateStableMania(replay: Replay, map: Beatmap, options: { con
   const simulation = judgeWithHealth(replay, { mode: 3, map, mods, classic: true }, perfect, order.map(({ o }) => o), rules, warnings);
   const [perfectWindow, great, good, ok, meh, miss] = real;
   simulation.hitWindow = realWindows({ perfect: perfectWindow, great, good, ok, meh, miss }, 1);
+  simulation.releases = releases.map(({ outcome, ...release }) => ({
+    ...release, hit: !!outcome && outcome.type !== "miss" && outcome.type !== "combo_break" && outcome.type !== "ignore_miss",
+  }));
   return simulation;
 }

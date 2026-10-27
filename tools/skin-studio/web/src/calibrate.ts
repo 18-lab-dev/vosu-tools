@@ -93,6 +93,14 @@ export interface Offsets {
   distance: number;
 }
 
+export interface CalibrationOffsets extends Offsets {
+  /** Physical releases observed, including those the client rejected. */
+  total: number;
+  excluded: number;
+  /** Accepted releases beyond stable ScoreV1's meh window, never silently dropped. */
+  veryLate: number;
+}
+
 /** At least this many hits before a calibration is offered. */
 export const MIN_HITS = 50;
 
@@ -107,7 +115,7 @@ export function offsets(
   which: "press" | "release",
   speed: Speed,
   rate: number,
-): Offsets {
+): CalibrationOffsets {
   // Which part an event judged: lazer's rules name it; for osu!stable's, a
   // hold's end is the judgement whose object time is the hold's end time.
   const part = (e: Simulation["events"][number]) => {
@@ -119,9 +127,14 @@ export function offsets(
   };
   const parts = which === "press" ? ["note", "head"] : ["tail"];
   const base = mainBeatLength(map);
-  const hits = simulation.events.filter(
-    (e) => e.timed !== false && e.kind !== "miss" && e.result !== "miss" && Number.isFinite(e.offset) && parts.includes(part(e) ?? ""),
-  );
+  // Releases come from physical key-up samples captured by the client's judge,
+  // not just tail events: an early combo drop may have no timed tail event at all.
+  const releases = simulation.releases ?? [];
+  const hits = which === "release"
+    ? releases.filter((release) => release.hit && Number.isFinite(release.offset))
+    : simulation.events.filter(
+      (e) => e.timed !== false && e.kind !== "miss" && e.result !== "miss" && Number.isFinite(e.offset) && parts.includes(part(e) ?? ""),
+    );
   const real = hits.map((e) => e.offset / rate);
   const count = real.length;
   const mean = count ? real.reduce((a, b) => a + b, 0) / count : 0;
@@ -131,7 +144,9 @@ export function offsets(
   // velocity is per real millisecond (rate mods change neither).
   const speeds = hits.map((e) => noteVelocity(map, e.time - e.offset, speed, base)).sort((a, b) => a - b);
   const velocity = count ? speeds[Math.floor(count / 2)] : noteVelocity(map, 0, speed, base);
-  return { count, mean, spread, velocity, distance: mean * velocity };
+  const total = which === "release" ? releases.length : count;
+  const veryLate = which === "release" ? releases.filter((release) => release.hit && release.veryLate).length : 0;
+  return { count, mean, spread, velocity, distance: mean * velocity, total, excluded: total - count, veryLate };
 }
 
 /**
