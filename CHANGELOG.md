@@ -8,6 +8,8 @@
 - Source `.osk` export includes unsaved selected-skin ini text without saving it. Source export and the mix draft's **Draft destination** are labelled separately.
 - skin.ini completion/validation and render-core share legacy PNG lookup policy: case/slash/HD normalisation, texture versus animation fields and font digit sets. JPEG-only files no longer masquerade as valid legacy PNG references.
 - skin.ini's permanent Corrections sidebar becomes a compact, filterable **Problems** drawer. Warning-only skins start collapsed with counts visible; new errors open it automatically.
+- skin.ini checks wait for 200 ms of typing idle, coalescing keystroke bursts and rejecting stale diagnostic results instead of blocking each character on full-file validation.
+- Grouped Explorer asset details deduplicate in-flight member-thumbnail callbacks, avoiding exponentially repeated redraws when inspecting a full font or animation.
 - Skin studio refreshes stale preview bytes and discovers replaced lazer skin IDs without reloading, showing source recovery on every tab. Explorer distinguishes Base/Group/Override provenance, counts complete assets and nested folders, and keeps Enter/double-click inspection non-destructive. Clarify Built-in versus resetting to the base, source identity and browsing identity; preview the draft by default.
 - Skin studio preserves the actual focused Keymodes number/text input across background redraws, including its native selection and unfinished text. Replacing a width such as 60 with 75 can no longer concatenate into 6075 or commit a partial value while another edit finishes.
 
