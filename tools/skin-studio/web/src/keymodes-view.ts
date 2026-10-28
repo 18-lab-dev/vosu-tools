@@ -943,6 +943,14 @@ export class KeymodesView {
         ...candidates.map((s) => h("option", { value: s.key }, `${s.name} · ${s.creator || "creator unknown"} · ${s.fileCount ?? "?"} files · checking filenames… · ${s.key}`)));
       const exact = candidates.find((s) => !!source.hash && s.contentHash === source.hash);
       if (exact) select.value = exact.key;
+      const pickerTip = "Lazer stores no skin import date, so same-name copies cannot be ranked by age. Filename overlap is only a relevance hint; only an exact full-content hash is preselected.";
+      const pickerHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: pickerTip });
+      pickerHelp.dataset.tip = pickerTip;
+      pickerHelp.dataset.tipPos = "left";
+      const keepTip = "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery is undoable per key count.";
+      const keepHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: keepTip });
+      keepHelp.dataset.tip = keepTip;
+      keepHelp.dataset.tipPos = "left";
       const recoveryError = h("p", { class: "missing-sources__error", role: "status" });
       const run = async (recovery: Recovery) => {
         try {
@@ -979,18 +987,21 @@ export class KeymodesView {
           this.#error(error instanceof Error ? error.message : String(error));
         }
       };
-      root.append(h("p", {}, `Missing source: ${display}. ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Choose how to recover; nothing is changed automatically.`),
-        select,
+      const summary = `Missing source: ${display}. ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Nothing is changed automatically.`;
+      root.append(h("div", { class: "missing-sources__row" },
+        h("p", { class: "missing-sources__summary", title: summary },
+          h("span", { class: "missing-sources__identity", ariaLabel: `Missing source: ${display}` }, `${display}.`),
+          h("span", { class: "missing-sources__details" }, ` ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Nothing is changed automatically.`)),
+        h("span", { class: "missing-sources__choice" }, select, pickerHelp),
         h("button", { class: "v-btn v-btn--sm v-btn--primary", onclick: () => {
           const replacement = candidates.find((s) => s.key === select.value);
           if (replacement) void run({ kind: "remap", key: replacement.key, name: replacement.name, hash: replacement.contentHash });
           else recoveryError.textContent = "Choose a replacement skin first.";
         } }, "Remap"),
-        h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "keep" }) }, "Keep derived images"),
-        h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "remove" }) }, "Remove slots"),
-        recoveryError,
-        h("p", {}, "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery is undoable per key count."));
-      root.append(h("p", { class: "v-muted" }, "Lazer stores no skin import date, so same-name copies cannot be ranked by age. Filename overlap is only a relevance hint; only an exact full-content hash is preselected."));
+        h("span", { class: "missing-sources__choice" },
+          h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "keep" }) }, "Keep derived images"), keepHelp),
+        h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "remove" }) }, "Remove slots")),
+        recoveryError);
       void this.#describeCandidates(select, candidates, sourceFileNames(this.#host.drafts(), source.key));
     }
   }

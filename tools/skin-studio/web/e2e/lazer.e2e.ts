@@ -264,10 +264,36 @@ try {
     check("draft load detects hidden originals and names affected slots/counts", (await banner.textContent()).includes(`${opt.skin}. 1 slot; 7K`));
     await until(async () => (await banner.locator("select option").allTextContents()).some((text) => text.includes("referenced filenames")), "candidate overlap labels");
     check("same-name candidates show creator, file counts and filename overlap", (await banner.locator("select option").allTextContents()).filter((text) => text.includes("e2e") && text.includes("files") && text.includes("referenced filenames")).length === 2);
-    for (const theme of ["dark", "light"]) {
-      await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
-      await page.screenshot({ path: join(out, `missing-source-${theme}-1920x1080.png`) });
+    const captureRecovery = async (prefix: string) => {
+      for (const theme of ["dark", "light"])
+        for (const [width, height] of [[1280, 720], [1920, 1080]]) {
+          await page.setViewportSize({ width, height });
+          await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
+          const layout = await page.evaluate(() => {
+            const notice = document.querySelector<HTMLElement>("#missing-sources")!;
+            const stage = document.querySelector<HTMLElement>("#km-stage")!;
+            const shown = stage.getBoundingClientRect().top;
+            notice.hidden = true;
+            const without = stage.getBoundingClientRect().top;
+            notice.hidden = false;
+            const row = notice.querySelector<HTMLElement>(".missing-sources__row")!;
+            return { shift: shown - without, rowHeight: row.getBoundingClientRect().height, overflow: row.scrollWidth - row.clientWidth };
+          });
+          check(`${prefix}: one-row banner at ${width}x${height} ${theme}`, layout.shift <= 48 && layout.rowHeight <= 32 && layout.overflow <= 1, JSON.stringify(layout));
+          await page.screenshot({ path: join(out, `${prefix}-${theme}-${width}x${height}.png`) });
+        }
+    };
+    check("explanatory recovery text is help-only", await banner.locator(".v-help").count() === 2 && !(await banner.textContent()).includes("Keep uses retained uploads") && !(await banner.textContent()).includes("Lazer stores no skin import date"));
+    for (let index = 0; index < 2; index++) {
+      const help = banner.locator(".v-help").nth(index);
+      await help.evaluate((el) => (el.previousElementSibling as HTMLElement).focus());
+      await page.keyboard.press("Tab");
+      await until(async () => await help.evaluate((el) => getComputedStyle(el, "::after").visibility === "visible"), "focus help", 5000);
+      check(`recovery help ${index + 1} is keyboard accessible`, true);
     }
+    await page.locator("#tab-keymodes").focus();
+    await page.mouse.move(0, 0);
+    await captureRecovery("missing-source");
     const restore = async () => {
       await page.evaluate((saved) => localStorage.setItem("skin-studio:recipe", saved), saved);
       await page.reload(); await page.click("#tab-keymodes"); await pick(7);
@@ -298,10 +324,7 @@ try {
     await until(async () => (await banner.locator("select option").allTextContents()).some((text) => text.includes("referenced filenames")), "unknown-source overlap labels");
     check("old unnamed draft says unknown and never guesses an identity from overlap", (await banner.textContent()).includes(`Unknown source skin (lazer:${ID})`) && await banner.locator("select").inputValue() === "");
     check("unknown source offers all candidates ordered by filename overlap", (await banner.locator("select option").nth(1).getAttribute("value")) === `lazer:${REPLACEMENT}`);
-    for (const theme of ["dark", "light"]) {
-      await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
-      await page.screenshot({ path: join(out, `missing-source-unknown-${theme}-1920x1080.png`) });
-    }
+    await captureRecovery("missing-source-unknown");
     await banner.locator("select").selectOption(`lazer:${REPLACEMENT}`);
     await banner.getByRole("button", { name: "Remap", exact: true }).click();
     await until(async () => !(await banner.isVisible()), "explicit unknown-source remap");
