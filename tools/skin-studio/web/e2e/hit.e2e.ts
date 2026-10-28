@@ -219,9 +219,13 @@ try {
   check("Calibration respects the receptor toggle", (await label("KeyImage0")) === fixedCalibrationKey);
   await page.click("#km-undo");
   await page.click("#km-undo");
+  check("Undo does not re-arm a calibration offer", await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 0);
+  await page.click("#km-calibrate");
+  await until(async () => await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 1, "new calibration offer", 120000);
   await page.locator("#km-hit button", { hasText: "Apply to receptors" }).click();
   await until(async () => (await hitValue()) === "460", "calibrated 460");
   check("Applied: HitPosition 460", true);
+  check("Applied calibration keeps its original baseline and removes its action", (await page.locator("#km-hit").textContent()).includes("Applied · HitPosition 455 → 460") && await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 0);
   await shot("hit-7k-after");
   await page.locator("#km-move-receptors").uncheck();
   const movedKey = await label("KeyImage0");
@@ -253,6 +257,7 @@ try {
   await shot("hit-4k-proposal");
   await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await label("NoteImage0L")) !== before4, "hold ends applied");
+  check("Hold-tail calibration records applied state and removes its action", (await page.locator("#km-ln").textContent()).includes("Applied · Hold tails") && await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).count() === 0);
   const state = (await page.locator("#km-state").textContent()) ?? "";
   check("Percy skin: late release correction moves body down 8 rows", state.includes("the body's end moves down 8 rows (late: shorter)"), state);
   await page.click("#km-undo");
@@ -430,12 +435,13 @@ try {
     if (request.url().includes("/v1/derive")) served.push(Math.round(request.timing().responseEnd));
   });
   const setWidth = async (c: number, value: number) => {
+    const start = performance.now();
     await width(c).fill(String(value));
     await width(c).press("Tab");
-    await until(async () => (await width(c).inputValue()) === String(value) && new RegExp(`^Set column ${c} width: kept proportions \\((\\d+) images in (\\d+) ms\\)`).test(await kmState()), `column ${c} width`, 60000).catch(async (error) => {
+    await until(async () => (await width(c).inputValue()) === String(value) && (await kmState()).startsWith(`Width ${value} · kept proportions`), `column ${c} width`, 60000).catch(async (error) => {
       throw new Error(`${error.message}: state "${await kmState()}", error "${await page.locator("#km-error").textContent()}", value ${await width(c).inputValue()}`);
     });
-    timings.push(Number(/in (\d+) ms/.exec(await kmState())![1]));
+    timings.push(Math.round(performance.now() - start));
   };
   const hp0 = Number(await hitValue());
   const w0 = Number(await width(1).inputValue());

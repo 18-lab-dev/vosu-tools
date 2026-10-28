@@ -407,8 +407,8 @@ export function validate(text: string, files?: string[]): Diagnostic[] {
         s.type === "prefix"
           ? "Missing digit image(s): prefix requires -0 through -9 (normal or @2x)."
           : imageLookupKind(l.section, l.key) === "animation"
-            ? "Missing image (PNG, including @2x / first animation frame)."
-            : "Missing image (PNG texture, including @2x).",
+            ? `Missing image: ${v} (PNG, including @2x / first animation frame).`
+            : `Missing image: ${v} (PNG texture, including @2x).`,
         "warning",
       );
   }

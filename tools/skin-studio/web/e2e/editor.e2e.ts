@@ -339,6 +339,22 @@ try {
     await page.evaluate((mode: string) => { document.documentElement.dataset.theme = mode; }, mode);
     await page.screenshot({ path: join(out, `editor-${mode}.png`) });
   }
+  await page.keyboard.press("Escape");
+  const beforeDiscard = await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).ini);
+  let discardQuestion = "";
+  page.once("dialog", async (dialog: { message(): string; accept(): Promise<void> }) => { discardQuestion = dialog.message(); await dialog.accept(); });
+  await page.getByRole("button", { name: "Discard hand edits", exact: true }).click();
+  await until(async () => !await page.locator("#ini-reset").isVisible(), "hand edits discarded");
+  check("Discard hand edits confirms the number of lost lines", /\d+ lines?/.test(discardQuestion));
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).ini) === beforeDiscard, "hand edits restored by Draft Undo");
+  check("Discard hand edits is one reversible draft step", true);
+  await page.click("#km-redo");
+  await until(async () => !await page.locator("#ini-reset").isVisible(), "hand edits discarded by Draft Redo");
+  await page.click("#km-undo");
+  await page.click("#ini-focus");
+  await page.getByRole("button", { name: "Edit it in the draft", exact: true }).click();
+  check("Read-only explanation switches to the editable draft", await page.locator("#ini-mix").getAttribute("aria-pressed") === "true");
   check("No page errors", errors.length === 0, errors.join(" | "));
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));

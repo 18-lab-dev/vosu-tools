@@ -98,6 +98,8 @@ interface Calibration {
   speed: Speed;
   press: Offsets;
   release: CalibrationOffsets;
+  baseline: number;
+  applied?: boolean;
 }
 
 export class HitPanel {
@@ -181,7 +183,6 @@ export class HitPanel {
         helpTip(note, "right"),
       ),
       this.#moveRow(),
-      this.#keepRow(),
       h(
         "div",
         { class: "km-hit__row" },
@@ -266,7 +267,7 @@ export class HitPanel {
   }
 
   /** "Keep proportions when changing column width", per key count (on by default). */
-  #keepRow() {
+  keepRow() {
     const keys = this.#host.keys();
     const on = this.#host.draft()?.keepProportions !== false;
     const box = h("input", { type: "checkbox", id: "km-keep", checked: on });
@@ -277,11 +278,9 @@ export class HitPanel {
       });
     return h(
       "div",
-      { class: "km-hit__row" },
-      h("label", {
-        class: "km-hit__check",
-        title: "Rescale receptors, notes and hold pieces uniformly when changing width. HitPosition follows the shared scale. With receptor movement off, skip HitPosition-driven image shifts; image rescaling still happens.",
-      }, box, " Keep proportions when changing column width"),
+      { class: "km-hit__row km-width-options" },
+      h("label", { class: "km-hit__check" }, box, " Keep proportions when changing column width"),
+      helpTip("Rescale receptors, notes and hold pieces uniformly when changing width. HitPosition follows the shared scale. With receptor movement off, skip HitPosition-driven image shifts; image rescaling still happens."),
     );
   }
 
@@ -628,6 +627,7 @@ export class HitPanel {
         const files = original.slot.files;
         slots[key] = {
           skin: UPLOADS,
+          provenance: "generated",
           name: original.slot.name.split("/").pop()!,
           files: files.map((f, i) => ({ from: derived[i].stored, suffix: f.suffix })),
         };
@@ -711,6 +711,7 @@ export class HitPanel {
 
   async #calibrate(kind: "press" | "release") {
     const speed = this.#speed();
+    const baselineText = this.#host.mixText();
     if (!speed) return;
     this.#busy = true;
     delete this.#calibrations[kind];
@@ -729,6 +730,7 @@ export class HitPanel {
         speed,
         press: offsets(simulation, map, "press", speed, rate),
         release: offsets(simulation, map, "release", speed, rate),
+        baseline: Number(maniaValue(baselineText, maniaColumns(map), "HitPosition")) || DEFAULT_HIT_POSITION,
       };
       this.#host.error("");
     } catch (error) {
@@ -789,7 +791,8 @@ export class HitPanel {
     const fmt = (o: Offsets, what: string) =>
       `mean ${o.mean >= 0 ? "+" : ""}${o.mean.toFixed(1)} ms ± ${o.spread.toFixed(1)} over ${o.count.toLocaleString("en")} ${o.count === 1 ? what.replace(/s$/, "") : what}`;
     // Receptors.
-    const current = this.#current();
+    const current = c.baseline;
+    if (c.applied) return [...out, h("p", { class: "km-hit__row" }, kind === "press" ? `Applied · HitPosition ${c.baseline} → ${calibratedHitPosition(c.baseline, c.press)}` : "Applied · Hold tails")];
     if (kind === "press" && c.press.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Receptors: ${plural(c.press.count, "press", "presses")}; at least ${MIN_HITS} are needed.`));
     else if (kind === "press") {
@@ -805,7 +808,7 @@ export class HitPanel {
             `You pressed ${Math.abs(c.press.mean).toFixed(1)} ms ${c.press.mean >= 0 ? "late" : "early"} on average (${fmt(c.press, "hits")}) → ${target === current ? "no HitPosition change needed" : `${this.#host.draft()?.moveReceptors === false ? "landing line" : "receptors"} ${px > 0 ? "up" : "down"} ${Math.abs(px)} px so you press ${c.press.mean >= 0 ? "earlier" : "later"} (HitPosition ${current} → ${target})${this.#host.draft()?.moveReceptors === false ? "; receptor images stay fixed" : ""}`}`,
           ),
           target !== current
-            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.setHitPosition(target) }, this.#host.draft()?.moveReceptors === false ? "Apply HitPosition" : "Apply to receptors")
+            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: async () => { await this.setHitPosition(target); if (this.#current() === target) c.applied = true; this.render(); } }, this.#host.draft()?.moveReceptors === false ? "Apply HitPosition" : "Apply to receptors")
             : null,
         ),
       );
@@ -848,7 +851,7 @@ export class HitPanel {
    */
   async #applyTails() {
     const c = this.#calibrations.release;
-    if (!c || c.keys !== this.#host.keys() || c.release.count < MIN_HITS) return;
+    if (!c || c.applied || c.keys !== this.#host.keys() || c.release.count < MIN_HITS) return;
     const keys = c.keys;
     const generation = this.#host.generation(keys);
     this.#busy = true;
@@ -894,6 +897,7 @@ export class HitPanel {
         // A percy body is drawn from the tail end only by repeating styles.
         if (style) draft.values.NoteBodyStyle = "1";
       }, keys);
+      c.applied = true;
       this.#host.state(`Hold ends: ${[...new Set(report)].join("; ") || "changed"}`);
     } catch (error) {
       this.#host.error(error instanceof Error ? error.message : String(error));

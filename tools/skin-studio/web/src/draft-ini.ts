@@ -2,6 +2,21 @@ import { parse, resolve, type Line } from "@vosu-tools/skin-spec";
 import { groupById, type Recipe } from "./plan";
 import { imageValue, parseAssetId } from "./assets";
 
+/** Number of hand-edited lines discarded, ignoring line-ending style and shifts. */
+export function discardedLineCount(edited: string, composed: string): number {
+  const a = edited.split(/\r\n|\r|\n/), b = composed.split(/\r\n|\r|\n/);
+  const common = new Uint32Array(b.length + 1);
+  for (const line of a) {
+    let previous = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const above = common[j];
+      common[j] = line === b[j - 1] ? previous + 1 : Math.max(above, common[j - 1]);
+      previous = above;
+    }
+  }
+  return Math.max(a.length, b.length) - common[b.length];
+}
+
 interface Field {
   section: string;
   keys?: number;
