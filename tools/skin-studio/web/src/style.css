@@ -1153,13 +1153,15 @@
   background: var(--accent);
   content: "";
 }
+/* Slot and picker thumbnails sit on a mid-grey checker in both themes, like
+   the stage's dark backdrop: white receptors and dark outlines both show. */
 .km-thumb {
   position: relative;
   height: var(--km-thumb, 2.75rem);
   overflow: hidden;
   border-radius: calc(var(--radius) - 1px);
-  background: repeating-conic-gradient(var(--bg-sunken) 0 25%, var(--bg) 0 50%)
-    0 0 / 10px 10px;
+  background: repeating-conic-gradient(#4d5157 0 25%, #5d6168 0 50%) 0 0 / 10px
+    10px;
 }
 /* The whole image, scaled down to fit (never cropped), at every size. */
 .km-thumb img {
@@ -1174,7 +1176,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--muted);
+  color: #c9ccd1;
   font: 500 var(--step--2) var(--font-mono);
 }
 .km-badge {
