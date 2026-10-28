@@ -142,6 +142,7 @@ try {
   await page.locator("#skins .skin", { hasText: opt.skin! }).click();
   await page.click("#use-base");
   const NAME = "Arturia export";
+  await page.selectOption("#export-target", "osk");
   await page.fill("#mix-name", NAME);
   await page.locator("#mix-name").press("Tab");
   await until(async () => (await page.locator("#mix-summary").textContent())?.includes("files"), "mix composed");

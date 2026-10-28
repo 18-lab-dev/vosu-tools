@@ -271,6 +271,7 @@ try {
     await until(async () => (await label("KeyImage1")).includes("mania-key1"), "redo y", 10000).catch(() => false);
     check("Ctrl+Y redoes too", (await label("KeyImage1")).includes("mania-key1"), await undoTitle());
     // In a text field: the browser's own undo, the draft stays.
+    await page.selectOption("#export-target", "osk");
     const name = page.locator("#mix-name");
     await name.click();
     await name.press("End");
