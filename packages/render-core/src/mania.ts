@@ -20,7 +20,7 @@
  * repeating NoteBodyStyles stretch the body image to 32800 units from the
  * tail instead of repeating it ("i dunno this looks about right??").
  */
-import { spec } from "@vosu-tools/skin-spec";
+import { spec, imageLookupKind, legacyImageName } from "@vosu-tools/skin-spec";
 import type { AtlasRegion, Skin } from "./skin";
 
 /** lazer's `LegacySkin.STABLE_MAGIC_SCALE_FACTOR`. */
@@ -121,13 +121,6 @@ export function maniaJudgementImages(
   return out;
 }
 
-export function normaliseManiaImage(path: string): string {
-  return path
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/\.png$/i, "")
-    .replace(/@2x/gi, "");
-}
 /** `LegacyDecoder.StripComments`. */
 const stripComment = (value: string) => {
   const index = value.indexOf("//");
@@ -242,7 +235,7 @@ export function maniaConfig(
           /^(NoteImage|KeyImage|Hit|Stage|Lighting)/.test(key) ||
           key === "WarningArrow"
         )
-          config.images.set(key, normaliseManiaImage(value));
+          config.images.set(key, legacyImageName(value) ?? "");
     }
   }
   const minimum = Math.min(...config.columnWidth);
@@ -462,17 +455,15 @@ export interface ManiaImageLookup {
  * (`Hit0` … `Hit300g`), all GetAnimation. `WarningArrow` is decoded
  * (LegacyManiaSkinDecoder) but no lazer piece looks it up.
  */
-const STAGE_IMAGES: Record<string, readonly [string, boolean]> = {
-  StageLeft: ["mania-stage-left", false],
-  StageRight: ["mania-stage-right", false],
-  StageBottom: ["mania-stage-bottom", true],
-  StageHint: ["mania-stage-hint", false],
-  StageLight: ["mania-stage-light", true],
-  LightingN: ["lightingN", true],
-  LightingL: ["lightingL", true],
-  ...Object.fromEntries(
-    Object.values(maniaJudgementKeys).map(([key, name]) => [key, [name, true]]),
-  ),
+const STAGE_IMAGES: Record<string, string> = {
+  StageLeft: "mania-stage-left",
+  StageRight: "mania-stage-right",
+  StageBottom: "mania-stage-bottom",
+  StageHint: "mania-stage-hint",
+  StageLight: "mania-stage-light",
+  LightingN: "lightingN",
+  LightingL: "lightingL",
+  ...Object.fromEntries(Object.values(maniaJudgementKeys)),
 };
 /**
  * Every image a stage of `keys` columns looks up through a `[Mania]` key, in
@@ -501,7 +492,7 @@ export function maniaImageKeys(
         key,
         column,
         fallback: `${note ? "mania-note" : "mania-key"}${F}${suffix}`,
-        animated: note,
+        animated: imageLookupKind("Mania", key) === "animation",
         instead:
           suffix === "H"
             ? [`NoteImage${column}`]
@@ -514,7 +505,7 @@ export function maniaImageKeys(
   for (const { key } of images) {
     const stage = STAGE_IMAGES[key];
     if (stage)
-      out.push({ key, fallback: stage[0], animated: stage[1], instead: [] });
+      out.push({ key, fallback: stage, animated: imageLookupKind("Mania", key) === "animation", instead: [] });
   }
   return out;
 }

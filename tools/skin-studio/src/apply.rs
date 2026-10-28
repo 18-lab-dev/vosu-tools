@@ -490,9 +490,19 @@ async fn plan(
         let old = existing.read(app, &item.to).await?;
         c.put(&item.to, old, item.text.clone().into_bytes())?;
     }
-    let old_ini = existing.read(app, "skin.ini").await?;
+    // Preserve the existing folder entry's spelling, just as Save and the
+    // snapshot reader do; never create a second lowercase skin.ini.
+    let ini_path = match existing {
+        Existing::Folder(folder) => crate::ini_path(folder)?
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| failure("skin.ini has an invalid filename"))?
+            .to_owned(),
+        Existing::Source(_) => "skin.ini".to_owned(),
+    };
+    let old_ini = existing.read(app, &ini_path).await?;
     let ini = preserve_ini(old_ini.as_deref().unwrap_or_default(), &request.plan.ini);
-    c.put("skin.ini", old_ini, ini)?;
+    c.put(&ini_path, old_ini, ini)?;
     let mut removed = HashSet::new();
     for path in &request.remove {
         relative(path)?;

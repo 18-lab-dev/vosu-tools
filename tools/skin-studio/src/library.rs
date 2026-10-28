@@ -244,7 +244,7 @@ pub fn ini_name(text: &str) -> Option<String> {
     None
 }
 fn folder_ini_name(folder: &Path) -> Option<String> {
-    let ini = folder.join("skin.ini");
+    let ini = crate::ini_path(folder).ok()?;
     let meta = fs::symlink_metadata(&ini).ok()?;
     if !meta.is_file() || meta.len() > 4 * 1024 * 1024 {
         return None;
@@ -269,7 +269,9 @@ pub fn skin_folder(path: &Path) -> Result<PathBuf, Failure> {
             .map(|meta| meta.is_file())
             .unwrap_or(false)
     };
-    if !marker("skin.ini") && !marker("skininfo.json") {
+    let ini = crate::ini_path(&folder)?;
+    let has_ini = fs::symlink_metadata(ini).is_ok_and(|meta| meta.is_file());
+    if !has_ini && !marker("skininfo.json") {
         return Err(failure("No skin.ini or skininfo.json in that folder"));
     }
     Ok(folder)
@@ -863,6 +865,17 @@ mod tests {
             skin_folder(dir.path()).unwrap(),
             dir.path().canonicalize().unwrap()
         );
+    }
+    #[test]
+    fn added_folders_read_uppercase_ini() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("SKIN.INI"),
+            "[General]\r\nName: Case Folder\r\n",
+        )
+        .unwrap();
+        assert!(skin_folder(dir.path()).is_ok());
+        assert_eq!(folder_ini_name(dir.path()).as_deref(), Some("Case Folder"));
     }
     #[cfg(unix)]
     #[test]

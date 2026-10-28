@@ -382,13 +382,21 @@
           </div>
           <div class="ini-body">
             <div id="editor" aria-label="skin.ini source"></div>
-            <section class="corrections" aria-labelledby="corrections-title">
-              <div class="v-panel__head">
-                <span id="corrections-title" class="v-label">Corrections</span>
-                <span id="issue-count" class="v-badge"></span>
+            <details id="ini-problems" class="corrections">
+              <summary class="v-panel__head">
+                <span class="v-label">Problems</span>
+                <span id="issue-count" class="v-badge" aria-live="polite"></span>
+              </summary>
+              <div class="problems-tools">
+                <select id="problem-severity" class="v-select" aria-label="Problem severity">
+                  <option value="all">All</option>
+                  <option value="error">Errors</option>
+                  <option value="warning">Warnings</option>
+                </select>
+                <input id="problem-filter" type="search" class="v-input" placeholder="Filter problems" aria-label="Filter problems">
               </div>
-              <ol id="diagnostics" class="v-scroll diagnostics"></ol>
-            </section>
+              <ol id="diagnostics" class="v-scroll diagnostics" aria-label="Problems"></ol>
+            </details>
           </div>
         </section>
 
@@ -545,7 +553,7 @@
           <p id="mix-summary" class="v-muted v-mono mix-summary"></p>
           <div class="mix-export">
             <label class="v-field">
-              <span>Export as</span>
+              <span>Draft destination</span>
               <select id="export-target" class="v-select">
                 <option value="apply">Apply to base skin</option>
                 <option value="stable">osu! stable folder</option>

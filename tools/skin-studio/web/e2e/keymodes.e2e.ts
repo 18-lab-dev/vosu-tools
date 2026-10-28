@@ -367,7 +367,16 @@ try {
     for (const type of ["dragenter", "dragover", "drop"])
       picker.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+  try {
+    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+  } catch (error) {
+    writeFileSync(join(out, "upload-count-failure.json"), JSON.stringify({
+      summary: await page.locator("#mix-uploads-summary").textContent(),
+      files: await page.locator("#mix-uploads-list li").allTextContents(),
+      recipe: await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe") ?? "{}")),
+    }, null, 2));
+    throw error;
+  }
   await page.click("#mix-uploads-summary");
   const listed = await page.locator("#mix-uploads-list li").allTextContents();
   check("Mix panel lists dropped files with their use", listed.some((t) => t.includes("drop-note.png") && t.includes("used by this draft")) && listed.some((t) => t.includes("spare.png") && t.includes("unused")), listed.join(" | "));

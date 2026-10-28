@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { parseOsu } from "@vosu-tools/osu-parse";
 import { loadScope, loadSkin, maniaImageNames, maniaKeysFor } from "../src";
+import { pathCandidates, validate } from "@vosu-tools/skin-spec";
 
 // Bun has no createImageBitmap: blobs become fake bitmaps named by their text.
 globalThis.createImageBitmap = (async (blob: Blob) => ({
@@ -91,6 +92,26 @@ test("without maniaKeys every key count is decoded, as before", async () => {
   const all = await loadSkin(resolve, "keys");
   expect(all.assets.has("four/body")).toBe(true);
   expect(all.assets.has("seven/body")).toBe(true);
+});
+
+test("renderer requests and ini diagnostics agree on case-folded PNGs and JPEG-only fields", async () => {
+  const ini = "[General]\nVersion: 2.7\n[Mania]\nKeys: 4\nNoteImage0: upper\\case\nNoteImage1: jpeg-only\n";
+  const names = ["UPPER/CASE@2x.PNG", "jpeg-only.jpg"];
+  const assets = new Map([["skin.ini", ini], [names[0].toLowerCase(), "png"], [names[1], "jpeg"]]);
+  const asked: string[] = [];
+  const skin = await loadSkin(async (path) => {
+    asked.push(path);
+    const value = assets.get(path.replace(/\\/g, "/").toLowerCase());
+    return value === undefined ? null : new Blob([value]);
+  }, "path policy", { maniaKeys: [4], rulesets: [3] });
+  expect(skin.assets.has("upper/case")).toBe(true);
+  expect(skin.assets.has("jpeg-only")).toBe(false);
+  expect(asked).toContain("upper/case@2x.png");
+  expect(asked).not.toContain("jpeg-only.jpg");
+  const missing = validate(ini, names).filter((issue) => issue.message.startsWith("Missing image"));
+  expect(missing).toHaveLength(1);
+  expect(missing[0].line).toBe(6);
+  expect(pathCandidates(names)).toEqual(["UPPER/CASE"]);
 });
 
 test("maniaKeysFor follows CS, Difficulty Adjust and the cs override", () => {

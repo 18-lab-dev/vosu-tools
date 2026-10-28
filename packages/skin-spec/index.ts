@@ -1,4 +1,6 @@
 import data from "./spec.json";
+import { hasAsset, imageLookupKind } from "./image-paths";
+export { hasAsset, pathCandidates, imageLookupKind, legacyImageName, legacyTexturePaths, type ImageLookupKind } from "./image-paths";
 export const revision = data.revision;
 export interface Spec {
   section: string;
@@ -283,46 +285,6 @@ export function imagePathValue(path: string): string | undefined {
   const value = slashed.replace(/\.(png|jpe?g)$/i, "").replace(/@2x$/i, "");
   return value || undefined;
 }
-export function pathCandidates(files: string[], prefix = false): string[] {
-  const names = files
-    .filter((f) => /\.(png|jpe?g)$/i.test(f))
-    .map((f) => f.replace(/\.(png|jpe?g)$/i, "").replace(/@2x$/i, ""));
-  return [
-    ...new Set(
-      names.flatMap((n) =>
-        prefix
-          ? /-\d+$/.test(n)
-            ? [n.replace(/-\d+$/, "")]
-            : []
-          : [n, n.replace(/-\d+$/, "")],
-      ),
-    ),
-  ].sort();
-}
-export function hasAsset(
-  value: string,
-  files: string[],
-  prefix = false,
-): boolean {
-  const base = value
-    .replace(/\\/g, "/")
-    .replace(/\.(png|jpe?g)$/i, "")
-    .replace(/@2x$/, "");
-  if (/^(\/|[A-Za-z]:)|(^|\/)\.\.(\/|$)/.test(base)) return false;
-  const names = files
-    .filter((f) => /\.(png|jpe?g)$/i.test(f))
-    .map((f) =>
-      f
-        .replace(/\\/g, "/")
-        .replace(/\.(png|jpe?g)$/i, "")
-        .replace(/@2x$/, ""),
-    );
-  return prefix
-    ? Array.from({ length: 10 }, (_, i) => `${base}-${i}`).every((n) =>
-        names.includes(n),
-      )
-    : names.some((n) => n === base || n === `${base}-0`);
-}
 export interface Diagnostic {
   line: number;
   column: number;
@@ -439,12 +401,14 @@ export function validate(text: string, files?: string[]): Diagnostic[] {
       files &&
       (s.type === "image" || s.type === "prefix") &&
       v &&
-      !hasAsset(v, files, s.type === "prefix")
+      !hasAsset(v, files, imageLookupKind(l.section, l.key))
     )
       emit(
         s.type === "prefix"
           ? "Missing digit image(s): prefix requires -0 through -9 (normal or @2x)."
-          : "Missing image (including @2x / first animation frame).",
+          : imageLookupKind(l.section, l.key) === "animation"
+            ? "Missing image (PNG, including @2x / first animation frame)."
+            : "Missing image (PNG texture, including @2x).",
         "warning",
       );
   }

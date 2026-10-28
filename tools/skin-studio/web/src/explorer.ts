@@ -79,6 +79,8 @@ export class Explorer {
   #thumbs = new Thumbnails(48);
   #frame = 0;
   #detailsFor = "";
+  /** One member callback per details selection, including across soft redraws. */
+  #detailsRequested = new Set<string>();
 
   #select = $<HTMLSelectElement>("#x-skin");
   #filter = $<HTMLInputElement>("#x-filter");
@@ -600,6 +602,7 @@ export class Explorer {
     const key = row && skin ? `${skin}\n${row.id}` : "";
     if (!row || !skin || !data) {
       this.#detailsFor = "";
+      this.#detailsRequested.clear();
       this.#details.replaceChildren(
         h(
           "p",
@@ -610,6 +613,7 @@ export class Explorer {
       return;
     }
     const keepPreview = soft && key === this.#detailsFor;
+    if (!keepPreview) this.#detailsRequested.clear();
     const oldPreview = this.#details.querySelector(".x-preview");
     this.#detailsFor = key;
     const preview =
@@ -679,10 +683,12 @@ export class Explorer {
     // Measure member images not seen yet (frames, @2x variants).
     if (row.kind === "image")
       for (const file of row.files.slice(0, 24))
-        if (!this.#dimsOf(file))
+        if (!this.#dimsOf(file) && !this.#detailsRequested.has(file)) {
+          this.#detailsRequested.add(file);
           this.#thumb(skin, file, () => {
             if (this.#detailsFor === key) this.#renderDetails(true);
           });
+        }
   }
 
   #preview(row: Row, skin: string): Element {

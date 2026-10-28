@@ -583,23 +583,45 @@
 }
 
 .ini-body {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) minmax(14rem, 18rem);
   min-height: 0;
 }
 #editor {
+  flex: 1;
   min-width: 0;
   min-height: 0;
 }
 .corrections {
+  flex: none;
+  border-top: var(--hair) solid var(--rule);
+}
+.corrections summary {
+  cursor: pointer;
+}
+.corrections summary::before {
+  content: "▸";
+}
+.corrections[open] summary::before {
+  content: "▾";
+}
+.problems-tools {
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-left: var(--hair) solid var(--rule);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+.problems-tools .v-select {
+  flex: 0 0 9rem;
+  width: 9rem;
+}
+.problems-tools input {
+  flex: 1;
+  min-width: 0;
 }
 .diagnostics {
-  flex: 1;
+  max-height: min(24vh, 16rem);
+  overflow: auto;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -804,9 +826,6 @@
   }
   .mix-picks {
     border-left: var(--hair) solid var(--rule);
-  }
-  .ini-body {
-    grid-template-columns: minmax(0, 1fr) minmax(11rem, 14rem);
   }
 }
 @media (max-width: 48rem) {

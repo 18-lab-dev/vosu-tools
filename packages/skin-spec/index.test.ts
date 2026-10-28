@@ -62,10 +62,10 @@ test("asset completion high resolution animations and font digits", () => {
     "audio.wav",
   ];
   expect(pathCandidates(files)).toContain("sub/note");
-  expect(pathCandidates(files, true)).toContain("digits");
+  expect(pathCandidates(files, "prefix")).toContain("digits");
   expect(hasAsset("sub/note", files)).toBe(true);
-  expect(hasAsset("digits", files, true)).toBe(true);
-  expect(hasAsset("digits", files.slice(0, -2), true)).toBe(false);
+  expect(hasAsset("digits", files, "prefix")).toBe(true);
+  expect(hasAsset("digits", files.slice(0, -2), "prefix")).toBe(false);
   expect(hasAsset("../note", files)).toBe(false);
   expect(
     validate("[Mania]\nKeys: 4\nNoteImage0: missing\n", files).some((d) =>
@@ -80,6 +80,20 @@ test("inline comments validate like the client without changing raw text", () =>
   const text = "\uFEFF[General]\r\nVersion: latest // skin version\r\n[Mania]\r\nKeys: 4 // columns\r\nColumnWidth: 40,40,40,40 // widths\r\nNoteImage0: sub/note // keep this comment\r\n";
   expect(validate(text, ["sub/note-0@2x.png"])).toEqual([]);
   expect(serialize(parse(text))).toBe(text);
+});
+test("legacy image fields match case, HD and first frames, but never JPEG-only files", () => {
+  const files = ["Circles\\Notes\\Baby Pink@2x.PNG", "animated-0@2x.png", "only.jpg"];
+  expect(validate("[Mania]\nKeys: 4\nNoteImage0: circles/notes/baby pink\n", files)).toEqual([]);
+  expect(validate("[Mania]\nKeys: 4\nNoteImage0: animated\n", files)).toEqual([]);
+  expect(validate("[Mania]\nKeys: 4\nKeyImage0: animated\n", files).some((d) => d.message.startsWith("Missing image"))).toBe(true);
+  expect(validate("[Mania]\nKeys: 4\nNoteImage0: only\n", files).some((d) => d.message.startsWith("Missing image"))).toBe(true);
+  expect(hasAsset("only", files)).toBe(false);
+  expect(pathCandidates(files)).not.toContain("only");
+  expect(pathCandidates(files)).toContain("Circles/Notes/Baby Pink");
+  expect(hasAsset("arrow.left", ["arrow.left.png"], "texture")).toBe(true);
+  expect(hasAsset("note@2X.PNG", ["Note@2x.png"], "texture")).toBe(true);
+  expect(pathCandidates(["a-0.png", "a-1.png"], "animation")).toEqual(["a"]);
+  expect(pathCandidates(["a-0.png"], "texture")).not.toContain("a");
 });
 
 import {

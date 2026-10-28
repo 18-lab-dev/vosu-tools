@@ -1,4 +1,5 @@
 import { readSkinIni } from "./skin-ini";
+import { legacyImageName, legacyTexturePaths } from "@vosu-tools/skin-spec";
 import {
   ATLAS_PADDING,
   planAtlas,
@@ -10,7 +11,6 @@ import {
   maniaJudgementImages,
   maniaLayout,
   maniaWrappedImages,
-  normaliseManiaImage,
 } from "./mania";
 export interface Skin {
   name: string;
@@ -423,7 +423,7 @@ export async function loadSkin(
         value &&
         !["null", "none"].includes(value.toLowerCase())
       ) {
-        const asset = normaliseManiaImage(value);
+        const asset = legacyImageName(value) ?? "";
         section[key] = asset;
         maniaNames.add(asset);
       }
@@ -544,16 +544,15 @@ async function decode(
   async function image(key: string, path = key): Promise<boolean> {
     if (skin.assets.has(key)) return true;
     if (source.missing.has(key)) return false;
-    const normalized = path.replace(/\\/g, "/").replace(/\.png$/i, "");
+    const normalized = legacyImageName(path);
+    if (!normalized) return false;
     const variants =
       normalized === "taiko-slider"
         ? ["taiko-slider", "taiko-Slider"]
         : [normalized];
     for (const candidate of variants)
-      for (const suffix of /@2x$/i.test(candidate) || (skin.version ?? 1) < 2
-        ? [".png"]
-        : ["@2x.png", ".png"]) {
-        const blob = await resolve(candidate + suffix);
+      for (const file of legacyTexturePaths(candidate, (skin.version ?? 1) >= 2)) {
+        const blob = await resolve(file);
         if (!blob) continue;
         try {
           // Decoded off the main thread, unpremultiplied: the atlas copies
@@ -570,7 +569,7 @@ async function decode(
           added.add(key);
           skin.pixelScale!.set(
             key,
-            /@2x(?:\.png)?$/i.test(candidate + suffix) ? 2 : 1,
+            /@2x\.png$/i.test(file) ? 2 : 1,
           );
           return true;
         } catch {
