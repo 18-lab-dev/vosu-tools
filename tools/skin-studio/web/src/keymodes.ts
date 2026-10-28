@@ -11,8 +11,9 @@ import {
   type ManiaImageResolution,
 } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
+import { columnKeys, maniaLists, spec } from "@vosu-tools/skin-spec";
 import { type Ini, maniaBlock, removeInSection, setInSection } from "./ini";
-import { frameNames, hasImage, imageIndex } from "./mania";
+import { hasImage, imageIndex, imageUnitFiles } from "./mania";
 import { occupied, stageFolder } from "./layout";
 import { imageExt } from "./groups";
 import { pieceOf } from "./proportions";
@@ -108,9 +109,7 @@ export function imageUnit(
   name: string,
 ): SlotImage["files"] {
   const index = imageIndex(files);
-  const lower = name.toLowerCase();
-  return [lower, ...frameNames(index, name)]
-    .flatMap((n) => index.get(n) ?? [])
+  return imageUnitFiles(index, name)
     .map((from) => ({
       from,
       suffix: from.replace(/\\/g, "/").slice(name.length),
@@ -307,9 +306,6 @@ export function remapColumns(target: number, source: number): number[] {
   });
 }
 
-/** Per-column list values copied with a stage (one entry per column). */
-export const COLUMN_LISTS = ["ColumnWidth", "LightingNWidth", "LightingLWidth"];
-
 /**
  * "Copy key count from…": the slots and column values of a `keys`-column
  * draft taken from a stage of `from` columns. `image(key)` gives the
@@ -321,7 +317,6 @@ export function copyStage(
   from: number,
   image: (key: string) => Slot,
   value: (key: string) => string | undefined,
-  originalGeometry = false,
 ): KeymodeDraft {
   const map = remapColumns(keys, from);
   const images: Record<string, Slot> = {};
@@ -333,26 +328,16 @@ export function copyStage(
     images[lookup.key] = image(key);
   }
   const values: Record<string, string | null> = {};
-  for (const list of COLUMN_LISTS) {
-    const raw = value(list);
-    values[list] =
-      raw === undefined
-        ? null
-        : map.map((i) => raw.split(",")[i]?.trim() ?? "").join(",");
+  for (const field of spec.filter((field) => field.section === "Mania" && field.key !== "Keys" && field.type !== "image" && !field.key.includes("#") && field.columns === undefined))
+    values[field.key] = value(field.key) ?? null;
+  for (const field of maniaLists(keys)) {
+    const raw = value(field.key);
+    const indices = Array.from({ length: field.length }, (_, i) => i === keys ? from : map[i]);
+    values[field.key] = raw === undefined ? null : indices.map((i) => raw.split(",")[i]?.trim() ?? "").join(",");
   }
-  // Lines: left of each column, then the stage's right edge.
-  const lines = value("ColumnLineWidth");
-  values.ColumnLineWidth =
-    lines === undefined
-      ? null
-      : [...map, from].map((i) => lines.split(",")[i]?.trim() ?? "").join(",");
-  if (originalGeometry)
-    for (const key of ["HitPosition", "WidthForNoteHeightScale", "NoteBodyStyle"]) values[key] = value(key) ?? null;
   for (let c = 0; c < keys; c++)
-    for (const name of ["Colour", "ColourLight"]) {
-      const raw = value(`${name}${map[c] + 1}`);
-      values[`${name}${c + 1}`] = raw ?? null;
-    }
+    for (const field of columnKeys(c).filter((field) => field.type !== "image"))
+      values[field.key] = value(field.pattern.replace("#", String(map[c] + (field.indexBase ?? 0)))) ?? null;
   return { images, values };
 }
 

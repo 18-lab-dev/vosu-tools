@@ -437,7 +437,8 @@ try {
   check("Keep proportions remains on after the earlier 5K width check", (await page.locator("#km-keep").isChecked()) && (await kmState()).includes("kept proportions"), await kmState());
   check("One wider column: HitPosition stays (most columns keep their scale)", Number(await hitValue()) === hp0, String(await hitValue()));
   check("…its receptor and note are rescaled, the other columns' are not", (await label("KeyImage0")) !== key0 && (await label("NoteImage0")) !== note0 && (await label("NoteImage1")) === note1);
-  await page.keyboard.press("Control+z");
+  // Tab leaves a number field focused; its Ctrl+Z is native text undo.
+  await page.click("#km-undo");
   await until(async () => (await width(1).inputValue()) === String(w0), "width undo");
   check("One undo step restores the width and the images", (await label("KeyImage0")) === key0 && (await label("NoteImage0")) === note0);
   for (let c = 1; c <= 7; c++) await setWidth(c, w0 * 1.25);
@@ -521,6 +522,110 @@ try {
   await until(async () => (await page.locator("#km-hit").textContent())?.includes("at least 50"), "few presses");
   check("Too few presses blocks only the hit-position proposal", await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 0);
   await page.unroute("**/v1/plays/last");
+
+  // Real replay calibration of distinct same-name uploads, complete SD/HD
+  // animation units and an HD-only unit. Pixels come from the copied skin.
+  const bodyFixture = readdirSync(join(SKINS, opt.skin!), { recursive: true }).find((file) => /mania\/arrows\/holdbody-50\.png$/i.test(String(file)));
+  if (!bodyFixture) throw new Error("Arturia fixture requires its 4K hold body");
+  const preparedUnits = await page.evaluate(async (bodyFile: string) => {
+    // This runs in Chromium; its session bridge URL cannot be imported by Bun.
+    const { vosu } = await import("/tools/_host/v1/bridge.js");
+    const recipe = JSON.parse(localStorage.getItem("skin-studio:recipe")!);
+    const derive = async (skin: string, name: string, op: unknown) => {
+      const response = await vosu.fetch("v1/derive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skin, files: [{ name, op }] }) });
+      if (!response.ok) throw new Error(await response.text());
+      return (await response.json())[0].stored as string;
+    };
+    const cropped = await derive(recipe.base, bodyFile, { rows: { height: 12000 } });
+    const dimResponse = await vosu.fetch(`v1/rows?skin=uploads%3A&name=${encodeURIComponent(cropped)}`);
+    const dim = await dimResponse.json();
+    const units = [];
+    for (const offset of [0, 4]) {
+      const files = [];
+      for (let frame = 0; frame < 2; frame++) {
+        const from = await derive("uploads:", cropped, { shift: { up: offset + frame } });
+        files.push({ from, suffix: `-${frame}.png` });
+      }
+      for (let frame = 0; frame < 2; frame++) {
+        const from = await derive("uploads:", files[frame].from, { resize: { width: dim.width * 2, height: 24000, scale_y: 2, up: 0 } });
+        files.push({ from, suffix: `-${frame}@2x.png` });
+      }
+      files.unshift({ from: files[0].from, suffix: ".png" }, { from: files[2].from, suffix: "@2x.png" });
+      units.push({ skin: "uploads:", name: "holdbody-50", files });
+    }
+    units.push({ ...units[0], files: units[0].files.filter((file) => file.suffix.includes("@2x")) });
+    recipe.keymodes ??= {};
+    recipe.keymodes["4"] = { images: Object.fromEntries(units.map((unit, i) => [`NoteImage${i}L`, unit])), values: { NoteBodyStyle: "1" } };
+    delete recipe.ini;
+    return { units, recipe: JSON.stringify(recipe) };
+  }, String(bodyFixture));
+  const seededUnits = preparedUnits.units;
+  // Seed before the new document's app starts: an old page's pending persist
+  // must not overwrite a fixture between localStorage.setItem and navigation.
+  await page.addInitScript((recipe: string) => localStorage.setItem("skin-studio:recipe", recipe), preparedUnits.recipe);
+  await page.goto(await launch("dark"));
+  await page.reload();
+  await page.click("#tab-keymodes"); await pick(4);
+  await page.evaluate(() => { for (const group of document.querySelectorAll("#keymodes-view details.km-hit")) group.setAttribute("open", ""); });
+  await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').fill("24");
+  await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').blur();
+  check("Full image-unit fixture is active before calibration", await page.evaluate((expected: string) => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from === expected, seededUnits[0].files[0].from));
+  await page.click("#km-calibrate-ln");
+  await until(() => page.locator("#km-ln .km-hit__play").filter({ hasText: "Sheriruth" }).count(), "real replay for full image units", 120000);
+  const beforeUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+  await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
+  await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from)) !== seededUnits[0].files[0].from, "complete units calibrated");
+  const afterUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+  const unitImages = JSON.parse(afterUnits).keymodes["4"].images;
+  check("Real last-play LN calibration keeps distinct same-name column images independent", unitImages.NoteImage0L.files[0].from !== unitImages.NoteImage1L.files[0].from);
+  for (let c = 0; c < 3; c++)
+    check(`Real LN calibration preserves every frame and density of column ${c + 1}`, JSON.stringify(unitImages[`NoteImage${c}L`].files.map((file: { suffix: string }) => file.suffix).sort()) === JSON.stringify(seededUnits[c].files.map((file: { suffix: string }) => file.suffix).sort()));
+  writeFileSync(join(out, "calibrated-image-units.json"), JSON.stringify({ seededUnits, before: JSON.parse(beforeUnits), after: unitImages }, null, 2));
+  await shot("calibrated-image-units");
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === beforeUnits, "full unit calibration undo");
+  await page.click("#km-redo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === afterUnits, "full unit calibration redo");
+  const normalFixture = await page.evaluate(async () => {
+    const { vosu } = await import("/tools/_host/v1/bridge.js");
+    const recipe = JSON.parse(localStorage.getItem("skin-studio:recipe")!);
+    const derive = async (skin: string, name: string, width: number, height: number, scale: number) => {
+      const response = await vosu.fetch("v1/derive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skin, files: [{ name, op: { resize: { width, height, scale_y: scale, up: 0 } } }] }) });
+      if (!response.ok) throw new Error(await response.text());
+      return (await response.json())[0].stored as string;
+    };
+    const sd = await derive(recipe.base, "Circles/Notes/pl0x/Baby Pink.png", 64, 32, 1);
+    const hd = await derive("uploads:", sd, 128, 64, 2);
+    const tail = { skin: "uploads:", name: "audit-normal-tail", files: [{ from: sd, suffix: ".png" }, { from: hd, suffix: "@2x.png" }] };
+    for (let column = 0; column < 4; column++) recipe.keymodes["4"].images[`NoteImage${column}T`] = tail;
+    recipe.keymodes["4"].images.NoteImage3L = structuredClone(recipe.keymodes["4"].images.NoteImage0L);
+    recipe.keymodes["4"].values = { NoteBodyStyle: "0", WidthForNoteHeightScale: "40" };
+    delete recipe.ini;
+    return JSON.stringify(recipe);
+  });
+  const normalPage = await context.newPage();
+  normalPage.on("pageerror", (error: Error) => pageErrors.push(error.message));
+  await normalPage.addInitScript((recipe: string) => localStorage.setItem("skin-studio:recipe", recipe), normalFixture);
+  await normalPage.goto(await launch("dark"));
+  await normalPage.click("#tab-keymodes");
+  await normalPage.locator("#km-counts .km-count", { hasText: /^4K/ }).click();
+  await normalPage.evaluate(() => { for (const group of document.querySelectorAll("#keymodes-view details.km-hit")) group.setAttribute("open", ""); });
+  await normalPage.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').fill("24");
+  await normalPage.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').blur();
+  await normalPage.click("#km-calibrate-ln");
+  await until(async () => (await normalPage.locator("#km-ln").textContent()).includes("HD would be 65,600 px tall, using SD"), "explicit HD-to-SD proposal");
+  check("Oversized native-HD conversion is disclosed before applying", true);
+  await normalPage.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
+  await until(async () => JSON.parse(await normalPage.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["4"].values.NoteBodyStyle === "1" || await normalPage.locator("#km-error").isVisible(), "normal holds converted at SD");
+  if (await normalPage.locator("#km-error").isVisible()) throw new Error(`Normal hold conversion: ${await normalPage.locator("#km-error").textContent()}`);
+  const normalAfter = JSON.parse(await normalPage.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["4"];
+  check("Explicit SD conversion preserves animation but emits no HD files", [0, 1, 2].every((column) => {
+    const files = normalAfter.images[`NoteImage${column}L`].files;
+    return files.some((file: { suffix: string }) => file.suffix === "-0.png") && files.some((file: { suffix: string }) => file.suffix === "-1.png") && files.every((file: { suffix: string }) => !file.suffix.includes("@2x"));
+  }));
+  writeFileSync(join(out, "normal-hold-sd-fallback.json"), JSON.stringify({ before: JSON.parse(normalFixture), after: normalAfter, proposal: await normalPage.locator("#km-ln").textContent() }, null, 2));
+  await normalPage.screenshot({ path: join(out, "normal-hold-sd-fallback.png") });
+  await normalPage.close();
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));
