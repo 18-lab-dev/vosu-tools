@@ -1941,7 +1941,7 @@ export class KeymodesView {
       seen.add(base);
       const sample = (index.get(base) ?? index.get(`${base}-0`) ?? files)[0];
       const name = sample.replace(/\\/g, "/").slice(0, base.length);
-      const unit = imageUnit(names, name);
+      const unit = imageUnit(names, name, index);
       const thumbFile =
         unit.find((f) => !/@2x/i.test(f.suffix))?.from ?? unit[0].from;
       units.push({

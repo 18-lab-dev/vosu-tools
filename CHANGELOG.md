@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Skin studio's Keymodes picker reuses one image inventory index across its units, keeping large-skin geometry refreshes linear instead of rebuilding the complete index once per image.
 - Skin studio captures one draft recipe/text generation across composition, plan and Apply. Stale loading work is rejected; Apply completion retains newer edits and their undo/redo history. Save and focus responses cannot cross source/request identities, including A → B → A.
 - Group and single-asset picks now update their owned ini keys even after hand editing the draft, preserving unrelated values/comments. Tab-aligned Alt-box selection uses visual columns rather than model character offsets.
 - Folder discovery, snapshot reads, Save and Apply share case-insensitive `skin.ini` resolution and retain its existing spelling; ambiguous variants and symlinks are refused.

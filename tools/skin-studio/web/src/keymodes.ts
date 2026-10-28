@@ -103,12 +103,13 @@ export const patternOf = (key: string) => key.replace(/\d+/, "#");
  * The files of image `name` in a skin's `files`: the plain image and its
  * frames `name-0`, `name-1`, … (consecutive), each with its `@2x`; with the
  * part each adds to the name. Empty when the skin has no such image.
+ * Callers expanding an inventory can share its already-built index.
  */
 export function imageUnit(
   files: readonly string[],
   name: string,
+  index: ReadonlyMap<string, string[]> = imageIndex(files),
 ): SlotImage["files"] {
-  const index = imageIndex(files);
   return imageUnitFiles(index, name)
     .map((from) => ({
       from,
