@@ -360,6 +360,46 @@ try {
   await until(async () => (await page.locator("#mix-uploads-list li").count()) === 1, "unused upload removed");
   const left = await page.locator("#mix-uploads-list li").allTextContents();
   check("Remove unused deletes only the unused file; the draft's stays", left.length === 1 && left[0].includes("drop-note.png") && (await page.locator("#mix-uploads-remove").isDisabled()), left.join(" | "));
+
+  // A real uploaded receptor must survive both hidden captures and history.
+  const receptorBytes = readFileSync(join(SKINS, opt.keys!, "mania-key1.png")).toString("base64");
+  const dropReceptor = async (name: string, target: string) => page.evaluate(({ bytes, name, target }: { bytes: string; name: string; target: string }) => {
+    const data = new DataTransfer();
+    data.items.add(new File([Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0))], name, { type: "image/png" }));
+    const element = document.querySelector(target)!;
+    for (const type of ["dragenter", "dragover", "drop"])
+      element.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+  }, { bytes: receptorBytes, name, target });
+  await dropReceptor("captured-key.png", '#km-grid [data-key="KeyImage0"]');
+  await until(async () => (await draft())["7"]?.images.KeyImage0?.name === "captured-key", "real receptor upload assigned");
+  const capturedSource = (await draft())["7"].images.KeyImage0.files[0].from;
+  const widthBeforeCapture = await page.locator("#km-grid .km-num").first().inputValue();
+  await page.locator("#km-grid .km-num").first().fill(String(Number(widthBeforeCapture) + 3));
+  await page.locator("#km-grid .km-num").first().press("Tab");
+  await until(async () => {
+    const state = (await draft())["7"];
+    return state?.hit?.originals.KeyImage0 && state.images.KeyImage0?.files[0].from !== capturedSource;
+  }, "uploaded receptor becomes a hidden geometry dependency");
+  await until(async () => (await page.locator("#mix-uploads-list li").allTextContents()).some((line: string) => line.includes("captured-key.png") && line.includes("used by this draft")), "capture-only upload remains used");
+  check("Resizing an upload keeps its hidden original out of Remove unused", true);
+  await slot("KeyImage0").locator(".km-clear").click();
+  await until(async () => (await page.locator("#mix-uploads-list li").allTextContents()).some((line: string) => line.includes("captured-key.png") && line.includes("kept for undo")), "cleared source remains protected by history");
+  await dropReceptor("retention-spare.png", ".km-picker");
+  await until(async () => (await page.locator("#mix-uploads-list li").allTextContents()).some((line: string) => line.includes("retention-spare.png") && line.includes("unused")), "unreachable upload is offered");
+  answer = false;
+  await page.click("#mix-uploads-remove");
+  check("Remove unused explains files retained only by undo", lastDialog.includes("kept for undo") && lastDialog.includes("1 unused"), lastDialog.replace(/\n/g, " "));
+  answer = true;
+  const removalRequest = page.waitForRequest((request: { url(): string }) => request.url().includes("/v1/uploads/remove"));
+  await page.click("#mix-uploads-remove");
+  const removalNames = (await removalRequest).postDataJSON().names as string[];
+  check("Removal sends only unreachable names, never capture/history dependencies", removalNames.length === 1 && removalNames[0].endsWith("/retention-spare.png"), removalNames.join(", "));
+  await until(async () => !(await page.locator("#mix-uploads-list li").allTextContents()).some((line: string) => line.includes("retention-spare.png")), "unreachable file removed");
+  await page.click("#km-undo"); // clear
+  await page.click("#km-undo"); // width
+  await page.click("#km-undo"); // uploaded selection
+  check("Undo after cleanup restores the source selection and width", (await page.locator("#km-grid .km-num").first().inputValue()) === widthBeforeCapture);
+
   // ── Colour swatches show the colour, the value on focus ─────────────────
   await page.locator("#km-grid .km-swatch input").first().fill("#ff0000");
   await until(() => page.locator("#km-grid .km-swatch").first().evaluate((s) => (s as HTMLElement).style.getPropertyValue("--c").startsWith("rgb(255 0 0")), "Colour1 swatch red");

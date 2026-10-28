@@ -2,7 +2,9 @@
 // service (which checks them again) and grouped into images the way skins
 // name them: `name@2x` is the same image, `name-0`, `name-1`, … its frames.
 
-import type { Keymodes } from "./keymodes";
+import type { KeymodeDraft, Keymodes } from "./keymodes";
+import { sourceSlots } from "./missing-sources";
+import { compose, type Recipe, type SkinData } from "./plan";
 
 /**
  * The largest file accepted: vosu forwards at most 1 MiB of request body to
@@ -122,24 +124,60 @@ export interface UploadFile {
   name: string;
   size: number;
 }
-/**
- * Dropped files split by whether the draft uses them: a Keymodes slot
- * copies the file (frames and `@2x` included). Only images are listed.
+/** Uploads copied by groups, stage picks, assets and the base of a recipe.
+ * `null` means its upload source has not loaded: callers must retain the
+ * catalog until those dependencies can be resolved.
+ */
+export function recipeUploadFiles(recipe: Recipe, skins: Map<string, SkinData>): string[] | null {
+  const uploadRecipe: Recipe = {
+    name: recipe.name,
+    base: recipe.base === UPLOADS ? UPLOADS : null,
+    picks: Object.fromEntries(Object.entries(recipe.picks).filter(([, pick]) => pick.kind === "skin" && pick.key === UPLOADS)),
+    overrides: Object.fromEntries(Object.entries(recipe.overrides ?? {}).filter(([, override]) => override.skin === UPLOADS)),
+  };
+  if (!uploadRecipe.base && !Object.keys(uploadRecipe.picks).length && !Object.keys(uploadRecipe.overrides!).length) return [];
+  if (!skins.has(UPLOADS)) return null;
+  // Resolve only upload-backed dependencies, not every skin and image in
+  // every retained recipe snapshot whenever the list redraws.
+  return compose(uploadRecipe, skins).plan.sources
+    .filter((source) => source.skin === UPLOADS)
+    .flatMap((source) => source.files.map((file) => typeof file === "string" ? file : file[0]));
+}
+
+function draftUploads(drafts: Iterable<KeymodeDraft | undefined>): Set<string> {
+  const names = new Set<string>();
+  for (const draft of drafts) {
+    if (!draft) continue;
+    for (const refs of sourceSlots(draft).values())
+      for (const slot of refs)
+        if (slot.skin === UPLOADS)
+          for (const file of slot.files) names.add(file.from.replace(/\\/g, "/").toLowerCase());
+  }
+  return names;
+}
+
+/** Current dependencies and undo/redo-only dependencies are both protected.
+ * Recipe references include groups, stage picks, assets and saved drafts.
  */
 export function uploadUsage(
   files: readonly UploadFile[],
   keymodes: Keymodes,
-): { used: UploadFile[]; unused: UploadFile[] } {
-  const referenced = new Set<string>();
-  for (const draft of Object.values(keymodes))
-    for (const slot of Object.values(draft.images))
-      if (slot && "files" in slot && slot.skin === UPLOADS)
-        for (const file of slot.files) referenced.add(file.from.toLowerCase());
-  const images = files.filter((f) => /\.(png|jpe?g)$/i.test(f.name));
-  return {
-    used: images.filter((f) => referenced.has(f.name.toLowerCase())),
-    unused: images.filter((f) => !referenced.has(f.name.toLowerCase())),
-  };
+  historyDrafts: Iterable<KeymodeDraft | undefined> = [],
+  references: { current?: Iterable<string>; history?: Iterable<string> } = {},
+): { used: UploadFile[]; history: UploadFile[]; unused: UploadFile[] } {
+  const current = draftUploads(Object.values(keymodes));
+  const history = draftUploads(historyDrafts);
+  for (const name of references.current ?? []) current.add(name.replace(/\\/g, "/").toLowerCase());
+  for (const name of references.history ?? []) history.add(name.replace(/\\/g, "/").toLowerCase());
+  const usage: { used: UploadFile[]; history: UploadFile[]; unused: UploadFile[] } = { used: [], history: [], unused: [] };
+  for (const file of files) {
+    if (!/\.(png|jpe?g)$/i.test(file.name)) continue;
+    const name = file.name.replace(/\\/g, "/").toLowerCase();
+    if (current.has(name)) usage.used.push(file);
+    else if (history.has(name)) usage.history.push(file);
+    else usage.unused.push(file);
+  }
+  return usage;
 }
 
 /** `1.2 MB`, `34 KB`, `512 B`. */
@@ -151,7 +189,7 @@ export const formatBytes = (bytes: number) =>
       : `${bytes} B`;
 
 /** The question asked before unused dropped files are deleted. */
-export function removeQuestion(unused: readonly UploadFile[]): string {
+export function removeQuestion(unused: readonly UploadFile[], keptForUndo: number = 0): string {
   const size = formatBytes(unused.reduce((sum, f) => sum + f.size, 0));
-  return `Delete ${unused.length} dropped ${unused.length === 1 ? "file" : "files"} (${size}) that this draft does not use?\n\nOther open Skin studio tabs or saved drafts in other browsers may still use these. Deleted files cannot be restored.`;
+  return `Delete ${unused.length} dropped ${unused.length === 1 ? "file" : "files"} (${size}) that this draft does not use?\n\n${unused.length} unused · ${keptForUndo} kept for undo\n\nOther open Skin studio tabs or saved drafts in other browsers may still use these. Deleted files cannot be restored.`;
 }
