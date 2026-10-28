@@ -36,6 +36,7 @@ import {
 } from "./proportions";
 import { UPLOADS } from "./uploads";
 import { playDate } from "./play-date";
+import { plural } from "./plural";
 import { calibrateHoldImages, holdPairKey, holdResolution } from "./hold-images";
 
 /** One image operation of the service's `/v1/derive`. */
@@ -744,12 +745,13 @@ export class HitPanel {
     const out: Node[] = [head, h("p", { class: date.stale ? "km-hit__warn" : "v-muted" }, date.text)];
     if (c.keys !== keys)
       return [...out, h("p", { class: "km-hit__warn" }, `It was played on ${c.keys}K: calibrations apply only to that key count. Select ${c.keys}K.`)];
+    // `what` is the plural noun (`hits`); one of them reads `1 hit`.
     const fmt = (o: Offsets, what: string) =>
-      `mean ${o.mean >= 0 ? "+" : ""}${o.mean.toFixed(1)} ms ± ${o.spread.toFixed(1)} over ${o.count.toLocaleString("en")} ${what}`;
+      `mean ${o.mean >= 0 ? "+" : ""}${o.mean.toFixed(1)} ms ± ${o.spread.toFixed(1)} over ${o.count.toLocaleString("en")} ${o.count === 1 ? what.replace(/s$/, "") : what}`;
     // Receptors.
     const current = this.#current();
     if (kind === "press" && c.press.count < MIN_HITS)
-      out.push(h("p", { class: "km-hit__warn" }, `Receptors: ${c.press.count} presses; at least ${MIN_HITS} are needed.`));
+      out.push(h("p", { class: "km-hit__warn" }, `Receptors: ${plural(c.press.count, "press", "presses")}; at least ${MIN_HITS} are needed.`));
     else if (kind === "press") {
       const target = calibratedHitPosition(current, c.press);
       const px = receptorShift(current, target, false).rows;
@@ -770,12 +772,12 @@ export class HitPanel {
     }
     if (kind === "press") return out;
     // Hold tails.
-    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} hold releases used; ${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`));
+    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${plural(c.release.total, "hold release")} used; ${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`));
     if (c.release.veryLate)
-      out.push(h("p", { class: "km-hit__warn" }, `${c.release.veryLate} very late releases included, as stable judges them.`));
+      out.push(h("p", { class: "km-hit__warn" }, `${plural(c.release.veryLate, "very late release")} included, as stable judges them.`));
     if (!c.release.total) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
     else if (c.release.count < MIN_HITS)
-      out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${c.release.count} releases; at least ${MIN_HITS} are needed.`));
+      out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${plural(c.release.count, "release")}; at least ${MIN_HITS} are needed.`));
     else {
       const resolution = this.#reviewHoldResolution(c);
       if (resolution.pending) out.push(h("p", { class: "v-muted" }, "Checking hold image sizes…"));
