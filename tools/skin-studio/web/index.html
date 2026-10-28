@@ -611,13 +611,18 @@
             >
               Review skin.ini
             </button>
-            <button
-              id="mix-plan"
-              type="button"
-              class="v-btn v-btn--sm v-btn--ghost"
-            >
-              Download plan
-            </button>
+            <details id="mix-more" class="mix-more">
+              <summary class="v-btn v-btn--sm v-btn--ghost">More</summary>
+              <div class="mix-more__menu">
+                <button
+                  id="mix-plan"
+                  type="button"
+                  class="v-btn v-btn--sm v-btn--ghost"
+                >
+                  Download plan
+                </button>
+              </div>
+            </details>
           </div>
           <div id="mix-result" class="mix-result" aria-live="polite"></div>
         </div>

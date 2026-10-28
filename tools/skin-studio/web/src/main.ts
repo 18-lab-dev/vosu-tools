@@ -2414,7 +2414,19 @@ $("#mix-ini").onclick = () => {
   iniMode = "mix";
   showView("ini");
 };
+// More (the Draft's rarely used actions) closes when the user acts anywhere else.
+const more = $<HTMLDetailsElement>("#mix-more");
+document.addEventListener("click", (event) => {
+  if (more.open && !more.contains(event.target as Node)) more.open = false;
+});
+more.onkeydown = (event) => {
+  if (event.key !== "Escape" || !more.open) return;
+  event.stopPropagation();
+  more.open = false;
+  more.querySelector("summary")!.focus();
+};
 $("#mix-plan").onclick = async () => {
+  more.open = false;
   try {
     const plan = await planNow();
     const link = h("a", {

@@ -899,19 +899,34 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.km-copy-menu {
+.km-copy-menu,
+.mix-more {
   position: relative;
 }
-.km-copy-menu > summary {
+:is(.km-copy-menu, .mix-more) > summary {
   list-style: none;
 }
-.km-copy-menu > summary::-webkit-details-marker {
+:is(.km-copy-menu, .mix-more) > summary::-webkit-details-marker {
   display: none;
 }
-.km-copy-menu > summary::after {
+:is(.km-copy-menu, .mix-more) > summary::after {
   content: "▾";
   margin-left: var(--space-1);
   color: var(--muted);
+}
+/* The Draft's rarely used actions (Download plan), above its More button. */
+.mix-more__menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 5;
+  display: grid;
+  width: max-content;
+  padding: var(--space-1);
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
 }
 /* Column tools: Mirror, the 1/2/S pattern and Copy from, under one button,
    as wide as its rows (a focused button is never clipped). */

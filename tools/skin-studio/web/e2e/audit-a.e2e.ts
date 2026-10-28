@@ -179,7 +179,7 @@ try {
   };
   const plan = async (name: string) => {
     const pending = page.waitForEvent("download", { timeout: 30000 });
-    await page.click("#mix-plan");
+    await page.click("#mix-more > summary"); await page.click("#mix-plan");
     const item = await pending;
     const file = join(out, `${name}.json`);
     await item.saveAs(file);
@@ -416,7 +416,7 @@ try {
     const downloads: any[] = [];
     const receive = (item: any) => downloads.push(item);
     page.on("download", receive);
-    await page.click("#mix-plan"); await page.waitForTimeout(150);
+    await page.click("#mix-more > summary"); await page.click("#mix-plan"); await page.waitForTimeout(150);
     await pick(opt.other!); await page.click("#use-base"); await page.waitForTimeout(350);
     const newer = await editorText();
     await barrier.release();
