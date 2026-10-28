@@ -24,6 +24,8 @@ import {
   sections,
   documentation,
   pathCandidates,
+  imageLookupKind,
+  legacyImageName,
   type Diagnostic,
 } from "@vosu-tools/skin-spec";
 import { type TextDoc, rgb } from "./text-doc";
@@ -99,29 +101,24 @@ monaco.languages.registerCompletionItemProvider("skin-ini", {
         const files = stateOf(model).files ?? [];
         const variantsOf = new Map<string, string[]>();
         for (const file of files) {
-          if (!/\.(png|jpe?g)$/i.test(file)) continue;
-          const name = file.replace(/\.(png|jpe?g)$/i, "").replace(/@2x$/i, "");
+          if (!/\.png$/i.test(file)) continue;
+          const name = legacyImageName(file)?.toLowerCase();
+          if (!name) continue;
           const variants = variantsOf.get(name) ?? [];
           variants.push(file);
           variantsOf.set(name, variants);
         }
-        const candidates = pathCandidates(files, spec.type === "prefix").filter((name) =>
-          spec.type === "prefix"
-            ? Array.from({ length: 10 }, (_, i) => variantsOf.has(`${name}-${i}`)).every(Boolean)
-            : variantsOf.has(name) || variantsOf.has(`${name}-0`),
-        );
-        const candidateSet = new Set(candidates);
+        const candidates = pathCandidates(files, imageLookupKind(section, current!.key!));
         for (const name of candidates) {
-          // Frames and SD/HD variants are one logical completion.
-          if (/-\d+$/.test(name) && candidateSet.has(`${name.replace(/-\d+$/, "")}-0`)) continue;
-          if (!name.startsWith(folder)) continue;
+          if (!name.toLowerCase().startsWith(folder.toLowerCase())) continue;
           const slash = name.indexOf("/", folder.length);
           const value = slash < 0 ? name : name.slice(0, slash + 1);
           entries.set(value, slash >= 0);
         }
         return {
           suggestions: [...entries].map(([value, directory]) => {
-            const variants = [...(variantsOf.get(value) ?? []), ...(variantsOf.get(`${value}-0`) ?? [])];
+            const lower = value.toLowerCase();
+            const variants = [...(variantsOf.get(lower) ?? []), ...(variantsOf.get(`${lower}-0`) ?? [])];
             const thumbnail = variants.map((file) => docs.get(model)?.assetUrls.get(file)).find(Boolean);
             return {
               label: value.slice(folder.length),
