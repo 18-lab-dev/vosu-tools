@@ -115,7 +115,7 @@ export interface KeymodesHost {
   originalStage(keys: number): string | null;
   assetUrl(skin: string, file: string): string;
   /** Fresh source bytes invalidate reused thumbnails even when filenames stay the same. */
-  assetEpoch(): number;
+  assetEpoch(skin: string): number;
   skinName(key: string): string;
   /** Stores a dropped file; resolves with its name under {@link UPLOADS}. */
   upload(group: string, name: string, file: Blob): Promise<string>;
@@ -2149,7 +2149,7 @@ export class KeymodesView {
   }
 
   #tile(unit: Unit, index: number, previous: ReadonlyMap<string, HTMLElement>) {
-    const identity = JSON.stringify([this.#source, this.#host.assetEpoch(), unit]);
+    const identity = JSON.stringify([this.#source, this.#host.assetEpoch(unit.thumb.skin), unit]);
     const reused = previous.get(identity);
     if (reused) {
       reused.tabIndex = index === 0 ? 0 : -1;

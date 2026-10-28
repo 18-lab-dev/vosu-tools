@@ -216,11 +216,16 @@ try {
   for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
   await pick(4);
   const recipeBeforeWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  await page.evaluate(() => Reflect.set(window, "unchangedCursorTile", [...document.querySelectorAll("#km-images .km-tile")].find((tile) => /cursor/i.test(tile.querySelector(".km-tile__name")?.textContent ?? ""))));
   const untouchedWidth = await page.locator("#km-grid .km-num").first().inputValue();
   await page.locator("#km-grid .km-num").first().fill(String(Number(untouchedWidth) + 1));
   await page.locator("#km-grid .km-num").first().press("Tab");
   await until(async () => !!(await draft())["4"]?.values.ColumnWidth, "first width committed");
   const recipeAfterWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  check("Width-derived uploads preserve unrelated ordinary-source thumbnail nodes", await page.evaluate(() => {
+    const tile = Reflect.get(window, "unchangedCursorTile") as HTMLElement | undefined;
+    return !!tile?.isConnected && !!document.querySelector("#km-images")?.contains(tile);
+  }));
   await page.click("#km-undo");
   await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === recipeBeforeWidth, "undo restores exact original recipe");
   check("Undo of the first width edit removes the key count override and restores exact recipe bytes", !(await draft())["4"]);
