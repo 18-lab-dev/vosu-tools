@@ -35,7 +35,6 @@ import {
   resetStageGeometry,
   stageImages,
   stageStatus,
-  type DraftStep,
   type KeymodeDraft,
   type Keymodes,
   type Slot,
@@ -97,8 +96,6 @@ export interface KeymodesHost {
   /** The recipe's drafts (live object). */
   drafts(): Keymodes;
   generation(keys: number): number;
-  /** Stores one key count's draft (undefined drops it) and recomposes. */
-  apply(keys: number, draft: KeymodeDraft | undefined): void;
   /** The mix draft's skin.ini as the editor holds it. */
   mixText(): string;
   /** The mix's files: lower-cased output path → where it is copied from. */
@@ -124,8 +121,8 @@ export interface KeymodesHost {
   lastPlay: HitHost["lastPlay"];
   speed: HitHost["speed"];
   setSpeed: HitHost["setSpeed"];
-  /** Records one undoable change in the studio's draft history. */
-  record(step: DraftStep): void;
+  /** Commits these key counts as one whole-recipe undo step. */
+  edit(label: string, changes: Record<string, KeymodeDraft | undefined>): void;
 }
 
 /** An image the picker offers. */
@@ -339,7 +336,7 @@ export class KeymodesView {
   #change(label: string, mutate: (draft: KeymodeDraft) => void, keys = this.#keys) {
     if (!keys) return;
     this.#renderMissing();
-    let before = clone(this.#host.drafts()[String(keys)]);
+    const before = clone(this.#host.drafts()[String(keys)]);
     const remember = (draft: KeymodeDraft) => {
       for (const refs of sourceSlots(draft).values())
         for (const slot of refs) {
@@ -347,35 +344,13 @@ export class KeymodesView {
           slot.sourceHash ??= this.#host.sources().find((s) => s.key === slot.skin)?.contentHash;
         }
     };
-    let after = clone(before) ?? emptyDraft();
+    const after = clone(before) ?? emptyDraft();
     mutate(after);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
-    // Values the draft did not hold yet come from skin.ini (perhaps edited by
-    // hand): the step before keeps them, so undo returns exactly to that text.
-    const text = this.#host.mixText();
-    const seeds = Object.keys(after.values).filter((k) => !(before && k in before.values) && maniaValue(text, keys, k) !== undefined);
-    if (seeds.length) {
-      before ??= emptyDraft();
-      for (const k of seeds) before.values[k] = maniaValue(text, keys, k)!;
-      after = clone(before)!;
-      mutate(after);
-    }
     remember(after);
-    this.#host.record({
-      label,
-      drafts: [before, after],
-      undo: () => this.#restore(keys, before, `Undid ${label}`),
-      redo: () => this.#restore(keys, after, `Redid ${label}`),
-    });
-    this.#host.apply(keys, after);
+    this.#host.edit(label, { [String(keys)]: after });
     this.#error("");
     this.#state(label);
-  }
-  /** Puts a key count's draft back as an undo or redo step left it, and shows it. */
-  #restore(keys: number, draft: KeymodeDraft | undefined, text: string) {
-    this.#keys = keys;
-    this.#host.apply(keys, clone(draft));
-    this.#state(text);
   }
   #state(text: string) {
     $("#km-state").textContent = text;

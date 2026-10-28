@@ -172,6 +172,19 @@ try {
   await page.waitForTimeout(2500);
   await shot("4k-before");
   check("4K rows from the base's block", (await page.locator("#km-grid .km-slot").count()) === 4 * 6);
+  const recipeBeforeWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  const untouchedWidth = await page.locator("#km-grid .km-num").first().inputValue();
+  await page.locator("#km-grid .km-num").first().fill(String(Number(untouchedWidth) + 1));
+  await page.locator("#km-grid .km-num").first().press("Tab");
+  await until(async () => !!(await draft())["4"]?.values.ColumnWidth, "first width committed");
+  const recipeAfterWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === recipeBeforeWidth, "undo restores exact original recipe");
+  check("Undo of the first width edit removes the key count override and restores exact recipe bytes", !(await draft())["4"]);
+  await page.click("#km-redo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === recipeAfterWidth, "redo restores exact changed recipe");
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === recipeBeforeWidth, "second undo restores recipe");
   await pick(7);
   await page.waitForTimeout(2500);
   await shot("7k-before");
@@ -428,6 +441,13 @@ try {
   await until(() => page.locator("#km-counts .km-count", { hasText: "10K" }).count(), "10K from the hand edit");
   await pick(10);
   check("Hand edit of skin.ini shows on the screen", (await page.locator("#km-grid .km-num").first().inputValue()) === "44");
+  const handEditedRecipe = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  await page.locator("#km-grid .km-num").first().fill("45");
+  await page.locator("#km-grid .km-num").first().press("Tab");
+  await until(async () => (await draft())["10"]?.values.ColumnWidth?.startsWith("45"), "hand-edited width changed");
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === handEditedRecipe, "undo restores hand-edited ini and recipe");
+  check("Keymodes Undo preserves hand-edited skin.ini byte-for-byte without seeding overrides", !(await draft())["10"]);
   // The 10K block names no images: like lazer, every column draws osu!'s
   // built-in look; the 9K block before it keeps its own images.
   const tenK: string[] = [];

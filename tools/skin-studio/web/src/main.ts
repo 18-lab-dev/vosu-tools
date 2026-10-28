@@ -2720,16 +2720,24 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   const before = recipe.keymodes[String(keys)];
   if (draft) recipe.keymodes[String(keys)] = draft;
   else delete recipe.keymodes[String(keys)];
+  const names = touchedKeys(before, draft);
+  if (recipe.ini !== undefined) {
+    const composed = compose(recipe, new Map([...loaded].map(([key, entry]) => [key, entry.data]))).plan.ini;
+    let text = recipe.ini;
+    if (blockKeyCounts(parse(composed)).includes(keys)) text = addManiaBlock(text, keys);
+    for (const name of names) text = setManiaValue(text, keys, name, maniaValue(composed, keys, name));
+    recipe.ini = text;
+    mixDoc.setValue(text);
+  }
   persist();
   renderMix();
   clearTimeout(composeTimer);
-  void recompose({ keys, names: touchedKeys(before, draft) });
+  void recompose({ keys, names });
 }
 
 const keymodes = new KeymodesView({
-  drafts: () => (recipe.keymodes ??= {}),
+  drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
-  apply: applyKeymode,
   refreshSources: loadLibrary,
   originalStage: (keys) => {
     const pick = recipe.picks[maniaGroup(keys).id];
@@ -2799,7 +2807,9 @@ const keymodes = new KeymodesView({
     name: recipe.name,
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
-  record,
+  edit: (label, changes) => edit(label, () => {
+    for (const [keys, draft] of Object.entries(changes)) applyKeymode(Number(keys), draft);
+  }),
 });
 
 explorer = new Explorer({
