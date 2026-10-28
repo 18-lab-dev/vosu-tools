@@ -1477,7 +1477,8 @@
 
 /* Up to 1440 px the rail gives the slots its room (the picker keeps its
    width): key count statuses become their coloured dot (the word is in the
-   title), and the Draft panel narrows so the sheet gains ~100 px. */
+   title), and the Draft panel narrows so the sheet gains ~100 px; its head
+   keeps the Draft label, with "Discard draft" read as "Discard". */
 @media (max-width: 90rem) {
   .studio[data-view="keymodes"] {
     grid-template-columns: minmax(0, 1fr) 15rem;
@@ -1492,6 +1493,12 @@
     border-radius: 50%;
     background: currentColor;
     font-size: 0;
+  }
+  .studio[data-view="keymodes"] .mix-bar__wide {
+    display: none;
+  }
+  .studio[data-view="keymodes"] .mix-bar > .v-label {
+    flex: none;
   }
 }
 @media (max-height: 56rem) {
