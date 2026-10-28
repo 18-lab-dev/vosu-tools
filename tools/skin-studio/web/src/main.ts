@@ -358,7 +358,13 @@ window.addEventListener("keydown", (event) => {
 const focusDirty = () => focused !== null && focusDoc.getValue() !== savedText;
 const mixEdited = () => mixDoc.getValue() !== composedIni;
 
+function renderSourceExport() {
+  const button = $<HTMLButtonElement>("#focus-osk");
+  button.textContent = focusDirty() ? "Export edited .osk" : "Export selected .osk";
+  button.dataset.tip = "Exports the selected skin, including unsaved skin.ini edits. It does not export the mix draft.";
+}
 function renderIni() {
+  renderSourceExport();
   const model = iniMode === "focus" ? focusDoc : mixDoc;
   iniEditor?.show(model);
   const loadedFocus = focused ? loaded.get(focused) : undefined;
@@ -2339,7 +2345,9 @@ $("#focus-osk").onclick = async () => {
     const { filename } = await download({
       name,
       overwrite: false,
-      ini: entry.snapshot.text,
+      ini: focusDirty()
+        ? (entry.snapshot.text.startsWith("\uFEFF") ? "\uFEFF" : "") + focusDoc.getValue()
+        : entry.snapshot.text,
       sources: [
         {
           skin: focused,
