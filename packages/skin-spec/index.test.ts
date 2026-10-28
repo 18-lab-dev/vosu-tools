@@ -203,3 +203,9 @@ test("a second Keys in one [Mania] section starts the next block, as lazer reads
   expect(maniaValue(text, 10, "NoteImage0")).toBeUndefined();
   expect(serialize(doc)).toBe(text);
 });
+
+test("missing image diagnostics identify the referenced filename", () => {
+  const diagnostics = validate("[Mania]\nKeys: 4\nStageRight: mania/stage/70/stageright\nNoteImage0: missing-note\n", []);
+  expect(diagnostics.some((d) => d.message.includes("Missing image: mania/stage/70/stageright"))).toBe(true);
+  expect(diagnostics.some((d) => d.message.includes("Missing image: missing-note"))).toBe(true);
+});

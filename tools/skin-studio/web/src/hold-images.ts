@@ -55,7 +55,7 @@ export async function calibrateHoldImages(
   };
   const output: Record<string, SlotImage> = {};
   const add = (role: string, image: SlotImage, from: string, suffix: string) => {
-    const slot = output[role] ??= { skin: UPLOADS, name: image.name.split("/").pop()!, files: [] };
+    const slot = output[role] ??= { skin: UPLOADS, provenance: "generated", name: image.name.split("/").pop()!, files: [] };
     slot.files.push({ from, suffix });
   };
   const tailFrames = Math.max(0, ...tail.files.map((file) => Number(frameOf(file) ?? -1) + 1));

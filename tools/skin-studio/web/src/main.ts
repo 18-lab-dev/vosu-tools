@@ -11,7 +11,7 @@ import "./style.css";
 import type { IniEditor } from "./editor";
 import { IniDiagnostics } from "./ini-diagnostics";
 import { TextDoc, rgb } from "./text-doc";
-import { mergeDraftIni } from "./draft-ini";
+import { discardedLineCount, mergeDraftIni } from "./draft-ini";
 import {
   type Category,
   type Group,
@@ -128,8 +128,17 @@ interface Loaded {
   data: SkinData;
 }
 
-const message = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const message = (error: unknown) => {
+  let text = error instanceof Error ? error.message : String(error);
+  for (const draft of Object.values(recipe.keymodes ?? {}))
+    for (const refs of sourceSlots(draft).values())
+      for (const slot of refs)
+        if (slot.sourceName) {
+          text = text.replaceAll(slot.skin, slot.sourceName);
+          if (slot.skin.startsWith("lazer:")) text = text.replaceAll(`lazer skin ${slot.skin.slice(6)}`, slot.sourceName);
+        }
+  return text;
+};
 
 const status = $("#status");
 const player = $<HTMLAudioElement>("#player");
@@ -285,8 +294,13 @@ const post = <T>(path: string, body: unknown) =>
 
 const skinByKey = (key: string | null) =>
   key ? library?.skins.find((s) => s.key === key) : undefined;
+function addedImagesName() {
+  const slots = Object.values(recipe.keymodes ?? {}).flatMap((draft) => Object.values(draft.images)).filter((slot) => slot && "files" in slot && slot.skin === UPLOADS);
+  return slots.length && slots.every((slot) => slot && "provenance" in slot && slot.provenance === "generated") ? "Generated"
+    : slots.length && slots.every((slot) => slot && "provenance" in slot && slot.provenance === "dropped") ? "Dropped files" : "Added images";
+}
 const skinName = (key: string) =>
-  key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? key);
+  key === UPLOADS ? addedImagesName() : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? Object.values(recipe.keymodes ?? {}).flatMap((draft) => [...sourceSlots(draft).values()].flat()).find((slot) => slot.skin === key && slot.sourceName)?.sourceName ?? key);
 
 // Fresh reads of one source may finish out of order (including A -> B -> A).
 const sourceReads = new Map<string, number>();
@@ -422,6 +436,11 @@ function renderIni() {
   reload.disabled = !focused || saving || focusState === "loading";
   const skin = skinByKey(focused);
   const note = $("#ini-note");
+  note.className = drafted && iniMode === "focus" ? "v-btn v-btn--sm v-btn--ghost" : "v-badge";
+  note.setAttribute("role", drafted && iniMode === "focus" ? "button" : "status");
+  note.tabIndex = drafted && iniMode === "focus" ? 0 : -1;
+  note.onclick = drafted && iniMode === "focus" ? () => { iniMode = "mix"; renderIni(); } : null;
+  note.onkeydown = (event) => { if (note.onclick && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); note.click(); } };
   note.textContent =
     iniMode === "mix"
       ? mixEdited()
@@ -1189,6 +1208,7 @@ $("#use-base").onclick = () => {
 // ---- views -----------------------------------------------------------------
 function showView(next: typeof view) {
   view = next;
+  status.textContent = "";
   for (const name of [
     "elements",
     "explorer",
@@ -1236,7 +1256,13 @@ $("#ini-mix").onclick = () => {
   renderIni();
 };
 $("#ini-reset").onclick = () => {
-  mixDoc.setValue(composedIni);
+  const before = mixDoc.getValue();
+  const after = composedIni;
+  if (before === after) return;
+  const lines = discardedLineCount(before, after);
+  if (!confirm(`Discard hand edits?\n\n${plural(lines, "line")} of hand-edited skin.ini text will be lost. Draft Undo brings them back.`)) return;
+  record({ label: "Discard hand edits", drafts: Object.values(recipe.keymodes ?? {}), recipes: [structuredClone(recipe)], undo: () => mixDoc.setValue(before), redo: () => mixDoc.setValue(after) });
+  mixDoc.setValue(after);
 };
 reload.onclick = () => {
   if (
@@ -1350,6 +1376,7 @@ $("#km-redo").onclick = redo;
 /** Re-renders and recomposes after the recipe changed. */
 function draftChanged() {
   compositionTicket++;
+  $("#mix-result").replaceChildren();
   persist();
   mixName.value = recipe.name;
   renderFocus();
@@ -1460,6 +1487,7 @@ let reviewError = "";
 let reviewTimer = 0;
 let reviewTicket = 0;
 let applying = false;
+let reviewingApply = false;
 /** The first apply in a tab shows exactly what goes where. */
 let applyConfirmed = false;
 let lastApply: { id: string; created: number; changes: number; status: string } | null = null;
@@ -1754,7 +1782,8 @@ function confirmApply(next: Review): Promise<boolean> {
 async function applyNow() {
   const result = $("#mix-result");
   const capture = captureDraft();
-  applying = true;
+  if (applying || reviewingApply) return;
+  reviewingApply = true;
   renderApply();
   try {
     // Re-read the skin so the review matches the files on disk now.
@@ -1771,6 +1800,9 @@ async function applyNow() {
       applyConfirmed = true;
     }
     requireDraft(capture);
+    reviewingApply = false;
+    applying = true;
+    renderApply();
     const applied = await post<Applied>("v1/apply", { ...body, revision: next.revision });
     const n = plural(applied.changes.length, "change");
     result.replaceChildren(
@@ -1809,6 +1841,7 @@ async function applyNow() {
     await refreshUnfinished();
   } finally {
     applying = false;
+    reviewingApply = false;
     renderApply();
   }
 }
@@ -2022,7 +2055,7 @@ function overrideRow(id: string) {
       h(
         "option",
         { value: key, selected: key === override.skin },
-        skinName(key),
+        `${skinName(key)}${skinByKey(key)?.available ? "" : " (missing)"}`,
       ),
     ),
   );
@@ -2047,7 +2080,9 @@ function overrideRow(id: string) {
         "unused",
       ),
     );
-  for (const offer of note?.offers ?? [])
+  for (const offer of note?.offers ?? []) {
+    if (offer.id === "clear" && !offer.applied)
+      badges.push(h("span", { class: "v-muted" }, "Not drawn: the base names its own notes"));
     badges.push(
       h(
         "button",
@@ -2058,9 +2093,10 @@ function overrideRow(id: string) {
           title: offer.changes.join("\n"),
           onclick: () => setCarry(id, offer.id, !offer.applied),
         },
-        offer.applied ? offer.label : `Carry ${offer.label.toLowerCase()}`,
+        !offer.applied && offer.id === "clear" ? `Use it (clear ${offer.changes.length} keys)` : offer.applied ? offer.label : `Carry ${offer.label.toLowerCase()}`,
       ),
     );
+  }
   return h(
     "li",
     { class: "override" },
@@ -2241,6 +2277,8 @@ const exportTarget = $<HTMLSelectElement>("#export-target");
 /** The chosen target, its button and its note (what it skips or approximates). */
 function renderExport(reason = "") {
   const target = isTarget(exportTarget.value) ? exportTarget.value : "stable";
+  mixName.disabled = target === "apply";
+  mixName.title = target === "apply" ? "Apply keeps the skin's own name" : "Name used for exports";
   const run = $<HTMLButtonElement>("#export-run");
   if (target === "apply") {
     run.textContent = applying
@@ -2250,7 +2288,7 @@ function renderExport(reason = "") {
         : review?.target.kind === "mounted"
           ? "Apply to lazer's edit folder"
           : "Apply changes";
-    run.disabled = applying || !canWrite() || !review?.changes.length;
+    run.disabled = applying || reviewingApply || !canWrite() || !review?.changes.length;
     run.title = !canWrite() ? `Read-only tab: ${readOnlyReason()}` : "";
     $("#export-note").textContent = review
       ? describeTarget(review.target)
@@ -2319,7 +2357,14 @@ function renderUploads() {
   const { used, history: keptForUndo, unused } = currentUploadUsage();
   const all = [...used, ...keptForUndo, ...unused];
   $("#mix-uploads").hidden = !all.length;
-  $("#mix-uploads-summary").textContent = `Dropped files: ${all.length} (${formatBytes(all.reduce((s, f) => s + f.size, 0))})`;
+  const labels = new Map<string, number>();
+  for (const file of all) {
+    const refs = Object.values(recipe.keymodes ?? {}).flatMap((draft) => [...sourceSlots(draft).values()].flat());
+    const slot = refs.find((slot) => slot.files.some((f) => f.from === file.name));
+    const label = slot?.provenance === "generated" ? "Generated" : slot?.provenance === "dropped" ? "Dropped files" : "Added images";
+    labels.set(label, (labels.get(label) ?? 0) + 1);
+  }
+  $("#mix-uploads-summary").textContent = [...labels].map(([label, n]) => `${label}: ${n}`).join(" · ");
   $("#mix-uploads-list").replaceChildren(
     ...all.map((f) =>
       h(
@@ -2720,6 +2765,7 @@ mixDoc.onDidChangeContent(() => {
   if (syncingMixText) return;
   const text = mixEdited() ? mixDoc.getValue() : undefined;
   if (text === recipe.ini) return;
+  $("#mix-result").replaceChildren();
   if (text === undefined) delete recipe.ini;
   else recipe.ini = text;
   persist();

@@ -27,6 +27,8 @@ export interface SlotImage {
   sourceName?: string;
   /** SHA-256 over every source filename and file hash, when supplied by the library. */
   sourceHash?: string;
+  /** Old references have unknown provenance and are labelled "Added images". */
+  provenance?: "generated" | "dropped";
   /** The image's name there (path without extension, `@2x` or frame number). */
   name: string;
   /** Its files and what each adds to the copy's name (`.png`, `@2x.png`, `-0.png`, …). */

@@ -1823,3 +1823,13 @@
 .missing-sources .v-btn { margin: 0; }
 .missing-sources__error { color: var(--danger); }
 .missing-sources__error:empty { display: none; }
+
+.km-width-options {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 1440px) {
+  .missing-sources__details { display: none; }
+  .studio:not([data-view="keymodes"]) .missing-sources__row { flex-wrap: wrap; }
+  .studio:not([data-view="keymodes"]) .missing-sources__summary { flex-basis: 100%; }
+}

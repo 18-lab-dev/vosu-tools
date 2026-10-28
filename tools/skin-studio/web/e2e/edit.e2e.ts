@@ -279,10 +279,12 @@ try {
   await page.click("#tab-keymodes");
   await pick(7);
   check("Apply to the base skin is the default export choice", (await page.locator("#export-target").inputValue()) === "apply");
+  check("Name is export-only while Apply is selected", await page.locator("#mix-name").isDisabled() && await page.locator("#mix-name").getAttribute("title") === "Apply keeps the skin's own name");
   await until(async () => !(await page.locator("#export-run").isDisabled()), "apply enabled", 30000);
   answer = true;
   await page.click("#export-run");
   await page.waitForSelector("#apply-dialog[open]");
+  check("Applying is not announced before confirmation", (await page.locator("#export-run").textContent()) !== "Applying…");
   const listed = await page.locator("#apply-list li").allTextContents();
   const where = (await page.locator("#apply-where").textContent()) ?? "";
   check("The first apply lists every change and the folder", listed.length > 0 && where.includes(EDITED), `${listed.length} changes; ${where}`);
@@ -310,6 +312,11 @@ try {
   await until(async () => ((await page.locator("#apply-count").textContent()) ?? "").includes("No unapplied changes") || ((await page.locator("#apply-count").textContent()) ?? "") === "No changes", "draft cleared", 30000);
   check("After apply the draft is empty", true, (await page.locator("#apply-count").textContent()) ?? "");
   await shot("edit-applied");
+  await page.locator("summary").filter({ hasText: /^Hit position$/ }).click();
+  await page.locator("#km-move-receptors").uncheck();
+  check("A new draft change clears the old Apply result", (await page.locator("#mix-result").textContent()) === "");
+  await page.click("#km-undo");
+  await page.locator("summary").filter({ hasText: /^Hit position$/ }).click();
 
   // ── An unfinished apply is offered for restore when the studio opens ──────
   // The backup is marked as a rollback that could not put skin.ini back

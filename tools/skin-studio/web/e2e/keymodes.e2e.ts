@@ -385,7 +385,7 @@ try {
   await waitLabel("NoteImage3H", "cornflower");
   check("Keyboard: arrows, Delete, Ctrl+Z", true);
   // The dropped image, picked again from the Dropped files source for a stage image.
-  await source("Dropped files");
+  await source("Added images");
   await slot("StageHint").click();
   // Dropped files show by their file name (no upload folder).
   await page.locator("#km-images .km-tile").filter({ has: page.locator(".km-tile__name", { hasText: /^drop-note\.png$/ }) }).first().click();
@@ -393,6 +393,7 @@ try {
   check("Dropped files source assigns a stage image", true);
   const hashFree = (await page.locator("#km-state").textContent()) ?? "";
   check("Status after picking a dropped file has no upload hash", hashFree === "Set StageHint to drop-note.png" && !/[0-9a-f]{16}/.test(hashFree), hashFree);
+  check("A new Keymodes status clears the mirrored header message", (await page.locator("#status").textContent()) === "");
   // ── Dropped files: kept until the user removes unused ones ───────────────
   await page.evaluate(async () => {
     const canvas = new OffscreenCanvas(8, 8);
@@ -404,7 +405,7 @@ try {
       picker.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
   });
   try {
-    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+    await until(async () => await page.locator("#mix-uploads-list li").count() === 2, "two added images listed");
   } catch (error) {
     writeFileSync(join(out, "upload-count-failure.json"), JSON.stringify({
       summary: await page.locator("#mix-uploads-summary").textContent(),
