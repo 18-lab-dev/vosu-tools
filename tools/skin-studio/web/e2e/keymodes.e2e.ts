@@ -161,6 +161,8 @@ try {
   await page.click("#use-base");
   await page.click("#tab-keymodes");
   await page.waitForSelector("#km-counts .km-count");
+  // Stage images starts collapsed; it stays open while the page does.
+  await page.locator("#keymodes-view details.km-shared:not(.km-settings) > summary").click();
   const pick = async (keys: number) => {
     await page.locator("#km-counts .km-count", { hasText: new RegExp(`^.*${keys}K`) }).first().click();
     await page.waitForSelector(`#km-grid .km-colhead:nth-of-type(${keys})`);
