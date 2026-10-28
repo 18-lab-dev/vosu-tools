@@ -238,10 +238,15 @@ try {
   if (opt.churn) {
     await page.goto(base);
     await page.waitForSelector("#skins .skin");
-    await page.evaluate((id) => {
+    const file = skinFiles.find((name) => /(^|\/)mauve\.png$/i.test(name)) ?? skinFiles.find((name) => /\.png$/i.test(name));
+    if (!file) throw new Error("churn fixture requires an image");
+    await page.evaluate(({ id, file }) => {
       localStorage.setItem("skin-studio:mode", "new");
-      localStorage.setItem("skin-studio:recipe", JSON.stringify({ name: "Churn test", base: `lazer:${id}`, picks: {} }));
-    }, ID);
+      localStorage.setItem("skin-studio:recipe", JSON.stringify({
+        name: "Churn test", base: `lazer:${id}`, pinned: true, picks: {},
+        keymodes: { "7": { images: { KeyImage0: { skin: `lazer:${id}`, name: file.slice(0, -4), files: [{ from: file, suffix: ".png" }] } }, values: {} } },
+      }));
+    }, { id: ID, file });
     await page.reload();
     await page.click("#tab-elements");
     await page.waitForSelector("#skins .skin");
