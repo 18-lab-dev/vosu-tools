@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Skin studio refreshes stale preview bytes and discovers replaced lazer skin IDs without reloading, showing source recovery on every tab. Explorer distinguishes Base/Group/Override provenance, counts complete assets and nested folders, and keeps Enter/double-click inspection non-destructive. Clarify Built-in versus resetting to the base, source identity and browsing identity; preview the draft by default.
+- Skin studio preserves the actual focused Keymodes number/text input across background redraws, including its native selection and unfinished text. Replacing a width such as 60 with 75 can no longer concatenate into 6075 or commit a partial value while another edit finishes.
 
 - Skin studio reports excluded LN releases separately as early and late, and explains that re-grabbing a hold can produce multiple release samples. Preserve accepted NoRelease tails when the physical key-up comes after the automatic judgement; ordinary lazer's 1.5× and stable ScoreV1's combined head/release rules remain unchanged.
 - Skin studio calibration now corrects timing instead of matching it: late presses raise receptors, early presses lower them; late releases shorten LNs, early releases lengthen them. Magnitudes and per-key-count scope are unchanged. Re-calibrating a skin calibrated with 0.4.x moves it the other way. Proposals state the correcting direction and explain it on hover.

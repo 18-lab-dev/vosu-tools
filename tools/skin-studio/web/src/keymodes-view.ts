@@ -194,9 +194,17 @@ async function groupOf(blobs: Blob[]): Promise<string> {
     .join("");
 }
 
+interface EditingInput {
+  input: HTMLInputElement;
+  label: string;
+  value: string;
+  dirty: boolean;
+}
+
 export class KeymodesView {
   #host: KeymodesHost;
   #keys = 0;
+  #preservedInputs = new WeakSet<HTMLInputElement>();
   /** The slot the picker assigns to (an image key of the shown key count). */
   #armed: string | null = null;
   /** Selected slots (the armed one included); actions apply to all of them. */
@@ -831,18 +839,15 @@ export class KeymodesView {
     this.#renderImages();
   }
 
-  /**
-   * A field being typed into when `root` re-renders (the mix recomposes
-   * after the previous edit): its label and unsaved text, put back after.
-   */
-  #editing(root: HTMLElement) {
+  /** Keep the real focused control: number-input selection cannot be restored. */
+  #editing(root: HTMLElement): EditingInput | null {
     const active = document.activeElement;
-    if (!(active instanceof HTMLInputElement) || !root.contains(active) || active.value === active.defaultValue) return null;
+    if (!(active instanceof HTMLInputElement) || !root.contains(active) || root.dataset.keymode !== String(this.#keys)) return null;
     const label = active.getAttribute("aria-label");
-    return label ? { label, value: active.value } : null;
+    return label ? { input: active, label, value: active.value, dirty: active.value !== active.defaultValue } : null;
   }
-  #keepEditing(root: HTMLElement, editing: { label: string; value: string } | null) {
-    if (!editing) return;
+  #keepEditing(root: HTMLElement, editing: EditingInput | null) {
+    if (!editing || root.contains(editing.input) || !editing.dirty) return;
     const input = root.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(editing.label)}"]`);
     if (!input) return;
     input.focus({ preventScroll: true });
@@ -863,6 +868,64 @@ export class KeymodesView {
     });
   }
 
+  /**
+   * Repaint siblings around the focused input and its ancestor chain, never
+   * disconnecting that chain. Replacing then refocusing loses native selection
+   * (and can commit a partial value on blur), even if its text is put back.
+   */
+  #replaceChildren(root: HTMLElement, children: HTMLElement[], editing: EditingInput | null) {
+    const input = editing?.input;
+    if (!editing || !input || (input.type !== "number" && input.type !== "text" && input.type !== "search")) {
+      root.replaceChildren(...children);
+      return;
+    }
+    const fresh = h("div", {}, ...children);
+    let current: HTMLElement | null = input;
+    const replacement = fresh.querySelector<HTMLInputElement>(`input[aria-label="${CSS.escape(editing.label)}"]`);
+    let next: HTMLElement | null = replacement;
+    const path: { current: HTMLElement; next: HTMLElement }[] = [];
+    while (current && next) {
+      path.push({ current, next });
+      if (current === root || next === fresh) break;
+      current = current.parentElement;
+      next = next.parentElement;
+    }
+    const last = path.at(-1);
+    if (replacement?.type !== input.type || last?.current !== root || last.next !== fresh || path.some((pair) => pair.current.tagName !== pair.next.tagName)) {
+      root.replaceChildren(...children);
+      return;
+    }
+    // Change handlers use event.currentTarget, so the retained control can use
+    // the fresh model-bound handler without reading a detached replacement.
+    input.onchange = replacement.onchange;
+    for (const pair of path.slice(0, -1)) {
+      for (const attr of Array.from(pair.current.attributes))
+        if (!(pair.current === input && attr.name === "value") && !pair.next.hasAttribute(attr.name))
+          pair.current.removeAttribute(attr.name);
+      for (const attr of Array.from(pair.next.attributes))
+        if (!(pair.current === input && attr.name === "value") && pair.current.getAttribute(attr.name) !== attr.value)
+          pair.current.setAttribute(attr.name, attr.value);
+    }
+    for (let i = 1; i < path.length; i++) {
+      const parent = path[i].current, kept = path[i - 1].current;
+      const siblings = Array.from(path[i].next.childNodes);
+      const at = siblings.indexOf(path[i - 1].next);
+      for (const child of Array.from(parent.childNodes)) if (child !== kept) child.remove();
+      for (const [index, child] of siblings.entries())
+        if (index < at) parent.insertBefore(child, kept);
+        else if (index > at) parent.appendChild(child);
+    }
+    // A focused field can intentionally show unfinished text rather than an
+    // incoming model update. Once focus leaves, show the current model again.
+    if (!this.#preservedInputs.has(input)) {
+      this.#preservedInputs.add(input);
+      input.addEventListener("blur", () => {
+        this.#preservedInputs.delete(input);
+        setTimeout(() => { if (this.#visible) this.refresh(); });
+      }, { once: true });
+    }
+  }
+
   #renderGrid() {
     const grid = $("#km-grid");
     const hadFocus = grid.contains(document.activeElement);
@@ -871,6 +934,7 @@ export class KeymodesView {
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
       grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with + Key count."));
+      grid.dataset.keymode = String(keys);
       return;
     }
     const by = new Map(this.#resolved.map((r) => [r.key, r]));
@@ -911,7 +975,8 @@ export class KeymodesView {
       );
     });
     const valueRows = this.#valueRows(keys, COLUMN_ROLES.length);
-    grid.replaceChildren(...rows, h("p", { class: "v-label km-divider" }, "Column values"), ...valueRows);
+    this.#replaceChildren(grid, [...rows, h("p", { class: "v-label km-divider" }, "Column values"), ...valueRows], editing);
+    grid.dataset.keymode = String(keys);
     if (hadFocus) this.#focusCell(grid);
     this.#keepEditing(grid, editing);
   }
@@ -1124,8 +1189,8 @@ export class KeymodesView {
         swatch.style.setProperty("--c", `rgb(${r} ${g} ${b} / ${alpha ? Number(a) / 255 : 1})`);
         if (!alpha) return swatch;
         const opacity = h("input", { type: "number", min: "0", max: "255", step: "1", class: "v-input km-num km-settings__alpha", value: a, ariaLabel: `${label} alpha` });
-        opacity.onchange = () => {
-          const n = Math.round(Number(opacity.value));
+        opacity.onchange = (event) => {
+          const n = Math.round(Number((event.currentTarget as HTMLInputElement).value));
           if (n >= 0 && n <= 255) onSet([r, g, b, String(n)].join(","));
         };
         return h("span", { class: "km-settings__colour" }, swatch, opacity);
@@ -1140,13 +1205,14 @@ export class KeymodesView {
         ...(f.min !== undefined ? { min: String(f.min) } : {}),
         ...(f.max !== undefined ? { max: String(f.max) } : {}),
       });
-      input.onchange = () => {
-        if (input.value === "") return onSet(null);
-        const n = Number(input.value);
+      input.onchange = (event) => {
+        const changed = event.currentTarget as HTMLInputElement;
+        if (changed.value === "") return onSet(null);
+        const n = Number(changed.value);
         const bad = !Number.isFinite(n) || (f.control === "integer" && !Number.isInteger(n)) || (f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max);
         if (bad) {
           this.#error(`${label}: ${f.control === "integer" ? "a whole number" : "a number"}${f.min !== undefined ? ` from ${f.min}` : ""}${f.max !== undefined ? ` to ${f.max}` : ""}`);
-          input.value = current ?? "";
+          changed.value = current ?? "";
           return;
         }
         this.#error("");
@@ -1233,7 +1299,8 @@ export class KeymodesView {
         }),
       ),
     );
-    root.replaceChildren(columns, h("div", { class: "km-settings__groups" }, ...fieldsets));
+    this.#replaceChildren(root, [columns, h("div", { class: "km-settings__groups" }, ...fieldsets)], editing);
+    root.dataset.keymode = String(keys);
     if (hadFocus) root.querySelector<HTMLElement>(`[aria-label="${CSS.escape(hadFocus)}"]`)?.focus();
     this.#keepEditing(root, editing);
   }
@@ -1295,11 +1362,12 @@ export class KeymodesView {
         ariaLabel: label,
         tabIndex: this.#cell[0] === row && this.#cell[1] === col ? 0 : -1,
       });
-      input.onchange = () => {
-        const n = Number(input.value);
-        if (input.value === "" || !Number.isFinite(n) || n < 0) {
+      input.onchange = (event) => {
+        const changed = event.currentTarget as HTMLInputElement;
+        const n = Number(changed.value);
+        if (changed.value === "" || !Number.isFinite(n) || n < 0) {
           this.#error(`${label}: a number of 0 or more`);
-          input.value = value;
+          changed.value = value;
           return;
         }
         this.#valueSpecs.get(id)!.apply(rowTargets(this.#rows, id, col), String(n));
