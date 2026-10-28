@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
   compose,
   groupFiles,
+  keepGeneral,
   maniaGroup,
   type Plan,
   type SkinData,
@@ -391,4 +392,17 @@ test("a base file a kept skin.ini key names survives its group's pick", () => {
     );
     expect(fallbacks.get("mania-shared")).not.toContain("mania-stage-hint");
   }
+});
+
+test("applying a hand-edited draft keeps the base's [General] name and version", () => {
+  const draft = "[General]\r\nName: My mix\r\nAuthor: A\r\nVersion: latest\r\n\r\n[Mania]\r\nKeys: 4\r\nName: My mix\r\n";
+  // The base has a name and no version: the composer's Version line goes.
+  expect(keepGeneral(draft, "[General]\nName: Base\nAuthor: A\n", "My mix")).toBe(
+    "[General]\r\nName: Base\r\nAuthor: A\r\n\r\n[Mania]\r\nKeys: 4\r\nName: My mix\r\n",
+  );
+  // A version of its own is put back; a name edited by hand stays.
+  const edited = draft.replace("Name: My mix", "Name: Renamed");
+  expect(keepGeneral(edited, "[General]\nName: Base\nVersion: 2.7\n", "My mix")).toBe(
+    "[General]\r\nName: Renamed\r\nAuthor: A\r\nVersion: 2.7\r\n\r\n[Mania]\r\nKeys: 4\r\nName: My mix\r\n",
+  );
 });

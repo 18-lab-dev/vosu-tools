@@ -61,6 +61,16 @@
       <span id="status" class="v-muted status" role="status"></span>
       <span class="v-bar__spacer"></span>
       <button
+        id="keys-open"
+        type="button"
+        class="v-btn v-btn--ghost v-btn--sm"
+        aria-haspopup="dialog"
+        aria-controls="keys-dialog"
+        title="Keyboard shortcuts (?)"
+      >
+        Shortcuts
+      </button>
+      <button
         id="mute"
         type="button"
         class="v-btn v-btn--ghost v-btn--sm"
@@ -236,41 +246,37 @@
           hidden
         >
           <div class="v-toolbar">
-            <div class="v-row km-history">
-              <button id="km-undo" type="button" class="v-btn v-btn--sm" disabled>
-                Undo
-              </button>
-              <button id="km-redo" type="button" class="v-btn v-btn--sm" disabled>
-                Redo
-              </button>
-            </div>
-            <span class="v-toolbar__sep"></span>
             <button id="km-all" type="button" class="v-btn v-btn--sm" disabled>
               Apply to all columns
             </button>
-            <button id="km-mirror" type="button" class="v-btn v-btn--sm">
-              Mirror
-            </button>
-            <button id="km-pattern" type="button" class="v-btn v-btn--sm">
-              osu! 1/2/S pattern
-            </button>
             <details class="km-copy-menu">
-              <summary class="v-btn v-btn--sm">Copy key count from…</summary>
-              <form id="km-copy" class="km-copy">
-                <select
-                  id="km-copy-skin"
-                  class="v-select"
-                  aria-label="Copy from skin"
-                ></select>
-                <select
-                  id="km-copy-keys"
-                  class="v-select"
-                  aria-label="Copy from key count"
-                ></select>
-                <button id="km-copy-go" type="submit" class="v-btn v-btn--sm v-btn--primary">
-                  Copy
-                </button>
-              </form>
+              <summary class="v-btn v-btn--sm">Column tools</summary>
+              <div class="km-copy">
+                <div class="v-row km-copy__row">
+                  <button id="km-mirror" type="button" class="v-btn v-btn--sm">
+                    Mirror
+                  </button>
+                  <button id="km-pattern" type="button" class="v-btn v-btn--sm">
+                    osu! 1/2/S pattern
+                  </button>
+                </div>
+                <form id="km-copy" class="v-row km-copy__row">
+                  <span class="v-label">Copy from</span>
+                  <select
+                    id="km-copy-skin"
+                    class="v-select"
+                    aria-label="Copy from skin"
+                  ></select>
+                  <select
+                    id="km-copy-keys"
+                    class="v-select"
+                    aria-label="Copy from key count"
+                  ></select>
+                  <button id="km-copy-go" type="submit" class="v-btn v-btn--sm v-btn--primary">
+                    Copy
+                  </button>
+                </form>
+              </div>
             </details>
             <span class="v-bar__spacer"></span>
             <span id="km-state" class="v-muted km-state" role="status"></span>
@@ -293,15 +299,15 @@
               <div class="v-scroll km-sheet">
                 <div id="km-grid" class="km-grid" role="grid" aria-multiselectable="true" aria-label="Column images and values"></div>
                 <p id="km-error" class="km-error" role="alert" hidden></p>
-                <details class="km-hit" open>
+                <details class="km-hit">
                   <summary class="v-label">Hit position</summary>
                   <div id="km-hit" class="km-hit__body"></div>
                 </details>
-                <details class="km-hit" open>
+                <details class="km-hit">
                   <summary class="v-label">LN length</summary>
                   <div id="km-ln" class="km-hit__body"></div>
                 </details>
-                <details class="km-shared" open>
+                <details class="km-shared">
                   <summary class="v-label">Stage images</summary>
                   <div id="km-shared-grid" class="km-shared-grid" role="grid" aria-multiselectable="true" aria-label="Stage images"></div>
                 </details>
@@ -478,32 +484,23 @@
         <p id="guide" class="v-empty">Select a skin.</p>
       </section>
 
-      <section class="v-panel mix" aria-label="Mix">
-        <div class="v-panel__head">
-          <div class="v-seg mix-mode" role="group" aria-label="What edits change">
-            <button id="mode-current" type="button" aria-pressed="true">Current skin</button>
-            <button id="mode-new" type="button" aria-pressed="false">New skin</button>
-          </div>
-          <button
-            id="mix-reset"
-            type="button"
-            class="v-btn v-btn--sm v-btn--ghost"
-          >
-            Clear
+      <section class="v-panel mix" aria-label="Mix draft">
+        <div class="v-panel__head mix-bar">
+          <span class="v-label">Draft</span>
+          <span class="v-bar__spacer"></span>
+          <button id="km-undo" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
+            Undo
+          </button>
+          <button id="km-redo" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
+            Redo
+          </button>
+          <button id="mix-reset" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
+            Discard draft
           </button>
         </div>
+        <div id="saved-draft" class="mix-saved" role="status" hidden></div>
         <div id="unfinished" class="mix-unfinished" role="alert" hidden></div>
-        <div id="edit-head" class="mix-head">
-          <div class="v-field">
-            <span>Editing</span>
-            <div class="mix-base">
-              <span id="edit-target" class="mix-base__name">No skin</span>
-            </div>
-          </div>
-          <p id="edit-where" class="v-muted mix-edit__where"></p>
-          <p id="edit-note" class="mix-edit__note" hidden></p>
-        </div>
-        <div id="mix-head" class="mix-head">
+        <div class="mix-head">
           <label class="v-field">
             <span>Name</span>
             <input
@@ -516,19 +513,19 @@
             />
           </label>
           <div class="v-field">
-            <span>Base</span>
-            <div class="mix-base">
-              <span id="mix-base" class="mix-base__name">None</span>
-              <button
-                id="mix-base-clear"
-                type="button"
-                class="v-btn v-btn--sm v-btn--ghost"
-                hidden
-              >
-                Clear
-              </button>
-            </div>
+            <span class="mix-label">
+              <label for="mix-base">Base</label>
+              <span
+                id="mix-base-help"
+                class="v-help"
+                tabindex="0"
+                role="img"
+                data-tip-pos="left"
+              ></span>
+            </span>
+            <select id="mix-base" class="v-select"></select>
           </div>
+          <p id="edit-note" class="mix-edit__note" hidden></p>
         </div>
         <ol id="mix-picks" class="v-scroll mix-picks"></ol>
         <details id="mix-uploads" class="mix-uploads" hidden>
@@ -547,7 +544,7 @@
             <label class="v-field">
               <span>Export as</span>
               <select id="export-target" class="v-select">
-                <option value="apply">Apply to current skin</option>
+                <option value="apply">Apply to base skin</option>
                 <option value="stable">osu! stable folder</option>
                 <option value="osk">osu!lazer .osk</option>
                 <option value="quaver">Quaver</option>
@@ -570,9 +567,6 @@
             </button>
             <div id="apply-area" class="v-row mix-apply">
               <span id="apply-count" class="mix-apply__count" aria-live="polite"></span>
-              <button id="discard" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
-                Discard
-              </button>
               <button id="restore" type="button" class="v-btn v-btn--sm v-btn--ghost" hidden>
                 Restore last apply
               </button>
@@ -613,6 +607,16 @@
           <button value="cancel" class="v-btn">Cancel</button>
           <button id="apply-confirm" value="apply" class="v-btn v-btn--primary">Apply</button>
         </div>
+      </form>
+    </dialog>
+    <dialog id="keys-dialog" class="v-panel keys-dialog" aria-labelledby="keys-title">
+      <form method="dialog" class="keys-dialog__form">
+        <div class="v-panel__head">
+          <span id="keys-title" class="v-label">Keyboard shortcuts</span>
+          <span class="v-bar__spacer"></span>
+          <button value="close" class="v-btn v-btn--sm v-btn--ghost">Close</button>
+        </div>
+        <div id="keys-list" class="v-scroll keys-dialog__body"></div>
       </form>
     </dialog>
     <audio id="player" preload="none" muted></audio>
