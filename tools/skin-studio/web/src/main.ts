@@ -52,6 +52,7 @@ import type { Preview, Resolver } from "./preview";
 import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
+import { AssetCache } from "./asset-cache";
 import { KeymodesView } from "./keymodes-view";
 import { KeymodeGenerations } from "./keymode-generations";
 import {
@@ -244,6 +245,8 @@ const assetUrl = (skin: string, name: string) =>
   `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`;
 const animationUrl = (skin: string, element: string) =>
   `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}`;
+/** Files previews read; a source read afresh is read again (asset-cache.ts). */
+const assets = new AssetCache(assetUrl);
 
 class HttpError extends Error {
   constructor(
@@ -296,6 +299,9 @@ async function load(key: string, fresh = false): Promise<Loaded> {
       owned: snapshot.owned,
     },
   };
+  // Files may have new bytes under the same names (a changed file, an apply,
+  // a restore): previews read this source's files again.
+  if (cached) assets.invalidate(key);
   loaded.set(key, entry);
   return entry;
 }
@@ -2407,21 +2413,6 @@ const ensurePreview = () =>
     },
   ));
 
-/** Fetched skin files, shared by every preview load (cleared when large). */
-const blobs = new Map<string, Promise<Blob | null>>();
-function fetchBlob(skin: string, file: string): Promise<Blob | null> {
-  const key = `${skin}\n${file}`;
-  let pending = blobs.get(key);
-  if (!pending) {
-    if (blobs.size > 4000) blobs.clear();
-    pending = fetch(assetUrl(skin, file), { credentials: "omit" }).then(
-      (r) => (r.ok ? r.blob() : null),
-      () => null,
-    );
-    blobs.set(key, pending);
-  }
-  return pending;
-}
 let blankPng: Promise<Blob> | undefined;
 const blank = (kind: "png" | "wav") =>
   kind === "wav"
@@ -2442,7 +2433,7 @@ function focusResolver(key: string): Resolver | null {
     if (lower === "skin.ini")
       return iniBlob(focused === key ? text : entry.snapshot.text);
     const name = names.get(lower);
-    return name ? fetchBlob(key, name) : Promise.resolve(null);
+    return name ? assets.get(key, name) : Promise.resolve(null);
   };
 }
 function mixResolver(plan: Plan): Resolver {
@@ -2450,7 +2441,7 @@ function mixResolver(plan: Plan): Resolver {
   for (const source of plan.sources)
     for (const file of source.files) {
       const [from, to] = typeof file === "string" ? [file, file] : file;
-      files.set(to.toLowerCase(), () => fetchBlob(source.skin, from));
+      files.set(to.toLowerCase(), () => assets.get(source.skin, from));
     }
   for (const item of plan.blanks)
     files.set(item.to.toLowerCase(), () => blank(item.kind));
@@ -2592,7 +2583,7 @@ function updatePreview() {
   if (previewPrefs.source === "mix") {
     void preview?.setSource({
       key: "mix",
-      version: mixVersion,
+      version: mixVersion + assets.epoch,
       name: recipe.name,
       resolve: lastPlan ? mixResolver(lastPlan) : null,
     });
@@ -2600,7 +2591,7 @@ function updatePreview() {
     const entry = focused ? loaded.get(focused) : undefined;
     void preview?.setSource({
       key: `skin:${focused ?? ""}`,
-      version: entry ? focusVersion + 1 : 0,
+      version: entry ? focusVersion + assets.epoch + 1 : 0,
       name: focused ? skinName(focused) : "",
       resolve: focused ? focusResolver(focused) : null,
     });
@@ -2795,7 +2786,7 @@ const keymodes = new KeymodesView({
   },
   previewSource: () => ({
     key: "mix",
-    version: mixVersion,
+    version: mixVersion + assets.epoch,
     name: recipe.name,
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
