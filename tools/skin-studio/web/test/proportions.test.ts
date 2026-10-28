@@ -1,5 +1,21 @@
 import { expect, test } from "bun:test";
 import { type Geometry, hitPositionFor, pieceOf, pieceOps, referenceScale } from "../src/proportions";
+import { HitPanel, type HitHost } from "../src/hit-panel";
+
+test("repeating a 5K width never renders, captures originals, or derives files", async () => {
+  const unexpected = () => { throw new Error("Unchanged width must do nothing"); };
+  const host: HitHost = {
+    keys: () => 5,
+    mixText: () => "[Mania]\nKeys: 5\nColumnWidth: 60,60,60,60,60\nHitPosition: 455\n",
+    mixFiles: unexpected, mixIndex: unexpected, resolved: unexpected, draft: unexpected,
+    change: unexpected, derive: unexpected, rows: unexpected, lastPlay: unexpected,
+    speed: unexpected, setSpeed: unexpected, canWrite: unexpected, state: unexpected, error: unexpected,
+  };
+  const panel = new HitPanel(host);
+  await panel.setWidths([0, 1, 2, 3, 4], "60", "Apply width to all columns");
+  await panel.setWidths([0], "60", "Set column 1 width");
+  expect(panel.lastRegeometry).toBeNull();
+});
 
 test("HitPosition follows the receptors: 480 − (480 − HitPosition) × s, rounded", () => {
   expect(hitPositionFor(402, 1)).toBe(402);
@@ -25,6 +41,25 @@ const dims = new Map([
   ["n-1.png", { width: 60, height: 20 }],
   ["b.png", { width: 60, height: 1000 }],
 ]);
+
+test("derived SD sources named @2x still use destination density and the HD twin", () => {
+  const files = [
+    { from: "sd/k@2x.png", suffix: ".png" },
+    { from: "hd/k@2x.png", suffix: "@2x.png" },
+  ];
+  const sizes = new Map([[files[0].from, { width: 60, height: 200 }], [files[1].from, { width: 120, height: 400 }]]);
+  const ops = pieceOps("key", g({}), g({ width: 60, hitPosition: 383 }), files, sizes)!;
+  expect(ops.map((op) => op.source)).toEqual([files[1].from, files[1].from]);
+  const resized = ops.map(({ op }) => {
+    if (!("resize" in op)) throw new Error("Expected a resize");
+    return op.resize;
+  });
+  expect(resized[0].up).toBeCloseTo(-0.8);
+  expect(resized[1].up).toBeCloseTo(-1.6);
+  expect(resized[0].scale_y).toBeCloseTo(0.625);
+  expect(pieceOps("key", g({}), g({ hitPosition: 397 }), files, sizes, -5)?.[0])
+    .toEqual({ source: files[0].from, op: { shift: { up: 8 } } });
+});
 
 test("pieces by key", () => {
   expect(["KeyImage0", "KeyImage3D", "NoteImage1", "NoteImage1H", "NoteImage1T", "NoteImage1L", "StageHint"].map(pieceOf)).toEqual([

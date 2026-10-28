@@ -187,7 +187,7 @@ const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 const hd = (name: string) => /@2x\.[^./]+$/i.test(name);
 /** The @2x file of the same frame, if the image has one. */
 function hdTwin(files: readonly { from: string; suffix: string }[], file: { from: string; suffix: string }) {
-  if (hd(file.from)) return file;
+  if (hd(file.suffix)) return file;
   const want = file.suffix.replace(/(\.[^.]+)$/, "@2x$1").toLowerCase();
   return files.find((f) => f.suffix.toLowerCase() === want) ?? file;
 }
@@ -226,7 +226,7 @@ export function pieceOps(
   const resize = (file: { from: string; suffix: string }, sx: number, sy: number, up: number, grow = false): FileOp => {
     const source = hdTwin(files, file).from;
     const target = size(file.from), src = size(source);
-    const lift = up * (hd(file.from) ? 2 : 1);
+    const lift = up * (hd(file.suffix) ? 2 : 1);
     return {
       source,
       op: {
@@ -234,7 +234,7 @@ export function pieceOps(
           width: Math.max(1, Math.round(target.width * sx)),
           height: Math.max(1, Math.round(target.height * sy)) + (grow ? Math.max(0, Math.ceil(lift - 1e-9)) : 0),
           scale_y: (sy * target.height) / src.height,
-          up: up * (hd(file.from) ? 2 : 1),
+          up: lift,
         },
       },
     };
@@ -245,29 +245,31 @@ export function pieceOps(
     // it, a 1-px placeholder) has nothing on the line: it scales from the
     // stage bottom, where lazer anchors it (LegacyKeyArea), and stays.
     const line = (STAGE - from.hitPosition) * UNIT_PX;
-    const reaches = (f: { from: string }) => {
+    const reaches = (f: { from: string; suffix: string }) => {
       const d = dims.get(f.from);
-      return !d || d.height / (hd(f.from) ? 2 : 1) >= line;
+      return !d || d.height / (hd(f.suffix) ? 2 : 1) >= line;
     };
     // By hand (px at the captured scale), and what the width change leaves.
     const byHand = -moved * UNIT_PX;
     const left = (STAGE - to.hitPosition) * UNIT_PX - s * (line + byHand);
-    const k = (name: string) => (hd(name) ? 2 : 1);
+    // Density belongs to the destination suffix, not the stored source:
+    // deriving a 1x image from its HD twin retains the twin's filename.
+    const k = (suffix: string) => (hd(suffix) ? 2 : 1);
     const shift = (up: number, grow: boolean): DeriveOp => ({ shift: grow ? { up, grow } : { up } });
     const out = files.map((f): FileOp | null => {
       if (!reaches(f)) return same(s, 1) ? null : resize(f, s, s, 0);
       if (same(s, 1)) {
         // Exact row moves, no resampling: by hand inside the canvas, the
         // rest growing it.
-        const hand = Math.round(byHand * k(f.from)),
-          rest = Math.round(left * k(f.from));
+        const hand = Math.round(byHand * k(f.suffix)),
+          rest = Math.round(left * k(f.suffix));
         if (hand && rest) return { source: f.from, pre: shift(hand, false), op: shift(rest, true) };
         if (hand) return { source: f.from, op: shift(hand, false) };
         if (rest) return { source: f.from, op: shift(rest, true) };
         return null;
       }
       const op = resize(f, s, s, left, true);
-      const hand = Math.round(byHand * k(op.source));
+      const hand = Math.round(byHand * k(hdTwin(files, f).suffix));
       return hand ? { ...op, pre: shift(hand, false) } : op;
     });
     if (out.every((o) => o === null)) return null;

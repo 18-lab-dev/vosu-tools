@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Skin studio keeps different derived Keymodes images distinct even when their display names match, preventing one column's resize from replacing another's image. Image density follows each destination's `@2x` suffix, not the retained source filename; repeating an unchanged column width does nothing.
+
 ## 0.4.0 - 2026-10-27
 
 - Rename Mania ratings to Map analysis (`map-analysis`), with catalog-only `replaces` metadata preserving migration support and legacy manifest compatibility.

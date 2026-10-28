@@ -137,8 +137,10 @@ export function applyKeymodes(
     const block = maniaBlock(ini, keys);
     const folder = stageFolder(keys);
     const taken = occupied(out.keys(), folder);
+    // Derived images retain their source's display name. Different resizes
+    // of that source are different images, even in the same uploads skin.
     const identity = (image: SlotImage) =>
-      `${image.skin}\n${image.name}`.toLowerCase();
+      JSON.stringify([image.skin, image.name, image.files.map((f) => [f.from, f.suffix])]).toLowerCase();
     const copies = new Map<string, SlotImage>();
     for (const slot of Object.values(draft.images))
       if (slot && "files" in slot && slot.files.length)

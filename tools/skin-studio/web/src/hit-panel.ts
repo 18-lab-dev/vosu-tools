@@ -314,12 +314,13 @@ export class HitPanel {
   }
   async #setWidths(widths: string[], label: string) {
     const keys = this.#host.keys();
+    const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
+    if (widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
     const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
     if (this.#host.draft()?.keepProportions === false) {
       this.#host.change(label, (draft) => Object.assign(draft.values, values));
       return;
     }
-    const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
     // Scales against the widths the pieces had when first captured (the
     // originals), so changing columns one by one ends where changing them
     // all at once would: HitPosition follows the scale most columns have.

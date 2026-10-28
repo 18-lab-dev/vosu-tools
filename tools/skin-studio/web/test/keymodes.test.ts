@@ -99,6 +99,57 @@ test("a 7K draft from two skins writes keys and copies files under mania/7k", ()
   expect(by.get("KeyImage3")!.source).toBe("built-in");
 });
 
+test("5K derived receptors with the same display name retain each column's files", () => {
+  const images: Record<string, Slot> = {};
+  for (let column = 0; column < 5; column++)
+    images[`KeyImage${column}`] = {
+      skin: UPLOADS, name: "kd_left1",
+      files: [{ from: `${column === 0 ? "source" : "scaled"}/kd_left1@2x.png`, suffix: "@2x.png" }],
+    };
+  const { plan } = compose({
+    name: "Mix", base: null, picks: {},
+    keymodes: { "5": { images, values: { ColumnWidth: "60,60,60,60,60", HitPosition: "455" } } },
+  }, skins);
+  const destinations = plan.sources.flatMap((s) => s.files.map((f) => typeof f === "string" ? [f, f] : f));
+  for (let column = 0; column < 5; column++) {
+    const name = maniaValue(plan.ini, 5, `KeyImage${column}`);
+    expect(destinations.find((f) => f[1] === `${name}@2x.png`)?.[0])
+      .toBe(`${column === 0 ? "source" : "scaled"}/kd_left1@2x.png`);
+  }
+  expect(new Set(destinations.map((f) => f[1])).size).toBe(2);
+});
+
+test("mixed-source derived images cannot alias by their shared basename", () => {
+  const images = Object.fromEntries(["a", "b", "c", "d", "e"].map((source, column) => [
+    `KeyImage${column}`, { skin: UPLOADS, name: "key", files: [{ from: `${source}/key.png`, suffix: ".png" }] },
+  ]));
+  const { plan } = compose({ name: "Mix", base: null, picks: {}, keymodes: { "5": { images, values: {} } } }, skins);
+  expect(new Set(Array.from({ length: 5 }, (_, c) => maniaValue(plan.ini, 5, `KeyImage${c}`))).size).toBe(5);
+  expect(plan.sources.flatMap((s) => s.files)).toHaveLength(5);
+});
+
+test("5K and 7K derived copies and HitPosition remain scoped to their key count", () => {
+  const keymodes: Record<string, KeymodeDraft> = {};
+  for (const count of [5, 7]) keymodes[count] = {
+    images: Object.fromEntries(Array.from({ length: count }, (_, column) => [
+      `KeyImage${column}`, { skin: UPLOADS, name: "kd_left1", files: [
+        { from: `${count}k-${column}/kd_left1@2x.png`, suffix: "@2x.png" },
+      ] },
+    ])),
+    values: { ColumnWidth: Array(count).fill(count === 5 ? "60" : "80").join(","), HitPosition: count === 5 ? "455" : "440" },
+  };
+  const { plan } = compose({ name: "Mix", base: null, picks: {}, keymodes }, skins);
+  const files = plan.sources.flatMap((source) => source.files);
+  for (const count of [5, 7]) {
+    expect(maniaValue(plan.ini, count, "HitPosition")).toBe(count === 5 ? "455" : "440");
+    for (let column = 0; column < count; column++) {
+      const name = maniaValue(plan.ini, count, `KeyImage${column}`);
+      expect(name).toStartWith(`mania/${count}k/`);
+      expect(files).toContainEqual([`${count}k-${column}/kd_left1@2x.png`, `${name}@2x.png`]);
+    }
+  }
+});
+
 test("a stage taken copies the default-named images it draws, and an added count gets a block", () => {
   const { plan } = compose({ name: "M", base: null, picks: {}, keymodes: { "5": { images: {}, values: {} } } }, skins);
   expect(plan.ini).toContain("[Mania]\r\nKeys: 5");
