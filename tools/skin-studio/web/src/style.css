@@ -1520,6 +1520,9 @@
   .studio[data-view="keymodes"] .mix-bar > .v-label {
     flex: none;
   }
+  .studio[data-view="keymodes"] .mix-bar > .v-btn {
+    padding-inline: var(--space-1);
+  }
 }
 @media (max-height: 56rem) {
   .km-stage {
