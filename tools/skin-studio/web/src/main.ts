@@ -280,9 +280,15 @@ const skinByKey = (key: string | null) =>
 const skinName = (key: string) =>
   key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? key);
 
+// Fresh reads of one source may finish out of order (including A -> B -> A).
+const sourceReads = new Map<string, number>();
+let focusTicket = 0;
+let focusState: "empty" | "loading" | "ready" | "error" = "empty";
 async function load(key: string, fresh = false): Promise<Loaded> {
   const cached = loaded.get(key);
   if (cached && !fresh) return cached;
+  const ticket = (sourceReads.get(key) ?? 0) + 1;
+  sourceReads.set(key, ticket);
   const snapshot = await request<Snapshot>(
     `v1/skin?skin=${encodeURIComponent(key)}`,
   );
@@ -296,8 +302,8 @@ async function load(key: string, fresh = false): Promise<Loaded> {
       owned: snapshot.owned,
     },
   };
-  loaded.set(key, entry);
-  return entry;
+  if (sourceReads.get(key) === ticket) loaded.set(key, entry);
+  return loaded.get(key) ?? entry;
 }
 
 // ---- editor --------------------------------------------------------------
@@ -359,6 +365,7 @@ function renderIni() {
   const drafted = !!focused && focused === recipe.base && hasEdits(recipe);
   const writable =
     iniMode === "focus" &&
+    focusState === "ready" &&
     !!loadedFocus?.snapshot.writable &&
     canWrite() &&
     !drafted;
@@ -368,7 +375,7 @@ function renderIni() {
   save.hidden = reload.hidden = iniMode !== "focus";
   $("#ini-reset").hidden = iniMode !== "mix" || !mixEdited();
   save.disabled = !writable || saving || conflict || !focusDirty();
-  reload.disabled = !focused || saving;
+  reload.disabled = !focused || saving || focusState === "loading";
   const skin = skinByKey(focused);
   const note = $("#ini-note");
   note.textContent =
@@ -376,6 +383,10 @@ function renderIni() {
       ? mixEdited()
         ? "Edited"
         : ""
+      : focusState === "loading"
+        ? "Loading"
+      : focusState === "error"
+        ? "Unavailable"
       : drafted && iniMode === "focus"
         ? "Edit it in the draft"
         : focused && !writable
@@ -387,6 +398,10 @@ function renderIni() {
   note.title =
     iniMode === "mix"
       ? "Used as-is when you build"
+      : focusState === "loading"
+        ? "Reading the selected skin's latest skin.ini."
+      : focusState === "error"
+        ? "The selected skin could not be loaded. Reload to try again."
       : !loadedFocus?.snapshot.writable &&
           skin?.origin !== "lazer" &&
           skin?.origin !== "osk"
@@ -424,29 +439,36 @@ focusDoc.onDidChangeContent(() => {
 mixDoc.onDidChangeContent(() => renderIni());
 
 async function storeIni() {
-  if (!focused) return;
+  if (!focused || saving) return;
+  const key = focused, ticket = focusTicket;
+  const entry = loaded.get(key);
+  const revision = diskRevision;
   saving = true;
   renderIni();
   const text = focusDoc.getValue();
   try {
     const data = await post<{ revision: string; backup: string | null }>(
       "v1/save",
-      { skin: focused, text, revision: diskRevision },
+      { skin: key, text, revision },
     );
+    // Invalidate pre-save reads. A completed newer read is not overwritten
+    // with the old request's cache object.
+    sourceReads.set(key, (sourceReads.get(key) ?? 0) + 1);
+    const currentEntry = loaded.get(key);
+    if (currentEntry && (currentEntry === entry || currentEntry.snapshot.revision === revision)) {
+      currentEntry.snapshot.text = text;
+      currentEntry.snapshot.revision = data.revision;
+      currentEntry.data.text = text;
+    }
+    scheduleCompose();
+    if (focused !== key || ticket !== focusTicket) return;
     savedText = text;
     diskRevision = data.revision;
-    const entry = loaded.get(focused);
-    if (entry) {
-      entry.snapshot.text = text;
-      entry.snapshot.revision = data.revision;
-      entry.data.text = text;
-    }
     status.textContent = data.backup
       ? `Saved · backup ${data.backup}`
       : "Saved";
-    scheduleCompose();
   } catch (error) {
-    status.textContent = message(error);
+    if (focused === key && ticket === focusTicket) status.textContent = message(error);
   } finally {
     saving = false;
     renderIni();
@@ -614,20 +636,25 @@ addForm.addEventListener("submit", async (event) => {
 // ---- focused skin ----------------------------------------------------------
 async function focus(key: string | null) {
   if (focusDirty() && !confirm("Discard unsaved skin.ini changes?")) return;
+  const ticket = ++focusTicket;
   focused = key;
   conflict = false;
+  focusState = key ? "loading" : "empty";
+  savedText = "";
+  diskRevision = "";
+  focusDoc.files = undefined;
+  focusDoc.setValue("");
+  renderFocus();
   renderLibrary();
   void explorer?.open(key);
   if (!key) {
-    focusDoc.setValue("");
-    savedText = "";
-    renderFocus();
     return;
   }
   status.textContent = `Reading ${skinName(key)}…`;
   try {
     const { snapshot } = await load(key, true);
-    if (focused !== key) return;
+    if (focused !== key || ticket !== focusTicket) return;
+    focusState = "ready";
     diskRevision = snapshot.revision;
     focusDoc.files =
       skinByKey(key)?.origin === "lazer"
@@ -638,6 +665,8 @@ async function focus(key: string | null) {
     savedText = focusDoc.getValue();
     status.textContent = "";
   } catch (error) {
+    if (focused !== key || ticket !== focusTicket) return;
+    focusState = "error";
     status.textContent = message(error);
   }
   renderFocus();
@@ -699,7 +728,7 @@ function renderFocus() {
   useBase.setAttribute("aria-pressed", String(isBase));
   useBase.textContent = isBase ? "Mix base" : "Use as mix base";
   const focusOsk = $<HTMLButtonElement>("#focus-osk");
-  focusOsk.disabled = !entry || !canWrite();
+  focusOsk.disabled = !entry || !canWrite() || focusState !== "ready";
   focusOsk.title = canWrite() ? "" : "Read-only tab";
   renderColours();
   $("#guide").hidden = !!focused || view !== "elements";
@@ -1181,26 +1210,49 @@ function scheduleCompose() {
   clearTimeout(composeTimer);
   composeTimer = window.setTimeout(() => void recompose(), 150);
 }
-async function composeNow(fresh = false, inPlace = false) {
-  const keys = recipeSkins(recipe);
+interface DraftCapture {
+  recipe: Recipe;
+  text: string;
+  edited: boolean;
+  generation: number;
+}
+function captureDraft(): DraftCapture {
+  return {
+    recipe: structuredClone(recipe),
+    text: mixDoc.getValue(),
+    edited: mixEdited(),
+    generation: keymodeGenerations.captureDraft(recipe, "draft", mixDoc.getValue()),
+  };
+}
+function draftCurrent(capture: DraftCapture) {
+  return capture.generation === keymodeGenerations.captureDraft(recipe, "draft", mixDoc.getValue());
+}
+function requireDraft(capture: DraftCapture) {
+  if (!draftCurrent(capture)) throw new Error("The draft changed while loading; the stale operation was not applied.");
+}
+async function composeNow(fresh = false, inPlace = false, capture = captureDraft()) {
+  const snapshot = capture.recipe;
+  const keys = recipeSkins(snapshot);
   const map = new Map<string, SkinData>();
   for (const key of keys) {
     if (!skinByKey(key)?.available)
       throw new Error(`${skinName(key)} is unavailable`);
     map.set(key, (await load(key, fresh)).data);
+    requireDraft(capture);
   }
-  return compose(inPlace ? { ...recipe, inPlace } : recipe, map);
+  return compose(inPlace ? { ...snapshot, inPlace } : snapshot, map);
 }
 /**
  * The plan to build: the composed files with the draft skin.ini if edited.
  * `inPlace` composes it for the base itself, which keeps its [General].
  */
-async function planNow(fresh = false, inPlace = false): Promise<Plan> {
-  const { plan } = await composeNow(fresh, inPlace);
-  if (mixEdited() && mixDoc.getValue())
-    plan.ini = inPlace && recipe.base
-      ? keepGeneral(mixDoc.getValue(), (await load(recipe.base, fresh)).data.text, recipe.name)
-      : mixDoc.getValue();
+async function planNow(fresh = false, inPlace = false, capture = captureDraft()): Promise<Plan> {
+  const { plan } = await composeNow(fresh, inPlace, capture);
+  if (capture.edited && capture.text)
+    plan.ini = inPlace && capture.recipe.base
+      ? keepGeneral(capture.text, (await load(capture.recipe.base, fresh)).data.text, capture.recipe.name)
+      : capture.text;
+  requireDraft(capture);
   return plan;
 }
 
@@ -1365,12 +1417,13 @@ const currentKey = () =>
   library?.skins.find((s) => s.current && editable(s))?.key ?? null;
 
 /** The apply request for the draft as it is now: composed for the base itself. */
-async function applyRequest(fresh: boolean) {
-  const target = recipe.base;
+async function applyRequest(fresh: boolean, capture = captureDraft()) {
+  const target = capture.recipe.base;
   if (!target) throw new Error("The draft has no base skin to apply to");
-  const plan = await planNow(fresh, true);
+  const plan = await planNow(fresh, true, capture);
   plan.name = skinName(target);
   const base = (await load(target, fresh)).data;
+  requireDraft(capture);
   return { skin: target, plan, remove: inPlaceRemovals(plan, base) };
 }
 
@@ -1643,20 +1696,24 @@ function confirmApply(next: Review): Promise<boolean> {
 
 async function applyNow() {
   const result = $("#mix-result");
+  const capture = captureDraft();
   applying = true;
   renderApply();
   try {
     // Re-read the skin so the review matches the files on disk now.
-    const body = await applyRequest(true);
+    const body = await applyRequest(true, capture);
     const next = await post<Review>("v1/review", body);
+    requireDraft(capture);
     if (!next.changes.length) {
       result.replaceChildren(h("p", { class: "v-muted" }, "Nothing to apply"));
       return;
     }
     if (!applyConfirmed) {
       if (!(await confirmApply(next))) return;
+      requireDraft(capture);
       applyConfirmed = true;
     }
+    requireDraft(capture);
     const applied = await post<Applied>("v1/apply", { ...body, revision: next.revision });
     const n = plural(applied.changes.length, "change");
     result.replaceChildren(
@@ -1682,11 +1739,13 @@ async function applyNow() {
                 h("p", { class: "v-mono v-muted" }, applied.file ?? ""),
               ]),
     );
-    clearDraft();
-    loaded.delete(recipe.base ?? "");
+    const current = draftCurrent(capture);
+    if (current) clearDraft();
+    else result.append(h("span", { class: "v-badge", title: "The reviewed snapshot was applied. Newer edits remain in the draft with their history." }, "Newer edits kept"));
+    loaded.delete(body.skin);
     await loadLibrary();
     await refreshLastApply();
-    if (focused === recipe.base) await focus(focused);
+    if (current && focused === body.skin && !focusDirty()) await focus(body.skin);
     scheduleCompose();
   } catch (error) {
     result.replaceChildren(h("p", { class: "error" }, message(error)));
@@ -1791,10 +1850,14 @@ $("#restore").onclick = async () => {
  * is kept; the `[Mania]` keys a Keymodes change `touched` are written into
  * it too, with the values the composed skin.ini has for them.
  */
+let composeTicket = 0;
 async function recompose(touched?: { keys: number; names: string[] }) {
+  const ticket = ++composeTicket;
+  const capture = captureDraft();
   try {
-    const composed = await composeNow();
-    const wasEdited = mixEdited();
+    const composed = await composeNow(false, false, capture);
+    if (ticket !== composeTicket || !draftCurrent(capture)) return;
+    const wasEdited = capture.edited;
     composedIni = composed.plan.ini;
     counts = composed.counts;
     blanks = composed.plan.blanks.length;
@@ -1812,10 +1875,10 @@ async function recompose(touched?: { keys: number; names: string[] }) {
       ...composed.plan.blanks.map((item) => item.to),
     ])];
     composeError = "";
-    if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(recipe.ini ?? composedIni);
+    if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(capture.recipe.ini ?? composedIni);
     else if (touched) {
       const { keys, names } = touched;
-      let text = mixDoc.getValue();
+      let text = capture.text;
       // A key count added on the Keymodes screen has a block even without keys.
       if (blockKeyCounts(parse(composedIni)).includes(keys))
         text = addManiaBlock(text, keys);
@@ -1824,6 +1887,7 @@ async function recompose(touched?: { keys: number; names: string[] }) {
       mixDoc.setValue(text);
     }
   } catch (error) {
+    if (ticket !== composeTicket || !draftCurrent(capture)) return;
     composeError = message(error);
   }
   mixVersion++;
@@ -3057,7 +3121,7 @@ setInterval(async () => {
   if (document.hidden) return;
   // Lazer skins appear once lazer-library has read lazer's database.
   if (library?.lazer.enabled && library.lazer.error) await loadLibrary();
-  if (saving || !focused) return;
+  if (saving || !focused || focusState !== "ready") return;
   const skin = skinByKey(focused);
   if (!skin || skin.origin === "lazer" || skin.origin === "osk") return;
   try {
