@@ -435,12 +435,23 @@ try {
   page.on("requestfinished", (request: any) => {
     if (request.url().includes("/v1/derive")) served.push(Math.round(request.timing().responseEnd));
   });
+  // The draft's stored 7K values: a change is done once it is stored (the
+  // field shows the typed value and the status can still be the previous
+  // column's identical "Width N · kept proportions" before that).
+  const stored7 = async () => JSON.parse(await page.evaluate(() => localStorage.getItem("skin-studio:recipe") ?? "{}")).keymodes?.["7"]?.values ?? {};
   const setWidth = async (c: number, value: number) => {
     const start = performance.now();
     await width(c).fill(String(value));
     await width(c).press("Tab");
-    await until(async () => (await width(c).inputValue()) === String(value) && (await kmState()).startsWith(`Width ${value} · kept proportions`), `column ${c} width`, 60000).catch(async (error) => {
-      throw new Error(`${error.message}: state "${await kmState()}", error "${await page.locator("#km-error").textContent()}", value ${await width(c).inputValue()}`);
+    await until(
+      async () =>
+        (await width(c).inputValue()) === String(value) &&
+        String((await stored7()).ColumnWidth ?? "").split(",")[c - 1]?.trim() === String(value) &&
+        (await kmState()).startsWith(`Width ${value} · kept proportions`),
+      `column ${c} width`,
+      60000,
+    ).catch(async (error) => {
+      throw new Error(`${error.message}: state "${await kmState()}", error "${await page.locator("#km-error").textContent()}", value ${await width(c).inputValue()}, stored ${(await stored7()).ColumnWidth}`);
     });
     timings.push(Math.round(performance.now() - start));
   };
@@ -468,9 +479,10 @@ try {
   check("Widening every column cuts nothing and reports nothing", widened === "", widened || "(none)");
   const bodies = await Promise.all(Array.from({ length: 7 }, (_, c) => label(`NoteImage${c}L`)));
   const hpBefore = await hitValue();
-  await page.locator("#km-hit .km-hit__value").first().fill(String(Number(hpBefore) - 5));
+  const hpTarget = String(Number(hpBefore) - 5);
+  await page.locator("#km-hit .km-hit__value").first().fill(hpTarget);
   await page.keyboard.press("Enter");
-  await until(async () => (await hitValue()) !== hpBefore, "hit position after widths", 30000);
+  await until(async () => (await hitValue()) === hpTarget && (await stored7()).HitPosition === hpTarget, "hit position after widths", 30000);
   await page.waitForTimeout(500);
   const afterHit = await kmError();
   await page.locator("#km-error").scrollIntoViewIfNeeded().catch(() => undefined);
@@ -478,7 +490,7 @@ try {
   const bodiesAfter = await Promise.all(Array.from({ length: 7 }, (_, c) => label(`NoteImage${c}L`)));
   check("After a width change, a HitPosition change leaves the hold bodies alone and reports nothing", afterHit === "" && bodiesAfter.every((b, c) => b === bodies[c]), afterHit || "no message");
   await page.keyboard.press("Control+z");
-  await until(async () => (await hitValue()) === hpBefore, "hit position undo", 30000);
+  await until(async () => (await hitValue()) === hpBefore && (await stored7()).HitPosition === hpBefore, "hit position undo", 30000);
   const first = timings[0],
     order = [...timings];
   timings.sort((a, b) => a - b);
