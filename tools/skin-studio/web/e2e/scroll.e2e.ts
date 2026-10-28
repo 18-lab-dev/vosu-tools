@@ -227,7 +227,7 @@ const check = (name: string, ok: unknown, detail?: unknown) => {
 };
 const browser = await chromium.launch({
   headless: true,
-  args: ["--enable-unsafe-webgpu", "--ignore-gpu-blocklist", "--use-angle=vulkan", "--enable-features=Vulkan", "--disable-vulkan-surface"],
+  args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"],
 });
 const errors: string[] = [];
 async function open(id: string, init?: string) {
