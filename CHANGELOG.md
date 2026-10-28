@@ -4,6 +4,7 @@
 
 - Skin studio's Keymodes picker reuses one image inventory index across its units, keeping large-skin geometry refreshes linear instead of rebuilding the complete index once per image, and retains unchanged thumbnail nodes across refreshes. Composition normalizes retained-image filenames and compiles each reference matcher once. Programmatic publication no longer schedules a duplicate delayed skin decode and texture upload.
 - Returning Keymodes geometry preferences to their defaults removes empty inherited count drafts and their dirty state, while explicitly added key counts remain present. Undo/Redo preserves the exact prior recipe.
+- Restore last apply stays available for the base skin regardless of the selected destination. If changing the base forces Apply to an export destination, that destination change shares the base's Undo/Redo step.
 - Skin studio's **Discard hand edits** confirms the affected skin.ini line count and is one draft Undo/Redo step. Read-only selected-skin text explains how to edit the draft and offers a switch there; missing-image Problems name the referenced file.
 - Calibration proposals keep their own HitPosition baseline and become **Applied** without another action until calibrated again, including hold tails. Width changes report HitPosition side effects and keep the proportions toggle with Column values.
 - Missing-source recovery has one visible, named banner above the main content on every tab; replacement choices keep technical IDs in hovers, remapping confirms its slot count and repairs unavailable image pickers.

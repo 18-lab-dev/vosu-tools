@@ -1388,18 +1388,30 @@ function draftChanged() {
 /** One whole-recipe undo step across the draft's editors. */
 function edit(label: string, mutate: () => void) {
   const before = JSON.stringify(recipe);
+  const destinationBefore = { value: exportTarget.value, automatic: applyDefault, saved: localStorage.getItem(EXPORT_KEY) };
   mutate();
   const after = JSON.stringify(recipe);
   if (after === before) return;
   const recipes: Recipe[] = [JSON.parse(before), JSON.parse(after)];
+  let destinationAfter = destinationBefore;
+  const restore = (text: string, exact: boolean, destination: typeof destinationBefore) => {
+    restoreDraft(text, exact);
+    if (recipes[0].base === recipes[1].base || destinationBefore.value === destinationAfter.value) return;
+    exportTarget.value = destination.value;
+    applyDefault = destination.automatic;
+    if (destination.saved === null) localStorage.removeItem(EXPORT_KEY);
+    else localStorage.setItem(EXPORT_KEY, destination.saved);
+    renderApply();
+  };
   record({
     label,
     drafts: recipes.flatMap((r) => Object.values(r.keymodes ?? {})),
     recipes,
-    undo: () => restoreDraft(before, true),
-    redo: () => restoreDraft(after),
+    undo: () => restore(before, true, destinationBefore),
+    redo: () => restore(after, false, destinationAfter),
   });
   draftChanged();
+  destinationAfter = { value: exportTarget.value, automatic: applyDefault, saved: localStorage.getItem(EXPORT_KEY) };
 }
 function restoreDraft(text: string, exact = false) {
   const base = recipe.base;

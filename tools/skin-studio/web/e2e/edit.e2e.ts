@@ -323,6 +323,21 @@ try {
   // (what the service writes when a restore step fails; the failure itself
   // is covered by apply.rs's fault-injection tests).
   await until(() => page.locator("#restore").isVisible(), "restore button");
+  await page.selectOption("#export-target", "osk");
+  check("Restore remains visible when an export destination is selected", await page.locator("#restore").isVisible());
+  await page.selectOption("#export-target", "apply");
+  const beforeBaseChange = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  await page.selectOption("#mix-base", "#none");
+  const forcedDestination = await page.locator("#export-target").inputValue();
+  check("No base cannot keep Apply selected", forcedDestination !== "apply");
+  await page.click("#km-undo");
+  await until(() => page.locator("#restore").isVisible(), "restore after undoing No base");
+  check("Base Undo restores Apply and the last-apply restore action", await page.locator("#export-target").inputValue() === "apply" && await page.locator("#restore").isVisible());
+  check("Base Undo restores the exact recipe", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === beforeBaseChange);
+  await page.click("#km-redo");
+  check("Base Redo restores the forced destination with No base", await page.locator("#mix-base").inputValue() === "#none" && await page.locator("#export-target").inputValue() === forcedDestination);
+  await page.click("#km-undo");
+  await until(() => page.locator("#restore").isVisible(), "restore after second base undo");
   writeFileSync(join(LAB, manifests[0]), JSON.stringify({ ...manifest, status: "rollback_incomplete", failed: [{ path: "skin.ini", error: "injected: file in use" }] }, null, 2));
   await page.goto("about:blank");
   await page.goto(await launch("dark"));
