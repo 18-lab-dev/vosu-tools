@@ -306,14 +306,34 @@
   flex-wrap: wrap;
   gap: var(--space-1);
 }
-/* A tile's actions show on hover or keyboard focus; a tile already in the
-   mix keeps its pressed "In mix". Their room stays reserved, so nothing moves. */
+/* With a pointer that hovers, a tile's actions show on hover or keyboard
+   focus, over the top of its image (no row of buttons under every tile); a
+   tile already in the mix keeps its pressed "In mix". Sound tiles keep their
+   row, the actions fading in place. */
 @media (hover: hover) {
-  .tile :is(.use, .files) {
+  .tile {
+    position: relative;
+  }
+  .tile-actions {
+    position: absolute;
+    top: var(--space-1);
+    left: var(--space-1);
+    max-width: calc(100% - 2 * var(--space-1));
+    padding: var(--space-1);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    box-shadow: var(--shadow);
+  }
+  .tile-actions,
+  .tile.audio :is(.use, .files) {
     transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
   }
-  .tile:not(:hover, :focus-within) :is(.use:not([aria-pressed="true"]), .files) {
+  .tile:not(:hover, :focus-within) .tile-actions:not(:has(.use[aria-pressed="true"])),
+  .tile.audio:not(:hover, :focus-within) :is(.use:not([aria-pressed="true"]), .files) {
     opacity: 0;
+  }
+  .tile:not(:hover, :focus-within) .tile-actions .files {
+    display: none;
   }
 }
 .tile.found {
