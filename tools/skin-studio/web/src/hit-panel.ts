@@ -17,7 +17,7 @@ import {
   type CalibrationOffsets,
 } from "./calibrate";
 import { $, h } from "./dom";
-import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
+import { needsGeometryRebase, type KeymodeDraft, type Slot, type SlotImage } from "./keymodes";
 import { lookupFiles } from "./mania";
 import {
   type Dims,
@@ -320,10 +320,21 @@ export class HitPanel {
       return this.#setWidths(widths, label);
     });
   }
+  #needsRebase(draft: KeymodeDraft | undefined) {
+    if (!draft?.hit) return false;
+    const resolved = this.#host.resolved();
+    return needsGeometryRebase(draft, (key) => {
+      const image = resolved.find((r) => r.key === key);
+      return image ? this.#mixImage(image) : null;
+    });
+  }
+
   async #setWidths(widths: string[], label: string) {
     const keys = this.#host.keys();
     const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
-    if (widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
+    const draft = this.#host.draft();
+    const rebase = this.#needsRebase(draft);
+    if (!rebase && widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
     const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
     if (this.#host.draft()?.keepProportions === false) {
       if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
@@ -333,7 +344,7 @@ export class HitPanel {
     // Scales against the widths the pieces had when first captured (the
     // originals), so changing columns one by one ends where changing them
     // all at once would: HitPosition follows the scale most columns have.
-    const originals = Object.entries(this.#host.draft()?.hit?.originals ?? {});
+    const originals = Object.entries(rebase ? {} : draft?.hit?.originals ?? {});
     const base = config.columnWidth.map((w, i) => originals.find(([k, o]) => pieceOf(k) && columnOf(k) === i && o.width)?.[1].width ?? w);
     const valid = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
     const was = referenceScale(config.columnWidth.map((w, i) => valid(w / base[i])));
@@ -442,7 +453,7 @@ export class HitPanel {
       const target = Number(values.HitPosition ?? current);
       const widthsChange = now.columnWidth.some((w, i) => w !== then.columnWidth[i]) || now.noteHeightWidth !== then.noteHeightWidth;
       const draft = this.#host.draft();
-      const hit = structuredClone(draft?.hit) ?? { originals: {} };
+      const hit = this.#needsRebase(draft) ? { originals: {} } : structuredClone(draft?.hit) ?? { originals: {} };
       // Pieces not changed yet are captured as they are now, with the draft's
       // own slot so that going back restores exactly that. Keys always (the
       // hit line moves them); notes and hold pieces once widths change.
