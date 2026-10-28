@@ -317,12 +317,14 @@ for (let keys = 1; keys <= 10; keys++) {
   };
   for (const op of ["mirror", "pattern", "all", "assign", "copy"]) test(`${keys}K ${op} establishes a coherent shared capture epoch`, () => {
     const draft = seeded();
+    const before = structuredClone(draft);
     const image = (key: string) => draft.images[key] ?? null;
     if (op === "mirror") assignImageSlots(draft, mirror(keys, image));
     else if (op === "pattern") assignImageSlots(draft, defaultPattern(keys, image));
     else if (op === "all") assignImageSlots(draft, applyToAll(keys, "KeyImage#", 0, image));
     else if (op === "assign") assignSlots(draft, ["KeyImage0"], { value: "new" });
     else applyStageCopy(draft, copyStage(keys, keys, image, () => undefined));
-    expect(draft.hit).toBeUndefined();
+    if (keys === 1 && (op === "mirror" || op === "pattern" || op === "all")) expect(draft).toEqual(before);
+    else expect(draft.hit).toBeUndefined();
   });
 }
