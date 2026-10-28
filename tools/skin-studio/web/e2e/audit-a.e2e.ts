@@ -218,7 +218,16 @@ try {
     heldCleanups.push(async () => { pending.resolve(); await page.unroute(pattern, handler); });
     return { get ready() { return until(() => !first, `response barrier ${pattern}`, 15000); }, release: async () => { pending.resolve(); await finished.promise; await page.unroute(pattern, handler); await page.waitForTimeout(300); } };
   };
-  const editorText = () => page.locator("#editor .view-lines").innerText();
+  const editorText = async () => {
+    // Monaco virtualizes visible lines; native Copy reads the whole model,
+    // not a viewport-dependent fragment or a production test hook.
+    await page.locator("#editor textarea").first().focus();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+c");
+    const text = await page.evaluate(() => navigator.clipboard.readText());
+    await page.keyboard.press("ArrowRight");
+    return text.replace(/\r\n/g, "\n");
+  };
 
   await scenario("editor-typing-latency", async () => {
     await reset(); await pick(opt.skin!); await page.click("#use-base");
@@ -344,7 +353,8 @@ try {
   await scenario("late-composition-and-plan", async () => {
     await reset(); await pick(opt.other!); await page.click("#use-base");
     await page.click("#tab-ini");
-    const baseline = await editorText();
+    const baseline = (await plan("late-baseline")).ini.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+    await until(async () => await editorText() === baseline, "baseline editor composition");
     const barrier = await hold("**/api/v1/skin?*", (route) => new URL(route.request().url()).searchParams.get("skin") === TARGET);
     await page.locator("#skins .skin", { hasText: "Audit Target" }).click();
     await barrier.ready; await page.click("#use-base"); await page.waitForTimeout(250);
@@ -355,7 +365,9 @@ try {
     await pick(opt.other!); await page.click("#use-base"); await page.waitForTimeout(350);
     const newer = await editorText();
     await barrier.release();
-    check("Late composition leaves the newer draft visible", await editorText() === newer && newer === baseline);
+    const after = await editorText();
+    writeFileSync(join(out, "late-composition-buffers.json"), JSON.stringify({ baseline, newer, after }, null, 2));
+    check("Late composition leaves the newer draft visible", after === newer && newer === baseline);
     check("A stale plan is rejected instead of exporting mixed snapshots", downloads.length === 0);
     page.off("download", receive);
   });
