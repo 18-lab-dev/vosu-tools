@@ -358,6 +358,9 @@ window.addEventListener("keydown", (event) => {
 const focusDirty = () => focused !== null && focusDoc.getValue() !== savedText;
 const mixEdited = () => mixDoc.getValue() !== composedIni;
 
+let previousProblemErrors = 0;
+$("#problem-severity").onchange = () => renderIni();
+$("#problem-filter").oninput = () => renderIni();
 function renderSourceExport() {
   const button = $<HTMLButtonElement>("#focus-osk");
   button.textContent = focusDirty() ? "Export edited .osk" : "Export selected .osk";
@@ -418,10 +421,18 @@ function renderIni() {
   if (view !== "ini") return;
   const issues = (model.issues = validate(model.getValue(), model.files));
   iniEditor?.mark(model);
-  $("#issue-count").textContent = String(issues.length);
+  const errors = issues.filter((issue) => issue.severity === "error").length;
+  const warnings = issues.length - errors;
+  $("#issue-count").textContent = `${errors} error${errors === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`;
+  const drawer = $<HTMLDetailsElement>("#ini-problems");
+  if (errors && !previousProblemErrors) drawer.open = true;
+  previousProblemErrors = errors;
+  const severity = $<HTMLSelectElement>("#problem-severity").value;
+  const query = $<HTMLInputElement>("#problem-filter").value.trim().toLowerCase();
+  const shown = issues.filter((issue) => (severity === "all" || issue.severity === severity) && `L${issue.line} ${issue.message}`.toLowerCase().includes(query));
   $("#diagnostics").replaceChildren(
-    ...(issues.length
-      ? issues.map((d) =>
+    ...(shown.length
+      ? shown.map((d) =>
           h(
             "li",
             { class: d.severity },
@@ -436,7 +447,7 @@ function renderIni() {
             ),
           ),
         )
-      : [h("li", { class: "clean" }, "No problems.")]),
+      : [h("li", { class: "clean" }, issues.length ? "No matching problems." : "No problems.")]),
   );
 }
 focusDoc.onDidChangeContent(() => {
