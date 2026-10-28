@@ -15,7 +15,7 @@ import {
   type Speed,
   type CalibrationOffsets,
 } from "./calibrate";
-import { $, h } from "./dom";
+import { $, h, helpTip } from "./dom";
 import { needsGeometryRebase, type KeymodeDraft, type Slot, type SlotImage } from "./keymodes";
 import { imageUnitFiles } from "./mania";
 import {
@@ -106,6 +106,8 @@ export class HitPanel {
   #calibrationErrors: Partial<Record<"press" | "release", string>> = {};
   #holdReview?: { calibration: Calibration; generation: number; pending: boolean; warnings: string[]; error?: string };
   #newestPlay = 0;
+  /** The newest calibration read (either group): its play is the Last play shown. */
+  #lastRead?: Calibration;
   #busy = false;
 
   constructor(host: HitHost) {
@@ -125,6 +127,7 @@ export class HitPanel {
     if (!keys) {
       root.replaceChildren();
       ln.replaceChildren();
+      this.#renderPlay();
       return;
     }
     // Focus survives the re-render: the control with the same label.
@@ -174,7 +177,8 @@ export class HitPanel {
       h(
         "div",
         { class: "km-hit__row" },
-        h("label", { class: "km-hit__label", title: note }, "HitPosition", input),
+        h("label", { class: "km-hit__label" }, "HitPosition", input),
+        helpTip(note, "right"),
       ),
       this.#moveRow(),
       this.#keepRow(),
@@ -198,14 +202,49 @@ export class HitPanel {
       ...this.#proposal("press"),
     );
     ln.replaceChildren(
-      h("p", { class: "v-muted" }, "Release timings calibrate hold tails and LN length, independently of hit position. Uses the scroll speed above."),
-      h("button", {
-        type: "button", class: "v-btn v-btn--sm", id: "km-calibrate-ln",
-        disabled: this.#busy || !speed,
-        title: speed ? "Reads the newest completed local osu!mania play" : "Set your scroll speed in Hit position first",
-        onclick: () => void this.#calibrate("release"),
-      }, "Calibrate LN length"),
+      h(
+        "div",
+        { class: "km-hit__row" },
+        h("button", {
+          type: "button", class: "v-btn v-btn--sm", id: "km-calibrate-ln",
+          disabled: this.#busy || !speed,
+          title: speed ? "Reads the newest completed local osu!mania play" : "Set your scroll speed in Hit position first",
+          onclick: () => void this.#calibrate("release"),
+        }, "Calibrate LN length"),
+      ),
       ...this.#proposal("release"),
+    );
+    this.#renderPlay();
+  }
+
+  /**
+   * One Last play block for both groups (above them): the play the newest
+   * calibration read, as labels; its replay file and date are in the title.
+   */
+  #renderPlay() {
+    const root = $("#km-play");
+    const c = this.#lastRead;
+    root.hidden = !c || !this.#host.keys();
+    if (!c) return root.replaceChildren();
+    const meta = c.map.metadata;
+    const date = playDate(c.play.date, this.#newestPlay);
+    this.#newestPlay = Math.max(this.#newestPlay, date.timestamp || 0);
+    root.replaceChildren(
+      h("span", { class: "v-label" }, "Last play"),
+      h(
+        "span",
+        { class: "km-play__map", title: [c.play.source, date.absolute].filter(Boolean).join("\n") },
+        `${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}]`,
+      ),
+      h("span", { class: "v-muted km-play__meta" }, `${c.keys}K · osu!${c.play.client} · speed ${c.speed.speed} · ${date.relative}`),
+      ...(date.stale
+        ? [h(
+            "span",
+            { class: "km-play__old" },
+            "Older play",
+            helpTip("Only completed, saved osu!mania scores with replays are read: this may not be your latest attempt.", "left"),
+          )]
+        : []),
     );
   }
 
@@ -222,8 +261,8 @@ export class HitPanel {
       else draft.moveReceptors = false;
     });
     return h("div", { class: "km-hit__row" },
-      h("label", { class: "km-hit__check", title: "Off: only the note landing line moves. Receptor images stay in place, including when calibrating. Width changes still rescale images." },
-        box, " Move receptors with HitPosition"));
+      h("label", { class: "km-hit__check" }, box, " Move receptors with HitPosition"),
+      helpTip("Off: only the note landing line moves. Receptor images stay in place, including when calibrating. Width changes still rescale images.", "right"));
   }
 
   /** "Keep proportions when changing column width", per key count (on by default). */
@@ -683,7 +722,7 @@ export class HitPanel {
       const replay = await parseReplay(bytes);
       const { map, simulation } = judgeReplay(replay, parseOsu(play.osu));
       const rate = replayRate(replay);
-      this.#calibrations[kind] = {
+      this.#calibrations[kind] = this.#lastRead = {
         play,
         map,
         keys: maniaColumns(map),
@@ -736,13 +775,14 @@ export class HitPanel {
   #proposal(kind: "press" | "release"): Node[] {
     const c = this.#calibrations[kind];
     if (!c) return this.#calibrationErrors[kind] ? [h("p", { class: "km-hit__warn", role: "alert" }, this.#calibrationErrors[kind]!)] : [];
-    const meta = c.map.metadata;
-    const title = `${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}]`;
     const keys = this.#host.keys();
-    const head = h("p", { class: "km-hit__play" }, `Last play: ${title}, ${c.keys}K, osu!${c.play.client} (${c.play.source}), speed ${c.speed.speed}`);
-    const date = playDate(c.play.date, this.#newestPlay);
-    this.#newestPlay = Math.max(this.#newestPlay, date.timestamp || 0);
-    const out: Node[] = [head, h("p", { class: date.stale ? "km-hit__warn" : "v-muted" }, date.text)];
+    // The play is named once, above both groups; a proposal from an older read says so.
+    const out: Node[] = [];
+    const latest = this.#lastRead;
+    if (latest && (latest.play.source !== c.play.source || latest.play.date !== c.play.date)) {
+      const meta = c.map.metadata;
+      out.push(h("p", { class: "km-hit__warn" }, "From an earlier play", helpTip(`${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}], ${playDate(c.play.date).relative}. Calibrate again for the last play.`, "right")));
+    }
     if (c.keys !== keys)
       return [...out, h("p", { class: "km-hit__warn" }, `It was played on ${c.keys}K: calibrations apply only to that key count. Select ${c.keys}K.`)];
     // `what` is the plural noun (`hits`); one of them reads `1 hit`.
@@ -772,9 +812,11 @@ export class HitPanel {
     }
     if (kind === "press") return out;
     // Hold tails.
-    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${plural(c.release.total, "hold release")} used; ${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`));
+    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${plural(c.release.total, "hold release")} used`,
+      helpTip(`${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`, "right")));
     if (c.release.veryLate)
-      out.push(h("p", { class: "km-hit__warn" }, `${plural(c.release.veryLate, "very late release")} included, as stable judges them.`));
+      out.push(h("p", { class: "km-hit__warn" }, `${plural(c.release.veryLate, "very late release")} included`,
+        helpTip("Counted as osu!stable judges them.", "right")));
     if (!c.release.total) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
     else if (c.release.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${plural(c.release.count, "release")}; at least ${MIN_HITS} are needed.`));

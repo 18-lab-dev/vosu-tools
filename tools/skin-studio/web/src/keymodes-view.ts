@@ -342,6 +342,9 @@ export class KeymodesView {
     $("#km-grid").onkeydown = (event) => this.#gridKey(event);
     $("#km-shared-grid").onkeydown = (event) => this.#gridKey(event);
     new ResizeObserver(() => this.#renderColumns()).observe($("#km-stage"));
+    // A group's help (i) explains it; clicking the (i) does not open the group.
+    for (const help of document.querySelectorAll<HTMLElement>("#keymodes-view summary > .v-help"))
+      help.addEventListener("click", (event) => event.preventDefault());
     // Column tools closes when the user acts anywhere else.
     document.addEventListener("click", (event) => {
       const menu = document.querySelector<HTMLDetailsElement>("#keymodes-view details.km-copy-menu[open]");

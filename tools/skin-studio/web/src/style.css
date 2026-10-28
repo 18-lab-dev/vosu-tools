@@ -1546,12 +1546,37 @@
 .km-hit__note {
   min-width: 0;
 }
-.km-hit__play {
-  margin: 0;
-  font-weight: 600;
-}
 .km-hit__warn {
   margin: 0;
+  color: var(--caution);
+}
+.km-hit__body p > .v-help,
+.km-sheet summary > .v-help {
+  margin-left: var(--space-1);
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* The play both calibrations read, once, above their groups. */
+.km-play {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  margin-top: var(--space-3);
+  font-size: var(--step--1);
+}
+.km-play[hidden] {
+  display: none;
+}
+.km-play__map {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.km-play__old {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
   color: var(--caution);
 }
 

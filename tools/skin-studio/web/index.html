@@ -311,12 +311,23 @@
               <div class="v-scroll km-sheet">
                 <div id="km-grid" class="km-grid" role="grid" aria-multiselectable="true" aria-label="Column images and values"></div>
                 <p id="km-error" class="km-error" role="alert" hidden></p>
+                <div id="km-play" class="km-play" hidden></div>
                 <details class="km-hit">
                   <summary class="v-label">Hit position</summary>
                   <div id="km-hit" class="km-hit__body"></div>
                 </details>
                 <details class="km-hit">
-                  <summary class="v-label">LN length</summary>
+                  <summary class="v-label">
+                    LN length
+                    <span
+                      class="v-help"
+                      tabindex="0"
+                      role="img"
+                      data-tip-pos="right"
+                      aria-label="Release timings calibrate hold tails and LN length, independently of hit position, at the scroll speed in Hit position."
+                      data-tip="Release timings calibrate hold tails and LN length, independently of hit position, at the scroll speed in Hit position."
+                    ></span>
+                  </summary>
                   <div id="km-ln" class="km-hit__body"></div>
                 </details>
                 <details class="km-shared">
