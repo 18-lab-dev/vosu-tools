@@ -146,20 +146,15 @@ export class HitPanel {
       ariaLabel: `${keys}K HitPosition`,
       disabled: this.#busy || !this.#host.canWrite(),
     });
-    input.onchange = () => void this.setHitPosition(Number(input.value));
-    const step = (by: number, label: string) =>
-      h(
-        "button",
-        {
-          type: "button",
-          class: "v-btn v-btn--sm v-btn--icon",
-          ariaLabel: `${label} (receptors move ${by < 0 ? "up" : "down"} 8 px, 16 px @2x)`,
-          title: `${by > 0 ? "+" : ""}${by}: receptors move ${by < 0 ? "up" : "down"} ${Math.abs(by) * 1.6} px (${Math.abs(by) * 3.2} px @2x)`,
-          disabled: this.#busy || !this.#host.canWrite(),
-          onclick: () => void this.setHitPosition(this.#current() + by),
-        },
-        by > 0 ? "+5" : "−5",
-      );
+    input.onblur = () => {
+      if (!this.#busy && input.value !== String(current)) void this.setHitPosition(Number(input.value));
+    };
+    input.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      }
+    };
     // Hand moves only: a HitPosition a width change derived moves nothing
     // inside the receptor images (the scaling carries them).
     const hit = this.#host.draft()?.hit;
@@ -176,11 +171,9 @@ export class HitPanel {
       h(
         "div",
         { class: "km-hit__row" },
-        h("label", { class: "km-hit__label" }, "HitPosition", input),
-        step(-5, "Raise the hit line"),
-        step(5, "Lower the hit line"),
-        h("span", { class: "v-muted km-hit__note" }, note),
+        h("label", { class: "km-hit__label", title: note }, "HitPosition", input),
       ),
+      this.#moveRow(),
       this.#keepRow(),
       h(
         "div",
@@ -213,6 +206,23 @@ export class HitPanel {
     );
   }
 
+  /** Receptor movement is optional per key count; changing it is one undo step. */
+  #moveRow() {
+    const keys = this.#host.keys();
+    const box = h("input", {
+      type: "checkbox", id: "km-move-receptors",
+      checked: this.#host.draft()?.moveReceptors !== false,
+      disabled: this.#busy || !this.#host.canWrite(),
+    });
+    box.onchange = () => this.#host.change(`${box.checked ? "Move" : "Keep"} ${keys}K receptors with HitPosition`, (draft) => {
+      if (box.checked) delete draft.moveReceptors;
+      else draft.moveReceptors = false;
+    });
+    return h("div", { class: "km-hit__row" },
+      h("label", { class: "km-hit__check", title: "Off: only the note landing line moves. Receptor images stay in place, including when calibrating. Width changes still rescale images." },
+        box, " Move receptors with HitPosition"));
+  }
+
   /** "Keep proportions when changing column width", per key count (on by default). */
   #keepRow() {
     const keys = this.#host.keys();
@@ -226,14 +236,10 @@ export class HitPanel {
     return h(
       "div",
       { class: "km-hit__row" },
-      h("label", { class: "km-hit__check" }, box, " Keep proportions when changing column width"),
-      h(
-        "span",
-        { class: "v-muted km-hit__note" },
-        on
-          ? "Receptors, notes and hold pieces are rescaled so a wider or narrower column looks scaled, not stretched; HitPosition follows the receptors."
-          : "Off: osu! stretches receptors and notes across the column width.",
-      ),
+      h("label", {
+        class: "km-hit__check",
+        title: "Rescale receptors, notes and hold pieces uniformly when changing width. HitPosition follows the shared scale. With receptor movement off, skip HitPosition-driven image shifts; image rescaling still happens.",
+      }, box, " Keep proportions when changing column width"),
     );
   }
 
@@ -297,8 +303,17 @@ export class HitPanel {
     }
     const keys = this.#host.keys();
     await this.#serial("HitPosition", async () => {
-      if (target !== this.#current())
+      const current = this.#current();
+      if (target === current) return;
+      if (this.#host.draft()?.moveReceptors === false) {
+        if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
+        this.#host.change(`Set ${keys}K HitPosition to ${target} (receptors fixed)`, (draft) => {
+          draft.values.HitPosition = String(target);
+          if (draft.hit) draft.hit.detached = (draft.hit.detached ?? 0) + target - current;
+        });
+      } else {
         await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) }, true);
+      }
     });
   }
 
@@ -352,7 +367,7 @@ export class HitPanel {
     // The HitPosition the current one means at the original widths: the
     // captured one plus the hand moves (exact), else as the widths have it.
     const keyAt = originals.find(([k]) => pieceOf(k) === "key")?.[1].at;
-    const unscaled = keyAt !== undefined ? keyAt + (this.#host.draft()?.hit?.moved ?? 0) : 480 - (480 - this.#current()) / was;
+    const unscaled = keyAt !== undefined ? keyAt + (this.#host.draft()?.hit?.moved ?? 0) + (this.#host.draft()?.hit?.detached ?? 0) / was : 480 - (480 - this.#current()) / was;
     const hitPosition = hitPositionFor(unscaled, scale);
     if (hitPosition < 240 || hitPosition > 480)
       return this.#host.error(`Keeping proportions would put HitPosition at ${hitPosition}, outside 240–480.`);
@@ -430,7 +445,7 @@ export class HitPanel {
    * an older one still deriving.
    */
   /**
-   * `byHand`: a HitPosition edit (stepper, field, calibration), recorded in
+   * `byHand`: a HitPosition edit (field, calibration), recorded in
    * the draft as units moved at the captured widths (`hit.moved`) and done
    * as a move inside each key image's canvas. A width change records only
    * widths; the HitPosition it derives is reached by scaling, never replayed
@@ -464,7 +479,7 @@ export class HitPanel {
         const had = !!draft && r.key in draft.images;
         if (image)
           hit.originals[r.key] = {
-            at: current,
+            at: current - (hit.detached ?? 0),
             width: now.columnWidth[columnOf(r.key)],
             noteHeight: now.noteHeightWidth,
             slot: image,
@@ -478,6 +493,12 @@ export class HitPanel {
         const base = now.columnWidth.map((w, i) => Object.entries(hit.originals).find(([k, o]) => pieceOf(k) === "key" && columnOf(k) === i && o.width)?.[1].width ?? w);
         const scale = referenceScale(now.columnWidth.map((w, i) => (w > 0 && base[i] > 0 ? w / base[i] : 1)));
         hit.moved = (hit.moved ?? 0) + (target - current) / scale;
+      }
+      if (widthsChange && hit.detached) {
+        const base = now.columnWidth.map((w, i) => Object.entries(hit.originals).find(([k, o]) => pieceOf(k) === "key" && columnOf(k) === i && o.width)?.[1].width ?? w);
+        const was = referenceScale(now.columnWidth.map((w, i) => w / base[i]));
+        const scale = referenceScale(then.columnWidth.map((w, i) => w / base[i]));
+        hit.detached *= scale / was;
       }
       const geometry = (config: typeof now, hitPosition: number, column: number): Geometry => ({
         hitPosition,
@@ -507,7 +528,7 @@ export class HitPanel {
             // Left as it is, with the reason: nothing visible to scale, or an
             // operation the service would refuse (a guard).
             const blank = unchanged(files, dims);
-            const ops = blank ? null : pieceOps(piece, from, geometry(then, target, column), files, dims, hit.moved ?? 0);
+            const ops = blank ? null : pieceOps(piece, from, geometry(then, target - (hit.detached ?? 0), column), files, dims, hit.moved ?? 0, draft?.moveReceptors !== false);
             const why = blank ?? ops?.flatMap((o) => [o.pre, o.op]).map((op) => (op ? refused(op) : null)).find(Boolean) ?? null;
             if (why) skipped.push({ key, what: why === blank ? why : `${why}, left as it is` });
             return { key, original, ops: why ? null : ops };
@@ -548,7 +569,7 @@ export class HitPanel {
       // A newer change superseded this one.
       if (ticket !== this.#geometryTicket) return;
       const light = Number(maniaValue(text, keys, "LightPosition"));
-      if (values.HitPosition !== undefined && Number.isFinite(light) && light > 0 && target !== current)
+      if (draft?.moveReceptors !== false && values.HitPosition !== undefined && Number.isFinite(light) && light > 0 && target !== current)
         values = { ...values, LightPosition: String(Math.round(light + target - current)) };
       this.#host.change(label, (d) => {
         for (const [key, slot] of Object.entries(slots))
@@ -557,7 +578,7 @@ export class HitPanel {
         Object.assign(d.values, values);
         // Back where every image was made: nothing is changed any more.
         const shown = (key: string) => (key in slots ? slots[key] : d.images[key]);
-        if (Object.entries(hit.originals).every(([key, o]) => JSON.stringify(shown(key)) === JSON.stringify(o.had ? o.prior : undefined)))
+        if (!hit.detached && Object.entries(hit.originals).every(([key, o]) => JSON.stringify(shown(key)) === JSON.stringify(o.had ? o.prior : undefined)))
           delete d.hit;
         else d.hit = hit;
       });
@@ -669,10 +690,10 @@ export class HitPanel {
           h(
             "span",
             { title: "Calibration corrects your timing rather than matching it." },
-            `You pressed ${Math.abs(c.press.mean).toFixed(1)} ms ${c.press.mean >= 0 ? "late" : "early"} on average (${fmt(c.press, "hits")}) → ${target === current ? "no receptor movement needed" : `receptors ${px > 0 ? "up" : "down"} ${Math.abs(px)} px so you press ${c.press.mean >= 0 ? "earlier" : "later"} (HitPosition ${current} → ${target})`}`,
+            `You pressed ${Math.abs(c.press.mean).toFixed(1)} ms ${c.press.mean >= 0 ? "late" : "early"} on average (${fmt(c.press, "hits")}) → ${target === current ? "no HitPosition change needed" : `${this.#host.draft()?.moveReceptors === false ? "landing line" : "receptors"} ${px > 0 ? "up" : "down"} ${Math.abs(px)} px so you press ${c.press.mean >= 0 ? "earlier" : "later"} (HitPosition ${current} → ${target})${this.#host.draft()?.moveReceptors === false ? "; receptor images stay fixed" : ""}`}`,
           ),
           target !== current
-            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.setHitPosition(target) }, "Apply to receptors")
+            ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.setHitPosition(target) }, this.#host.draft()?.moveReceptors === false ? "Apply HitPosition" : "Apply to receptors")
             : null,
         ),
       );
