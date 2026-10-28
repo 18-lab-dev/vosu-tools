@@ -25,6 +25,7 @@ import {
   assignSlots,
   assignImageSlots,
   applyStageCopy,
+  type CopyRows,
   columnKey,
   copyStage,
   defaultPattern,
@@ -1845,6 +1846,10 @@ export class KeymodesView {
   async #copy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
     const from = Number($<HTMLSelectElement>("#km-copy-keys").value);
+    const rowsSelect = $<HTMLSelectElement>("#km-copy-rows");
+    const rows = rowsSelect.value as CopyRows;
+    // `Copy 7K notes & holds from …`; All reads as before.
+    const what = rows === "all" ? "" : ` ${rowsSelect.selectedOptions[0].text.toLowerCase()}`;
     if (!from || !this.#keys) return;
     const keys = this.#keys;
     const generation = this.#host.generation(keys);
@@ -1852,10 +1857,10 @@ export class KeymodesView {
     if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while copying; the stale copy was not applied.");
     const map = remapColumns(keys, from).map((c) => c + 1);
     const name = skin === MIX ? "this mix" : this.#host.skinName(skin);
-    this.#change(`Copy ${from}K from ${name}`, (draft) => applyStageCopy(draft, copied), keys);
+    this.#change(`Copy ${from}K${what} from ${name}`, (draft) => applyStageCopy(draft, copied, rows), keys);
     if (from !== keys)
       this.#state(
-        `Copied ${from}K from ${name} into ${keys}K: columns take ${map.join(", ")} (same column kind 1/2/S, nearest position)`,
+        `Copied ${from}K${what} from ${name} into ${keys}K: columns take ${map.join(", ")} (same column kind 1/2/S, nearest position)`,
       );
   }
 

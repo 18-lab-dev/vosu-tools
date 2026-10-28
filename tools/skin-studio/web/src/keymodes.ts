@@ -392,12 +392,25 @@ export function assignImageSlots(draft: KeymodeDraft, images: Record<string, Slo
   if (Object.keys(images).some((key) => pieceOf(key))) delete draft.hit;
 }
 
-/** Copies a stage as a new selection, never retaining an older stage's captures. */
-export function applyStageCopy(draft: KeymodeDraft, copied: KeymodeDraft) {
-  assignImageSlots(draft, copied.images);
-  Object.assign(draft.values, copied.values);
+/** What Copy from takes of a stage: everything, the key images, the note and hold images, or the values. */
+export type CopyRows = "all" | "keys" | "notes" | "values";
+const COPY_ROWS: Record<Exclude<CopyRows, "all" | "values">, RegExp> = {
+  keys: /^KeyImage\d+D?$/,
+  notes: /^NoteImage\d+[HLT]?$/,
+};
+
+/**
+ * Copies (the `rows` of) a stage as a new selection, never retaining an
+ * older stage's captures. A copy of images only keeps the values, and so the
+ * note height a width edit manages.
+ */
+export function applyStageCopy(draft: KeymodeDraft, copied: KeymodeDraft, rows: CopyRows = "all") {
+  const images = rows === "all" ? copied.images : rows === "values" ? {} : Object.fromEntries(Object.entries(copied.images).filter(([key]) => COPY_ROWS[rows].test(key)));
+  const values = rows === "all" || rows === "values" ? copied.values : {};
+  assignImageSlots(draft, images);
+  Object.assign(draft.values, values);
   delete draft.hit;
-  delete draft.autoNoteHeight;
+  if (Object.keys(values).length) delete draft.autoNoteHeight;
 }
 
 /** Explicit, undoable recovery from already-restored stale image selections. */
