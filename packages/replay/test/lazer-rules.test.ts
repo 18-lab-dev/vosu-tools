@@ -124,6 +124,27 @@ describe("lazer mania rules", () => {
     const held = simulateMania(replayOf(3, frames, lazerMods([{ acronym: "NR" }])), MANIA);
     expect(plain.events.find((e) => e.object === "tail")?.kind).toBe("miss");
     expect(held.events.find((e) => e.object === "tail")?.kind).toBe("perfect");
+    expect(plain.releases).toMatchObject([{ note: 1, offset: 700, hit: false }]);
+    expect(held.releases).toMatchObject([{ note: 1, offset: 700, hit: true }]);
+  });
+
+  test("a missed head still permits a capped tail; unrelated key-ups aren't hold samples", () => {
+    // DrawableHoldNote.OnPressed begins the hold before Head.UpdateResult returns.
+    const frames = keys([1000, 1], [1050, 0], [2250, 2], [2500, 0], [4000, 0]);
+    const simulation = simulateMania(replayOf(3, frames), MANIA);
+    expect(simulation.events.find((e) => e.object === "head")?.kind).toBe("miss");
+    expect(simulation.events.find((e) => e.object === "tail")?.kind).toBe("meh");
+    expect(simulation.releases).toMatchObject([{ note: 1, offset: 0, hit: true }]);
+    expect(simulation.releases).toHaveLength(1);
+  });
+
+  test("re-grabbing a dropped hold records each physical release, not a duplicate hold", () => {
+    const frames = keys([2000, 2], [2200, 0], [2400, 2], [2500, 0], [4000, 0]);
+    const simulation = simulateMania(replayOf(3, frames), MANIA);
+    expect(simulation.releases).toMatchObject([
+      { note: 1, offset: -300, hit: false },
+      { note: 1, offset: 0, hit: true },
+    ]);
   });
 
   test("Invert turns gaps into holds and Hold Off turns holds into notes", () => {

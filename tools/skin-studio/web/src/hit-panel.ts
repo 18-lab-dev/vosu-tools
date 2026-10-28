@@ -657,8 +657,8 @@ export class HitPanel {
           { class: "km-hit__row" },
           h(
             "span",
-            {},
-            `Presses: ${fmt(c.press, "hits")} → ${target === current ? "receptors already sit where you hit" : `move receptors ${px > 0 ? "up" : "down"} ${Math.abs(px)} px (HitPosition ${current} → ${target})`}`,
+            { title: "Calibration corrects your timing rather than matching it." },
+            `You pressed ${Math.abs(c.press.mean).toFixed(1)} ms ${c.press.mean >= 0 ? "late" : "early"} on average (${fmt(c.press, "hits")}) → ${target === current ? "no receptor movement needed" : `receptors ${px > 0 ? "up" : "down"} ${Math.abs(px)} px so you press ${c.press.mean >= 0 ? "earlier" : "later"} (HitPosition ${current} → ${target})`}`,
           ),
           target !== current
             ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.setHitPosition(target) }, "Apply to receptors")
@@ -668,7 +668,7 @@ export class HitPanel {
     }
     if (kind === "press") return out;
     // Hold tails.
-    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} releases used; ${c.release.excluded} early/late releases outside the hit window excluded`));
+    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} hold releases used; ${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`));
     if (c.release.veryLate)
       out.push(h("p", { class: "km-hit__warn" }, `${c.release.veryLate} very late releases included, as stable judges them.`));
     if (!c.release.total) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));
@@ -678,16 +678,14 @@ export class HitPanel {
       const units = c.release.distance;
       const text =
         Math.abs(units) < 0.5
-          ? "hold ends already sit where you release"
-          : units > 0
-            ? `you release late: hold ends move up ${units.toFixed(1)} units (cap's bottom edge on your release point, body reaching it)`
-            : `you release early: hold ends move down ${(-units).toFixed(1)} units, as percy holds (normal holds are converted: blank tail, cap drawn into the body)`;
+          ? "no LN length change needed"
+          : `LNs ${Math.abs(units).toFixed(1)} px ${units > 0 ? "shorter" : "longer"} so you release ${units > 0 ? "earlier" : "later"}`;
       out.push(
         h(
           "div",
           { class: "km-hit__row" },
-          h("span", {}, `Releases: ${fmt(c.release, "holds")} → ${text}`),
-          h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails"),
+          h("span", { title: "Calibration corrects your timing rather than matching it." }, `You released ${Math.abs(c.release.mean).toFixed(1)} ms ${units >= 0 ? "late" : "early"} on average (${fmt(c.release, "holds")}) → ${text}`),
+          Math.abs(units) >= 0.5 ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails") : null,
         ),
       );
     }

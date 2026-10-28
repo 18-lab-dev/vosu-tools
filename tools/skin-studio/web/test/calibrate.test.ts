@@ -50,7 +50,7 @@ const simulation = (events: { object: string; offset: number; time: number; kind
     releases: events.filter((e) => e.object === "tail").map((e) => ({ note: 0, time: e.time, offset: e.offset, hit: e.kind !== "miss", veryLate: false })),
   }) as unknown as Simulation;
 
-test("early presses move the hit line up: a lower HitPosition", () => {
+test("early presses lower receptors, late presses raise them to correct timing", () => {
   const plain = map("0,500,4,2,0,60,1,0");
   // Pressed 10 ms early (map time) at 1.5× rate: 6.67 ms early in real time.
   const sim = simulation([
@@ -64,28 +64,31 @@ test("early presses move the hit line up: a lower HitPosition", () => {
   expect(press.mean).toBeCloseTo(-10 / 1.5);
   expect(press.distance).toBeCloseTo((-10 / 1.5) * ((643.2 * 24) / 11485));
   expect(press.distance).toBeLessThan(0);
-  // −8.96 lazer units = −5.6 HitPosition units: 402 → 396 (the line moves up).
-  expect(calibratedHitPosition(402, press)).toBe(396);
-  expect(calibratedHitPosition(250, { ...press, distance: -100 })).toBe(240);
+  // −8.96 lazer units corrects DOWN by 5.6 HitPosition units: 402 → 408.
+  expect(calibratedHitPosition(402, press)).toBe(408);
+  expect(calibratedHitPosition(402, { ...press, distance: -press.distance })).toBe(396);
+  expect(calibratedHitPosition(402, { ...press, distance: 0 })).toBe(402);
+  expect(calibratedHitPosition(250, { ...press, distance: 100 })).toBe(240);
+  expect(calibratedHitPosition(470, { ...press, distance: -100 })).toBe(480);
   const release = offsets(sim, plain, "release", { client: "lazer", speed: 24 }, 1);
   expect(release.count).toBe(1);
   expect(release.mean).toBe(30);
 });
 
-test("hold ends: late gap, early percy conversion, percy skins shift their body", () => {
+test("correcting hold ends: early gap, late percy conversion, both percy directions", () => {
   const release = (distance: number) => ({ count: 100, mean: distance, spread: 1, velocity: 1, distance });
   // A 128 px wide cap of 40 rows drawn 64 units wide: 2 rows per unit.
   const normal = { capRows: 40, tailWidth: 128, bodyHeight: 64, bodyTop: 0, noteWidth: 64, percy: false };
-  expect(holdPlan(release(5), normal)).toMatchObject({ kind: "gap", gap: 10 });
-  // Early by 5 units = 10 rows: the spacer tail lets the body reach 30 rows
-  // past the end time, the cap's bottom edge 10 rows before it.
-  const early = holdPlan(release(-5), normal);
-  expect(early).toMatchObject({ kind: "percy", spacer: 60, capBottom: 40, height: BODY_UNITS * 2 });
-  // capBottom - capRows ≥ 0: the cap fits under the body's top.
-  if (early.kind === "percy") expect(early.capBottom - normal.capRows).toBeGreaterThanOrEqual(0);
+  expect(holdPlan(release(-5), normal)).toMatchObject({ kind: "gap", gap: 10 });
+  // Late by 5 units shortens by 10 image rows, using the existing percy path.
+  const late = holdPlan(release(5), normal);
+  expect(late).toMatchObject({ kind: "percy", spacer: 60, capBottom: 40, height: BODY_UNITS * 2 });
+  if (late.kind === "percy") expect(late.capBottom - normal.capRows).toBeGreaterThanOrEqual(0);
   // The user's set: blank 1-row tail, 40000-row body with 46 clear rows.
   const percy = { capRows: 0, tailWidth: 128, bodyHeight: 40000, bodyTop: 46, noteWidth: 112, percy: true };
-  expect(holdPlan(release(-10), percy)).toMatchObject({ kind: "shift-body", up: -12 });
-  expect(holdPlan(release(100), percy)).toMatchObject({ kind: "shift-body", up: 46 });
+  expect(holdPlan(release(10), percy)).toMatchObject({ kind: "shift-body", up: -12 });
+  expect(holdPlan(release(-100), percy)).toMatchObject({ kind: "shift-body", up: 46 });
+  expect(holdPlan(release(0), normal).kind).toBe("none");
+  expect(holdPlan(release(0), percy).kind).toBe("none");
   expect(holdPlan(release(0.2), normal).kind).toBe("none");
 });

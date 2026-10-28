@@ -97,6 +97,9 @@ export interface CalibrationOffsets extends Offsets {
   /** Physical releases observed, including those the client rejected. */
   total: number;
   excluded: number;
+  /** Rejected physical hold releases, separated by their tail offset. */
+  excludedEarly: number;
+  excludedLate: number;
   /** Accepted releases beyond stable ScoreV1's meh window, never silently dropped. */
   veryLate: number;
 }
@@ -146,25 +149,26 @@ export function offsets(
   const velocity = count ? speeds[Math.floor(count / 2)] : noteVelocity(map, 0, speed, base);
   const total = which === "release" ? releases.length : count;
   const veryLate = which === "release" ? releases.filter((release) => release.hit && release.veryLate).length : 0;
-  return { count, mean, spread, velocity, distance: mean * velocity, total, excluded: total - count, veryLate };
+  const excludedEarly = which === "release" ? releases.filter((release) => !release.hit && release.offset < 0).length : 0;
+  const excludedLate = which === "release" ? releases.filter((release) => !release.hit && release.offset >= 0).length : 0;
+  return { count, mean, spread, velocity, distance: mean * velocity, total, excluded: total - count, excludedEarly, excludedLate, veryLate };
 }
 
 /**
- * The HitPosition that puts the hit line where the player presses: early
- * presses (negative distance) happen while notes are still above the line,
- * so the line moves up, which is a lower HitPosition. Kept to skin.ini's
+ * Correct the player's timing, rather than matching the current hit location:
+ * late presses raise the receptors; early presses lower them. Keep skin.ini's
  * range (240–480, `LegacyManiaSkinDecoder`).
  */
 export function calibratedHitPosition(current: number, press: Offsets): number {
-  return Math.min(480, Math.max(240, Math.round(current + press.distance / LEGACY_SCALE)));
+  return Math.min(480, Math.max(240, Math.round(current - press.distance / LEGACY_SCALE)));
 }
 
 /** The units lazer stretches a repeating hold body over, from the tail end (render-core's mania notes; LegacyBodyPiece). */
 export const BODY_UNITS = 32800;
 
 /**
- * Where a hold ends on screen, and how it moves to the release point
- * (`release.distance` lazer units after the end time, negative: before).
+ * Correct release timing by moving the drawn end opposite the mean offset.
+ * Late releases shorten holds; early releases lengthen them.
  *
  * lazer draws a hold's tail with its bottom edge on the end time, flipped
  * in downscroll (render-core's tails: `kind 1`, "inverted"), and the body
@@ -179,15 +183,11 @@ export const BODY_UNITS = 32800;
  * 46 transparent rows on top). stable's code is closed; skins built this
  * way (body rows at the cap's scale) look the same in both clients.
  *
- * - percy skin (blank tail, repeating body): the body's content moves down
- *   (early) or up (late, at most its transparent top rows).
- * - normal skin, late: transparent rows before the cap on the end-time side
- *   (`gap`), so the cap's bottom edge is on the release point and the body,
- *   visible in the gap, reaches it.
- * - normal skin, early: converted to percy. The body becomes `height` rows
- *   (32800 units at the cap's scale, as wide as the cap) with the flipped
- *   cap's bottom edge on the release point (`capBottom`), and the tail a
- *   transparent spacer just tall enough for the body to hold the cap.
+ * The geometry below uses the opposite of the measured release distance:
+ * - percy skins shift the body within its existing clear-row allowance;
+ * - lengthening a normal hold adds a transparent gap before its cap;
+ * - shortening converts a normal hold to percy: the cap is drawn into the
+ *   repeating body and the tail becomes a transparent spacer.
  */
 export type HoldPlan =
   | { kind: "none"; note: string }
@@ -206,8 +206,8 @@ export interface HoldImages {
   percy: boolean;
 }
 export function holdPlan(release: Offsets, images: HoldImages): HoldPlan {
-  const d = release.distance;
-  const direction = d >= 0 ? "late" : "early";
+  const d = -release.distance;
+  const direction = release.distance >= 0 ? "late: shorter" : "early: longer";
   if (Math.abs(d) < 0.5) return { kind: "none", note: "releases on time: hold ends stay" };
   if (images.percy) {
     // Body rows per lazer unit, as lazer stretches the body.
@@ -223,7 +223,7 @@ export function holdPlan(release: Offsets, images: HoldImages): HoldPlan {
   const perUnit = images.tailWidth / images.noteWidth;
   if (d > 0) {
     const gap = Math.round(d * perUnit);
-    return { kind: "gap", gap, note: `late releases: the cap moves up ${gap} rows off the end time` };
+    return { kind: "gap", gap, note: `early releases: lengthen the hold with ${gap} rows before its cap` };
   }
   const early = Math.round(-d * perUnit);
   const spacer = Math.max(1, Math.ceil(2 * Math.max(0, images.capRows - early)));
@@ -232,6 +232,6 @@ export function holdPlan(release: Offsets, images: HoldImages): HoldPlan {
     spacer,
     height: Math.round(BODY_UNITS * perUnit),
     capBottom: Math.floor(spacer / 2) + early,
-    note: `early releases: converted to percy holds, the cap's bottom edge ${early} rows before the end time`,
+    note: `late releases: shorten with percy holds, the cap's bottom edge ${early} rows before the end time`,
   };
 }

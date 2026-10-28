@@ -74,3 +74,25 @@ test("HR and rate mods use the judge's map-time release window, then real-ms mea
   expect(play("stable", [-stableEdge, -stableEdge - 0.01], [{ acronym: "HR" }, { acronym: "DT" }]).offsets)
     .toMatchObject({ count: 1, total: 2, excluded: 1, mean: -stableEdge / 1.5 });
 });
+
+test("NoRelease retains the accepted automatic tail for a late physical key-up", () => {
+  // ManiaModNoRelease.NoReleaseDrawableHoldNoteTail.CheckForResult:
+  // https://github.com/ppy/osu/blob/9a10d935b05a3b896f4bd811d620f2023331db93/osu.Game.Rulesets.Mania/Mods/ManiaModNoRelease.cs
+  expect(play("lazer", [1000], [{ acronym: "NR" }]).offsets)
+    .toMatchObject({ count: 1, total: 1, excluded: 0, excludedEarly: 0, excludedLate: 0, mean: 1000 });
+});
+
+test("excluded counts distinguish rejected early and late releases", () => {
+  expect(play("lazer", [-3000, 1000, 10]).offsets)
+    .toMatchObject({ count: 1, total: 3, excluded: 2, excludedEarly: 1, excludedLate: 1 });
+});
+
+test("EZ and HT retain lenient inclusive release edges in map time", () => {
+  const mods = [{ acronym: "EZ" }, { acronym: "HT" }];
+  const edge = maniaHitWindows(8, { difficulty: 1 / 1.4, rate: 0.75 })[4] * 1.5;
+  expect(play("lazer", [-edge, edge, -edge - 0.01, edge + 0.01], mods).offsets)
+    .toMatchObject({ count: 2, excludedEarly: 1, excludedLate: 1, mean: 0 });
+  const stableEdge = stableManiaWindows(8, { easy: true })[4] * 0.75;
+  expect(play("stable", [-stableEdge, -stableEdge - 0.01], mods).offsets)
+    .toMatchObject({ count: 1, excludedEarly: 1, mean: -stableEdge / 0.75 });
+});
