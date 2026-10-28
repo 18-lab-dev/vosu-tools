@@ -167,12 +167,17 @@ try {
   await page.waitForTimeout(300);
   await shot("hit-7k-before");
 
-  // ── Stepper: −5 moves the hit line and the receptors up 8 px (16 @2x) ──
+  // Plain number input: native arrows stage changes, Enter commits once.
   const before = await label("KeyImage0");
-  await page.locator('#km-hit button[aria-label^="Raise the hit line"]').click();
-  await until(async () => (await hitValue()) === "450", "HitPosition 450");
+  check("No increment/decrement buttons remain", await page.locator('#km-hit button[aria-label^="Raise"], #km-hit button[aria-label^="Lower"]').count() === 0);
+  check("Receptor movement defaults on", await page.locator("#km-move-receptors").isChecked());
+  await page.locator("#km-hit .km-hit__value").first().focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+  check("Arrow keys stage native one-unit steps without image edits", (await hitValue()) === "450" && (await label("KeyImage0")) === before);
+  await page.keyboard.press("Enter");
+  await until(async () => (await label("KeyImage0")) !== before, "number field commit");
   const after = await label("KeyImage0");
-  check("Stepper −5: HitPosition 455 → 450, receptors replaced by moved copies", after.includes("mania/7k/kd_left1") && after !== before, after);
+  check("Enter: HitPosition 455 → 450, receptors replaced by moved copies", after.includes("mania/7k/kd_left1"), after);
   await page.keyboard.press("Control+z");
   await until(async () => (await hitValue()) === "455", "undo");
   check("Undo restores HitPosition and the original receptors", (await label("KeyImage0")) === before);
@@ -199,10 +204,32 @@ try {
   check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("You pressed"));
   const sevenReleases = (await page.locator("#km-ln").textContent()) ?? "";
   check("7K LN proposal reports used/excluded releases", /\d+ of \d+ hold releases used; \d+ excluded \(\d+ early, \d+ late\)/.test(sevenReleases), sevenReleases);
+  const fixedCalibrationKey = await label("KeyImage0");
+  await page.locator("#km-move-receptors").uncheck();
+  check("Calibration names the fixed-receptor landing line", (await page.locator("#km-hit").textContent()).includes("receptor images stay fixed"));
+  await page.locator("#km-hit button", { hasText: "Apply HitPosition" }).click();
+  await until(async () => (await hitValue()) === "460", "fixed-receptor calibration");
+  check("Calibration respects the receptor toggle", (await label("KeyImage0")) === fixedCalibrationKey);
+  await page.click("#km-undo");
+  await page.click("#km-undo");
   await page.locator("#km-hit button", { hasText: "Apply to receptors" }).click();
   await until(async () => (await hitValue()) === "460", "calibrated 460");
   check("Applied: HitPosition 460", true);
   await shot("hit-7k-after");
+  await page.locator("#km-move-receptors").uncheck();
+  const movedKey = await label("KeyImage0");
+  await page.locator("#km-hit .km-hit__value").first().fill("470");
+  await page.keyboard.press("Enter");
+  await until(async () => (await hitValue()) === "470", "line-only edit after a receptor move");
+  check("Turning movement off preserves already moved receptor images", (await label("KeyImage0")) === movedKey);
+  await page.locator("#km-move-receptors").check();
+  await page.locator("#km-hit .km-hit__value").first().fill("469");
+  await page.keyboard.press("Enter");
+  await until(() => page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["7"].hit?.moved === 4), "movement re-enabled");
+  const resumed = await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["7"].hit);
+  check("Re-enabling moves only the new delta, never catches up line-only edits", resumed.moved === 4 && resumed.detached === 10);
+  for (let i = 0; i < 4; i++) await page.click("#km-undo");
+  check("Undo restores the original calibrated geometry and toggle", (await hitValue()) === "460" && await page.locator("#km-move-receptors").isChecked() && (await label("KeyImage0")) === movedKey);
 
   // ── Hold ends from a 4K play (made the newest replay) ────────────────────
   const replay = "92a540fc22102bc423daac8693030616-134285366675131726.osr";
@@ -250,6 +277,50 @@ try {
     }
   await page.setViewportSize({ width: 1920, height: 1080 });
 
+  // User's 5K case: receptors are above 480; move only the note landing line.
+  await pick(5);
+  await page.locator("#km-move-receptors").uncheck();
+  await page.click("#km-undo");
+  check("Receptor toggle itself is undoable", await page.locator("#km-move-receptors").isChecked());
+  await page.click("#km-redo");
+  check("Redo restores the per-key-count toggle", !await page.locator("#km-move-receptors").isChecked());
+  const fixedKey = await label("KeyImage0");
+  const fiveBefore = await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["5"]);
+  await page.locator("#km-hit .km-hit__value").first().fill("480");
+  await page.keyboard.press("Enter");
+  await until(async () => (await hitValue()) === "480", "5K landing line at 480");
+  await page.waitForTimeout(500);
+  await shot("toggle-off-5k-before-480");
+  const stage480 = await page.locator("#km-stage").screenshot();
+  await page.locator("#km-hit .km-hit__value").first().fill("432");
+  await page.locator("#km-hit .km-hit__value").first().blur();
+  await until(async () => (await hitValue()) === "432", "5K line raised to receptors");
+  await page.waitForTimeout(500);
+  await shot("toggle-off-5k-after-432");
+  const stage432 = await page.locator("#km-stage").screenshot();
+  const fiveAfter = await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["5"]);
+  check("Toggle off: only HitPosition changes, no images or LightPosition", JSON.stringify(fiveBefore.images) === JSON.stringify(fiveAfter.images) && Object.keys(fiveAfter.values).join() === "HitPosition" && fiveAfter.values.HitPosition === "432" && (await label("KeyImage0")) === fixedKey);
+  check("Preview responds immediately to the new landing line", !stage480.equals(stage432));
+  await page.click("#km-undo");
+  check("Blur commit is one undo step", (await hitValue()) === "480" && (await label("KeyImage0")) === fixedKey);
+  await page.click("#km-redo");
+  const fixedWidth = page.locator('#km-grid input[aria-label="Column 1 width"]');
+  const oldWidth = Number(await fixedWidth.inputValue());
+  const fixedOps: { shift?: unknown; resize?: { up?: number } }[] = [];
+  const collectFixed = (request: { url(): string; method(): string; postDataJSON(): { files: { op: { shift?: unknown; resize?: { up?: number } } }[] } }) => {
+    if (request.url().includes("/v1/derive") && request.method() === "POST") fixedOps.push(...request.postDataJSON().files.map((file) => file.op));
+  };
+  page.on("request", collectFixed);
+  await fixedWidth.fill(String(oldWidth + 5));
+  await fixedWidth.blur();
+  await until(async () => (await label("KeyImage0")) !== fixedKey, "fixed-receptor width resize");
+  page.off("request", collectFixed);
+  check("Toggle-off width changes still resize without HitPosition-driven shifts", fixedOps.some((op) => op.resize) && fixedOps.every((op) => !op.shift && (!op.resize || op.resize.up === 0)));
+  await page.click("#km-undo");
+  await until(async () => (await label("KeyImage0")) === fixedKey, "undo fixed-receptor resize");
+  await pick(7);
+  check("5K toggle does not affect 7K", await page.locator("#km-move-receptors").isChecked());
+
   // ── Export, read back ────────────────────────────────────────────────────
   const [download] = await Promise.all([page.waitForEvent("download"), (async () => {
     await page.selectOption("#export-target", "osk");
@@ -268,6 +339,14 @@ try {
   const seven = block(7), four = block(4);
   check("Export: 7K HitPosition 460, receptors from mania/7k", seven.HitPosition === "460" && seven.KeyImage0 === "mania/7k/kd_left1" && seven.KeyImage0D === "mania/7k/kd_left", JSON.stringify({ hp: seven.HitPosition, k: seven.KeyImage0, kd: seven.KeyImage0D }));
   check("Export: 4K HitPosition untouched, body from mania/4k", four.HitPosition === "457" && four.NoteImage0L === "mania/4k/holdbody-50", JSON.stringify({ hp: four.HitPosition, l: four.NoteImage0L }));
+  const five = block(5);
+  check("Export: toggle-off 5K line is 432, receptor references unchanged", five.HitPosition === "432" && five.KeyImage0 === "Circles/Receptors/pl0x/Receptor@2x");
+  for (const name of ["Receptor@2x.png", "Receptor_Tap@2x.png"]) {
+    const path = `Circles/Receptors/pl0x/${name}`;
+    const original = readFileSync(join(SKINS, opt.skin!, path));
+    const exported = spawnSync("unzip", ["-p", osk, path]).stdout;
+    check(`Toggle-off 5K exported ${name} byte-identical`, original.equals(exported));
+  }
   // Pixel check: early timing correction moves the receptors down 8/16 rows.
   const source = join(SKINS, opt.skin!, "mania/circles-7k");
   const pairs: [string, string, number][] = [
@@ -355,7 +434,7 @@ try {
   const w0 = Number(await width(1).inputValue());
   const key0 = await label("KeyImage0"), note0 = await label("NoteImage0"), note1 = await label("NoteImage1");
   await setWidth(1, w0 * 1.25);
-  check("Keep proportions is on by default and says so the first time", (await page.locator("#km-keep").isChecked()) && (await kmState()).includes("Keep proportions when changing column width"), await kmState());
+  check("Keep proportions remains on after the earlier 5K width check", (await page.locator("#km-keep").isChecked()) && (await kmState()).includes("kept proportions"), await kmState());
   check("One wider column: HitPosition stays (most columns keep their scale)", Number(await hitValue()) === hp0, String(await hitValue()));
   check("…its receptor and note are rescaled, the other columns' are not", (await label("KeyImage0")) !== key0 && (await label("NoteImage0")) !== note0 && (await label("NoteImage1")) === note1);
   await page.keyboard.press("Control+z");
@@ -374,7 +453,8 @@ try {
   check("Widening every column cuts nothing and reports nothing", widened === "", widened || "(none)");
   const bodies = await Promise.all(Array.from({ length: 7 }, (_, c) => label(`NoteImage${c}L`)));
   const hpBefore = await hitValue();
-  await page.locator('#km-hit button[aria-label^="Raise the hit line"]').click();
+  await page.locator("#km-hit .km-hit__value").first().fill(String(Number(hpBefore) - 5));
+  await page.keyboard.press("Enter");
   await until(async () => (await hitValue()) !== hpBefore, "hit position after widths", 30000);
   await page.waitForTimeout(500);
   const afterHit = await kmError();

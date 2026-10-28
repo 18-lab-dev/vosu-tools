@@ -198,7 +198,7 @@ function hdTwin(files: readonly { from: string; suffix: string }[], file: { from
  * `dims` has the size of every file of the image.
  *
  * Key images take two operations, kept apart: `moved`, the HitPosition
- * units moved by hand (stepper, field, calibration) at the captured widths,
+ * units moved by hand (field, calibration) at the captured widths,
  * shifts the receptor inside its canvas (cutting what leaves it, as asked);
  * a width change scales the whole canvas, which carries the receptor onto
  * the HitPosition the widths derive, so it shifts nothing. What scaling
@@ -214,6 +214,7 @@ export function pieceOps(
   files: readonly { from: string; suffix: string }[],
   dims: ReadonlyMap<string, Dims>,
   moved = 0,
+  alignHitPosition = true,
 ): FileOp[] | null {
   const s = to.width / from.width;
   const size = (name: string) => {
@@ -251,7 +252,7 @@ export function pieceOps(
     };
     // By hand (px at the captured scale), and what the width change leaves.
     const byHand = -moved * UNIT_PX;
-    const left = (STAGE - to.hitPosition) * UNIT_PX - s * (line + byHand);
+    const left = alignHitPosition ? (STAGE - to.hitPosition) * UNIT_PX - s * (line + byHand) : 0;
     // Density belongs to the destination suffix, not the stored source:
     // deriving a 1x image from its HD twin retains the twin's filename.
     const k = (suffix: string) => (hd(suffix) ? 2 : 1);
