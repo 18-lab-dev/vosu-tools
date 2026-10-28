@@ -17,7 +17,7 @@ import {
 } from "./calibrate";
 import { $, h } from "./dom";
 import { needsGeometryRebase, type KeymodeDraft, type Slot, type SlotImage } from "./keymodes";
-import { lookupFiles } from "./mania";
+import { imageUnitFiles } from "./mania";
 import {
   type Dims,
   type FileOp,
@@ -652,7 +652,7 @@ export class HitPanel {
   #mixImage(r: ManiaImageResolution): SlotImage | null {
     if (!r.drawn || r.drawn.builtin) return null;
     const files = this.#host.mixFiles();
-    const paths = lookupFiles(this.#host.mixIndex(), r.drawn.name, r.animated);
+    const paths = imageUnitFiles(this.#host.mixIndex(), r.drawn.name);
     const sources = paths.map((p) => files.get(p.toLowerCase())).filter((f) => !!f);
     if (!sources.length) return null;
     const skin = sources[0].skin;

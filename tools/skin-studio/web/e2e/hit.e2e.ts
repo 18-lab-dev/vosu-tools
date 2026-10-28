@@ -550,9 +550,11 @@ try {
         const from = await derive("uploads:", files[frame].from, { resize: { width: dim.width * 2, height: 24000, scale_y: 2, up: 0 } });
         files.push({ from, suffix: `-${frame}@2x.png` });
       }
+      files.unshift({ from: files[0].from, suffix: ".png" }, { from: files[2].from, suffix: "@2x.png" });
       units.push({ skin: "uploads:", name: "holdbody-50", files });
     }
     units.push({ ...units[0], files: units[0].files.filter((file) => file.suffix.includes("@2x")) });
+    recipe.keymodes ??= {};
     recipe.keymodes["4"] = { images: Object.fromEntries(units.map((unit, i) => [`NoteImage${i}L`, unit])), values: { NoteBodyStyle: "1" } };
     delete recipe.ini;
     return { units, recipe: JSON.stringify(recipe) };
@@ -562,6 +564,7 @@ try {
   // must not overwrite a fixture between localStorage.setItem and navigation.
   await page.addInitScript((recipe: string) => localStorage.setItem("skin-studio:recipe", recipe), preparedUnits.recipe);
   await page.goto(await launch("dark"));
+  await page.reload();
   await page.click("#tab-keymodes"); await pick(4);
   await page.evaluate(() => { for (const group of document.querySelectorAll("#keymodes-view details.km-hit")) group.setAttribute("open", ""); });
   await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').fill("24");
@@ -576,7 +579,7 @@ try {
   const unitImages = JSON.parse(afterUnits).keymodes["4"].images;
   check("Real last-play LN calibration keeps distinct same-name column images independent", unitImages.NoteImage0L.files[0].from !== unitImages.NoteImage1L.files[0].from);
   for (let c = 0; c < 3; c++)
-    check(`Real LN calibration preserves every frame and density of column ${c + 1}`, JSON.stringify(unitImages[`NoteImage${c}L`].files.map((file: { suffix: string }) => file.suffix)) === JSON.stringify(seededUnits[c].files.map((file: { suffix: string }) => file.suffix)));
+    check(`Real LN calibration preserves every frame and density of column ${c + 1}`, JSON.stringify(unitImages[`NoteImage${c}L`].files.map((file: { suffix: string }) => file.suffix).sort()) === JSON.stringify(seededUnits[c].files.map((file: { suffix: string }) => file.suffix).sort()));
   writeFileSync(join(out, "calibrated-image-units.json"), JSON.stringify({ seededUnits, before: JSON.parse(beforeUnits), after: unitImages }, null, 2));
   await shot("calibrated-image-units");
   await page.click("#km-undo");

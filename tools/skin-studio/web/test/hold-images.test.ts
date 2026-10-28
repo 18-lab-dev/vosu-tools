@@ -3,6 +3,7 @@ import type { Offsets } from "../src/calibrate";
 import { calibrateHoldImages, holdPairKey } from "../src/hold-images";
 import type { SlotImage } from "../src/keymodes";
 import type { DeriveOp } from "../src/hit-panel";
+import { imageIndex, imageUnitFiles, lookupFiles } from "../src/mania";
 
 const release: Offsets = { count: 80, mean: 10, spread: 2, velocity: 1, distance: 10 };
 const tail: SlotImage = { skin: "uploads:", name: "tail", files: [{ from: "derive/a.png", suffix: ".png" }] };
@@ -84,4 +85,11 @@ test("conversion retains a plain fallback when only the other unit is animated",
   const result = await calibrateHoldImages(service(), release, imageUnit("tail", 0, [1]), imageUnit("body", 2, [1]), 64, 0, true, []);
   expect(result.T.files.map((file) => file.suffix)).toEqual([".png", "-0.png", "-1.png"]);
   expect(result.L.files.map((file) => file.suffix)).toEqual([".png", "-0.png", "-1.png"]);
+});
+
+test("editable image units retain plain fallbacks as well as drawn animation frames", () => {
+  const names = [".png", "@2x.png", "-0.png", "-0@2x.png", "-1.png", "-1@2x.png"].map((suffix) => `body${suffix}`);
+  const index = imageIndex(names);
+  expect(lookupFiles(index, "body", true)).toHaveLength(4);
+  expect(imageUnitFiles(index, "body")).toEqual(names);
 });

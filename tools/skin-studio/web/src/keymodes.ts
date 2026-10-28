@@ -13,7 +13,7 @@ import {
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
 import { columnKeys, maniaLists, spec } from "@vosu-tools/skin-spec";
 import { type Ini, maniaBlock, removeInSection, setInSection } from "./ini";
-import { frameNames, hasImage, imageIndex } from "./mania";
+import { hasImage, imageIndex, imageUnitFiles } from "./mania";
 import { occupied, stageFolder } from "./layout";
 import { imageExt } from "./groups";
 import { pieceOf } from "./proportions";
@@ -109,9 +109,7 @@ export function imageUnit(
   name: string,
 ): SlotImage["files"] {
   const index = imageIndex(files);
-  const lower = name.toLowerCase();
-  return [lower, ...frameNames(index, name)]
-    .flatMap((n) => index.get(n) ?? [])
+  return imageUnitFiles(index, name)
     .map((from) => ({
       from,
       suffix: from.replace(/\\/g, "/").slice(name.length),
