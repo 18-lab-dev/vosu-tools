@@ -2923,6 +2923,7 @@ const keymodes = new KeymodesView({
   drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
   refreshSources: loadLibrary,
+  assetEpoch: () => assets.epoch,
   originalStage: (keys) => {
     const pick = recipe.picks[maniaGroup(keys).id];
     const key = pick ? (pick.kind === "skin" ? pick.key : null) : recipe.base;

@@ -108,6 +108,8 @@ export interface KeymodesHost {
   /** Source chosen for this stage group, otherwise the mix base. */
   originalStage(keys: number): string | null;
   assetUrl(skin: string, file: string): string;
+  /** Fresh source bytes invalidate reused thumbnails even when filenames stay the same. */
+  assetEpoch(): number;
   skinName(key: string): string;
   /** Stores a dropped file; resolves with its name under {@link UPLOADS}. */
   upload(group: string, name: string, file: Blob): Promise<string>;
@@ -212,6 +214,7 @@ export class KeymodesView {
   #source = MIX;
   #filter = "";
   #units: Unit[] = [];
+  #tiles = new Map<string, HTMLElement>();
   /** The source's own keys per role, for ranking (`NoteImage#H` → names). */
   #sourceRoles = new Map<string, Set<string>>();
   #loadingSource = 0;
@@ -1988,6 +1991,8 @@ export class KeymodesView {
 
   #renderImages() {
     const list = $("#km-images");
+    const previous = this.#tiles;
+    this.#tiles = new Map();
     const pattern = this.#armed
       ? /^(Key|Note)Image\d/.test(this.#armed)
         ? patternOf(this.#armed)
@@ -2012,7 +2017,7 @@ export class KeymodesView {
     for (const [title, units] of sections) {
       if (!units.length) continue;
       nodes.push(h("p", { class: "v-label km-images__head" }, title, h("span", {}, String(units.length))));
-      for (const unit of units.slice(0, 400)) nodes.push(this.#tile(unit, index++));
+      for (const unit of units.slice(0, 400)) nodes.push(this.#tile(unit, index++, previous));
     }
     if (!nodes.length)
       nodes.push(
@@ -2029,7 +2034,15 @@ export class KeymodesView {
     list.replaceChildren(...nodes);
   }
 
-  #tile(unit: Unit, index: number) {
+  #tile(unit: Unit, index: number, previous: ReadonlyMap<string, HTMLElement>) {
+    const identity = JSON.stringify([this.#source, this.#host.assetEpoch(), unit]);
+    const reused = previous.get(identity);
+    if (reused) {
+      reused.tabIndex = index === 0 ? 0 : -1;
+      reused.dataset.index = String(index);
+      this.#tiles.set(identity, reused);
+      return reused;
+    }
     const meta = [unit.hd ? "@2x" : "", unit.frames > 1 ? `${unit.frames} frames` : ""].filter(Boolean).join(" · ");
     const tile = h(
       "div",
@@ -2064,6 +2077,7 @@ export class KeymodesView {
       tile.classList.remove("km-tile--drag");
       setTimeout(() => (this.#dragged = null));
     };
+    this.#tiles.set(identity, tile);
     return tile;
   }
 

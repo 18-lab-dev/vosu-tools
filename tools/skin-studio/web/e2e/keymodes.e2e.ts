@@ -172,6 +172,13 @@ try {
   await page.waitForTimeout(2500);
   await shot("4k-before");
   check("4K rows from the base's block", (await page.locator("#km-grid .km-slot").count()) === 4 * 6);
+  await slot("NoteImage0").click();
+  await page.evaluate(() => Reflect.set(window, "pickerFirstTile", document.querySelector("#km-images .km-tile")));
+  await slot("NoteImage1").click();
+  check("Selecting another slot reuses unchanged picker image nodes", await page.evaluate(() => {
+    const tile = Reflect.get(window, "pickerFirstTile") as HTMLElement | null;
+    return !!tile?.isConnected && !!document.querySelector("#km-images")?.contains(tile);
+  }));
   // Default preference roundtrips must not manufacture dirty count drafts.
   for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
   for (const preference of ["#km-keep", "#km-move-receptors"]) {
