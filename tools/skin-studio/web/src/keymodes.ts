@@ -93,6 +93,10 @@ export function editKeymodeDraft(
   mutate: (draft: KeymodeDraft) => void,
 ): KeymodeDraft | undefined {
   const after: KeymodeDraft = before ? structuredClone(before) : { images: {}, values: {} };
+  // Older Add actions stored an unmarked empty count. Preserve that existing
+  // intent; a newly inherited preference edit starts from undefined instead.
+  if (before && !Object.keys(before.images).length && !Object.keys(before.values).length &&
+    Object.keys(before).every((key) => key === "images" || key === "values")) after.added = true;
   mutate(after);
   if (after.keepProportions !== false) delete after.keepProportions;
   if (after.moveReceptors !== false) delete after.moveReceptors;

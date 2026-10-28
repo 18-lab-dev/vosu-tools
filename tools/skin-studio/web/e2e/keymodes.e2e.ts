@@ -867,6 +867,25 @@ try {
     }
   }
   check("Stage group export: every receptor and note is the source's own file", !problems.length, problems.join("; ") || `${pieces.length} keys`);
+
+  // An old saved Add action has no marker; changing preferences must not erase it.
+  for (const preference of ["#km-keep", "#km-move-receptors"]) {
+    await page.evaluate(() => localStorage.setItem("skin-studio:recipe", JSON.stringify({
+      name: "Legacy add", base: null, pinned: true, picks: {}, keymodes: { "5": { images: {}, values: {} } },
+    })));
+    await page.goto("about:blank");
+    await page.goto(await launch("dark"));
+    await page.waitForSelector("#skins .skin");
+    await page.click("#tab-keymodes");
+    await pick(5);
+    for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all())
+      if (!await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement).open)) await summary.click();
+    await page.locator(preference).uncheck();
+    await page.locator(preference).check();
+    check(`${preference}: legacy saved Add survives preference roundtrip`, (await draft())["5"]?.added === true &&
+      await page.locator("#km-counts .km-count").filter({ hasText: /^5K/ }).count() === 1);
+  }
+  check("No page errors after legacy Add roundtrips", !pageErrors.length, pageErrors.join(" | "));
   const processes = readdirSync("/proc").filter((p) => /^\d+$/.test(p)).map((p) => {
     try {
       return readFileSync(`/proc/${p}/comm`, "utf8").trim();

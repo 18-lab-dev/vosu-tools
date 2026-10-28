@@ -22,6 +22,16 @@ for (const preference of ["keepProportions", "moveReceptors"] as const) {
     expect(hasEdits(recipe)).toBe(true);
     expect(compose(recipe, new Map()).plan.ini).toContain("Keys: 5");
   });
+
+  test(`${preference} roundtrip preserves a legacy unmarked empty stage`, () => {
+    const before: KeymodeDraft = { images: {}, values: {} };
+    const changed = editKeymodeDraft(before, (draft) => { draft[preference] = false; });
+    const restored = editKeymodeDraft(changed, (draft) => { delete draft[preference]; });
+    expect(before).toEqual({ images: {}, values: {} });
+    expect(restored).toEqual({ images: {}, values: {}, added: true });
+    const recipe: Recipe = { name: "Legacy add", base: null, picks: {}, keymodes: { "5": restored! } };
+    expect(compose(recipe, new Map()).plan.ini).toContain("Keys: 5");
+  });
 }
 
 test("preference cleanup preserves the other preference, explicit removals and geometry captures", () => {
