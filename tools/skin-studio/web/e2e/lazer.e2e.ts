@@ -295,8 +295,11 @@ try {
     await page.reload(); await page.click("#tab-keymodes"); await pick(7);
     const banner = page.locator("#missing-sources");
     check("draft load detects hidden originals and names affected slots/counts", (await banner.textContent()).includes(`${opt.skin}. 1 slot; 7K`));
+    check("Missing source is a visible label, not only a hover", (await banner.innerText()).includes(`Missing source: ${opt.skin}`));
+    check("A vanished picker source falls back to Mix draft", await page.locator("#km-source").inputValue() !== "");
     await until(async () => (await banner.locator("select option").allTextContents()).some((text) => text.includes("referenced filenames")), "candidate overlap labels");
     check("same-name candidates show creator, file counts and filename overlap", (await banner.locator("select option").allTextContents()).filter((text) => text.includes("e2e") && text.includes("files") && text.includes("referenced filenames")).length === 2);
+    check("Replacement labels keep technical source IDs out of visible text", !(await banner.locator("select").innerText()).includes("lazer:"));
     const captureRecovery = async (prefix: string) => {
       for (const theme of ["dark", "light"])
         for (const [width, height] of [[1280, 720], [1920, 1080]]) {
@@ -327,6 +330,11 @@ try {
     await page.locator("#tab-keymodes").focus();
     await page.mouse.move(0, 0);
     await captureRecovery("missing-source");
+    await page.click("#tab-elements");
+    const identity = await page.locator(".missing-sources__identity").boundingBox();
+    const notice = await banner.boundingBox(), elements = await page.locator("#elements-view").boundingBox();
+    check("Elements keeps the source identity visible above its main content", !!identity && identity.width > 150 && !!notice && !!elements && notice.y < elements.y);
+    await page.click("#tab-keymodes");
     const restore = async () => {
       await page.evaluate((saved) => localStorage.setItem("skin-studio:recipe", saved), saved);
       await page.reload(); await page.click("#tab-keymodes"); await pick(7);
@@ -338,6 +346,10 @@ try {
       await banner.getByRole("button", { name: label, exact: true }).click();
       await until(async () => !(await banner.isVisible()), `${kind} recovers`);
       const recovered = JSON.parse(await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["7"];
+      if (kind === "remap") {
+        check("Remap confirms the number of slots and replacement name", (await page.locator("#km-state").textContent()) === `Remapped 1 slot to ${opt.skin}`);
+        check("Recovery leaves a working Images from selection", await page.locator("#km-source").inputValue() !== "");
+      }
       check(`${kind} recovery persisted`, kind === "remap" ? recovered.hit.originals.KeyImage0.slot.skin === `lazer:${REPLACEMENT}` : kind === "keep" ? recovered.images.KeyImage0.skin === "uploads:" && !recovered.hit?.originals.KeyImage0 : !recovered.images.KeyImage0 && !recovered.hit?.originals.KeyImage0);
       await page.click("#km-undo");
       await until(async () => await banner.isVisible(), `${kind} undo`);

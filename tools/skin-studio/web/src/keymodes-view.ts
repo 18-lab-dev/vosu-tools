@@ -362,6 +362,7 @@ export class KeymodesView {
   }
   #state(text: string) {
     $("#km-state").textContent = text;
+    $("#status").textContent = "";
   }
   #error(text: string) {
     const error = $("#km-error");
@@ -704,6 +705,10 @@ export class KeymodesView {
       if (source) {
         thumb = this.#host.assetUrl(source.skin, source.from);
         from = this.#host.skinName(source.skin);
+        if (source.skin === UPLOADS) {
+          const slot = Object.values(this.#host.drafts()).flatMap((draft) => [...sourceSlots(draft).values()].flat()).find((slot) => slot.skin === UPLOADS && slot.files.some((f) => f.from === source.from));
+          from = slot?.provenance === "generated" ? "Generated" : slot?.provenance === "dropped" ? "Dropped files" : "Added images";
+        }
       }
       frames = r.animated ? frameNames(this.#mixIndex, drawn.name).length : 0;
       hd = paths.some((p) => /@2x\.[^.]+$/i.test(p));
@@ -950,7 +955,7 @@ export class KeymodesView {
       );
     });
     const valueRows = this.#valueRows(keys, COLUMN_ROLES.length);
-    this.#replaceChildren(grid, [...rows, h("p", { class: "v-label km-divider" }, "Column values"), ...valueRows], editing);
+    this.#replaceChildren(grid, [...rows, h("p", { class: "v-label km-divider" }, "Column values"), this.#hit.keepRow(), ...valueRows], editing);
     grid.dataset.keymode = String(keys);
     if (hadFocus) this.#focusCell(grid);
     this.#keepEditing(grid, editing);
@@ -986,8 +991,8 @@ export class KeymodesView {
     matches.sort((a, b) => b.overlap - a.overlap || a.source.key.localeCompare(b.source.key));
     select.replaceChildren(
       h("option", { value: "" }, "Choose a replacement…"),
-      ...matches.map(({ source, count, overlap }) => h("option", { value: source.key },
-        `${source.name} · ${source.creator || "creator unknown"} · ${count ?? "?"} files · ${overlap < 0 ? "file list unavailable" : `${overlap}/${wanted.size} referenced filenames`} · ${source.key}`)),
+      ...matches.map(({ source, count, overlap }) => h("option", { value: source.key, title: source.key },
+        `${source.name} · ${source.creator || "creator unknown"} · ${count ?? "?"} files · ${overlap < 0 ? "file list unavailable" : `${overlap}/${wanted.size} referenced filenames`}`)),
     );
     select.value = chosen;
   }
@@ -997,7 +1002,7 @@ export class KeymodesView {
     let root = document.querySelector<HTMLElement>("#missing-sources");
     if (!root) {
       root = h("section", { id: "missing-sources", class: "missing-sources", role: "alert", ariaLabel: "Missing source skins" });
-      $("#keymodes-view").before(root);
+      $("#elements-view").before(root);
     }
     const missing = missingSources(this.#host.drafts(), new Set(this.#host.sources().map((s) => s.key)));
     root.hidden = !missing.length;
@@ -1009,7 +1014,7 @@ export class KeymodesView {
       const candidates = this.#host.sources().filter((s) => unknown || s.name === source.name);
       const select = h("select", { class: "v-input", ariaLabel: `Replacement for ${display}` },
         h("option", { value: "" }, "Choose a replacement…"),
-        ...candidates.map((s) => h("option", { value: s.key }, `${s.name} · ${s.creator || "creator unknown"} · ${s.fileCount ?? "?"} files · checking filenames… · ${s.key}`)));
+        ...candidates.map((s) => h("option", { value: s.key, title: s.key }, `${s.name} · ${s.creator || "creator unknown"} · ${s.fileCount ?? "?"} files · checking filenames…`)));
       const exact = candidates.find((s) => !!source.hash && s.contentHash === source.hash);
       if (exact) select.value = exact.key;
       const pickerTip = "Lazer stores no skin import date, so same-name copies cannot be ranked by age. Filename overlap is only a relevance hint; only an exact full-content hash is preselected.";
@@ -1048,6 +1053,10 @@ export class KeymodesView {
           if (changes.some(({ keys, generation }) => this.#host.generation(keys) !== generation))
             throw new Error("The draft changed while recovery was loading; recovery was not applied.");
           this.#host.edit(`${recovery.kind} missing source ${source.name}`, Object.fromEntries(changes.map(({ keys, draft }) => [String(keys), draft])));
+          if (recovery.kind === "remap") {
+            if (this.#source === source.key) await this.#openSource(recovery.key);
+            this.#state(`Remapped ${source.slots} ${source.slots === 1 ? "slot" : "slots"} to ${recovery.name}`);
+          } else if (this.#source === source.key) await this.#openSource(MIX);
           this.#renderMissing();
         } catch (error) {
           recoveryError.textContent = error instanceof Error ? error.message : String(error);
@@ -1057,7 +1066,7 @@ export class KeymodesView {
       const summary = `Missing source: ${display}. ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Nothing is changed automatically.`;
       root.append(h("div", { class: "missing-sources__row" },
         h("p", { class: "missing-sources__summary", title: summary },
-          h("span", { class: "missing-sources__identity", ariaLabel: `Missing source: ${display}` }, `${display}.`),
+          h("span", { class: "missing-sources__identity", ariaLabel: `Missing source: ${display}` }, `Missing source: ${display}.`),
           h("span", { class: "missing-sources__details" }, ` ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Nothing is changed automatically.`)),
         h("span", { class: "missing-sources__choice" }, select, pickerHelp),
         h("button", { class: "v-btn v-btn--sm v-btn--primary", onclick: () => {
@@ -1081,13 +1090,13 @@ export class KeymodesView {
       return;
     }
     // The widths as they are when this edit runs (after any edit before it).
+    const before = maniaValue(this.#host.mixText(), this.#keys, "HitPosition") ?? "402";
     await this.#hit.setWidths(columns, value, label);
     const done = this.#hit.lastRegeometry;
     if (this.#draft()?.keepProportions === false || !done) return;
-    const first = localStorage.getItem("skin-studio:proportions-seen") === null;
-    localStorage.setItem("skin-studio:proportions-seen", "1");
+    const after = this.#draft()?.values.HitPosition ?? before;
     this.#state(
-      `${label}: kept proportions (${done.images} images in ${done.ms} ms)${done.skipped ? `. ${done.skipped}` : ""}${first ? '. Turn "Keep proportions when changing column width" off under Hit position to stretch like osu!.' : ""}`,
+      `Width ${value} · kept proportions${before !== after ? ` · HitPosition ${before} → ${after}` : ""}`,
     );
   }
 
@@ -1756,7 +1765,7 @@ export class KeymodesView {
             from: await this.#host.upload(group, file.name, files[file.index]),
             suffix: file.suffix,
           });
-        slots.push({ skin: UPLOADS, name: image.name, files: stored });
+        slots.push({ skin: UPLOADS, provenance: "dropped", name: image.name, files: stored });
       }
       this.#state(`Added ${slots.map((s) => shownName(s.name, s.files)).join(", ")} to dropped files`);
       return slots;
@@ -1883,13 +1892,17 @@ export class KeymodesView {
     for (const s of this.#host.sources()) groups.set(s.group, [...(groups.get(s.group) ?? []), s]);
     select.replaceChildren(
       h("option", { value: MIX }, "Mix draft"),
-      h("option", { value: UPLOADS }, "Dropped files"),
+      h("option", { value: UPLOADS }, "Added images"),
       ...[...groups].map(([group, list]) => {
         const optgroup = h("optgroup", { label: group });
         optgroup.append(...list.map((s) => h("option", { value: s.key }, s.name)));
         return optgroup;
       }),
     );
+    if (this.#source !== MIX && this.#source !== UPLOADS && !this.#host.sources().some((s) => s.key === this.#source)) {
+      this.#source = MIX;
+      void this.#openSource(MIX);
+    }
     select.value = this.#source;
   }
 
