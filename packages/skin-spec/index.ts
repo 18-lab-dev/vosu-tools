@@ -331,19 +331,22 @@ export interface Diagnostic {
   replacement?: string;
 }
 export function validate(text: string, files?: string[]): Diagnostic[] {
+  // LegacyDecoder.StripComments: validation observes the value osu! reads;
+  // the parsed raw line remains intact for round-tripping.
+  const valueOf = (value: string | undefined) => (value ?? "").split("//", 1)[0].trim();
   const doc = parse(text),
     out: Diagnostic[] = [];
   const versionLine = doc.lines.find(
     (l) => l.section === "General" && l.key === "Version",
   );
   const version =
-    versionLine?.value === "latest"
+    valueOf(versionLine?.value) === "latest"
       ? Infinity
-      : Number(versionLine?.value ?? 1);
+      : Number(versionLine ? valueOf(versionLine.value) : 1);
   const blocks = new Map<number, number>();
   for (const l of doc.lines)
     if (l.section === "Mania" && l.key === "Keys")
-      blocks.set(l.block, Number(l.value));
+      blocks.set(l.block, Number(valueOf(l.value)));
   const seen = new Set<string>();
   for (const l of doc.lines) {
     const emit = (
@@ -390,7 +393,7 @@ export function validate(text: string, files?: string[]): Diagnostic[] {
     const id = `${l.block}:${l.key}`;
     if (seen.has(id)) emit("Duplicate key in this section.", "warning");
     seen.add(id);
-    const v = l.value ?? "",
+    const v = valueOf(l.value),
       nums = v.split(",").map((x) => Number(x.trim()));
     const numeric = (integer = false) =>
       nums.every(

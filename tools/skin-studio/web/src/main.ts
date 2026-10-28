@@ -152,7 +152,7 @@ let view: "elements" | "explorer" | "keymodes" | "ini" | "preview" =
   "elements";
 /** The Explorer tab (created once the rest of the page is wired). */
 let explorer: Explorer | undefined;
-let iniMode: "focus" | "mix" = "focus";
+let iniMode: "focus" | "mix" = "mix";
 let saving = false;
 let conflict = false;
 let diskRevision = "";
@@ -1796,6 +1796,16 @@ async function recompose(touched?: { keys: number; names: string[] }) {
     notes = composed.notes;
     fallbacks = composed.fallbacks;
     lastPlan = composed.plan;
+    mixDoc.assetUrls.clear();
+    for (const source of composed.plan.sources)
+      for (const file of source.files) {
+        const [from, to] = typeof file === "string" ? [file, file] : file;
+        mixDoc.assetUrls.set(to, assetUrl(source.skin, from));
+      }
+    mixDoc.files = [...new Set([
+      ...mixDoc.assetUrls.keys(),
+      ...composed.plan.blanks.map((item) => item.to),
+    ])];
     composeError = "";
     if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(recipe.ini ?? composedIni);
     else if (touched) {
