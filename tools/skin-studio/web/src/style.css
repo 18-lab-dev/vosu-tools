@@ -1396,11 +1396,20 @@
 .km-tile--drag {
   opacity: 0.5;
 }
+/* Cut in the middle: the head takes the ellipsis, the tail always shows. */
 .km-tile__name {
+  display: flex;
   overflow: hidden;
   font: 400 var(--step--2) var(--font-mono);
   white-space: nowrap;
+}
+.km-tile__head {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+.km-tile__tail {
+  flex: none;
 }
 .km-tile__meta {
   min-height: 1em;
