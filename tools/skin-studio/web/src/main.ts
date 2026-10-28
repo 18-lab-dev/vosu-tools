@@ -847,6 +847,12 @@ function fps(data: SkinData, count: number) {
   return Number.isFinite(rate) && rate > 0 ? rate : count;
 }
 
+/** A lower-cased unit name as the skin spells it (each of its files starts with it). */
+const spelled = (name: string, file: string) => {
+  const own = file.slice(0, name.length);
+  return own.toLowerCase() === name ? own : name;
+};
+
 /**
  * Collapses a group's files into preview tiles, one per mix unit: frames and
  * @2x variants join their image; in Numbers & fonts a prefix's glyphs are one font.
@@ -866,7 +872,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
       files[0];
     const count = new Set(files.map(stem)).size;
     nodes.push(
-      tile(prefix, assetUrl(data.key, sample), plural(count, "glyph"), {
+      tile(spelled(prefix, sample), assetUrl(data.key, sample), plural(count, "glyph"), {
         ref: { kind: "font", name: prefix },
         skin: data.key,
       }),
@@ -896,7 +902,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
     covered.add(base);
     nodes.push(
       tile(
-        base,
+        spelled(base, seq[0]),
         animationUrl(data.key, base),
         `${seq.length} frames · ${fps(data, seq.length)} fps${seq[0].includes("@2x") ? " · @2x" : ""}`,
         { ref: { kind: "image", name: base }, skin: data.key },
@@ -913,7 +919,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
     const hd = files.find((f) => /@2x\.[^.]+$/i.test(f));
     const file = hd ?? files[0];
     nodes.push(
-      tile(s, assetUrl(data.key, file), hd ? "@2x" : "SD", {
+      tile(spelled(s, file), assetUrl(data.key, file), hd ? "@2x" : "SD", {
         ref: { kind: "image", name: s },
         skin: data.key,
       }),
@@ -1012,7 +1018,8 @@ function tile(
   return figure;
 }
 
-function audioTile(data: SkinData, label: string, file: string) {
+function audioTile(data: SkinData, name: string, file: string) {
+  const label = spelled(name, file);
   const size =
     loaded.get(data.key)?.snapshot.files.find((f) => f.name === file)?.size ??
     0;
@@ -1028,7 +1035,7 @@ function audioTile(data: SkinData, label: string, file: string) {
     "▶",
   );
   button.dataset.src = url;
-  const ref: AssetRef = { kind: "sound", name: label };
+  const ref: AssetRef = { kind: "sound", name };
   const figure = h(
     "figure",
     { class: "tile audio" },
