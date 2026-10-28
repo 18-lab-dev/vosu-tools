@@ -32,6 +32,8 @@ export interface Folder {
   depth: number;
   /** Files directly inside. */
   count: number;
+  /** Files inside, its subfolders included (what the tree shows). */
+  total: number;
 }
 
 const textExt = /\.(ini|txt|json|cfg|md)$/i;
@@ -83,6 +85,9 @@ export function folders(files: readonly FileInfo[]): Folder[] {
     name: path ? baseOf(path) : "",
     depth: path ? path.split("/").length : 0,
     count: counts.get(path) ?? 0,
+    total: path
+      ? [...counts].reduce((sum, [p, n]) => (p === path || p.startsWith(`${path}/`) ? sum + n : sum), 0)
+      : files.length,
   }));
 }
 
@@ -210,6 +215,17 @@ export function rowUnits(selected: readonly Row[]): AssetRef[] {
     if (row.unit && !seen.has(assetId(row.unit)))
       seen.set(assetId(row.unit), row.unit);
   return [...seen.values()];
+}
+
+/** Every file the units copy from a skin (an image's @2x and frames, a font's glyphs), in file order. */
+export function unitFileNames(units: readonly AssetRef[], files: readonly FileInfo[], fonts: ReadonlySet<string>): string[] {
+  const ids = new Set(units.map(assetId));
+  return files
+    .filter((f) => {
+      const unit = unitOf(f.name, fonts);
+      return !!unit && ids.has(assetId(unit));
+    })
+    .map((f) => f.name);
 }
 
 /** Bytes as B, KB or MB. */
