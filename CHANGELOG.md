@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Skin studio captures one draft recipe/text generation across composition, plan and Apply. Stale loading work is rejected; Apply completion retains newer edits and their undo/redo history. Save and focus responses cannot cross source/request identities, including A → B → A.
+- Group and single-asset picks now update their owned ini keys even after hand editing the draft, preserving unrelated values/comments. Tab-aligned Alt-box selection uses visual columns rather than model character offsets.
+- Folder discovery, snapshot reads, Save and Apply share case-insensitive `skin.ini` resolution and retain its existing spelling; ambiguous variants and symlinks are refused.
+- Source `.osk` export includes unsaved selected-skin ini text without saving it. Source export and the mix draft's **Draft destination** are labelled separately.
+- skin.ini completion/validation and render-core share legacy PNG lookup policy: case/slash/HD normalisation, texture versus animation fields and font digit sets. JPEG-only files no longer masquerade as valid legacy PNG references.
+- skin.ini's permanent Corrections sidebar becomes a compact, filterable **Problems** drawer. Warning-only skins start collapsed with counts visible; new errors open it automatically.
 - Skin studio reports excluded LN releases separately as early and late, and explains that re-grabbing a hold can produce multiple release samples. Preserve accepted NoRelease tails when the physical key-up comes after the automatic judgement; ordinary lazer's 1.5× and stable ScoreV1's combined head/release rules remain unchanged.
 - Skin studio calibration now corrects timing instead of matching it: late presses raise receptors, early presses lower them; late releases shorten LNs, early releases lengthen them. Magnitudes and per-key-count scope are unchanged. Re-calibrating a skin calibrated with 0.4.x moves it the other way. Proposals state the correcting direction and explain it on hover.
 - Skin studio repairs stale Keymodes geometry captures on the next width edit, including repeating the current width. Replacing an image establishes one new stage baseline so old receptor selections and HitPosition epochs cannot reappear in only some columns.
