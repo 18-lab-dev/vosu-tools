@@ -285,6 +285,28 @@ export function defaultPattern(
 }
 
 /**
+ * The slots of a bulk edit (Mirror, the pattern, Apply to all columns) that
+ * change what the key has now: a slot already showing that image is left
+ * alone, so it is not marked as set on this screen.
+ */
+export function changedSlots(images: Record<string, Slot>, current: Current): Record<string, Slot> {
+  return Object.fromEntries(Object.entries(images).filter(([key, slot]) => JSON.stringify(slot) !== JSON.stringify(current(key))));
+}
+
+/** The columns of image keys as runs: `Column 3`, `Columns 3–7`, `Columns 2, 4–7`. */
+export function columnRuns(keys: readonly string[]): string {
+  const columns = [...new Set(keys.map((key) => Number(/\d+/.exec(key)![0]) + 1))].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < columns.length; i++) {
+    let end = i;
+    while (columns[end + 1] === columns[end] + 1) end++;
+    runs.push(end > i ? `${columns[i]}–${columns[end]}` : String(columns[i]));
+    i = end;
+  }
+  return `${columns.length === 1 ? "Column" : "Columns"} ${runs.join(", ")}`;
+}
+
+/**
  * The source column each of `target` columns copies when a stage of
  * `source` columns is copied: the source column of the same kind (1, 2, S)
  * nearest in relative position, or the nearest column when the source has

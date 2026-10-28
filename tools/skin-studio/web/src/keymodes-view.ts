@@ -28,6 +28,8 @@ import {
   type CopyRows,
   columnKey,
   copyStage,
+  changedSlots,
+  columnRuns,
   defaultPattern,
   imageUnit,
   mirror,
@@ -216,6 +218,9 @@ export class KeymodesView {
   /** The source's own keys per role, for ranking (`NoteImage#H` → names). */
   #sourceRoles = new Map<string, Set<string>>();
   #loadingSource = 0;
+  /** Copy from's skin and key count were chosen by the user (else they follow the shown stage). */
+  #copyPicked = false;
+  #copyKeysPicked = false;
   #dragged: { unit: Unit; source: string } | null = null;
   #preview?: Preview;
   #previewLoading?: Promise<Preview | undefined>;
@@ -270,14 +275,20 @@ export class KeymodesView {
       error: (text) => this.#error(text),
     });
     $("#km-all").onclick = () => this.#applyToAll();
-    $("#km-mirror").onclick = () =>
-      this.#change("Mirror", (draft) =>
-        assignImageSlots(draft, mirror(this.#keys, this.#current)),
-      );
-    $("#km-pattern").onclick = () =>
-      this.#change("osu! column pattern", (draft) =>
-        assignImageSlots(draft, defaultPattern(this.#keys, this.#current)),
-      );
+    // Mirror and the pattern change only slots that differ (no "set here"
+    // mark on an unchanged one) and name the columns they changed.
+    $("#km-mirror").onclick = () => {
+      const changes = changedSlots(mirror(this.#keys, this.#current), this.#current);
+      if (!Object.keys(changes).length) return this.#state("The right half already mirrors the left");
+      this.#change(`Mirror ${columnRuns(Object.keys(changes)).toLowerCase()}`, (draft) => assignImageSlots(draft, changes));
+    };
+    $("#km-pattern").onclick = () => {
+      const changes = changedSlots(defaultPattern(this.#keys, this.#current), this.#current);
+      if (!Object.keys(changes).length) return this.#state("Columns already follow 1/2/S");
+      const runs = columnRuns(Object.keys(changes));
+      this.#change(`osu! 1/2/S pattern on ${runs.toLowerCase()}`, (draft) => assignImageSlots(draft, changes));
+      this.#state(`${runs} now ${runs.startsWith("Columns") ? "follow" : "follows"} 1/2/S`);
+    };
     $("#km-still").onclick = () => this.#setPlaying(false);
     $("#km-play").onclick = () => this.#setPlaying(true);
     $<HTMLSelectElement>("#km-add").onchange = (event) => {
@@ -286,8 +297,11 @@ export class KeymodesView {
       select.value = "";
       if (keys) this.#addKeyCount(keys);
     };
-    $<HTMLSelectElement>("#km-copy-skin").onchange = () =>
+    $<HTMLSelectElement>("#km-copy-skin").onchange = () => {
+      this.#copyPicked = true;
       void this.#copyCounts();
+    };
+    $<HTMLSelectElement>("#km-copy-keys").onchange = () => (this.#copyKeysPicked = true);
     $<HTMLFormElement>("#km-copy").onsubmit = (event) => {
       event.preventDefault();
       void this.#copy();
@@ -1779,13 +1793,19 @@ export class KeymodesView {
     const pattern = patternOf(key);
     const from = Number(/\d+/.exec(key)![0]);
     this.#change(`Apply ${roleLabel(pattern).toLowerCase()} to all columns`, (draft) =>
-      assignImageSlots(draft, applyToAll(this.#keys, pattern, from, this.#current)),
+      assignImageSlots(draft, changedSlots(applyToAll(this.#keys, pattern, from, this.#current), this.#current)),
     );
   }
 
+  /**
+   * Copy from offers the mix and every skin. Until the user picks, it is set
+   * to another skin than this stage's own (the first one) at the shown key
+   * count, else its nearest.
+   */
   #renderCopy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin");
-    const value = skin.value || MIX;
+    const own = this.#host.originalStage(this.#keys);
+    const value = this.#copyPicked ? skin.value || MIX : (this.#host.sources().find((s) => s.key !== own)?.key ?? MIX);
     skin.replaceChildren(
       h("option", { value: MIX }, "This mix"),
       ...this.#host
@@ -1807,8 +1827,10 @@ export class KeymodesView {
     select.replaceChildren(
       ...counts.map((k) => h("option", { value: String(k) }, `${k}K`)),
     );
-    if (counts.map(String).includes(previous)) select.value = previous;
-    else if (counts.includes(this.#keys)) select.value = String(this.#keys);
+    // The shown key count, else the nearest; a count the user chose stays.
+    const nearest = counts.reduce<number | undefined>((best, k) => best === undefined || Math.abs(k - this.#keys) < Math.abs(best - this.#keys) ? k : best, undefined);
+    if (this.#copyKeysPicked && counts.map(String).includes(previous)) select.value = previous;
+    else if (nearest !== undefined) select.value = String(nearest);
     select.disabled = !counts.length;
     $<HTMLButtonElement>("#km-copy-go").disabled =
       !counts.length || !this.#host.canWrite() || !this.#keys;
