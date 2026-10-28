@@ -1434,10 +1434,23 @@
   font-size: var(--step--1);
 }
 
-/* Up to 1440 px the rail gives the slots its room (the picker keeps its width). */
+/* Up to 1440 px the rail gives the slots its room (the picker keeps its
+   width): key count statuses become their coloured dot (the word is in the
+   title), and the Draft panel narrows so the sheet gains ~100 px. */
 @media (max-width: 90rem) {
+  .studio[data-view="keymodes"] {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+  }
   .km-body {
     grid-template-columns: 6rem minmax(0, 1fr) minmax(15.5rem, 22rem);
+  }
+  .km-status {
+    justify-self: start;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+    font-size: 0;
   }
 }
 @media (max-height: 56rem) {

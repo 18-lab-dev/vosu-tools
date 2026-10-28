@@ -232,6 +232,8 @@ export class KeymodesView {
   #opened = false;
   #userPicked = false;
   #announced = 0;
+  /** Up to 1440 px wide (the narrow Keymodes layout). */
+  #narrow = matchMedia("(max-width: 90rem)");
   /** The last play's key count, once read (a fallback when nothing else says which count to show). */
   #playKeys = 0;
   #dragged: { unit: Unit; source: string } | null = null;
@@ -342,6 +344,11 @@ export class KeymodesView {
     $("#km-grid").onkeydown = (event) => this.#gridKey(event);
     $("#km-shared-grid").onkeydown = (event) => this.#gridKey(event);
     new ResizeObserver(() => this.#renderColumns()).observe($("#km-stage"));
+    // "+ Key count" fits the narrower rail up to 1440 px as "+ Add".
+    this.#narrow.addEventListener("change", () => {
+      const first = $<HTMLSelectElement>("#km-add").options[0];
+      if (first) first.textContent = this.#narrow.matches ? "+ Add" : "+ Key count";
+    });
     // A group's help (i) explains it; clicking the (i) does not open the group.
     for (const help of document.querySelectorAll<HTMLElement>("#keymodes-view summary > .v-help"))
       help.addEventListener("click", (event) => event.preventDefault());
@@ -681,8 +688,9 @@ export class KeymodesView {
             ariaCurrent: String(keys === this.#keys),
             ariaLabel: `${keys}K, ${label}`,
             disabled: !drawn,
+            // Up to 1440 px the status shows as its dot: the word is here.
             title: drawn
-              ? ""
+              ? `${keys}K: ${label}`
               : "Dual-stage layouts are not supported by render-core's preview yet",
             onclick: () => {
               this.#userPicked = true;
@@ -700,7 +708,7 @@ export class KeymodesView {
       rail.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
     const add = $<HTMLSelectElement>("#km-add");
     add.replaceChildren(
-      h("option", { value: "" }, "+ Key count"),
+      h("option", { value: "" }, this.#narrow.matches ? "+ Add" : "+ Key count"),
       ...DRAWN.filter((k) => !counts.includes(k)).map((k) =>
         h("option", { value: String(k) }, `${k}K`),
       ),
@@ -1003,7 +1011,7 @@ export class KeymodesView {
     const keys = this.#keys;
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
-      grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with + Key count."));
+      grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with the + list under the key counts."));
       grid.dataset.keymode = String(keys);
       return;
     }
