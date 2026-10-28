@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.2 - 2026-10-28
+
+- Skin studio 0.4.2 detects draft source skins that disappeared from the library and offers explicit remap, keep or remove recovery, with undo. References retain source names and fingerprints; existing drafts without stored names continue to work.
+- Keep missing-source recovery in one compact row with help hovers, and label legacy missing references as Unknown source rather than inventing a name.
+- Lazer library 0.2.1 adds full-content skin fingerprints, including image files, so source recovery can distinguish identical skins from skins sharing only an ini/json hash. Other tool versions are unchanged.
+
 ## 0.4.1 - 2026-10-28
 
 - Skin studio keeps different derived Keymodes images distinct even when their display names match, preventing one column's resize from replacing another's image. Image density follows each destination's `@2x` suffix, not the retained source filename; repeating an unchanged column width does nothing.

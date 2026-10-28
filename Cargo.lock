@@ -2824,7 +2824,7 @@ dependencies = [
 
 [[package]]
 name = "vosu-lazer-library"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "axum",
  "chrono",
@@ -2909,7 +2909,7 @@ dependencies = [
 
 [[package]]
 name = "vosu-skin-studio"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "axum",
  "base64 0.22.1",
