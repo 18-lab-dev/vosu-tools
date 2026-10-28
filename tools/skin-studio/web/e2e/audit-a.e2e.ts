@@ -291,6 +291,25 @@ try {
     check("A paused edit publishes the correct missing-path squiggle", true);
   });
 
+  await scenario("empty-draft-text", async () => {
+    await reset(); await pick(opt.skin!); await page.click("#use-base");
+    const original = (await plan("empty-before")).ini;
+    await editText(original);
+    await page.keyboard.press("Control+a"); await page.keyboard.press("Backspace");
+    await until(async () => (await state()).ini === "", "intentional empty draft persisted");
+    check("Deleting the whole ini persists an intentionally empty draft", true);
+    check("An empty hand edit is labelled without claiming no changes", (await page.locator("#mix-picks").textContent())!.includes("skin.ini edits"));
+    check("Plan export preserves an intentionally empty ini", (await plan("empty-after")).ini === "");
+    await page.click("#tab-keymodes");
+    await until(async () => await page.locator("#km-counts .km-count").count() === 0, "empty ini has no source key-count fallback");
+    check("Keymodes reads the empty ini rather than the base fallback", true);
+    await page.click("#tab-ini"); await page.click("#ini-mix");
+    await page.locator("#editor textarea").first().focus();
+    await page.keyboard.press("Control+z");
+    await until(async () => await editorText() === original.replace(/\r\n/g, "\n"), "empty ini undo");
+    check("One native undo restores the entire deleted ini", true);
+  });
+
   await scenario("save-source-context", async () => {
     await reset(); await pick("Audit Target");
     await editText("// SAVE_RACE_A\n" + readFileSync(join(TARGET, "skin.ini"), "utf8"), true);
@@ -517,6 +536,7 @@ try {
     await page.goto("about:blank"); await page.goto(await launch("dark")); await page.waitForSelector("#skins .skin"); await page.click("#tab-ini");
     await page.waitForSelector("#editor .monaco-editor");
     check("Warning-only draft defaults to a compact Problems summary", await page.locator("#ini-problems").getAttribute("open") === null && (await page.locator("#issue-count").textContent())!.includes("warning"));
+    check("Hand-edited-only drafts have a truthful compact label", (await page.locator("#mix-picks").textContent())!.trim() === "skin.ini edits");
     for (const theme of ["dark", "light"]) for (const [width, height] of [[1920, 1080], [1280, 720]]) {
       await page.setViewportSize({ width, height }); await page.evaluate((mode: string) => document.documentElement.dataset.theme = mode, theme);
       await page.waitForTimeout(250); await shot(`ini-collapsed-${theme}-${width}x${height}`);
@@ -536,6 +556,8 @@ try {
       await page.waitForTimeout(250);
       const geometry = await page.locator("#editor").boundingBox();
       check(`Editor remains usable ${theme} ${width}x${height}`, !!geometry && geometry.width > width * .4 && geometry.height > height * .35);
+      const filter = await page.locator("#problem-filter").boundingBox();
+      check(`Problems filter remains usable ${theme} ${width}x${height}`, !!filter && filter.width >= 180);
       await shot(`ini-${theme}-${width}x${height}`);
     }
   });

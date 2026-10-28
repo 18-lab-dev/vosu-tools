@@ -385,6 +385,11 @@ window.addEventListener("keydown", (event) => {
 });
 const focusDirty = () => focused !== null && focusDoc.getValue() !== savedText;
 const mixEdited = () => mixDoc.getValue() !== composedIni;
+/** Empty hand text is a real document, not an uninitialised composition. */
+function draftText(fallback = lastPlan?.ini ?? "") {
+  const text = mixDoc.getValue();
+  return mixEdited() ? text : text || fallback;
+}
 
 let previousProblemErrors = 0;
 $("#problem-severity").onchange = () => renderIni();
@@ -1295,7 +1300,7 @@ async function composeNow(fresh = false, inPlace = false, capture = captureDraft
  */
 async function planNow(fresh = false, inPlace = false, capture = captureDraft()): Promise<Plan> {
   const { plan } = await composeNow(fresh, inPlace, capture);
-  if (capture.edited && capture.text)
+  if (capture.edited)
     plan.ini = inPlace && capture.recipe.base
       ? keepGeneral(capture.text, (await load(capture.recipe.base, fresh)).data.text, capture.recipe.name)
       : capture.text;
@@ -2087,6 +2092,15 @@ function overrideRow(id: string) {
   );
 }
 
+function renderIniDraftState() {
+  const empty = $("#mix-picks").querySelector<HTMLElement>(".empty");
+  if (!empty) return;
+  empty.textContent = recipe.ini === undefined ? "No picks" : "skin.ini edits";
+  empty.title = recipe.ini === undefined
+    ? "Pick groups in Elements, assets in Explorer or images in Keymodes."
+    : "The draft includes hand-edited skin.ini text. Review skin.ini opens it.";
+}
+
 function renderMix() {
   const base = recipe.base;
   renderBase();
@@ -2183,8 +2197,9 @@ function renderMix() {
   $("#mix-picks").replaceChildren(
     ...(rows.length
       ? rows
-      : [h("li", { class: "empty" }, "No changes yet: pick groups in Elements, assets in Explorer or images in Keymodes.")]),
+      : [h("li", { class: "empty" })]),
   );
+  renderIniDraftState();
   const overrides = Object.keys(recipe.overrides ?? {}).length;
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
   $("#mix-summary").replaceChildren(
@@ -2241,7 +2256,7 @@ function renderExport(reason = "") {
       : targetNote("apply", []);
     return;
   }
-  const keys = mixKeyCounts(mixDoc.getValue() || lastPlan?.ini || "");
+  const keys = mixKeyCounts(draftText());
   const playable =
     target === "stable" ||
     target === "osk" ||
@@ -2577,7 +2592,7 @@ function mixResolver(plan: Plan): Resolver {
     }
   for (const item of plan.blanks)
     files.set(item.to.toLowerCase(), () => blank(item.kind));
-  const ini = mixDoc.getValue() || plan.ini;
+  const ini = draftText(plan.ini);
   return (file) => {
     const lower = file.toLowerCase();
     if (lower === "skin.ini") return iniBlob(ini);
@@ -2613,7 +2628,7 @@ function renderPreviewControls() {
 /** skin.ini of what the preview shows: the selected skin's or the mix draft. */
 function previewIni(): string {
   if (previewPrefs.source === "mix")
-    return mixDoc.getValue() || lastPlan?.ini || "";
+    return draftText();
   return focused && loaded.has(focused) ? focusDoc.getValue() : "";
 }
 /**
@@ -2696,12 +2711,12 @@ mixDoc.onDidChangeContent(
 // The draft keeps a hand-edited skin.ini until applied or discarded.
 mixDoc.onDidChangeContent(() => {
   if (syncingMixText) return;
-  if (!mixDoc.getValue()) return;
   const text = mixEdited() ? mixDoc.getValue() : undefined;
   if (text === recipe.ini) return;
   if (text === undefined) delete recipe.ini;
   else recipe.ini = text;
   persist();
+  renderIniDraftState();
   renderApply();
   renderHistory();
 });
@@ -2859,7 +2874,7 @@ const keymodes = new KeymodesView({
     const key = pick ? (pick.kind === "skin" ? pick.key : null) : recipe.base;
     return key && skinByKey(key)?.available ? key : null;
   },
-  mixText: () => mixDoc.getValue() || lastPlan?.ini || "",
+  mixText: () => draftText(),
   mixFiles: () => {
     const files = new Map<string, { skin: string; from: string; to: string }>();
     for (const source of lastPlan?.sources ?? [])
