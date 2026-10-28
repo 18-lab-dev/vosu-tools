@@ -76,6 +76,13 @@ export interface HitHost {
   error(text: string): void;
 }
 
+/** Adds the failed geometry action without leaking source paths into the UI. */
+export function geometryError(action: "Width change" | "HitPosition change", error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const missing = "Not in the library: ";
+  return `${action}: ${message.startsWith(missing) ? `couldn't read ${message.slice(missing.length)}` : message}`;
+}
+
 const DEFAULT_HIT_POSITION = 402;
 const KEY = /^KeyImage\d+D?$/;
 const hd = (file: string) => /@2x\.[^.]+$/i.test(file);
@@ -545,7 +552,8 @@ export class HitPanel {
       if (notes) this.#host.state(`${label}. ${notes}`);
       this.#host.error(lost.length ? lostReport(keys, lost) : "");
     } catch (error) {
-      if (ticket === this.#geometryTicket) this.#host.error(error instanceof Error ? error.message : String(error));
+      if (ticket === this.#geometryTicket)
+        this.#host.error(geometryError(byHand ? "HitPosition change" : "Width change", error));
     } finally {
       if (ticket === this.#geometryTicket) {
         this.#busy = false;

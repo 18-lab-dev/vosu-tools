@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import { type Geometry, hitPositionFor, pieceOf, pieceOps, referenceScale } from "../src/proportions";
-import { HitPanel, type HitHost } from "../src/hit-panel";
+import { geometryError, HitPanel, type HitHost } from "../src/hit-panel";
 import { stageImages } from "../src/keymodes";
+
+test("geometry errors name the failed action and the unavailable source", () => {
+  expect(geometryError("Width change", new Error("Not in the library: Argon"))).toBe("Width change: couldn't read Argon");
+  expect(geometryError("Width change", "Not in the library: folder My skin")).toBe("Width change: couldn't read folder My skin");
+  expect(geometryError("HitPosition change", new Error("Not in the library: lazer skin abc"))).toBe("HitPosition change: couldn't read lazer skin abc");
+  expect(geometryError("Width change", new Error("Invalid resize"))).toBe("Width change: Invalid resize");
+});
 
 test("repeating a 5K width never renders, captures originals, or derives files", async () => {
   const unexpected = () => { throw new Error("Unchanged width must do nothing"); };

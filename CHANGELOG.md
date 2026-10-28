@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Skin studio keeps different derived Keymodes images distinct even when their display names match, preventing one column's resize from replacing another's image. Image density follows each destination's `@2x` suffix, not the retained source filename; repeating an unchanged column width does nothing.
+- Skin studio identifies unavailable image sources without exposing their parent paths in the UI, labels failed width/hit-position actions, and logs the requested source key, route and availability with bounded, deduplicated diagnostics.
 
 ## 0.4.0 - 2026-10-27
 

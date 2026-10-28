@@ -13,6 +13,7 @@ use axum::{
     body::{Body, Bytes},
     extract::{DefaultBodyLimit, Path as UrlPath, Query, State},
     http::{HeaderValue, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -31,7 +32,7 @@ use tokio::sync::{Mutex, mpsc};
 use vosu_tool_sdk::{Client, ToolEnv};
 
 pub type Failure = (StatusCode, String);
-/// When the skin list was taken, and its available skins.
+/// When the skin list was taken, including unavailable skins for diagnostics.
 pub type Known = (Instant, Vec<Skin>);
 pub fn failure(error: impl std::fmt::Display) -> Failure {
     (StatusCode::BAD_REQUEST, error.to_string())
@@ -695,6 +696,14 @@ async fn unfinished(State(app): State<App>) -> Json<Vec<apply::Unfinished>> {
     Json(apply::unfinished(&app.backups))
 }
 
+async fn resolution_context(
+    route: axum::extract::MatchedPath,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    library::REQUEST_ROUTE.scope(route, next.run(request)).await
+}
+
 pub fn router(app: App) -> Router {
     Router::new()
         .route("/v1/library", get(list))
@@ -720,6 +729,7 @@ pub fn router(app: App) -> Router {
         .route("/v1/restore", post(restore))
         .route("/v1/applied", get(applied))
         .route("/v1/applied/unfinished", get(unfinished))
+        .layer(middleware::from_fn(resolution_context))
         .with_state(app)
 }
 

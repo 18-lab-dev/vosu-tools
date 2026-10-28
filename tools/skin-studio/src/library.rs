@@ -5,8 +5,11 @@ use crate::{App, Failure, failure, uploads};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashSet,
     fs,
     path::{Component, Path, PathBuf},
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
 };
 
 pub const LAZER_TOOL: &str = "lazer-library";
@@ -14,6 +17,89 @@ const LAZER_PREFIX: &str = "lazer:";
 pub const MAX_FILES: usize = 50_000;
 /// Largest single file read out of an `.osk`.
 const MAX_ENTRY: u64 = 128 * 1024 * 1024;
+
+tokio::task_local! {
+    pub(crate) static REQUEST_ROUTE: axum::extract::MatchedPath;
+}
+
+/// At most 16 distinct resolution failures per minute, once per route/key/state.
+struct ResolutionFailures {
+    since: Instant,
+    seen: HashSet<(String, String, bool)>,
+}
+impl ResolutionFailures {
+    fn allow(&mut self, route: &str, key: &str, listed: bool, now: Instant) -> bool {
+        if now.duration_since(self.since) >= Duration::from_secs(60) {
+            self.since = now;
+            self.seen.clear();
+        }
+        if self.seen.len() >= 16
+            || self
+                .seen
+                .iter()
+                .any(|(r, k, l)| r == route && k == key && *l == listed)
+        {
+            return false;
+        }
+        self.seen.insert((route.to_owned(), key.to_owned(), listed))
+    }
+}
+static RESOLUTION_FAILURES: LazyLock<Mutex<ResolutionFailures>> = LazyLock::new(|| {
+    Mutex::new(ResolutionFailures {
+        since: Instant::now(),
+        seen: HashSet::new(),
+    })
+});
+
+fn resolution_message(key: &str, skin: Option<&Skin>) -> (String, &'static str) {
+    // Handle both host-native and persisted Windows paths without showing
+    // a user's home directory in the UI.
+    let basename = key
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("");
+    let kind = if key.starts_with(LAZER_PREFIX) {
+        "lazer"
+    } else if Path::new(basename)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("osk"))
+    {
+        ".osk"
+    } else {
+        "folder"
+    };
+    if let Some(skin) = skin.filter(|s| !s.name.is_empty()) {
+        return (format!("Not in the library: {}", skin.name), kind);
+    }
+    let message = match key.strip_prefix(LAZER_PREFIX) {
+        Some(id) => format!("Not in the library: lazer skin {id}"),
+        None => format!("Not in the library: {kind} {basename}"),
+    };
+    (message, kind)
+}
+
+fn resolution_failure(key: &str, skin: Option<&Skin>) -> Failure {
+    let (message, kind) = resolution_message(key, skin);
+    let route = REQUEST_ROUTE
+        .try_with(|route| route.as_str().to_owned())
+        .unwrap_or_else(|_| "internal".into());
+    if RESOLUTION_FAILURES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .allow(&route, key, skin.is_some(), Instant::now())
+    {
+        eprintln!(
+            "skin-studio: route={route} requested_key={key:?} kind={kind} library={}",
+            if skin.is_some() {
+                "available=false"
+            } else {
+                "absent"
+            }
+        );
+    }
+    failure(message)
+}
 
 #[derive(Deserialize)]
 struct Context {
@@ -471,10 +557,7 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
             Err(error) => lazer.error = Some(error),
         }
     }
-    *app.known.lock().await = Some((
-        std::time::Instant::now(),
-        skins.iter().filter(|s| s.available).cloned().collect(),
-    ));
+    *app.known.lock().await = Some((std::time::Instant::now(), skins.clone()));
     Ok(Library {
         client: context.client,
         current: context.skin.map(CurrentSkin::from),
@@ -513,13 +596,12 @@ pub async fn resolve(app: &App, key: &str) -> Result<(Source, Skin), Failure> {
             .then(|| skins.iter().find(|s| s.key == key).cloned())
     });
     let skin = match cached {
-        Some(Some(skin)) => skin,
-        _ => library(app)
-            .await?
-            .skins
-            .into_iter()
-            .find(|s| s.key == key && s.available)
-            .ok_or_else(|| failure("Not in the library"))?,
+        Some(Some(skin)) => Some(skin),
+        _ => library(app).await?.skins.into_iter().find(|s| s.key == key),
+    };
+    let skin = match skin {
+        Some(skin) if skin.available => skin,
+        other => return Err(resolution_failure(key, other.as_ref())),
     };
     let source = match (key.strip_prefix(LAZER_PREFIX), skin.origin) {
         (Some(id), _) => Source::Lazer(id.to_owned()),
@@ -695,6 +777,62 @@ pub fn segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_source_messages_hide_parent_paths_and_name_the_kind() {
+        for (key, expected, kind) in [
+            ("lazer:abc-123", "lazer skin abc-123", "lazer"),
+            ("/home/private/Skins/My skin", "folder My skin", "folder"),
+            (
+                r"C:\Users\private\Skins\My skin",
+                "folder My skin",
+                "folder",
+            ),
+            (
+                "/home/private/Downloads/Example.OSK",
+                ".osk Example.OSK",
+                ".osk",
+            ),
+        ] {
+            assert_eq!(
+                resolution_message(key, None),
+                (format!("Not in the library: {expected}"), kind)
+            );
+        }
+        let skin = Skin {
+            key: "lazer:abc-123".into(),
+            name: "Argon".into(),
+            origin: Origin::Lazer,
+            current: false,
+            available: false,
+            writable: false,
+            creator: None,
+            builtin: Some("argon".into()),
+        };
+        assert_eq!(
+            resolution_message(&skin.key, Some(&skin)),
+            ("Not in the library: Argon".into(), "lazer")
+        );
+    }
+
+    #[test]
+    fn resolution_logs_dedupe_route_key_and_state_and_bound_new_keys() {
+        let now = Instant::now();
+        let mut log = ResolutionFailures {
+            since: now,
+            seen: HashSet::new(),
+        };
+        assert!(log.allow("/v1/rows", "lazer:a", false, now));
+        assert!(!log.allow("/v1/rows", "lazer:a", false, now));
+        assert!(log.allow("/v1/derive", "lazer:a", false, now));
+        assert!(log.allow("/v1/rows", "lazer:a", true, now));
+        for i in 0..13 {
+            assert!(log.allow("/v1/rows", &i.to_string(), false, now));
+        }
+        assert!(!log.allow("/v1/rows", "overflow", false, now));
+        assert!(log.allow("/v1/rows", "lazer:a", false, now + Duration::from_secs(60)));
+        assert!(!log.allow("/v1/rows", "lazer:a", false, now + Duration::from_secs(61)));
+    }
 
     #[test]
     fn added_folders_must_look_like_skins() {
