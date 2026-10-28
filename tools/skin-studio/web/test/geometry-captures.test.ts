@@ -228,7 +228,7 @@ for (const moveReceptors of [true, false]) test(`old blank priors offer original
     return r?.drawn && !r.drawn.builtin
       ? { skin: skin.key, name: r.drawn.name, files: [{ from: `${r.drawn.name}.png`, suffix: ".png" }] }
       : null;
-  }, (key) => maniaValue(skin.text, 10, key), true);
+  }, (key) => maniaValue(skin.text, 10, key));
   resetStageGeometry(draft, original);
   expect(panel.needsOriginalStageReset).toBe(false);
   expect(draft.hit).toBeUndefined();

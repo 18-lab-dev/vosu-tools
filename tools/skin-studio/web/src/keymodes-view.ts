@@ -1772,7 +1772,7 @@ export class KeymodesView {
     $<HTMLButtonElement>("#km-copy-go").disabled =
       !counts.length || !this.#host.canWrite() || !this.#keys;
   }
-  async #stageCopy(skin: string, from: number, keys: number, originalGeometry = false) {
+  async #stageCopy(skin: string, from: number, keys: number) {
     let image: (key: string) => Slot, value: (key: string) => string | undefined;
     if (skin === MIX) {
       const text = this.#host.mixText();
@@ -1800,7 +1800,7 @@ export class KeymodesView {
       };
       value = (key) => maniaValue(source.text, from, key);
     }
-    return copyStage(keys, from, image, value, originalGeometry);
+    return copyStage(keys, from, image, value);
   }
   async #copy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
@@ -1828,7 +1828,7 @@ export class KeymodesView {
       return;
     }
     try {
-      const copied = await this.#stageCopy(source, keys, keys, true);
+      const copied = await this.#stageCopy(source, keys, keys);
       if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while resetting geometry; the reset was not applied.");
       this.#change(`Reset ${keys}K geometry from ${this.#host.skinName(source)}`, (draft) => resetStageGeometry(draft, copied), keys);
     } catch (error) {
