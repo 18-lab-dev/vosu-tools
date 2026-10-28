@@ -789,7 +789,9 @@
     grid-template-rows: auto minmax(0, 1fr);
     max-height: 17rem;
   }
-  .mix > .v-panel__head {
+  .mix > .v-panel__head,
+  .mix-saved,
+  .mix-unfinished {
     grid-column: 1 / -1;
   }
   .mix-head {
@@ -877,27 +879,38 @@
 .km-copy-menu > summary::-webkit-details-marker {
   display: none;
 }
+.km-copy-menu > summary::after {
+  content: "▾";
+  margin-left: var(--space-1);
+  color: var(--muted);
+}
+/* Column tools: Mirror, the 1/2/S pattern and Copy from, under one button. */
 .km-copy {
   position: absolute;
   top: calc(100% + var(--space-1));
   left: 0;
   z-index: 5;
-  display: flex;
+  display: grid;
   gap: var(--space-2);
-  align-items: center;
   padding: var(--space-2);
   border: var(--hair) solid var(--rule-strong);
   border-radius: var(--radius);
   background: var(--bg-raised);
   box-shadow: var(--shadow);
 }
+.km-copy__row {
+  gap: var(--space-2);
+  align-items: center;
+  white-space: nowrap;
+}
 .km-copy .v-select {
   max-width: 14rem;
 }
+/* The picker is ~30% wider than the 17rem it had, the stage ~12% taller. */
 .km-body {
   display: grid;
   flex: 1;
-  grid-template-columns: 7.5rem minmax(0, 1fr) minmax(12rem, 17rem);
+  grid-template-columns: 7.5rem minmax(0, 1fr) minmax(15.5rem, 22rem);
   min-height: 0;
 }
 
@@ -982,7 +995,7 @@
 }
 .km-stage {
   position: relative;
-  flex: 0 0 clamp(8rem, 36%, 24rem);
+  flex: 0 0 clamp(9rem, 40.5%, 27rem);
   overflow: hidden;
   background: var(--bg-sunken);
   border-bottom: var(--hair) solid var(--rule);
@@ -1257,12 +1270,26 @@
   color: var(--danger);
   font-size: var(--step--1);
 }
-.km-shared {
+/* The groups under the grid: one collapsed list, each a ruled row. */
+.km-sheet > details:first-of-type {
   margin-top: var(--space-3);
 }
-.km-shared > summary {
-  padding: var(--space-1) 0;
+.km-sheet > details {
+  border-top: var(--hair) solid var(--rule);
+}
+.km-sheet > details:last-of-type {
+  border-bottom: var(--hair) solid var(--rule);
+}
+.km-sheet > details > summary {
+  padding: var(--space-2) 0;
   cursor: pointer;
+}
+.km-sheet > details[open] {
+  padding-bottom: var(--space-3);
+}
+.km-divider {
+  grid-column: 1 / -1;
+  margin: var(--space-2) 0 0;
 }
 .km-shared-grid {
   display: grid;
@@ -1369,9 +1396,15 @@
   font-size: var(--step--1);
 }
 
+/* Up to 1440 px the rail gives the slots its room (the picker keeps its width). */
+@media (max-width: 90rem) {
+  .km-body {
+    grid-template-columns: 6rem minmax(0, 1fr) minmax(15.5rem, 22rem);
+  }
+}
 @media (max-height: 56rem) {
   .km-stage {
-    flex-basis: clamp(7rem, 26%, 16rem);
+    flex-basis: clamp(8rem, 29%, 18rem);
   }
   .km-body {
     --km-thumb: 2rem;
@@ -1382,7 +1415,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .km-body {
-    grid-template-columns: 6.5rem minmax(0, 1fr) minmax(11rem, 14rem);
+    grid-template-columns: 6.5rem minmax(0, 1fr) minmax(14rem, 18rem);
   }
 }
 @media (max-width: 48rem) {
@@ -1448,13 +1481,6 @@
 }
 
 /* ---- hit position ---------------------------------------------------------- */
-.km-hit {
-  margin-top: var(--space-3);
-}
-.km-hit > summary {
-  padding: var(--space-1) 0;
-  cursor: pointer;
-}
 .km-hit__body {
   display: flex;
   flex-direction: column;
@@ -1491,15 +1517,38 @@
   color: var(--caution);
 }
 
-/* ---- edit in place ------------------------------------------------------ */
-.mix-mode {
-  flex: none;
+/* ---- draft bar, base, saved draft ------------------------------------------ */
+.mix-bar {
+  gap: var(--space-1);
 }
-.mix-edit__where,
+.mix-label {
+  display: flex;
+  gap: var(--space-1);
+  align-items: center;
+}
 .mix-edit__note {
   margin: 0;
   font-size: var(--step--1);
   overflow-wrap: anywhere;
+}
+.mix-saved {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--hair) solid var(--rule);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: var(--step--1);
+}
+.mix-saved[hidden] {
+  display: none;
+}
+.mix-saved__what {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .mix-edit__note {
   display: flex;
@@ -1528,18 +1577,62 @@
 .mode-link:hover {
   background: var(--hover);
 }
-.apply-dialog {
+.apply-dialog,
+.keys-dialog {
   width: min(44rem, calc(100vw - 2 * var(--space-4)));
   max-height: min(36rem, calc(100vh - 2 * var(--space-4)));
   padding: 0;
   color: var(--fg);
 }
 /* .v-panel sets display, which would show a closed dialog. */
-.apply-dialog:not([open]) {
+.apply-dialog:not([open]),
+.keys-dialog:not([open]) {
   display: none;
 }
-.apply-dialog::backdrop {
+.apply-dialog::backdrop,
+.keys-dialog::backdrop {
   background: var(--scrim);
+}
+.keys-dialog__form {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: inherit;
+}
+.keys-dialog__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: var(--space-4);
+  min-height: 0;
+  padding: var(--space-3);
+}
+.keys-area h3 {
+  margin: 0 0 var(--space-2);
+}
+.keys-area dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--step--1);
+}
+.keys-area dt {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  justify-content: flex-end;
+}
+.keys-area dd {
+  margin: 0;
+  color: var(--fg-dim);
+}
+.keys-area kbd {
+  padding: 0 5px;
+  border: var(--hair) solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font: 500 var(--step--2) / 1.6 var(--font-mono);
+  white-space: nowrap;
 }
 .apply-dialog__form {
   display: grid;

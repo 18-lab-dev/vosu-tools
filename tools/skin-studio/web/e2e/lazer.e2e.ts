@@ -336,8 +336,13 @@ try {
   // ── The user's report: a lazer client, a tab without a session ──────────
   await page.goto(`${base}#readonly`);
   await page.waitForSelector("#skins .skin");
-  await until(async () => ((await page.locator("#edit-target").textContent()) ?? "").includes("(current skin)"), "lazer current skin");
-  check("Lazer client: the current lazer skin is the edit target", true, (await page.locator("#edit-target").textContent()) ?? "");
+  const baseShown = async () => (await page.locator("#mix-base option:checked").textContent()) ?? "";
+  await until(async () => (await baseShown()) === `Follow osu! · ${opt.skin}`, "lazer current skin");
+  check("Lazer client: the draft is based on the current lazer skin", true, await baseShown());
+  const options = () =>
+    page.locator("#export-target option").evaluateAll((list) =>
+      list.filter((o) => !(o as HTMLOptionElement).hidden).map((o) => `${(o as HTMLOptionElement).value}:${o.textContent}`),
+    );
   check("Read-only tab: the badge says why and links to the dashboard", await page.locator("#mode").isVisible(), (await page.locator("#mode").getAttribute("title")) ?? "");
   await page.click("#tab-keymodes");
   await pick(7);
@@ -359,8 +364,14 @@ try {
   await slot("KeyImage6").click({ modifiers: [mod] });
   await tile("mauve").click();
   await until(async () => (await page.locator("#export-run").textContent())?.trim() === "Import into osu!lazer", "import button", 30000);
+  const notMounted = await options();
+  check(
+    "Lazer base, not mounted: no Apply to it, a new skin instead (import or any export)",
+    !notMounted.some((o) => o.includes("Apply to")) && notMounted.includes("apply:Import into osu!lazer (new skin)") && ["stable", "osk", "quaver", "etterna"].every((v) => notMounted.some((o) => o.startsWith(`${v}:`))),
+    notMounted.join(" | "),
+  );
   const note = (await page.locator("#export-note").textContent()) ?? "";
-  check("Not mounted: Apply imports a new lazer skin and names it", note.includes(`"${opt.skin} [vosu edit 1]"`) && note.includes("Edit externally"), note);
+  check("Not mounted: the import names the new lazer skin", note.includes(`"${opt.skin} [vosu edit 1]"`) && note.includes("Edit externally"), note);
   await page.click("#export-run");
   await page.waitForSelector("#apply-dialog[open]");
   check("The first apply shows what goes where", ((await page.locator("#apply-where").textContent()) ?? "").includes("[vosu edit 1]") && (await page.locator("#apply-list li").count()) > 0);
@@ -388,6 +399,8 @@ try {
   await slot("KeyImage3").click();
   await tile("mauve").click();
   await until(async () => (await page.locator("#export-run").textContent())?.trim() === "Apply to lazer's edit folder", "mounted button", 30000);
+  const mountedOptions = await options();
+  check("Lazer base, Edit externally mounted: Apply to it is offered", mountedOptions.includes(`apply:Apply to ${opt.skin} (Edit externally)`), mountedOptions.join(" | "));
   check("Mounted: the note names lazer's Edit externally folder", ((await page.locator("#export-note").textContent()) ?? "").includes(mounted));
   await page.click("#export-run");
   await until(async () => ((await page.locator("#mix-result").textContent()) ?? "").includes("edit folder"), "applied to mount", 30000);

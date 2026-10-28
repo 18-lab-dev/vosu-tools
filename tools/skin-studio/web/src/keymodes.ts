@@ -15,6 +15,7 @@ import { type Ini, maniaBlock, removeInSection, setInSection } from "./ini";
 import { frameNames, hasImage, imageIndex } from "./mania";
 import { occupied, stageFolder } from "./layout";
 import { imageExt } from "./groups";
+import type { Recipe } from "./plan";
 
 /** An image copied into the mix: a skin's image with its `@2x` and frames. */
 export interface SlotImage {
@@ -349,7 +350,7 @@ export function copyStage(
   return { images, values };
 }
 
-/** Undo history of draft changes: one entry per screen action. */
+/** A key count's draft before and after one screen action. */
 export interface Change {
   keys: number;
   before: KeymodeDraft | undefined;
@@ -367,20 +368,31 @@ export function assignSlots(draft: KeymodeDraft, keys: readonly string[], slot: 
   }
 }
 
-export class History {
-  #undo: Change[] = [];
-  #redo: Change[] = [];
-  push(change: Change) {
+/** One undoable change of the mix draft, whichever screen made it. */
+export interface DraftStep {
+  label: string;
+  /** Every key-count draft the step can put back (what undo or redo may need). */
+  drafts: (KeymodeDraft | undefined)[];
+  /** Whole drafts a recipe-level step can put back (before and after). */
+  recipes?: Recipe[];
+  undo(): void;
+  redo(): void;
+}
+/** Undo history: one entry per user action, the newest 200 kept. */
+export class History<T extends { label: string } = Change> {
+  #undo: T[] = [];
+  #redo: T[] = [];
+  push(change: T) {
     this.#undo.push(change);
     if (this.#undo.length > 200) this.#undo.shift();
     this.#redo.length = 0;
   }
-  undo(): Change | undefined {
+  undo(): T | undefined {
     const change = this.#undo.pop();
     if (change) this.#redo.push(change);
     return change;
   }
-  redo(): Change | undefined {
+  redo(): T | undefined {
     const change = this.#redo.pop();
     if (change) this.#undo.push(change);
     return change;
@@ -394,5 +406,9 @@ export class History {
   /** The next undo / redo, for button labels. */
   get next(): { undo?: string; redo?: string } {
     return { undo: this.#undo.at(-1)?.label, redo: this.#redo.at(-1)?.label };
+  }
+  /** Every change undo or redo can still reach. */
+  steps(): T[] {
+    return [...this.#undo, ...this.#redo];
   }
 }

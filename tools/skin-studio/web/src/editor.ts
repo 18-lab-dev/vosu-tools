@@ -1,8 +1,8 @@
 // The skin.ini editor, loaded on demand (the first view never fetches
 // Monaco): the skin.ini language (tokens, completion, hovers, colour swatches
 // and quick fixes from @vosu-tools/skin-spec) and one editor that mirrors the
-// studio's TextDocs in Monaco models. Only the editor core and the five
-// contributions skin.ini uses are bundled; no other languages or workers.
+// studio's TextDocs in Monaco models. Only the editor core and the six
+// contributions skin.ini uses (find included) are bundled; no other languages or workers.
 
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import "monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js";
@@ -10,6 +10,7 @@ import "monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution.js";
 import "monaco-editor/esm/vs/editor/contrib/colorPicker/browser/colorContributions.js";
 import "monaco-editor/esm/vs/editor/contrib/codeAction/browser/codeActionContributions.js";
 import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.js";
+import "monaco-editor/esm/vs/editor/contrib/find/browser/findController.js";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import {
   parse,
@@ -271,6 +272,8 @@ export interface IniEditor {
   /** Markers for the document's current `issues`. */
   mark(doc: TextDoc): void;
   reveal(line: number, column: number): void;
+  /** Opens the find widget (Ctrl+F from anywhere on the tab). */
+  find(): void;
   layout(): void;
   /** Re-reads the 18-LAB colour tokens after a mode change. */
   applyTheme(): void;
@@ -355,6 +358,10 @@ export async function createIniEditor(
       editor.revealLineInCenter(line);
       editor.setPosition({ lineNumber: line, column });
       editor.focus();
+    },
+    find: () => {
+      editor.focus();
+      void editor.getAction("actions.find")?.run();
     },
     layout: () => editor.layout(),
     applyTheme,
