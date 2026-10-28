@@ -21,7 +21,6 @@ import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
 import { $, h } from "./dom";
 import {
   COLUMN_ROLES,
-  History,
   applyToAll,
   assignSlots,
   assignImageSlots,
@@ -36,6 +35,7 @@ import {
   resetStageGeometry,
   stageImages,
   stageStatus,
+  type DraftStep,
   type KeymodeDraft,
   type Keymodes,
   type Slot,
@@ -124,6 +124,8 @@ export interface KeymodesHost {
   lastPlay: HitHost["lastPlay"];
   speed: HitHost["speed"];
   setSpeed: HitHost["setSpeed"];
+  /** Records one undoable change in the studio's draft history. */
+  record(step: DraftStep): void;
 }
 
 /** An image the picker offers. */
@@ -194,7 +196,6 @@ async function groupOf(blobs: Blob[]): Promise<string> {
 
 export class KeymodesView {
   #host: KeymodesHost;
-  #history = new History();
   #keys = 0;
   /** The slot the picker assigns to (an image key of the shown key count). */
   #armed: string | null = null;
@@ -261,8 +262,6 @@ export class KeymodesView {
       state: (text) => this.#state(text),
       error: (text) => this.#error(text),
     });
-    $("#km-undo").onclick = () => this.undo();
-    $("#km-redo").onclick = () => this.redo();
     $("#km-all").onclick = () => this.#applyToAll();
     $("#km-mirror").onclick = () =>
       this.#change("Mirror", (draft) =>
@@ -308,23 +307,12 @@ export class KeymodesView {
     );
     $("#km-grid").onkeydown = (event) => this.#gridKey(event);
     $("#km-shared-grid").onkeydown = (event) => this.#gridKey(event);
-    // Undo and redo while the screen shows, wherever focus is (re-rendered
-    // controls hand focus back to the page), except in text fields.
-    document.addEventListener("keydown", (event) => {
-      if ($("#keymodes-view").hidden) return;
-      const target = event.target as HTMLElement;
-      if (target.closest("input, select, textarea")) return;
-      const mod = event.ctrlKey || event.metaKey;
-      if (mod && event.key.toLowerCase() === "z") {
-        event.preventDefault();
-        if (event.shiftKey) this.redo();
-        else this.undo();
-      } else if (mod && event.key.toLowerCase() === "y") {
-        event.preventDefault();
-        this.redo();
-      }
-    });
     new ResizeObserver(() => this.#renderColumns()).observe($("#km-stage"));
+    // Column tools closes when the user acts anywhere else.
+    document.addEventListener("click", (event) => {
+      const menu = document.querySelector<HTMLDetailsElement>("#keymodes-view details.km-copy-menu[open]");
+      if (menu && !menu.contains(event.target as Node)) menu.open = false;
+    });
   }
 
   // ---- state --------------------------------------------------------------
@@ -373,29 +361,21 @@ export class KeymodesView {
       mutate(after);
     }
     remember(after);
-    this.#history.push({ keys, before, after, label });
+    this.#host.record({
+      label,
+      drafts: [before, after],
+      undo: () => this.#restore(keys, before, `Undid ${label}`),
+      redo: () => this.#restore(keys, after, `Redid ${label}`),
+    });
     this.#host.apply(keys, after);
     this.#error("");
     this.#state(label);
   }
-  /** Forgets undo history (the draft it described was applied or discarded). */
-  resetHistory() {
-    this.#history = new History();
-    this.#renderToolbar();
-  }
-  undo() {
-    const change = this.#history.undo();
-    if (!change) return;
-    this.#keys = change.keys;
-    this.#host.apply(change.keys, clone(change.before));
-    this.#state(`Undid ${change.label}`);
-  }
-  redo() {
-    const change = this.#history.redo();
-    if (!change) return;
-    this.#keys = change.keys;
-    this.#host.apply(change.keys, clone(change.after));
-    this.#state(`Redid ${change.label}`);
+  /** Puts a key count's draft back as an undo or redo step left it, and shows it. */
+  #restore(keys: number, draft: KeymodeDraft | undefined, text: string) {
+    this.#keys = keys;
+    this.#host.apply(keys, clone(draft));
+    this.#state(text);
   }
   #state(text: string) {
     $("#km-state").textContent = text;
@@ -478,6 +458,39 @@ export class KeymodesView {
   async assign(skin: string, name: string) {
     const keys = this.#targets();
     if (keys.length) await this.#assignImage(keys, skin, name);
+  }
+
+  // ---- keyboard shortcuts of the screen (dispatched by the studio) ---------
+
+  /** Shows the previous (-1) or next (1) key count that has a stage. */
+  stepCount(step: -1 | 1) {
+    const counts = this.#counts().filter((k) => DRAWN.includes(k));
+    const next = counts[counts.indexOf(this.#keys) + step];
+    if (next === undefined) return;
+    this.#select(next);
+    this.#state(`${next}K`);
+  }
+  /** Clears the selected slots (one undo step); false when none is selected. */
+  clearSelected(): boolean {
+    const keys = this.#targets();
+    if (!keys.length || !this.#keys) return false;
+    this.#clearMany(keys);
+    return true;
+  }
+  /** Drops the slot or value selection; false when there was none. */
+  clearSelection(): boolean {
+    if (this.#rows.cols.length) {
+      this.#setRows(NONE);
+      return true;
+    }
+    if (!this.#selection.keys.length && !this.#armed) return false;
+    this.#arm(null);
+    return true;
+  }
+  focusFilter() {
+    const filter = $<HTMLInputElement>("#km-filter");
+    filter.focus();
+    filter.select();
   }
   /** Starts a drag of image `name` of `skin` that slots and stage columns accept. */
   drag(data: DataTransfer, skin: string, name: string) {
@@ -647,16 +660,9 @@ export class KeymodesView {
 
   #renderToolbar() {
     const write = this.#host.canWrite() && !!this.#keys;
-    const next = this.#history.next;
-    const undo = $<HTMLButtonElement>("#km-undo"),
-      redo = $<HTMLButtonElement>("#km-redo");
-    undo.disabled = !this.#history.canUndo;
-    redo.disabled = !this.#history.canRedo;
-    undo.title = next.undo ? `Undo ${next.undo} (Ctrl+Z)` : "Nothing to undo";
-    redo.title = next.redo ? `Redo ${next.redo} (Ctrl+Shift+Z)` : "Nothing to redo";
     document.getElementById("km-reset-geometry")?.remove();
     if (this.#hit.needsOriginalStageReset && this.#host.originalStage(this.#keys))
-      undo.insertAdjacentElement("afterend", h("button", {
+      $(".km-copy-menu").insertAdjacentElement("beforebegin", h("button", {
         id: "km-reset-geometry", type: "button", class: "v-btn v-btn--sm", disabled: !write,
         title: "Restore the original stage's images, column widths and HitPosition for this key count. Other key counts stay unchanged. Undo restores this draft.",
         onclick: () => void this.#resetGeometry(),
@@ -864,15 +870,20 @@ export class KeymodesView {
     const keys = this.#keys;
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
-      grid.replaceChildren(h("p", { class: "v-empty" }, "Add a key count to edit its columns."));
+      grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with + Key count."));
       return;
     }
     const by = new Map(this.#resolved.map((r) => [r.key, r]));
     const rows: HTMLElement[] = [];
+    const legendTip =
+      "Under each image, where the client finds it: ini, named in skin.ini; default, found under osu!'s default name; built-in, osu!'s own look; missing, nothing is drawn; → note, a hold head or tail draws another piece. 2x: an @2x image exists; ×N: animation frames; dot: set on this screen. Small letters under column numbers: the column's default image kind (1, 2 or S).";
+    const legend = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: legendTip });
+    legend.dataset.tip = legendTip;
+    legend.dataset.tipPos = "right";
     const header = h(
       "div",
       { class: "km-row km-row--head", role: "row" },
-      h("span", { class: "km-rowhead", role: "columnheader" }, "Column"),
+      h("span", { class: "km-rowhead", role: "columnheader" }, "Column", legend),
       ...Array.from({ length: keys }, (_, c) =>
         h(
           "span",
@@ -900,7 +911,7 @@ export class KeymodesView {
       );
     });
     const valueRows = this.#valueRows(keys, COLUMN_ROLES.length);
-    grid.replaceChildren(...rows, ...valueRows);
+    grid.replaceChildren(...rows, h("p", { class: "v-label km-divider" }, "Column values"), ...valueRows);
     if (hadFocus) this.#focusCell(grid);
     this.#keepEditing(grid, editing);
   }
@@ -1328,9 +1339,9 @@ export class KeymodesView {
       );
     return [
       row("Width", (c) => number(widths[c], `Column ${c + 1} width`, first, c, "ColumnWidth")),
-      row("Line", (c) => number(lines[c], `Line left of column ${c + 1}`, first + 1, c, "ColumnLineWidth")),
+      row("Line width", (c) => number(lines[c], `Line left of column ${c + 1}`, first + 1, c, "ColumnLineWidth")),
       row("Colour", (c) => colour("Colour", `Column ${c + 1} colour`, first + 2, c)),
-      row("Light", (c) => colour("ColourLight", `Column ${c + 1} light colour`, first + 3, c)),
+      row("Light colour", (c) => colour("ColourLight", `Column ${c + 1} light colour`, first + 3, c)),
     ];
   }
 
@@ -1956,8 +1967,8 @@ export class KeymodesView {
           this.#source === UPLOADS
             ? "Drop PNG or JPEG files here to add them."
             : this.#filter
-              ? "No image matches."
-              : "No images in this source.",
+              ? `No image matches “${this.#filter}”.`
+              : "No images in this source: choose another in Images from.",
         ),
       );
     list.replaceChildren(...nodes);

@@ -142,8 +142,6 @@ try {
   });
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
-  // These checks build new skins (the Mix panel's New skin mode).
-  await page.click("#mode-new");
 
   const shot = (name: string) => page.screenshot({ path: join(out, `${name}.png`) });
   const slot = (key: string) => page.locator(`#km-grid [data-key="${key}"]`).first();
@@ -158,6 +156,8 @@ try {
   await page.click("#tab-keymodes");
   await page.waitForSelector("#km-counts .km-count");
   await pick(7);
+  // Hit position and LN length start collapsed; they stay open while the page does.
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
   check("7K HitPosition from the skin", (await hitValue()) === "455");
   // No client attached: vosu reports no scroll speed, so it is typed in.
   const speedNote = await page.locator("#km-hit").textContent();

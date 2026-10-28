@@ -7,7 +7,7 @@ export class KeymodeGenerations {
 
   #signature(keys: number, recipe: Recipe, scope: string, sections: Ini) {
     return JSON.stringify([
-      scope, recipe.base, recipe.overrides,
+      scope, recipe.base, recipe.inPlace, recipe.name, recipe.overrides,
       Object.entries(recipe.picks).filter(([id]) => !id.startsWith("mania-keys-") || id === `mania-keys-${keys}`),
       recipe.keymodes?.[String(keys)], maniaBlock(sections, keys),
       sections.filter((section) => section.name.toLowerCase() === "general"),
