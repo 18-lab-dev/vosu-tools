@@ -1,7 +1,7 @@
 // The skin.ini editor, loaded on demand (the first view never fetches
 // Monaco): the skin.ini language (tokens, completion, hovers, colour swatches
 // and quick fixes from @vosu-tools/skin-spec) and one editor that mirrors the
-// studio's TextDocs in Monaco models. Only the editor core and the five
+// studio's TextDocs in Monaco models. Only the editor core and the
 // contributions skin.ini uses are bundled; no other languages or workers.
 
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
@@ -10,6 +10,12 @@ import "monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution.js";
 import "monaco-editor/esm/vs/editor/contrib/colorPicker/browser/colorContributions.js";
 import "monaco-editor/esm/vs/editor/contrib/codeAction/browser/codeActionContributions.js";
 import "monaco-editor/esm/vs/editor/contrib/snippet/browser/snippetController2.js";
+import "monaco-editor/esm/vs/editor/contrib/find/browser/findController.js";
+import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor.js";
+import "monaco-editor/esm/vs/editor/contrib/comment/browser/comment.js";
+import "monaco-editor/esm/vs/editor/contrib/linesOperations/browser/linesOperations.js";
+import "monaco-editor/esm/vs/editor/contrib/wordOperations/browser/wordOperations.js";
+import "monaco-editor/esm/vs/editor/contrib/lineSelection/browser/lineSelection.js";
 import EditorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import {
   parse,
@@ -29,6 +35,12 @@ const stateOf = (model: monaco.editor.ITextModel) =>
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 monaco.languages.register({ id: "skin-ini" });
+monaco.languages.setLanguageConfiguration("skin-ini", {
+  comments: { lineComment: "//" },
+  // No bracket pairs: skin.ini headers are not programming-language blocks.
+  brackets: [],
+  wordPattern: /[^\s:,[\]{}()]+/g,
+});
 monaco.languages.setMonarchTokensProvider("skin-ini", {
   tokenizer: {
     root: [
@@ -48,7 +60,7 @@ function context(model: monaco.editor.ITextModel, line: number) {
   const section = current?.section ?? preceding.at(-1)?.section ?? "";
   const block = current?.block ?? preceding.at(-1)?.block;
   const count = Number(
-    doc.lines.find((l) => l.block === block && l.key === "Keys")?.value ?? 4,
+    doc.lines.find((l) => l.block === block && l.key === "Keys")?.value?.split("//", 1)[0].trim() ?? 4,
   );
   return { current, section, count };
 }
@@ -68,20 +80,67 @@ monaco.languages.registerCompletionItemProvider("skin-ini", {
     );
     if (colon >= 0 && pos.column > colon + 1) {
       const spec = current?.key ? resolve(section, current.key) : undefined;
+      const comment = line.indexOf("//", colon + 1);
+      if (comment >= 0 && pos.column > comment) return { suggestions: [] };
+      const valueEnd = (comment < 0 ? line : line.slice(0, comment)).trimEnd().length;
       range = new monaco.Range(
         pos.lineNumber,
         colon + 2,
         pos.lineNumber,
-        line.length + 1,
+        Math.max(colon + 2, valueEnd + 1),
       );
-      const values =
-        spec?.type === "image" || spec?.type === "prefix"
-          ? pathCandidates(stateOf(model).files ?? [], spec.type === "prefix")
-          : (spec?.enum ?? (spec?.default ? [spec.default] : []));
+      const path = spec?.type === "image" || spec?.type === "prefix";
+      if (path) {
+        const start = colon + 1 + (line.slice(colon + 1).match(/^\s*/)?.[0].length ?? 0);
+        const typed = line.slice(start, pos.column - 1).replace(/\\/g, "/");
+        const folder = typed.slice(0, typed.lastIndexOf("/") + 1);
+        range = new monaco.Range(pos.lineNumber, start + 1, pos.lineNumber, Math.max(start + 1, valueEnd + 1));
+        const entries = new Map<string, boolean>();
+        const files = stateOf(model).files ?? [];
+        const variantsOf = new Map<string, string[]>();
+        for (const file of files) {
+          if (!/\.(png|jpe?g)$/i.test(file)) continue;
+          const name = file.replace(/\.(png|jpe?g)$/i, "").replace(/@2x$/i, "");
+          const variants = variantsOf.get(name) ?? [];
+          variants.push(file);
+          variantsOf.set(name, variants);
+        }
+        const candidates = pathCandidates(files, spec.type === "prefix").filter((name) =>
+          spec.type === "prefix"
+            ? Array.from({ length: 10 }, (_, i) => variantsOf.has(`${name}-${i}`)).every(Boolean)
+            : variantsOf.has(name) || variantsOf.has(`${name}-0`),
+        );
+        const candidateSet = new Set(candidates);
+        for (const name of candidates) {
+          // Frames and SD/HD variants are one logical completion.
+          if (/-\d+$/.test(name) && candidateSet.has(`${name.replace(/-\d+$/, "")}-0`)) continue;
+          if (!name.startsWith(folder)) continue;
+          const slash = name.indexOf("/", folder.length);
+          const value = slash < 0 ? name : name.slice(0, slash + 1);
+          entries.set(value, slash >= 0);
+        }
+        return {
+          suggestions: [...entries].map(([value, directory]) => {
+            const variants = [...(variantsOf.get(value) ?? []), ...(variantsOf.get(`${value}-0`) ?? [])];
+            const thumbnail = variants.map((file) => docs.get(model)?.assetUrls.get(file)).find(Boolean);
+            return {
+              label: value.slice(folder.length),
+              filterText: value,
+              detail: directory ? "Folder" : `${value}${variants.some((file) => /@2x\./i.test(file)) ? " · @2x" : ""}${variants.some((file) => /-0(?:@2x)?\./i.test(file)) ? " · animation" : ""}`,
+              documentation: !directory && thumbnail ? { value: `![Preview](${thumbnail}|width=96,height=64)` } : undefined,
+              kind: directory ? monaco.languages.CompletionItemKind.Folder : monaco.languages.CompletionItemKind.File,
+              insertText: (start === colon + 1 ? " " : "") + value,
+              command: directory ? { id: "editor.action.triggerSuggest", title: "Open folder" } : undefined,
+              range,
+            };
+          }),
+        };
+      }
+      const values = spec?.enum ?? (spec?.default ? [spec.default] : []);
       return {
         suggestions: values.map((value) => ({
           label: value,
-          kind: monaco.languages.CompletionItemKind.File,
+          kind: monaco.languages.CompletionItemKind.Value,
           insertText: " " + value,
           range,
         })),
@@ -271,6 +330,8 @@ export interface IniEditor {
   /** Markers for the document's current `issues`. */
   mark(doc: TextDoc): void;
   reveal(line: number, column: number): void;
+  /** Opens the find widget (Ctrl+F from anywhere on the tab). */
+  find(): void;
   layout(): void;
   /** Re-reads the 18-LAB colour tokens after a mode change. */
   applyTheme(): void;
@@ -299,12 +360,85 @@ export async function createIniEditor(
     renderLineHighlight: "line",
     padding: { top: 8, bottom: 8 },
     fixedOverflowWidgets: true,
+    multiCursorModifier: "alt",
+    selectionClipboard: false,
+    find: { addExtraSpaceOnTop: false },
     // skin.ini completion comes from the spec; word lists and link
     // detection would only wake the editor worker.
     wordBasedSuggestions: "off",
     links: false,
   });
   editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, save);
+  // Monaco adds Ctrl to these on Linux to avoid desktop shortcuts; this
+  // editor consistently uses the requested VS Code-style Shift+Alt gesture.
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.UpArrow, () => {
+    void editor.getAction("editor.action.copyLinesUpAction")?.run();
+  });
+  editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.DownArrow, () => {
+    void editor.getAction("editor.action.copyLinesDownAction")?.run();
+  });
+  // Chromium/Linux can dispatch primary-selection paste after middle-up
+  // even when the pointer/auxclick default was cancelled. Treat that paste
+  // as part of the rectangle gesture, not as an edit; a new key/pointer
+  // gesture restores ordinary paste immediately.
+  let middlePaste = false;
+  container.addEventListener("keydown", () => { middlePaste = false; }, true);
+  container.addEventListener("paste", (event) => {
+    if (!middlePaste) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    middlePaste = false;
+  }, true);
+  container.addEventListener("auxclick", (event) => {
+    if (event.button === 1) event.preventDefault();
+  });
+  // VS Code defaults to Shift+Alt+drag (viewController.dispatchMouse).
+  // Keep that natively; own Alt+drag and middle-drag before the browser or
+  // Monaco starts a last-cursor drag / primary-selection paste.
+  container.addEventListener("pointerdown", (down) => {
+    const middle = down.button === 1;
+    middlePaste = middle;
+    if (!middle && (!down.altKey || down.shiftKey || down.button !== 0)) return;
+    const anchor = editor.getTargetAtClientPoint(down.clientX, down.clientY)?.position;
+    if (!anchor) return;
+    down.preventDefault();
+    down.stopImmediatePropagation();
+    editor.focus();
+    container.setPointerCapture(down.pointerId);
+    const previous = editor.getSelections() ?? [];
+    let dragged = false;
+    const move = (event: PointerEvent) => {
+      if (event.pointerId !== down.pointerId || !(event.buttons & (middle ? 4 : 1))) return;
+      if (Math.hypot(event.clientX - down.clientX, event.clientY - down.clientY) < 4) return;
+      const end = editor.getTargetAtClientPoint(event.clientX, event.clientY)?.position;
+      const model = editor.getModel();
+      if (!end || !model) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      dragged = true;
+      const selections = [];
+      for (let line = Math.min(anchor.lineNumber, end.lineNumber); line <= Math.max(anchor.lineNumber, end.lineNumber); line++) {
+        const max = model.getLineMaxColumn(line);
+        selections.push(new monaco.Selection(line, Math.min(anchor.column, max), line, Math.min(end.column, max)));
+      }
+      editor.setSelections(selections);
+    };
+    const stop = (event: PointerEvent) => {
+      if (event.pointerId !== down.pointerId) return;
+      if (!dragged && event.type === "pointerup")
+        editor.setSelections([...(middle ? [] : previous), new monaco.Selection(anchor.lineNumber, anchor.column, anchor.lineNumber, anchor.column)]);
+      document.removeEventListener("pointermove", move, true);
+      document.removeEventListener("pointerup", stop, true);
+      document.removeEventListener("pointercancel", stop, true);
+      container.removeEventListener("lostpointercapture", stop);
+      if (container.hasPointerCapture(down.pointerId))
+        container.releasePointerCapture(down.pointerId);
+    };
+    document.addEventListener("pointermove", move, true);
+    document.addEventListener("pointerup", stop, true);
+    document.addEventListener("pointercancel", stop, true);
+    container.addEventListener("lostpointercapture", stop);
+  }, true);
   const models = new Map<TextDoc, monaco.editor.ITextModel>();
   const modelOf = (doc: TextDoc) => {
     let model = models.get(doc);
@@ -355,6 +489,10 @@ export async function createIniEditor(
       editor.revealLineInCenter(line);
       editor.setPosition({ lineNumber: line, column });
       editor.focus();
+    },
+    find: () => {
+      editor.focus();
+      void editor.getAction("actions.find")?.run();
     },
     layout: () => editor.layout(),
     applyTheme,

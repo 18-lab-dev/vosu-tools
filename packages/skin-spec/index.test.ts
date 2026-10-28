@@ -76,6 +76,11 @@ test("asset completion high resolution animations and font digits", () => {
 test("non-image files cannot satisfy image references", () => {
   expect(hasAsset("audio.wav", ["audio.wav"])).toBe(false);
 });
+test("inline comments validate like the client without changing raw text", () => {
+  const text = "\uFEFF[General]\r\nVersion: latest // skin version\r\n[Mania]\r\nKeys: 4 // columns\r\nColumnWidth: 40,40,40,40 // widths\r\nNoteImage0: sub/note // keep this comment\r\n";
+  expect(validate(text, ["sub/note-0@2x.png"])).toEqual([]);
+  expect(serialize(parse(text))).toBe(text);
+});
 
 import {
   addManiaBlock,
