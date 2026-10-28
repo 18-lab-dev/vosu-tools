@@ -72,6 +72,7 @@ export interface HitHost {
   /** Sets the speed for calibration and the previews alike (null: follow the client). */
   setSpeed(speed: number | null): void;
   canWrite(): boolean;
+  beforeGeometry?(): Promise<boolean>;
   state(text: string): void;
   error(text: string): void;
 }
@@ -325,6 +326,7 @@ export class HitPanel {
     if (widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
     const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
     if (this.#host.draft()?.keepProportions === false) {
+      if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
       this.#host.change(label, (draft) => Object.assign(draft.values, values));
       return;
     }
@@ -429,6 +431,7 @@ export class HitPanel {
     this.#busy = true;
     this.render();
     try {
+      if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
       const keys = this.#host.keys();
       const text = this.#host.mixText();
       let next = text;
@@ -701,6 +704,7 @@ export class HitPanel {
     this.#busy = true;
     this.render();
     try {
+      if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
       const keys = this.#host.keys();
       const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
       const atTop = !(this.#host.speed()?.upscroll ?? false);

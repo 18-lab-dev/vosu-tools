@@ -16,6 +16,7 @@ serde_json = "1"
 notify = "8"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 unicase = "2"
+sha2 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

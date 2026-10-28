@@ -20,6 +20,10 @@ import { imageExt } from "./groups";
 export interface SlotImage {
   /** Library key of the skin the files come from (`uploads:`: dropped files). */
   skin: string;
+  /** Display name captured while the source still exists (older drafts lack it). */
+  sourceName?: string;
+  /** SHA-256 over every source filename and file hash, when supplied by the library. */
+  sourceHash?: string;
   /** The image's name there (path without extension, `@2x` or frame number). */
   name: string;
   /** Its files and what each adds to the copy's name (`.png`, `@2x.png`, `-0.png`, …). */

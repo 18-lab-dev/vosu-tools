@@ -174,6 +174,8 @@ pub struct Skin {
     /// Stable/added: the absolute folder; `.osk`: the absolute file. Lazer: `lazer:<id>`.
     pub key: String,
     pub name: String,
+    pub content_hash: Option<String>,
+    pub file_count: Option<usize>,
     pub origin: Origin,
     pub current: bool,
     /// False when an added folder vanished or no longer looks like a skin.
@@ -396,6 +398,10 @@ struct LazerSkin {
     creator: Option<String>,
     #[serde(default)]
     builtin: Option<String>,
+    #[serde(default)]
+    content_hash: Option<String>,
+    #[serde(default)]
+    files: Option<usize>,
 }
 pub fn lazer_id(id: &serde_json::Value) -> String {
     match id {
@@ -488,6 +494,8 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
                 writable: true,
                 creator: None,
                 builtin: None,
+                content_hash: None,
+                file_count: None,
             });
         }
     }
@@ -512,6 +520,8 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
                 writable: false,
                 creator: None,
                 builtin: None,
+                content_hash: None,
+                file_count: None,
             });
             continue;
         }
@@ -527,6 +537,8 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
             writable: available,
             creator: None,
             builtin: None,
+            content_hash: None,
+            file_count: None,
         });
     }
     let mut lazer = LazerStatus {
@@ -551,6 +563,8 @@ pub async fn library(app: &App) -> Result<Library, Failure> {
                         writable: false,
                         creator: skin.creator,
                         builtin: skin.builtin,
+                        content_hash: skin.content_hash,
+                        file_count: skin.files,
                     });
                 }
             }
@@ -588,6 +602,8 @@ pub async fn resolve(app: &App, key: &str) -> Result<(Source, Skin), Failure> {
                 writable: false,
                 creator: None,
                 builtin: None,
+                content_hash: None,
+                file_count: None,
             },
         ));
     }
@@ -808,6 +824,8 @@ mod tests {
             writable: false,
             creator: None,
             builtin: Some("argon".into()),
+            content_hash: None,
+            file_count: None,
         };
         assert_eq!(
             resolution_message(&skin.key, Some(&skin)),

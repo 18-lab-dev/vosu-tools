@@ -62,6 +62,8 @@ export interface Recipe {
   name: string;
   base: string | null;
   picks: Record<string, Pick>;
+  /** Names/fingerprints captured for every referenced skin, including base and group picks. */
+  sourceInfo?: Record<string, { name: string; contentHash?: string }>;
   /** Single assets by asset id (`image:hitcircle`, `font:default`, …); they win over picks. */
   overrides?: Record<string, Override>;
   /** The Keymodes screen's slots and values per key count; they win over both. */

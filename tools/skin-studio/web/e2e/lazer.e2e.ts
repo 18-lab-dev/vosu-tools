@@ -28,7 +28,7 @@ import { parseArgs } from "node:util";
 const ROOT = resolve(import.meta.dir, "../../../..");
 const WEB = resolve(import.meta.dir, "..");
 const { values: opt } = parseArgs({
-  options: { playwright: { type: "string" }, assets: { type: "string" }, skins: { type: "string" }, skin: { type: "string" }, out: { type: "string" } },
+  options: { playwright: { type: "string" }, assets: { type: "string" }, skins: { type: "string" }, skin: { type: "string" }, out: { type: "string" }, "missing-source": { type: "boolean" } },
 });
 for (const name of ["playwright", "assets", "skins", "skin", "out"] as const) if (!opt[name]) throw new Error(`--${name} is required`);
 const out = resolve(opt.out!);
@@ -50,7 +50,7 @@ if (process.env.KM_E2E_SANDBOX !== "1") {
   process.exit(run.status ?? 1);
 }
 
-const LAB = mkdtempSync(join(tmpdir(), "km-lazer-"));
+const LAB = mkdtempSync(join(out, "lab-"));
 const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: join(LAB, "home") };
 for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"]) delete env[key];
 for (const [key, dir] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"], ["XDG_CACHE_HOME", "cache"], ["XDG_STATE_HOME", "state"], ["XDG_RUNTIME_DIR", "runtime"]]) {
@@ -92,6 +92,17 @@ const hash = createHash("sha256");
 for (const f of skinFiles.filter((f) => /\.(ini|json)$/i.test(f))) hash.update(readFileSync(join(SKIN, f)));
 const HASH = hash.digest("hex");
 
+const REPLACEMENT = "5f1c2a7e-0000-4000-8000-00000000beef";
+const ALTERNATE = "5f1c2a7e-0000-4000-8000-00000000cafe";
+const alternateFiles = skinFiles.filter((name) => !/mauve/i.test(name));
+let removed = false;
+const contentHash = createHash("sha256");
+for (const file of skinFiles) {
+  const name = Buffer.from(file);
+  const length = Buffer.alloc(8); length.writeBigUInt64LE(BigInt(name.length));
+  contentHash.update(length).update(name).update(createHash("sha256").update(readFileSync(join(SKIN, file))).digest());
+}
+const CONTENT_HASH = contentHash.digest("hex");
 // ── The stand-in osu!lazer ─────────────────────────────────────────────────
 const lazer = join(LAB, "lazer");
 mkdirSync(lazer);
@@ -140,13 +151,16 @@ const server = Bun.serve({
     if (path === "/tools/_host/v1/theme.css") return new Response(theme, { headers: { "content-type": "text/css" } });
     if (path === "/tools/lazer-library/api/v1/status") return json({ available: true });
     if (path === "/tools/lazer-library/api/v1/skins")
-      return json({ skins: [{ id: ID, name: opt.skin, creator: "e2e", hash: HASH, builtin: null, files: skinFiles.length }] });
-    if (path === `/tools/lazer-library/api/v1/skins/${ID}/files`)
-      return json({ files: skinFiles.map((name) => ({ name, size: statSync(join(SKIN, name)).size })) });
-    const prefix = `/tools/lazer-library/api/v1/skins/${ID}/file/`;
+      return json({ skins: (opt["missing-source"] ? [...(removed ? [] : [ID]), REPLACEMENT, ALTERNATE] : [ID]).map((id) => ({ id, name: opt.skin, creator: "e2e", hash: HASH, content_hash: id === ALTERNATE ? null : CONTENT_HASH, builtin: null, files: id === ALTERNATE ? alternateFiles.length : skinFiles.length })) });
+    const requested = path.includes(ALTERNATE) ? ALTERNATE : path.includes(REPLACEMENT) ? REPLACEMENT : ID;
+    const requestedFiles = requested === ALTERNATE ? alternateFiles : skinFiles;
+    if (removed && requested === ID && path.includes(`/skins/${ID}/`)) return new Response("deleted", { status: 404 });
+    if (path === `/tools/lazer-library/api/v1/skins/${requested}/files`)
+      return json({ files: requestedFiles.map((name) => ({ name, size: statSync(join(SKIN, name)).size })) });
+    const prefix = `/tools/lazer-library/api/v1/skins/${requested}/file/`;
     if (path.startsWith(prefix)) {
       const name = path.slice(prefix.length);
-      const match = skinFiles.find((f) => f.toLowerCase() === name.toLowerCase());
+      const match = requestedFiles.find((f) => f.toLowerCase() === name.toLowerCase());
       return match ? new Response(Bun.file(join(SKIN, match))) : new Response("missing", { status: 404 });
     }
     if (path.startsWith("/tools/skin-studio/api/")) {
@@ -216,6 +230,86 @@ try {
   };
   const mod = process.platform === "darwin" ? "Meta" : "Control";
 
+  if (opt["missing-source"]) {
+    await page.goto(base);
+    await page.waitForSelector("#skins .skin");
+    const file = skinFiles.find((f) => /(^|\/)mauve\.png$/i.test(f)) ?? skinFiles.find((f) => /key.*\.png$/i.test(f));
+    if (!file) throw new Error("fixture requires a receptor image");
+    const name = file.slice(0, -4);
+    await page.evaluate(({ id, replacement, name, file }) => {
+      localStorage.setItem("skin-studio:mode", "new");
+      localStorage.setItem("skin-studio:recipe", JSON.stringify({
+        name: "Recovery test", base: `lazer:${replacement}`, picks: {},
+        keymodes: { "7": { images: { KeyImage0: { skin: `lazer:${id}`, name, files: [{ from: file, suffix: ".png" }] } }, values: {} } },
+      }));
+    }, { id: ID, replacement: REPLACEMENT, name, file });
+    await page.reload();
+    await page.click("#tab-keymodes"); await pick(7);
+    const width = () => page.getByRole("spinbutton", { name: "Column 1 width", exact: true });
+    const resize = async (value: string) => {
+      await width().fill(value); await width().press("Enter");
+      await until(async () => (JSON.parse(await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["7"].values.ColumnWidth ?? "").split(",")[0] === value, `width ${value}`);
+    };
+    await resize("40");
+    const saved = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+    const captured = JSON.parse(saved).keymodes["7"].hit.originals.KeyImage0.slot;
+    check("new source references remember display name and full content hash", captured.sourceName === opt.skin && captured.sourceHash === CONTENT_HASH);
+    check("base and image references both retain source metadata", JSON.parse(saved).sourceInfo[`lazer:${REPLACEMENT}`]?.name === opt.skin && JSON.parse(saved).sourceInfo[`lazer:${ID}`]?.name === opt.skin);
+    removed = true;
+    await width().fill("41"); await width().press("Enter");
+    await until(async () => await page.locator("#missing-sources").isVisible(), "detect disappearance before edit");
+    check("width edit detects vanished source without rows failure", !(await page.locator("#km-error").textContent()).includes("couldn't read"));
+    await page.reload(); await page.click("#tab-keymodes"); await pick(7);
+    const banner = page.locator("#missing-sources");
+    check("draft load detects hidden originals and names affected slots/counts", (await banner.textContent()).includes(`${opt.skin}. 1 slot; 7K`));
+    await until(async () => (await banner.locator("select option").allTextContents()).some((text) => text.includes("referenced filenames")), "candidate overlap labels");
+    check("same-name candidates show creator, file counts and filename overlap", (await banner.locator("select option").allTextContents()).filter((text) => text.includes("e2e") && text.includes("files") && text.includes("referenced filenames")).length === 2);
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
+      await page.screenshot({ path: join(out, `missing-source-${theme}-1920x1080.png`) });
+    }
+    const restore = async () => {
+      await page.evaluate((saved) => localStorage.setItem("skin-studio:recipe", saved), saved);
+      await page.reload(); await page.click("#tab-keymodes"); await pick(7);
+      await until(async () => await banner.isVisible(), "restored missing draft");
+    };
+    for (const [label, kind] of [["Remap", "remap"], ["Keep derived images", "keep"], ["Remove slots", "remove"]]) {
+      if (kind !== "remap") await restore();
+      if (kind === "remap") check("exact full-content replacement is preselected, not applied", await banner.locator("select").inputValue() === `lazer:${REPLACEMENT}`);
+      await banner.getByRole("button", { name: label, exact: true }).click();
+      await until(async () => !(await banner.isVisible()), `${kind} recovers`);
+      const recovered = JSON.parse(await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["7"];
+      check(`${kind} recovery persisted`, kind === "remap" ? recovered.hit.originals.KeyImage0.slot.skin === `lazer:${REPLACEMENT}` : kind === "keep" ? recovered.images.KeyImage0.skin === "uploads:" && !recovered.hit?.originals.KeyImage0 : !recovered.images.KeyImage0 && !recovered.hit?.originals.KeyImage0);
+      await page.click("#km-undo");
+      await until(async () => await banner.isVisible(), `${kind} undo`);
+      check(`${kind} is undoable`, true);
+      await page.click("#km-redo");
+      await until(async () => !(await banner.isVisible()), `${kind} redo`);
+      await resize("42");
+      check(`width changes succeed after ${kind}`, !(await page.locator("#km-error").isVisible()));
+    }
+    // Existing drafts cannot recover a deleted name or hash from an absent Realm row.
+    const legacy = JSON.parse(saved);
+    const oldOriginal = legacy.keymodes["7"].hit.originals.KeyImage0;
+    for (const slot of [oldOriginal.slot, oldOriginal.prior]) { delete slot.sourceName; delete slot.sourceHash; }
+    delete legacy.sourceInfo[`lazer:${ID}`];
+    await page.evaluate((value) => localStorage.setItem("skin-studio:recipe", value), JSON.stringify(legacy));
+    await page.reload(); await page.click("#tab-keymodes"); await pick(7);
+    await until(async () => (await banner.locator("select option").allTextContents()).some((text) => text.includes("referenced filenames")), "unknown-source overlap labels");
+    check("old unnamed draft says unknown and never guesses an identity from overlap", (await banner.textContent()).includes(`Unknown source skin (lazer:${ID})`) && await banner.locator("select").inputValue() === "");
+    check("unknown source offers all candidates ordered by filename overlap", (await banner.locator("select option").nth(1).getAttribute("value")) === `lazer:${REPLACEMENT}`);
+    for (const theme of ["dark", "light"]) {
+      await page.evaluate((theme) => document.documentElement.dataset.theme = theme, theme);
+      await page.screenshot({ path: join(out, `missing-source-unknown-${theme}-1920x1080.png`) });
+    }
+    await banner.locator("select").selectOption(`lazer:${REPLACEMENT}`);
+    await banner.getByRole("button", { name: "Remap", exact: true }).click();
+    await until(async () => !(await banner.isVisible()), "explicit unknown-source remap");
+    await resize("43");
+    check("width changes succeed after manually remapping an unknown source", !(await page.locator("#km-error").isVisible()));
+    check("No missing source request reached the service after detection", !serviceLog.join("").includes('requested_key="lazer:' + ID + '"'));
+    check("No page errors", !pageErrors.length, pageErrors.join(" | "));
+  } else {
   // ── The user's report: a lazer client, a tab without a session ──────────
   await page.goto(`${base}#readonly`);
   await page.waitForSelector("#skins .skin");
@@ -285,6 +379,7 @@ try {
   });
   check("Only the stand-in lazer runs here", !processes.some((c) => /^osu!?\.exe$/i.test(c) || /lazer/i.test(c)), processes.join(", "));
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
+  }
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));
 } finally {

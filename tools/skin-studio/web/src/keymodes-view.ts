@@ -41,6 +41,7 @@ import {
 import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import { HitPanel, type HitHost } from "./hit-panel";
+import { missingSources, recoverSource, sourceFileNames, sourceSlots, type Recovery } from "./missing-sources";
 import { MANIA_COLUMNS, MANIA_FIELDS, columnKey as formKey, setListEntry, type ColumnField, type Field } from "./mania-form";
 import type { Preview, PreviewSource } from "./preview";
 import {
@@ -84,6 +85,9 @@ export const shownName = (name: string, files: readonly { from: string }[]) =>
 export interface PickerSource {
   key: string;
   name: string;
+  contentHash?: string;
+  creator?: string;
+  fileCount?: number;
   group: string;
 }
 export interface KeymodesHost {
@@ -96,6 +100,7 @@ export interface KeymodesHost {
   /** The mix's files: lower-cased output path → where it is copied from. */
   mixFiles(): Map<string, { skin: string; from: string; to: string }>;
   sources(): PickerSource[];
+  refreshSources?(): Promise<unknown>;
   load(key: string): Promise<{ text: string; files: string[] }>;
   assetUrl(skin: string, file: string): string;
   skinName(key: string): string;
@@ -226,6 +231,16 @@ export class KeymodesView {
       resolved: () => this.#resolved,
       draft: () => this.#draft(),
       change: (label, mutate) => this.#change(label, mutate),
+      beforeGeometry: async () => {
+        await host.refreshSources?.();
+        const missing = missingSources(host.drafts(), new Set(host.sources().map((s) => s.key)));
+        this.#renderMissing();
+        if (missing.length) {
+          this.#error("Resolve the missing source above before changing geometry.");
+          return false;
+        }
+        return true;
+      },
       derive: host.derive,
       rows: host.rows,
       lastPlay: host.lastPlay,
@@ -324,7 +339,15 @@ export class KeymodesView {
   /** One undoable change of the shown key count's draft. */
   #change(label: string, mutate: (draft: KeymodeDraft) => void, keys = this.#keys) {
     if (!keys) return;
+    this.#renderMissing();
     let before = clone(this.#host.drafts()[String(keys)]);
+    const remember = (draft: KeymodeDraft) => {
+      for (const refs of sourceSlots(draft).values())
+        for (const slot of refs) {
+          slot.sourceName ??= this.#host.skinName(slot.skin);
+          slot.sourceHash ??= this.#host.sources().find((s) => s.key === slot.skin)?.contentHash;
+        }
+    };
     let after = clone(before) ?? emptyDraft();
     mutate(after);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
@@ -338,6 +361,7 @@ export class KeymodesView {
       after = clone(before)!;
       mutate(after);
     }
+    remember(after);
     this.#history.push({ keys, before, after, label });
     this.#host.apply(keys, after);
     this.#error("");
@@ -493,6 +517,7 @@ export class KeymodesView {
 
   /** Re-reads the mix (after a compose or an edit of its skin.ini). */
   refresh() {
+    this.#renderMissing();
     const counts = this.#counts();
     if (!counts.includes(this.#keys))
       this.#keys = counts.find((k) => DRAWN.includes(k)) ?? counts[0] ?? 0;
@@ -862,11 +887,121 @@ export class KeymodesView {
     this.#keepEditing(grid, editing);
   }
 
-  /**
-   * Column widths through the hit panel, which keeps proportions (by
-   * default) in the same undo step; the first time, says so inline.
-   */
+  #candidateFiles = new Map<string, Promise<string[]>>();
+
+  /** Four bounded file-list reads; overlap is relevance, never a claim of identity or age. */
+  async #describeCandidates(select: HTMLSelectElement, candidates: PickerSource[], wanted: Set<string>) {
+    let next = 0;
+    const matches: { source: PickerSource; overlap: number; count?: number }[] = [];
+    await Promise.all(Array.from({ length: Math.min(4, candidates.length) }, async () => {
+      while (next < candidates.length && select.isConnected) {
+        const source = candidates[next++];
+        const cacheKey = JSON.stringify([source.key, source.contentHash]);
+        let files = this.#candidateFiles.get(cacheKey);
+        if (!files) {
+          files = this.#host.load(source.key).then((data) => data.files);
+          this.#candidateFiles.set(cacheKey, files);
+          files.catch(() => this.#candidateFiles.delete(cacheKey));
+        }
+        try {
+          const names = await files;
+          const available = new Set(names.map((name) => name.replace(/\\/g, "/").toLowerCase()));
+          matches.push({ source, count: names.length, overlap: [...wanted].filter((name) => available.has(name)).length });
+        } catch {
+          matches.push({ source, count: source.fileCount, overlap: -1 });
+        }
+      }
+    }));
+    if (!select.isConnected) return;
+    const chosen = select.value;
+    matches.sort((a, b) => b.overlap - a.overlap || a.source.key.localeCompare(b.source.key));
+    select.replaceChildren(
+      h("option", { value: "" }, "Choose a replacement…"),
+      ...matches.map(({ source, count, overlap }) => h("option", { value: source.key },
+        `${source.name} · ${source.creator || "creator unknown"} · ${count ?? "?"} files · ${overlap < 0 ? "file list unavailable" : `${overlap}/${wanted.size} referenced filenames`} · ${source.key}`)),
+    );
+    select.value = chosen;
+  }
+
+  /** One persistent, explicit recovery notice for missing visible or captured sources. */
+  #renderMissing() {
+    let root = document.querySelector<HTMLElement>("#missing-sources");
+    if (!root) {
+      root = h("section", { id: "missing-sources", class: "missing-sources", role: "alert", ariaLabel: "Missing source skins" });
+      $("#keymodes-view").before(root);
+    }
+    const missing = missingSources(this.#host.drafts(), new Set(this.#host.sources().map((s) => s.key)));
+    root.hidden = !missing.length;
+    root.replaceChildren();
+    for (const source of missing) {
+      if (source.name === source.key) source.name = this.#host.skinName(source.key);
+      const unknown = source.name === source.key;
+      const display = unknown ? `Unknown source skin (${source.key})` : source.name;
+      const candidates = this.#host.sources().filter((s) => unknown || s.name === source.name);
+      const select = h("select", { class: "v-input", ariaLabel: `Replacement for ${display}` },
+        h("option", { value: "" }, "Choose a replacement…"),
+        ...candidates.map((s) => h("option", { value: s.key }, `${s.name} · ${s.creator || "creator unknown"} · ${s.fileCount ?? "?"} files · checking filenames… · ${s.key}`)));
+      const exact = candidates.find((s) => !!source.hash && s.contentHash === source.hash);
+      if (exact) select.value = exact.key;
+      const recoveryError = h("p", { class: "missing-sources__error", role: "status" });
+      const run = async (recovery: Recovery) => {
+        try {
+          // Validate every affected count before committing any of them.
+          const changes = source.counts.map((keys) => {
+            const draft = clone(this.#host.drafts()[String(keys)]);
+            recoverSource(draft, source.key, recovery);
+            return { keys, draft };
+          });
+          if (recovery.kind === "remap") {
+            const { files } = await this.#host.load(recovery.key);
+            const names = new Set(files.map((f) => f.toLowerCase()));
+            for (const { draft } of changes)
+              for (const refs of sourceSlots(draft).values())
+                for (const slot of refs)
+                  if (slot.skin === recovery.key && slot.files.some((f) => !names.has(f.from.toLowerCase())))
+                    throw new Error("The replacement does not contain every referenced file. Choose another skin.");
+          } else if (recovery.kind === "keep") {
+            const { files } = await this.#host.load(UPLOADS);
+            const retained = new Set(files.map((f) => f.toLowerCase()));
+            for (const { draft } of changes)
+              for (const slot of Object.values(draft.images))
+                if (slot && "files" in slot && slot.skin === UPLOADS && slot.files.some((f) => !retained.has(f.from.toLowerCase())))
+                  throw new Error("A retained derived file has been removed. Remap or remove the slots instead.");
+          }
+          for (const { keys, draft } of changes)
+            this.#change(`${recovery.kind} missing source ${source.name} (${keys}K)`, (after) => {
+              for (const key of Object.keys(after)) delete after[key as keyof KeymodeDraft];
+              Object.assign(after, draft);
+            }, keys);
+          this.#renderMissing();
+        } catch (error) {
+          recoveryError.textContent = error instanceof Error ? error.message : String(error);
+          this.#error(error instanceof Error ? error.message : String(error));
+        }
+      };
+      root.append(h("p", {}, `Missing source: ${display}. ${source.slots} ${source.slots === 1 ? "slot" : "slots"}; ${source.counts.map((k) => `${k}K`).join(", ")}. Choose how to recover; nothing is changed automatically.`),
+        select,
+        h("button", { class: "v-btn v-btn--sm v-btn--primary", onclick: () => {
+          const replacement = candidates.find((s) => s.key === select.value);
+          if (replacement) void run({ kind: "remap", key: replacement.key, name: replacement.name, hash: replacement.contentHash });
+          else recoveryError.textContent = "Choose a replacement skin first.";
+        } }, "Remap"),
+        h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "keep" }) }, "Keep derived images"),
+        h("button", { class: "v-btn v-btn--sm", onclick: () => void run({ kind: "remove" }) }, "Remove slots"),
+        recoveryError,
+        h("p", {}, "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery is undoable per key count."));
+      root.append(h("p", { class: "v-muted" }, "Lazer stores no skin import date, so same-name copies cannot be ranked by age. Filename overlap is only a relevance hint; only an exact full-content hash is preselected."));
+      void this.#describeCandidates(select, candidates, sourceFileNames(this.#host.drafts(), source.key));
+    }
+  }
+
+  /** Width edits keep proportions and report the first use inline. */
   async #setWidths(columns: number[], value: string, label: string) {
+    if (missingSources(this.#host.drafts(), new Set(this.#host.sources().map((s) => s.key))).length) {
+      this.#renderMissing();
+      this.#error("Resolve the missing source above before changing width.");
+      return;
+    }
     // The widths as they are when this edit runs (after any edit before it).
     await this.#hit.setWidths(columns, value, label);
     const done = this.#hit.lastRegeometry;

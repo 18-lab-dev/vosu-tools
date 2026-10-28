@@ -174,7 +174,22 @@ struct Skin {
     /// lazer's skin hash (SHA-256 of its .ini/.json files): names the folder
     /// "Edit externally" mounts.
     hash: Option<Arc<str>>,
+    content_hash: String,
     files: Box<[StoredFile]>,
+}
+
+/// All filenames and file bytes, unlike lazer's ini/json-only skin hash.
+fn content_hash(files: &[StoredFile]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut ordered: Vec<_> = files.iter().collect();
+    ordered.sort_unstable_by(|a, b| a.name.cmp(&b.name));
+    let mut hash = Sha256::new();
+    for file in ordered {
+        hash.update((file.name.len() as u64).to_le_bytes());
+        hash.update(file.name.as_bytes());
+        hash.update(file.hash);
+    }
+    hex_text(&hash.finalize())
 }
 struct Score {
     id: Option<Arc<str>>,
@@ -314,13 +329,16 @@ impl Index {
             if deleted(row) {
                 continue;
             }
+            let files = files(row, &mut strings);
+            let content_hash = content_hash(&files);
             index.skins.insert(
                 strings.intern(key(&row["ID"]).as_ref()),
                 Skin {
                     name: strings.field(row, "Name"),
                     creator: strings.field(row, "Creator"),
                     hash: strings.field(row, "Hash"),
-                    files: files(row, &mut strings),
+                    files,
+                    content_hash,
                 },
             );
         }
@@ -399,7 +417,7 @@ impl Index {
     pub fn skin_list(&self) -> Value {
         let mut skins:Vec<_> = self.skins.iter().map(|(id,skin)| {
             let builtin = match id.as_ref() {"2991cfd8-2140-469a-bcb9-2ec23fbce4ad"=>Some("triangles"),"cffa69de-b3e3-4dee-8563-3c4f425c05d0"=>Some("argon"),"9fc9cf5d-0f16-4c71-8256-98868321ac43"=>Some("argon-pro"),"81f02cd3-eec6-4865-ac23-fae26a386187"=>Some("legacy"),"0555c76a-cc6b-4bb4-9548-df76ba72ef25"=>Some("retro"),_=>None};
-            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"hash":skin.hash.as_deref(),"builtin":builtin,"files":skin.files.len()})
+            json!({"id":id.as_ref(),"name":skin.name.as_deref(),"creator":skin.creator.as_deref(),"hash":skin.hash.as_deref(),"content_hash":skin.content_hash,"builtin":builtin,"files":skin.files.len()})
         }).collect();
         skins.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
         json!({"skins":skins})
@@ -487,6 +505,26 @@ pub fn release_allocator_pages() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn full_content_hash_tracks_images_names_and_not_realm_order() {
+        let file = |name: &str, hash| StoredFile {
+            name: name.into(),
+            hash: [hash; 32],
+        };
+        let first = content_hash(&[file("skin.ini", 1), file("key.png", 2)]);
+        assert_eq!(
+            first,
+            content_hash(&[file("key.png", 2), file("skin.ini", 1)])
+        );
+        assert_ne!(
+            first,
+            content_hash(&[file("skin.ini", 1), file("key.png", 3)])
+        );
+        assert_ne!(
+            first,
+            content_hash(&[file("skin.ini", 1), file("other.png", 2)])
+        );
+    }
     #[test]
     fn packed_hex_is_case_insensitive_and_checked() {
         assert_eq!(hex::<2>("aB01"), Some([0xab, 1]));

@@ -22,6 +22,8 @@ All relative to `/tools/lazer-library/api`:
 - `GET /v1/skins`, `GET /v1/skins/<id>/files`, `GET /v1/skins/<id>/file/<name>`
 - `GET /v1/scores/by-beatmap/<md5>`
 
+
+Skin entries expose both lazer's `hash` (its `.ini`/`.json` hash) and `content_hash` (SHA-256 over all named files). The latter is computed once per indexed snapshot from the existing file-store hashes: sort filenames, then hash each UTF-8 filename's unsigned 64-bit little-endian byte length, filename bytes, and the raw 32-byte file hash. Skin studio uses it to suggest an identical replacement for a missing draft source, without reading every asset again. Soft-deleted (`DeletePending`) skins are not listed; the underlying read-only Realm scanner still sees those rows.
 Lazer's Realm database is only read, never written. The [schema and concurrency design](../../crates/realm-reader/DESIGN.md) covers the pinned lazer and Realm versions, schema compatibility, consistent snapshots while the client writes, refresh policy and the data location.
 
 ## Settings

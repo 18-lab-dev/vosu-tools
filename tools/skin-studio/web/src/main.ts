@@ -59,6 +59,7 @@ import {
   type UploadFile,
 } from "./uploads";
 import { touchedKeys, type KeymodeDraft } from "./keymodes";
+import { sourceSlots } from "./missing-sources";
 import {
   canWrite,
   dashboardTools,
@@ -84,6 +85,8 @@ import { maniaDemo, type DemoId } from "@vosu-tools/demo-maps";
 interface Skin {
   key: string;
   name: string;
+  content_hash?: string | null;
+  file_count?: number | null;
   origin: "stable" | "added" | "osk" | "lazer";
   current: boolean;
   available: boolean;
@@ -201,11 +204,21 @@ const recipes: Record<EditMode, Recipe> = {
 };
 recipes.current.inPlace = true;
 let recipe: Recipe = recipes[editMode];
-const persist = () =>
+const persist = () => {
+  const keys = new Set(recipeSkins(recipe));
+  for (const draft of Object.values(recipe.keymodes ?? {}))
+    for (const refs of sourceSlots(draft).values())
+      for (const slot of refs) keys.add(slot.skin);
+  recipe.sourceInfo ??= {};
+  for (const key of keys) {
+    const source = library?.skins.find((skin) => skin.key === key);
+    if (source) recipe.sourceInfo[key] = { name: source.name, contentHash: source.content_hash ?? undefined };
+  }
   localStorage.setItem(
     editMode === "new" ? RECIPE_KEY : EDIT_KEY,
     JSON.stringify(recipe),
   );
+};
 
 const toolBase = `/tools/${encodeURIComponent(vosu.tool.id)}/api/`;
 const assetUrl = (skin: string, name: string) =>
@@ -246,7 +259,7 @@ const post = <T>(path: string, body: unknown) =>
 const skinByKey = (key: string | null) =>
   key ? library?.skins.find((s) => s.key === key) : undefined;
 const skinName = (key: string) =>
-  key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? key);
+  key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? key);
 
 async function load(key: string, fresh = false): Promise<Loaded> {
   const cached = loaded.get(key);
@@ -2563,6 +2576,7 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
 const keymodes = new KeymodesView({
   drafts: () => (recipe.keymodes ??= {}),
   apply: applyKeymode,
+  refreshSources: loadLibrary,
   mixText: () => mixDoc.getValue() || lastPlan?.ini || "",
   mixFiles: () => {
     const files = new Map<string, { skin: string; from: string; to: string }>();
@@ -2579,6 +2593,9 @@ const keymodes = new KeymodesView({
       .map((s) => ({
         key: s.key,
         name: s.name,
+        contentHash: s.content_hash ?? undefined,
+        creator: s.creator,
+        fileCount: s.file_count ?? undefined,
         group: { stable: "Stable", added: "Added", osk: ".osk", lazer: "Lazer" }[
           s.origin
         ],

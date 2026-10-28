@@ -1681,3 +1681,15 @@
   position: static;
   opacity: 1;
 }
+
+.missing-sources {
+  flex: none;
+  margin: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--caution);
+}
+.missing-sources p { margin: 0 0 var(--space-2); }
+.missing-sources .v-input { width: min(100%, 40rem); margin-right: var(--space-2); }
+.missing-sources .v-btn { margin: 0 var(--space-2) var(--space-2) 0; }
+.missing-sources__error { color: var(--danger); }
+.missing-sources__error:empty { display: none; }
