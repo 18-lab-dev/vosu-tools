@@ -764,6 +764,12 @@
   margin: 0;
   font-size: var(--step--2);
 }
+.mix-summary:empty {
+  display: none;
+}
+.mix-tally {
+  display: inline-flex;
+}
 .mix-export {
   display: grid;
   gap: var(--space-1);

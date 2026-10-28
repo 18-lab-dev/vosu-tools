@@ -52,7 +52,7 @@ import {
 } from "./assets";
 import type { Preview, Resolver } from "./preview";
 import { ClientScroll } from "./client-scroll";
-import { $, h } from "./dom";
+import { $, h, helpTip } from "./dom";
 import { plural } from "./plural";
 import { Explorer } from "./explorer";
 import { AssetCache } from "./asset-cache";
@@ -2246,17 +2246,18 @@ function renderMix() {
   renderIniDraftState();
   const overrides = Object.keys(recipe.overrides ?? {}).length;
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
-  $("#mix-summary").replaceChildren(
-    ...(composeError
-      ? [h("span", { class: "error" }, composeError)]
-      : total || byGroup.size || base
-        ? [
-            plural(total, "file"),
-            ...[...counts].map(([key, n]) => ` · ${n} ${skinName(key)}`),
-            blanks ? ` · ${blanks} blank` : "",
-          ]
-        : []),
-  );
+  // What the mix takes from where: a help hover beside the Draft label; a
+  // compose error stays in view.
+  const tally = total || byGroup.size || base
+    ? [
+        plural(total, "file"),
+        [...[...counts].map(([key, n]) => `${n} from ${skinName(key)}`), blanks ? `${blanks} blank` : ""]
+          .filter(Boolean)
+          .join(", "),
+      ].filter(Boolean).join(": ")
+    : "";
+  $("#mix-tally").replaceChildren(...(!composeError && tally ? [helpTip(tally, "left")] : []));
+  $("#mix-summary").replaceChildren(...(composeError ? [h("span", { class: "error" }, composeError)] : []));
   const empty =
     !base &&
     !Object.keys(recipe.picks).length &&
