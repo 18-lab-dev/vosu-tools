@@ -312,9 +312,11 @@ try {
   await until(async () => ((await page.locator("#apply-count").textContent()) ?? "").includes("No unapplied changes") || ((await page.locator("#apply-count").textContent()) ?? "") === "No changes", "draft cleared", 30000);
   check("After apply the draft is empty", true, (await page.locator("#apply-count").textContent()) ?? "");
   await shot("edit-applied");
-  await page.selectOption("#mix-base", "#none");
+  await page.locator("summary").filter({ hasText: /^Hit position$/ }).click();
+  await page.locator("#km-move-receptors").uncheck();
   check("A new draft change clears the old Apply result", (await page.locator("#mix-result").textContent()) === "");
   await page.click("#km-undo");
+  await page.locator("summary").filter({ hasText: /^Hit position$/ }).click();
 
   // ── An unfinished apply is offered for restore when the studio opens ──────
   // The backup is marked as a rollback that could not put skin.ini back
