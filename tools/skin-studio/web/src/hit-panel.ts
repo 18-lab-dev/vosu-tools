@@ -37,6 +37,7 @@ import {
 } from "./proportions";
 import { UPLOADS } from "./uploads";
 import { playDate } from "./play-date";
+import { holdPairKey } from "./hold-images";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
@@ -793,7 +794,7 @@ export class HitPanel {
           report.push(`column ${column + 1}: built-in hold images, left as is`);
           continue;
         }
-        const id = `${tail.skin}\n${tail.name}\n${body.skin}\n${body.name}`;
+        const id = holdPairKey(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop);
         let result = done.get(id);
         if (!result) {
           if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== captured) return this.#host.error("The draft changed while hold ends were being derived; the stale result was not applied.");
