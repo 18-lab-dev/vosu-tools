@@ -1231,6 +1231,7 @@ function undo() {
   if (!step) return;
   step.undo();
   status.textContent = `Undid ${step.label}`;
+  $("#km-state").textContent = status.textContent;
   renderHistory();
 }
 function redo() {
@@ -1238,6 +1239,7 @@ function redo() {
   if (!step) return;
   step.redo();
   status.textContent = `Redid ${step.label}`;
+  $("#km-state").textContent = status.textContent;
   renderHistory();
 }
 $("#km-undo").onclick = undo;
