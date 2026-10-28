@@ -30,6 +30,7 @@
 // hit-line move (keys only), filled by the edge-clamp rule.
 
 import type { DeriveOp } from "./hit-panel";
+import { plural } from "./plural";
 
 /** The stage height HitPosition is measured in (legacy units). */
 export const STAGE = 480;
@@ -102,8 +103,8 @@ export function lostReport(keys: number, lost: readonly Lost[]): string {
       key: l.key,
       what:
         l.op === "rows"
-          ? `${l.rows} rows cut from the end of ${l.file}`
-          : `${l.rows} rows of ${l.file} moved past the image edge`,
+          ? `${plural(l.rows, "row")} cut from the end of ${l.file}`
+          : `${plural(l.rows, "row")} of ${l.file} moved past the image edge`,
     })),
   );
 }

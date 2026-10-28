@@ -52,7 +52,8 @@ import {
 } from "./assets";
 import type { Preview, Resolver } from "./preview";
 import { ClientScroll } from "./client-scroll";
-import { $, h } from "./dom";
+import { $, h, helpTip } from "./dom";
+import { plural } from "./plural";
 import { Explorer } from "./explorer";
 import { AssetCache } from "./asset-cache";
 import { provenance as draftProvenance, pickLabel as draftPickLabel, groupChoice } from "./draft-labels";
@@ -313,7 +314,7 @@ function sourceIdentity(skin: Skin) {
     skin.name,
     skin.origin === "lazer" ? `${origin} · ID ${skin.key.replace(/^lazer:/, "").slice(0, 8)}` : `${origin} · ${skin.key}`,
     skin.creator ? `by ${skin.creator}` : "",
-    skin.file_count != null ? `${skin.file_count} files` : "",
+    skin.file_count != null ? plural(skin.file_count, "file") : "",
     skin.content_hash ? `content ${skin.content_hash.slice(0, 12)}` : "",
   ]
     .filter(Boolean)
@@ -791,7 +792,7 @@ function renderFocus() {
     ? [
         author ?? skin.creator ?? "",
         skin.origin === "lazer" ? "lazer" : skin.key,
-        entry ? `${entry.snapshot.files.length} files` : "",
+        entry ? plural(entry.snapshot.files.length, "file") : "",
       ]
         .filter(Boolean)
         .join(" · ")
@@ -846,6 +847,12 @@ function fps(data: SkinData, count: number) {
   return Number.isFinite(rate) && rate > 0 ? rate : count;
 }
 
+/** A lower-cased unit name as the skin spells it (each of its files starts with it). */
+const spelled = (name: string, file: string) => {
+  const own = file.slice(0, name.length);
+  return own.toLowerCase() === name ? own : name;
+};
+
 /**
  * Collapses a group's files into preview tiles, one per mix unit: frames and
  * @2x variants join their image; in Numbers & fonts a prefix's glyphs are one font.
@@ -865,7 +872,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
       files[0];
     const count = new Set(files.map(stem)).size;
     nodes.push(
-      tile(prefix, assetUrl(data.key, sample), `${count} glyphs`, {
+      tile(spelled(prefix, sample), assetUrl(data.key, sample), plural(count, "glyph"), {
         ref: { kind: "font", name: prefix },
         skin: data.key,
       }),
@@ -895,7 +902,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
     covered.add(base);
     nodes.push(
       tile(
-        base,
+        spelled(base, seq[0]),
         animationUrl(data.key, base),
         `${seq.length} frames · ${fps(data, seq.length)} fps${seq[0].includes("@2x") ? " · @2x" : ""}`,
         { ref: { kind: "image", name: base }, skin: data.key },
@@ -912,7 +919,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
     const hd = files.find((f) => /@2x\.[^.]+$/i.test(f));
     const file = hd ?? files[0];
     nodes.push(
-      tile(s, assetUrl(data.key, file), hd ? "@2x" : "SD", {
+      tile(spelled(s, file), assetUrl(data.key, file), hd ? "@2x" : "SD", {
         ref: { kind: "image", name: s },
         skin: data.key,
       }),
@@ -1011,7 +1018,8 @@ function tile(
   return figure;
 }
 
-function audioTile(data: SkinData, label: string, file: string) {
+function audioTile(data: SkinData, name: string, file: string) {
+  const label = spelled(name, file);
   const size =
     loaded.get(data.key)?.snapshot.files.find((f) => f.name === file)?.size ??
     0;
@@ -1027,7 +1035,7 @@ function audioTile(data: SkinData, label: string, file: string) {
     "▶",
   );
   button.dataset.src = url;
-  const ref: AssetRef = { kind: "sound", name: label };
+  const ref: AssetRef = { kind: "sound", name };
   const figure = h(
     "figure",
     { class: "tile audio" },
@@ -1139,7 +1147,7 @@ function groupSection(group: Group, data: SkinData) {
         {},
         group.label,
         owned.length
-          ? h("span", { class: "v-muted" }, `${owned.length} files`)
+          ? h("span", { class: "v-muted" }, plural(owned.length, "file"))
           : null,
         pick ? h("span", { class: "v-badge v-badge--accent" }, "in mix") : null,
       ),
@@ -1540,7 +1548,6 @@ function scheduleReview() {
   }, 400);
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const describeTarget = (target: Target) =>
   target.kind === "folder"
     ? `Writes into the skin's folder, ${target.path}`
@@ -1772,6 +1779,8 @@ function confirmApply(next: Review): Promise<boolean> {
       : "Every file replaced or removed is copied into Skin studio's data folder first; Restore last apply puts them back. Other files are not touched.";
   $("#apply-confirm").textContent =
     next.target.kind === "import" ? `Import into osu!lazer` : `Apply ${plural(next.changes.length, "change")}`;
+  // The list names files only: the draft's skin.ini is one click away.
+  $("#apply-review-ini").hidden = !next.changes.some((c) => /(^|\/)skin\.ini$/i.test(c.path));
   dialog.returnValue = "";
   dialog.showModal();
   return new Promise((resolve) =>
@@ -2213,7 +2222,7 @@ function renderMix() {
           h(
             "span",
             { class: "pick-source" },
-            [slots ? `${slots} images` : "", values ? `${values} values` : ""]
+            [slots ? plural(slots, "image") : "", values ? plural(values, "value") : ""]
               .filter(Boolean)
               .join(" · ") || "block added",
           ),
@@ -2239,17 +2248,18 @@ function renderMix() {
   renderIniDraftState();
   const overrides = Object.keys(recipe.overrides ?? {}).length;
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
-  $("#mix-summary").replaceChildren(
-    ...(composeError
-      ? [h("span", { class: "error" }, composeError)]
-      : total || byGroup.size || base
-        ? [
-            `${total} files`,
-            ...[...counts].map(([key, n]) => ` · ${n} ${skinName(key)}`),
-            blanks ? ` · ${blanks} blank` : "",
-          ]
-        : []),
-  );
+  // What the mix takes from where: a help hover beside the Draft label; a
+  // compose error stays in view.
+  const tally = total || byGroup.size || base
+    ? [
+        plural(total, "file"),
+        [...[...counts].map(([key, n]) => `${n} from ${skinName(key)}`), blanks ? `${blanks} blank` : ""]
+          .filter(Boolean)
+          .join(", "),
+      ].filter(Boolean).join(": ")
+    : "";
+  $("#mix-tally").replaceChildren(...(!composeError && tally ? [helpTip(tally, "left")] : []));
+  $("#mix-summary").replaceChildren(...(composeError ? [h("span", { class: "error" }, composeError)] : []));
   const empty =
     !base &&
     !Object.keys(recipe.picks).length &&
@@ -2403,11 +2413,31 @@ $("#mix-uploads-remove").onclick = async () => {
   await refreshUploads();
 };
 $("#mix-reset").onclick = () => discardDraft();
-$("#mix-ini").onclick = () => {
+const reviewIni = () => {
   iniMode = "mix";
   showView("ini");
 };
+$("#mix-ini").onclick = reviewIni;
+// From the Apply dialog: cancels the apply and shows the draft's skin.ini.
+$("#apply-review-ini").onclick = () => {
+  $<HTMLDialogElement>("#apply-dialog").close("cancel");
+  reviewIni();
+};
+// More (the Draft's rarely used actions) closes when the user acts anywhere else.
+const more = $<HTMLDetailsElement>("#mix-more");
+document.addEventListener("click", (event) => {
+  if (more.open && !more.contains(event.target as Node)) more.open = false;
+});
+more.onkeydown = (event) => {
+  if (event.key !== "Escape" || !more.open) return;
+  event.stopPropagation();
+  more.open = false;
+  more.querySelector("summary")!.focus();
+};
 $("#mix-plan").onclick = async () => {
+  // The menu closes; focus goes back to its button, not lost in a closed menu.
+  more.open = false;
+  more.querySelector("summary")!.focus();
   try {
     const plan = await planNow();
     const link = h("a", {
@@ -2530,7 +2560,7 @@ async function buildMix(target: Exclude<ExportTarget, "apply">) {
       h(
         "p",
         { class: "ok" },
-        `${built.replaced ? "Replaced" : "Created"} · ${built.files} files`,
+        `${built.replaced ? "Replaced" : "Created"} · ${plural(built.files, "file")}`,
       ),
       h("p", { class: "v-mono v-muted" }, built.path),
     );
@@ -2916,6 +2946,9 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   clearTimeout(composeTimer);
 }
 
+/** The current beatmap's osu!mania key count, from vosu's live subscription (null: none or another ruleset). */
+let beatmapKeys: number | null = null;
+
 const keymodes = new KeymodesView({
   drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
@@ -2993,6 +3026,17 @@ const keymodes = new KeymodesView({
       for (const [keys, draft] of Object.entries(changes)) applyKeymode(Number(keys), draft);
     });
     clearTimeout(composeTimer);
+  },
+  beatmapKeys: () => beatmapKeys,
+  // The Preview's mania key count follows Keymodes.
+  keysChanged: (keys) => {
+    if (!maniaDemo(keys) || previewPrefs.keys === keys) return;
+    previewPrefs.keys = keys;
+    savePreview();
+    if (view === "preview") {
+      renderKeys();
+      preview?.setDemo(demoId());
+    }
   },
 });
 
@@ -3177,8 +3221,15 @@ function subscribe() {
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
     liveClient = values[2] === "stable" || values[2] === "lazer" ? values[2] : null;
     clientScroll.setClient(values[2], values[3]);
+    // A mania beatmap's key count is its converted circle size (converts included).
+    const cs = values[4];
+    const keys = values[1] === "mania" && typeof cs === "number" && cs >= 1 && cs <= 18 ? Math.round(cs) : null;
+    if (keys !== beatmapKeys) {
+      beatmapKeys = keys;
+      keymodes.beatmapChanged();
+    }
   };
-  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
+  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania", "/beatmap/stats/cs/converted"], onFrame, (state) => {
     // Older bridges never report a state; the indicator stays hidden for them.
     live.hidden = dot.hidden = false;
     dot.dataset.state =

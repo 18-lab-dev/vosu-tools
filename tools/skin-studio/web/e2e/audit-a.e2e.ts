@@ -179,7 +179,7 @@ try {
   };
   const plan = async (name: string) => {
     const pending = page.waitForEvent("download", { timeout: 30000 });
-    await page.click("#mix-plan");
+    await page.click("#mix-more > summary"); await page.click("#mix-plan");
     const item = await pending;
     const file = join(out, `${name}.json`);
     await item.saveAs(file);
@@ -190,13 +190,18 @@ try {
     await page.click(focus ? "#ini-focus" : "#ini-mix");
     await page.waitForSelector("#editor .monaco-editor", { timeout: 10000 });
     const input = page.locator("#editor textarea").first();
-    await input.focus();
-    await page.keyboard.press("Control+a");
-    // Input.insertText is keyboard typing in Monaco: it applies each character
-    // separately. A full ini fixture must use the user's bulk-paste path.
-    await page.evaluate((value: string) => navigator.clipboard.writeText(value), text);
-    await page.keyboard.press("Control+v");
-    await page.waitForTimeout(300);
+    // The document can still be swapped in (a late compose resets the
+    // selection), so the replacement is repeated until the editor holds it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await input.focus();
+      await page.keyboard.press("Control+a");
+      // Input.insertText is keyboard typing in Monaco: it applies each character
+      // separately. A full ini fixture must use the user's bulk-paste path.
+      await page.evaluate((value: string) => navigator.clipboard.writeText(value), text);
+      await page.keyboard.press("Control+v");
+      await page.waitForTimeout(300);
+      if ((await editorText()) === text.replace(/\r\n/g, "\n")) break;
+    }
     await page.keyboard.press("Escape");
   };
   const state = () => page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe") ?? "{}"));
@@ -416,7 +421,7 @@ try {
     const downloads: any[] = [];
     const receive = (item: any) => downloads.push(item);
     page.on("download", receive);
-    await page.click("#mix-plan"); await page.waitForTimeout(150);
+    await page.click("#mix-more > summary"); await page.click("#mix-plan"); await page.waitForTimeout(150);
     await pick(opt.other!); await page.click("#use-base"); await page.waitForTimeout(350);
     const newer = await editorText();
     await barrier.release();

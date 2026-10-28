@@ -92,3 +92,13 @@ test("correcting hold ends: early gap, late percy conversion, both percy directi
   expect(holdPlan(release(0), percy).kind).toBe("none");
   expect(holdPlan(release(0.2), normal).kind).toBe("none");
 });
+
+test("hold-end notes count rows in the singular for one row", () => {
+  const release = (distance: number) => ({ count: 100, mean: distance, spread: 1, velocity: 1, distance });
+  // 2 rows per unit: early by half a unit lengthens by 1 row; late by half a unit shortens by 1.
+  const normal = { capRows: 40, tailWidth: 128, bodyHeight: 64, bodyTop: 0, noteWidth: 64, percy: false };
+  expect(holdPlan(release(-0.5), normal).note).toBe("early releases: lengthen the hold with 1 row before its cap");
+  expect(holdPlan(release(0.5), normal).note).toContain("the cap's bottom edge 1 row before the end time");
+  const percy = { capRows: 0, tailWidth: 128, bodyHeight: 40000, bodyTop: 1, noteWidth: 112, percy: true };
+  expect(holdPlan(release(-100), percy).note).toBe("percy holds (blank tail): the body's end moves up 1 row (early: longer), limited to its 1 clear row");
+});

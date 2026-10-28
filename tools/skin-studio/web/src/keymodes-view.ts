@@ -18,6 +18,7 @@ import {
   type ManiaImageResolution,
 } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
+import { maniaColumns, parseOsu } from "@vosu-tools/osu-parse";
 import { $, h } from "./dom";
 import {
   COLUMN_ROLES,
@@ -25,8 +26,11 @@ import {
   assignSlots,
   assignImageSlots,
   applyStageCopy,
+  type CopyRows,
   columnKey,
   copyStage,
+  changedSlots,
+  columnRuns,
   defaultPattern,
   imageUnit,
   mirror,
@@ -43,6 +47,7 @@ import {
 import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import { HitPanel, type HitHost } from "./hit-panel";
+import { nameParts, roleOrder } from "./picker";
 import { missingSources, recoverSource, sourceFileNames, sourceSlots, type Recovery } from "./missing-sources";
 import { MANIA_COLUMNS, MANIA_FIELDS, columnKey as formKey, setListEntry, type ColumnField, type Field } from "./mania-form";
 import type { Preview, PreviewSource } from "./preview";
@@ -77,6 +82,8 @@ const MIX = "mix:";
 /** The `data-row` of stage-wide image slots (after the column roles and 4 value rows). */
 const SHARED_ROW = COLUMN_ROLES.length + 4;
 const DRAG_TYPE = "application/x-skin-studio-image";
+/** The key count viewed last on this screen (Keymodes opens on it when no beatmap says otherwise). */
+const VIEWED_KEYS = "skin-studio:keymodes-keys";
 /**
  * An image as the user knows it: its file name (`drop-note.png`), without
  * the folder (dropped files sit in a folder per drop) or a frame number.
@@ -123,6 +130,10 @@ export interface KeymodesHost {
   setSpeed: HitHost["setSpeed"];
   /** Commits these key counts as one whole-recipe undo step. */
   edit(label: string, changes: Record<string, KeymodeDraft | undefined>): void;
+  /** The current beatmap's osu!mania key count (null: none, or another ruleset). */
+  beatmapKeys(): number | null;
+  /** The shown key count changed (the Preview's mania key count follows it). */
+  keysChanged(keys: number): void;
 }
 
 /** An image the picker offers. */
@@ -214,6 +225,17 @@ export class KeymodesView {
   /** The source's own keys per role, for ranking (`NoteImage#H` → names). */
   #sourceRoles = new Map<string, Set<string>>();
   #loadingSource = 0;
+  /** Copy from's skin and key count were chosen by the user (else they follow the shown stage). */
+  #copyPicked = false;
+  #copyKeysPicked = false;
+  /** Opened once (the first open picks the key count), a count picked here, the count the studio was told. */
+  #opened = false;
+  #userPicked = false;
+  #announced = 0;
+  /** Up to 1440 px wide (the narrow Keymodes layout). */
+  #narrow = matchMedia("(max-width: 90rem)");
+  /** The last play's key count, once read (a fallback when nothing else says which count to show). */
+  #playKeys = 0;
   #dragged: { unit: Unit; source: string } | null = null;
   #preview?: Preview;
   #previewLoading?: Promise<Preview | undefined>;
@@ -268,14 +290,20 @@ export class KeymodesView {
       error: (text) => this.#error(text),
     });
     $("#km-all").onclick = () => this.#applyToAll();
-    $("#km-mirror").onclick = () =>
-      this.#change("Mirror", (draft) =>
-        assignImageSlots(draft, mirror(this.#keys, this.#current)),
-      );
-    $("#km-pattern").onclick = () =>
-      this.#change("osu! column pattern", (draft) =>
-        assignImageSlots(draft, defaultPattern(this.#keys, this.#current)),
-      );
+    // Mirror and the pattern change only slots that differ (no "set here"
+    // mark on an unchanged one) and name the columns they changed.
+    $("#km-mirror").onclick = () => {
+      const changes = changedSlots(mirror(this.#keys, this.#current), this.#current);
+      if (!Object.keys(changes).length) return this.#state("The right half already mirrors the left");
+      this.#change(`Mirror ${columnRuns(Object.keys(changes)).toLowerCase()}`, (draft) => assignImageSlots(draft, changes));
+    };
+    $("#km-pattern").onclick = () => {
+      const changes = changedSlots(defaultPattern(this.#keys, this.#current), this.#current);
+      if (!Object.keys(changes).length) return this.#state("Columns already follow 1/2/S");
+      const runs = columnRuns(Object.keys(changes));
+      this.#change(`osu! 1/2/S pattern on ${runs.toLowerCase()}`, (draft) => assignImageSlots(draft, changes));
+      this.#state(`${runs} now ${runs.startsWith("Columns") ? "follow" : "follows"} 1/2/S`);
+    };
     $("#km-still").onclick = () => this.#setPlaying(false);
     $("#km-play").onclick = () => this.#setPlaying(true);
     $<HTMLSelectElement>("#km-add").onchange = (event) => {
@@ -284,8 +312,11 @@ export class KeymodesView {
       select.value = "";
       if (keys) this.#addKeyCount(keys);
     };
-    $<HTMLSelectElement>("#km-copy-skin").onchange = () =>
+    $<HTMLSelectElement>("#km-copy-skin").onchange = () => {
+      this.#copyPicked = true;
       void this.#copyCounts();
+    };
+    $<HTMLSelectElement>("#km-copy-keys").onchange = () => (this.#copyKeysPicked = true);
     $<HTMLFormElement>("#km-copy").onsubmit = (event) => {
       event.preventDefault();
       void this.#copy();
@@ -313,6 +344,14 @@ export class KeymodesView {
     $("#km-grid").onkeydown = (event) => this.#gridKey(event);
     $("#km-shared-grid").onkeydown = (event) => this.#gridKey(event);
     new ResizeObserver(() => this.#renderColumns()).observe($("#km-stage"));
+    // "+ Key count" fits the narrower rail up to 1440 px as "+ Add".
+    this.#narrow.addEventListener("change", () => {
+      const first = $<HTMLSelectElement>("#km-add").options[0];
+      if (first) first.textContent = this.#narrow.matches ? "+ Add" : "+ Key count";
+    });
+    // A group's help (i) explains it; clicking the (i) does not open the group.
+    for (const help of document.querySelectorAll<HTMLElement>("#keymodes-view summary > .v-help"))
+      help.addEventListener("click", (event) => event.preventDefault());
     // Column tools closes when the user acts anywhere else.
     document.addEventListener("click", (event) => {
       const menu = document.querySelector<HTMLDetailsElement>("#keymodes-view details.km-copy-menu[open]");
@@ -451,6 +490,7 @@ export class KeymodesView {
     const counts = this.#counts().filter((k) => DRAWN.includes(k));
     const next = counts[counts.indexOf(this.#keys) + step];
     if (next === undefined) return;
+    this.#userPicked = true;
     this.#select(next);
     this.#state(`${next}K`);
   }
@@ -514,6 +554,12 @@ export class KeymodesView {
       await this.#preview?.show(false);
       return;
     }
+    if (!this.#opened) {
+      this.#opened = true;
+      const unknown = !this.#host.beatmapKeys() && !localStorage.getItem(VIEWED_KEYS);
+      this.#follow();
+      if (unknown) void this.#showPlayKeys();
+    }
     this.refresh();
     if (this.#source === MIX || !this.#units.length)
       await this.#openSource(this.#source);
@@ -523,12 +569,54 @@ export class KeymodesView {
     await preview.show(true);
   }
 
+  /**
+   * The key count to show when none is chosen: the current beatmap's, else
+   * the one viewed last, else the last play's (read on the first open), else
+   * the first drawn.
+   */
+  #preferred(counts: number[]) {
+    const drawn = counts.filter((k) => DRAWN.includes(k));
+    const viewed = Number(localStorage.getItem(VIEWED_KEYS));
+    for (const keys of [this.#host.beatmapKeys(), viewed, this.#playKeys])
+      if (keys && drawn.includes(keys)) return keys;
+    return drawn[0] ?? counts[0] ?? 0;
+  }
+  /** Shows the preferred key count (a new beatmap, the first open). */
+  #follow() {
+    const keys = this.#preferred(this.#counts());
+    if (keys) this.#select(keys);
+    this.#announce();
+  }
+  /** A new current beatmap: Keymodes opens on its key count, unless the user is choosing one here. */
+  beatmapChanged() {
+    if (this.#host.beatmapKeys() && (!this.#visible || !this.#userPicked)) this.#follow();
+  }
+  /**
+   * First open with no beatmap and no count viewed before: the last play's
+   * key count, shown when it arrives unless the user picked one (the mix may
+   * not have composed yet: then {@link refresh} prefers it).
+   */
+  async #showPlayKeys() {
+    try {
+      this.#playKeys = maniaColumns(parseOsu((await this.#host.lastPlay()).osu));
+    } catch {
+      return;
+    }
+    if (!this.#userPicked && DRAWN.includes(this.#playKeys) && this.#counts().includes(this.#playKeys)) {
+      this.#select(this.#playKeys);
+      this.#announce();
+    }
+  }
+
   /** Re-reads the mix (after a compose or an edit of its skin.ini). */
   refresh() {
     this.#renderMissing();
     const counts = this.#counts();
-    if (!counts.includes(this.#keys))
-      this.#keys = counts.find((k) => DRAWN.includes(k)) ?? counts[0] ?? 0;
+    if (!counts.includes(this.#keys)) this.#keys = this.#preferred(counts);
+    if (this.#visible) {
+      this.#announce();
+      if (this.#keys) localStorage.setItem(VIEWED_KEYS, String(this.#keys));
+    }
     const files = this.#host.mixFiles();
     this.#mixIndex = imageIndex([...files.keys()]);
     this.#resolved = this.#keys
@@ -547,6 +635,17 @@ export class KeymodesView {
     this.#syncPreview();
     if (this.#source === MIX) void this.#openSource(MIX);
     else this.#renderSources();
+  }
+
+  /**
+   * Tells the studio the key count shown or followed (a beatmap's, the last
+   * play's): the Preview's mania key count follows it. A count picked while
+   * nothing is known (hidden, first drawn) is not announced.
+   */
+  #announce() {
+    if (this.#keys === this.#announced) return;
+    this.#announced = this.#keys;
+    if (this.#keys) this.#host.keysChanged(this.#keys);
   }
 
   #select(keys: number) {
@@ -590,10 +689,14 @@ export class KeymodesView {
             ariaCurrent: String(keys === this.#keys),
             ariaLabel: `${keys}K, ${label}`,
             disabled: !drawn,
+            // Up to 1440 px the status shows as its dot: the word is here.
             title: drawn
-              ? ""
+              ? `${keys}K: ${label}`
               : "Dual-stage layouts are not supported by render-core's preview yet",
-            onclick: () => this.#select(keys),
+            onclick: () => {
+              this.#userPicked = true;
+              this.#select(keys);
+            },
           },
           this.#miniStage(text, keys),
           h("span", { class: "km-count__name" }, `${keys}K`),
@@ -606,7 +709,7 @@ export class KeymodesView {
       rail.querySelector<HTMLButtonElement>('[aria-current="true"]')?.focus();
     const add = $<HTMLSelectElement>("#km-add");
     add.replaceChildren(
-      h("option", { value: "" }, "+ Key count"),
+      h("option", { value: "" }, this.#narrow.matches ? "+ Add" : "+ Key count"),
       ...DRAWN.filter((k) => !counts.includes(k)).map((k) =>
         h("option", { value: String(k) }, `${k}K`),
       ),
@@ -913,7 +1016,7 @@ export class KeymodesView {
     const keys = this.#keys;
     grid.style.setProperty("--km-cols", String(keys || 1));
     if (!keys) {
-      grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with + Key count."));
+      grid.replaceChildren(h("p", { class: "v-empty" }, "No key counts yet: add one with the + list under the key counts."));
       grid.dataset.keymode = String(keys);
       return;
     }
@@ -1786,13 +1889,19 @@ export class KeymodesView {
     const pattern = patternOf(key);
     const from = Number(/\d+/.exec(key)![0]);
     this.#change(`Apply ${roleLabel(pattern).toLowerCase()} to all columns`, (draft) =>
-      assignImageSlots(draft, applyToAll(this.#keys, pattern, from, this.#current)),
+      assignImageSlots(draft, changedSlots(applyToAll(this.#keys, pattern, from, this.#current), this.#current)),
     );
   }
 
+  /**
+   * Copy from offers the mix and every skin. Until the user picks, it is set
+   * to another skin than this stage's own (the first one) at the shown key
+   * count, else its nearest.
+   */
   #renderCopy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin");
-    const value = skin.value || MIX;
+    const own = this.#host.originalStage(this.#keys);
+    const value = this.#copyPicked ? skin.value || MIX : (this.#host.sources().find((s) => s.key !== own)?.key ?? MIX);
     skin.replaceChildren(
       h("option", { value: MIX }, "This mix"),
       ...this.#host
@@ -1814,8 +1923,10 @@ export class KeymodesView {
     select.replaceChildren(
       ...counts.map((k) => h("option", { value: String(k) }, `${k}K`)),
     );
-    if (counts.map(String).includes(previous)) select.value = previous;
-    else if (counts.includes(this.#keys)) select.value = String(this.#keys);
+    // The shown key count, else the nearest; a count the user chose stays.
+    const nearest = counts.reduce<number | undefined>((best, k) => best === undefined || Math.abs(k - this.#keys) < Math.abs(best - this.#keys) ? k : best, undefined);
+    if (this.#copyKeysPicked && counts.map(String).includes(previous)) select.value = previous;
+    else if (nearest !== undefined) select.value = String(nearest);
     select.disabled = !counts.length;
     $<HTMLButtonElement>("#km-copy-go").disabled =
       !counts.length || !this.#host.canWrite() || !this.#keys;
@@ -1853,6 +1964,10 @@ export class KeymodesView {
   async #copy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
     const from = Number($<HTMLSelectElement>("#km-copy-keys").value);
+    const rowsSelect = $<HTMLSelectElement>("#km-copy-rows");
+    const rows = rowsSelect.value as CopyRows;
+    // `Copy 7K notes & holds from …`; All reads as before.
+    const what = rows === "all" ? "" : ` ${rowsSelect.selectedOptions[0].text.toLowerCase()}`;
     if (!from || !this.#keys) return;
     const keys = this.#keys;
     const generation = this.#host.generation(keys);
@@ -1860,10 +1975,10 @@ export class KeymodesView {
     if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while copying; the stale copy was not applied.");
     const map = remapColumns(keys, from).map((c) => c + 1);
     const name = skin === MIX ? "this mix" : this.#host.skinName(skin);
-    this.#change(`Copy ${from}K from ${name}`, (draft) => applyStageCopy(draft, copied), keys);
+    this.#change(`Copy ${from}K${what} from ${name}`, (draft) => applyStageCopy(draft, copied, rows), keys);
     if (from !== keys)
       this.#state(
-        `Copied ${from}K from ${name} into ${keys}K: columns take ${map.join(", ")} (same column kind 1/2/S, nearest position)`,
+        `Copied ${from}K${what} from ${name} into ${keys}K: columns take ${map.join(", ")} (same column kind 1/2/S, nearest position)`,
       );
   }
 
@@ -1997,11 +2112,14 @@ export class KeymodesView {
     const hint = pattern ? hintFor(pattern) : null;
     const shown = this.#units.filter((u) => !this.#filter || u.name.toLowerCase().includes(this.#filter));
     const rank = (u: Unit) => (own.has(u.name.toLowerCase()) ? 0 : hint?.test(u.name) ? 1 : 2);
+    // Within a section, osu!mania's own names first (name order otherwise).
+    const section = (n: number) =>
+      shown.filter((u) => rank(u) === n).sort((a, b) => roleOrder(pattern!, a.name) - roleOrder(pattern!, b.name));
     const sections: [string, Unit[]][] = pattern
       ? [
-          [`Used as ${roleLabel(pattern).toLowerCase()} in this skin`, shown.filter((u) => rank(u) === 0)],
-          ["Names that match", shown.filter((u) => rank(u) === 1)],
-          ["Other images", shown.filter((u) => rank(u) === 2)],
+          [`Used as ${roleLabel(pattern).toLowerCase()} in this skin`, section(0)],
+          ["Names that match", section(1)],
+          ["Other images", section(2)],
         ]
       : [["Images", shown]];
     const nodes: Node[] = [];
@@ -2043,7 +2161,9 @@ export class KeymodesView {
         { class: "km-thumb" },
         h("img", { src: this.#host.assetUrl(unit.thumb.skin, unit.thumb.file), alt: "", loading: "lazy", decoding: "async" }),
       ),
-      h("span", { class: "km-tile__name" }, this.#source === UPLOADS ? shownName(unit.name, unit.files) : unit.name),
+      // Cut in the middle: the end tells `mania-note1H` from `mania-note2T`.
+      h("span", { class: "km-tile__name" }, ...nameParts(this.#source === UPLOADS ? shownName(unit.name, unit.files) : unit.name).map((part, i) =>
+        h("span", { class: i ? "km-tile__tail" : "km-tile__head" }, part))),
       h("span", { class: "km-tile__meta" }, meta),
     );
     tile.dataset.index = String(index);

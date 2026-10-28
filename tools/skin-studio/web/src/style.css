@@ -9,6 +9,16 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Muted is the resting state of audio previews, not a choice to highlight:
+   pressed, it keeps the ghost look (its label says which state it is in). */
+#mute.v-btn--ghost[aria-pressed="true"] {
+  color: var(--fg-dim);
+  background: transparent;
+  border-color: transparent;
+}
+#mute.v-btn--ghost[aria-pressed="true"]:hover {
+  color: var(--fg);
+}
 
 .studio {
   grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr) minmax(
@@ -295,6 +305,36 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
+}
+/* With a pointer that hovers, a tile's actions show on hover or keyboard
+   focus, over the top of its image (no row of buttons under every tile); a
+   tile already in the mix keeps its pressed "In mix". Sound tiles keep their
+   row, the actions fading in place. */
+@media (hover: hover) {
+  .tile {
+    position: relative;
+  }
+  .tile-actions {
+    position: absolute;
+    top: var(--space-1);
+    left: var(--space-1);
+    max-width: calc(100% - 2 * var(--space-1));
+    padding: var(--space-1);
+    border-radius: var(--radius);
+    background: var(--bg-raised);
+    box-shadow: var(--shadow);
+  }
+  .tile-actions,
+  .tile.audio :is(.use, .files) {
+    transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  .tile:not(:hover, :focus-within) .tile-actions:not(:has(.use[aria-pressed="true"])),
+  .tile.audio:not(:hover, :focus-within) :is(.use:not([aria-pressed="true"]), .files) {
+    opacity: 0;
+  }
+  .tile:not(:hover, :focus-within) .tile-actions .files {
+    display: none;
+  }
 }
 .tile.found {
   outline: 2px solid var(--accent);
@@ -754,6 +794,12 @@
   margin: 0;
   font-size: var(--step--2);
 }
+.mix-summary:empty {
+  display: none;
+}
+.mix-tally {
+  display: inline-flex;
+}
 .mix-export {
   display: grid;
   gap: var(--space-1);
@@ -889,21 +935,37 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.km-copy-menu {
+.km-copy-menu,
+.mix-more {
   position: relative;
 }
-.km-copy-menu > summary {
+:is(.km-copy-menu, .mix-more) > summary {
   list-style: none;
 }
-.km-copy-menu > summary::-webkit-details-marker {
+:is(.km-copy-menu, .mix-more) > summary::-webkit-details-marker {
   display: none;
 }
-.km-copy-menu > summary::after {
+:is(.km-copy-menu, .mix-more) > summary::after {
   content: "▾";
   margin-left: var(--space-1);
   color: var(--muted);
 }
-/* Column tools: Mirror, the 1/2/S pattern and Copy from, under one button. */
+/* The Draft's rarely used actions (Download plan), above its More button. */
+.mix-more__menu {
+  position: absolute;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 5;
+  display: grid;
+  width: max-content;
+  padding: var(--space-1);
+  border: var(--hair) solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+/* Column tools: Mirror, the 1/2/S pattern and Copy from, under one button,
+   as wide as its rows (a focused button is never clipped). */
 .km-copy {
   position: absolute;
   top: calc(100% + var(--space-1));
@@ -911,6 +973,8 @@
   z-index: 5;
   display: grid;
   gap: var(--space-2);
+  width: max-content;
+  max-width: calc(100vw - 2 * var(--space-3));
   padding: var(--space-2);
   border: var(--hair) solid var(--rule-strong);
   border-radius: var(--radius);
@@ -918,9 +982,14 @@
   box-shadow: var(--shadow);
 }
 .km-copy__row {
+  flex-wrap: wrap;
   gap: var(--space-2);
   align-items: center;
   white-space: nowrap;
+}
+.km-copy__rows {
+  gap: var(--space-1);
+  align-items: center;
 }
 .km-copy .v-select {
   max-width: 14rem;
@@ -1145,13 +1214,15 @@
   background: var(--accent);
   content: "";
 }
+/* Slot and picker thumbnails sit on a mid-grey checker in both themes, like
+   the stage's dark backdrop: white receptors and dark outlines both show. */
 .km-thumb {
   position: relative;
   height: var(--km-thumb, 2.75rem);
   overflow: hidden;
   border-radius: calc(var(--radius) - 1px);
-  background: repeating-conic-gradient(var(--bg-sunken) 0 25%, var(--bg) 0 50%)
-    0 0 / 10px 10px;
+  background: repeating-conic-gradient(#4d5157 0 25%, #5d6168 0 50%) 0 0 / 10px
+    10px;
 }
 /* The whole image, scaled down to fit (never cropped), at every size. */
 .km-thumb img {
@@ -1166,7 +1237,7 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: var(--muted);
+  color: #c9ccd1;
   font: 500 var(--step--2) var(--font-mono);
 }
 .km-badge {
@@ -1396,11 +1467,20 @@
 .km-tile--drag {
   opacity: 0.5;
 }
+/* Cut in the middle: the head takes the ellipsis, the tail always shows. */
 .km-tile__name {
+  display: flex;
   overflow: hidden;
   font: 400 var(--step--2) var(--font-mono);
   white-space: nowrap;
+}
+.km-tile__head {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
+}
+.km-tile__tail {
+  flex: none;
 }
 .km-tile__meta {
   min-height: 1em;
@@ -1415,10 +1495,33 @@
   font-size: var(--step--1);
 }
 
-/* Up to 1440 px the rail gives the slots its room (the picker keeps its width). */
+/* Up to 1440 px the rail gives the slots its room (the picker keeps its
+   width): key count statuses become their coloured dot (the word is in the
+   title), and the Draft panel narrows so the sheet gains ~100 px; its head
+   keeps the Draft label, with "Discard draft" read as "Discard". */
 @media (max-width: 90rem) {
+  .studio[data-view="keymodes"] {
+    grid-template-columns: minmax(0, 1fr) 15rem;
+  }
   .km-body {
     grid-template-columns: 6rem minmax(0, 1fr) minmax(15.5rem, 22rem);
+  }
+  .km-status {
+    justify-self: start;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: currentColor;
+    font-size: 0;
+  }
+  .studio[data-view="keymodes"] .mix-bar__wide {
+    display: none;
+  }
+  .studio[data-view="keymodes"] .mix-bar > .v-label {
+    flex: none;
+  }
+  .studio[data-view="keymodes"] .mix-bar > .v-btn {
+    padding-inline: var(--space-1);
   }
 }
 @media (max-height: 56rem) {
@@ -1527,12 +1630,37 @@
 .km-hit__note {
   min-width: 0;
 }
-.km-hit__play {
-  margin: 0;
-  font-weight: 600;
-}
 .km-hit__warn {
   margin: 0;
+  color: var(--caution);
+}
+.km-hit__body p > .v-help,
+.km-sheet summary > .v-help {
+  margin-left: var(--space-1);
+  text-transform: none;
+  letter-spacing: normal;
+}
+/* The play both calibrations read, once, above their groups. */
+.km-last-play {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  margin-top: var(--space-3);
+  font-size: var(--step--1);
+}
+.km-last-play[hidden] {
+  display: none;
+}
+.km-last-play__map {
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.km-last-play__old {
+  display: inline-flex;
+  gap: var(--space-1);
+  align-items: center;
   color: var(--caution);
 }
 
@@ -1700,6 +1828,10 @@
   justify-content: flex-end;
   padding: var(--space-2) var(--space-3);
   border-top: var(--hair) solid var(--rule);
+}
+/* Review skin.ini sits apart from the answer buttons, at the start. */
+.apply-dialog__review {
+  margin-right: auto;
 }
 .km-hit__check {
   display: inline-flex;
