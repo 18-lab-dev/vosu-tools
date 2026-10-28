@@ -59,7 +59,9 @@ if (process.env.KM_E2E_SANDBOX !== "1") {
 }
 
 // ── Isolated vosu ─────────────────────────────────────────────────────────
-const LAB = mkdtempSync(join(homedir(), ".cache/vosu-agents/StudioUX/lab-"));
+const cache = join(homedir(), ".cache/vosu-agents/StudioUX");
+mkdirSync(cache, { recursive: true });
+const LAB = mkdtempSync(join(cache, "lab-"));
 const env: Record<string, string> = { ...(process.env as Record<string, string>), HOME: join(LAB, "home"), VOSU_PROCESS_EVENTS: "poll" };
 for (const key of ["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS"]) delete env[key];
 for (const [key, dir] of [["XDG_CONFIG_HOME", "config"], ["XDG_DATA_HOME", "data"], ["XDG_CACHE_HOME", "cache"], ["XDG_STATE_HOME", "state"], ["XDG_RUNTIME_DIR", "runtime"]]) {

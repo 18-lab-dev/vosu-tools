@@ -304,6 +304,19 @@ try {
   await page.click("#mix-uploads-remove");
   await until(async () => await page.locator("#mix-uploads-remove").isDisabled(), "unreachable width fixtures removed");
   await page.evaluate(() => document.querySelector("#mix-uploads")!.removeAttribute("open"));
+  const uploadTraffic: unknown[] = [];
+  const watchUpload = (url: string) => {
+    const parsed = new URL(url);
+    return /\/v1\/(?:uploads|derive)/.test(parsed.pathname) || parsed.searchParams.get("skin") === "uploads:";
+  };
+  page.on("request", (request: any) => {
+    if (watchUpload(request.url())) uploadTraffic.push({ event: "request", url: request.url(), method: request.method() });
+  });
+  page.on("response", async (response: any) => {
+    if (!watchUpload(response.url())) return;
+    const body = await response.json().catch(String);
+    uploadTraffic.push({ event: "response", url: response.url(), status: response.status(), body });
+  });
   const error = await page.locator("#km-error").textContent();
   check("OS drop adds the PNG and reports the invalid file inline", !!error?.includes("notes.txt: only PNG and JPEG images") && (await page.locator("#km-error").isVisible()), error ?? "");
   const thumbs = async () =>
@@ -367,7 +380,17 @@ try {
     for (const type of ["dragenter", "dragover", "drop"])
       picker.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+  try {
+    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "two dropped files listed");
+  } catch (error) {
+    writeFileSync(join(out, "upload-count-failure.json"), JSON.stringify({
+      summary: await page.locator("#mix-uploads-summary").textContent(),
+      files: await page.locator("#mix-uploads-list li").allTextContents(),
+      traffic: uploadTraffic,
+      recipe: await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe") ?? "{}")),
+    }, null, 2));
+    throw error;
+  }
   await page.click("#mix-uploads-summary");
   const listed = await page.locator("#mix-uploads-list li").allTextContents();
   check("Mix panel lists dropped files with their use", listed.some((t) => t.includes("drop-note.png") && t.includes("used by this draft")) && listed.some((t) => t.includes("spare.png") && t.includes("unused")), listed.join(" | "));
