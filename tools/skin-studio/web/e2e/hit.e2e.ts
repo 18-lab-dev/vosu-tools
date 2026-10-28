@@ -189,19 +189,19 @@ try {
   await until(() => page.locator(".km-hit__play").count(), "proposal", 120000);
   const proposal = (await page.locator("#km-hit").textContent()) ?? "";
   check("Proposal names the last play, its key count and speed", /Last play: MYUKKE\. - FULi AUTO BUSTER \[Ignition x1\.1\], 7K, osu!stable \(Data\/r\/09be4f5b.*\), speed 24/.test(proposal), proposal.slice(proposal.indexOf("Last play"), proposal.indexOf("Last play") + 160));
-  const press = /Presses: mean (-?[\d.]+) ms ± ([\d.]+) over ([\d,]+) hits → move receptors up (\d+) px \(HitPosition 455 → (\d+)\)/.exec(proposal);
-  check("Early presses (mean −6.5 ms over 2,420 hits) move the receptors up: 455 → 450", !!press && press[1] === "-6.5" && press[3] === "2,420" && press[5] === "450", press?.[0] ?? proposal);
-  check("Hit calibration alone does not propose LN changes", !(await page.locator("#km-hit").textContent())?.includes("Releases:") && await page.locator("#km-ln .km-hit__play").count() === 0);
+  const press = /You pressed 6.5 ms early on average \(mean -6.5 ms ± [\d.]+ over 2,420 hits\) → receptors down 8 px so you press later \(HitPosition 455 → 460\)/.exec(proposal);
+  check("Early presses correct down: 455 → 460 (deliberately reverses 0.4.x)", !!press, press?.[0] ?? proposal);
+  check("Hit calibration alone does not propose LN changes", !(await page.locator("#km-hit").textContent())?.includes("You released") && await page.locator("#km-ln .km-hit__play").count() === 0);
   check("Play date is explicit and stale attempts are flagged", (await page.locator("#km-hit").textContent())?.includes("Older play:") ?? false);
   await page.click("#km-calibrate-ln");
   await until(() => page.locator("#km-ln .km-hit__play").count(), "independent LN proposal", 120000);
   check("Both calibrations read one play independently", (await page.locator("#km-ln .km-hit__play").textContent()) === (await page.locator("#km-hit .km-hit__play").textContent()));
-  check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("Presses:"));
+  check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("You pressed"));
   const sevenReleases = (await page.locator("#km-ln").textContent()) ?? "";
-  check("7K LN proposal reports used/excluded releases", /\d+ of \d+ releases used; \d+ early\/late releases outside the hit window excluded/.test(sevenReleases), sevenReleases);
+  check("7K LN proposal reports used/excluded releases", /\d+ of \d+ hold releases used; \d+ excluded \(\d+ early, \d+ late\)/.test(sevenReleases), sevenReleases);
   await page.locator("#km-hit button", { hasText: "Apply to receptors" }).click();
-  await until(async () => (await hitValue()) === "450", "calibrated 450");
-  check("Applied: HitPosition 450", true);
+  await until(async () => (await hitValue()) === "460", "calibrated 460");
+  check("Applied: HitPosition 460", true);
   await shot("hit-7k-after");
 
   // ── Hold ends from a 4K play (made the newest replay) ────────────────────
@@ -213,14 +213,14 @@ try {
   await page.click("#km-calibrate-ln");
   await until(() => page.locator("#km-ln .km-hit__play").filter({ hasText: "Sheriruth" }).count(), "4K proposal", 120000);
   const tails = (await page.locator("#km-ln").textContent()) ?? "";
-  const release = /Releases: mean \+?([\d.]+) ms ± [\d.]+ over ([\d,]+) holds → you release late/.exec(tails);
-  check("Rate mods: DT play judged in real ms; late releases found", !!release && release[1] === "5.1" && release[2] === "424", release?.[0] ?? tails.slice(0, 300));
-  check("4K LN proposal reports used/excluded releases", /\d+ of \d+ releases used; \d+ early\/late releases outside the hit window excluded/.test(tails), tails);
+  const release = /You released ([\d.]+) ms late on average \(mean \+?[\d.]+ ms ± [\d.]+ over ([\d,]+) holds\) → LNs [\d.]+ px shorter so you release earlier/.exec(tails);
+  check("Rate mods: DT play judged in real ms; late releases shorten LNs", !!release && release[1] === "5.1" && release[2] === "424", release?.[0] ?? tails.slice(0, 300));
+  check("4K LN proposal reports used/excluded releases", /\d+ of \d+ hold releases used; \d+ excluded \(\d+ early, \d+ late\)/.test(tails), tails);
   await shot("hit-4k-proposal");
   await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await label("NoteImage0L")) !== before4, "hold ends applied");
   const state = (await page.locator("#km-state").textContent()) ?? "";
-  check("Percy skin (blank tail): the body's end moves up 8 rows", state.includes("the body's end moves up 8 rows (late)"), state);
+  check("Percy skin: late release correction moves body down 8 rows", state.includes("the body's end moves down 8 rows (late: shorter)"), state);
   await page.click("#km-undo");
   await until(async () => (await label("NoteImage0L")) === before4, "undo LN calibration");
   await page.click("#km-redo");
@@ -228,7 +228,7 @@ try {
   check("LN calibration undo and redo restore the whole change", true);
   check("7K stays calibrated; only 4K hold ends change", (await label("NoteImage0L")).includes("mania/4k/holdbody-50"));
   await pick(7);
-  check("7K HitPosition unchanged by the 4K calibration", (await hitValue()) === "450");
+  check("7K HitPosition unchanged by the 4K calibration", (await hitValue()) === "460");
 
   // ── Screenshots ───────────────────────────────────────────────────────────
   for (const theme of ["dark", "light"])
@@ -266,10 +266,9 @@ try {
     return Object.fromEntries(rest.slice(0, end < 0 ? undefined : end).split(/\r?\n/).map((l) => l.trim().split(/:\s*/)).filter((p) => p.length === 2));
   };
   const seven = block(7), four = block(4);
-  check("Export: 7K HitPosition 450, receptors from mania/7k", seven.HitPosition === "450" && seven.KeyImage0 === "mania/7k/kd_left1" && seven.KeyImage0D === "mania/7k/kd_left", JSON.stringify({ hp: seven.HitPosition, k: seven.KeyImage0, kd: seven.KeyImage0D }));
+  check("Export: 7K HitPosition 460, receptors from mania/7k", seven.HitPosition === "460" && seven.KeyImage0 === "mania/7k/kd_left1" && seven.KeyImage0D === "mania/7k/kd_left", JSON.stringify({ hp: seven.HitPosition, k: seven.KeyImage0, kd: seven.KeyImage0D }));
   check("Export: 4K HitPosition untouched, body from mania/4k", four.HitPosition === "457" && four.NoteImage0L === "mania/4k/holdbody-50", JSON.stringify({ hp: four.HitPosition, l: four.NoteImage0L }));
-  // Pixel check: alpha rows of each exported receptor = the source's moved up
-  // 8 rows (1x) / 16 (@2x), the vacated rows clamped to the last content row.
+  // Pixel check: early timing correction moves the receptors down 8/16 rows.
   const source = join(SKINS, opt.skin!, "mania/circles-7k");
   const pairs: [string, string, number][] = [
     ["kd_left1.png", "mania/7k/kd_left1.png", 8],
@@ -293,12 +292,12 @@ try {
       if (x.width !== y.width || x.height !== y.height) return `size ${x.width}x${x.height} → ${y.width}x${y.height}`;
       let bad = 0;
       for (let row = 0; row < y.height; row++) {
-        const src = Math.min(row + rows, x.height - 1);
+        const src = Math.max(0, row - rows);
         for (let col = 0; col < y.width; col++) if (y.data[(row * y.width + col) * 4 + 3] !== x.data[(src * x.width + col) * 4 + 3]) bad++;
       }
       return bad ? `${bad} alpha values differ` : "ok";
     }, [a, b, rows] as [string, string, number]);
-    check(`Exported ${to}: the source moved up ${rows} rows, same canvas, edge clamp`, result === "ok", result);
+    check(`Exported ${to}: the source moved down ${rows} rows, same canvas, edge clamp`, result === "ok", result);
   }
   // render-core draws the export like the screen.
   await page.click("#tab-elements");
