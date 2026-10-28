@@ -6,10 +6,10 @@ import {
   parse,
   resolve,
   setManiaValue,
-  validate,
 } from "@vosu-tools/skin-spec";
 import "./style.css";
 import type { IniEditor } from "./editor";
+import { IniDiagnostics } from "./ini-diagnostics";
 import { TextDoc, rgb } from "./text-doc";
 import { mergeDraftIni } from "./draft-ini";
 import {
@@ -337,6 +337,9 @@ async function load(key: string, fresh = false): Promise<Loaded> {
 // only fetched for the skin.ini tab, prefetched once the first view is idle.
 const focusDoc = new TextDoc();
 const mixDoc = new TextDoc();
+const iniDiagnostics = new IniDiagnostics((doc) => {
+  if (view === "ini" && doc === (iniMode === "focus" ? focusDoc : mixDoc)) renderIni();
+});
 let iniEditor: IniEditor | undefined;
 let editorLoading: Promise<IniEditor> | undefined;
 function ensureEditor(): Promise<IniEditor> {
@@ -444,8 +447,8 @@ function renderIni() {
         : "";
   // Diagnostics are only shown on the skin.ini tab; skip them elsewhere.
   if (view !== "ini") return;
-  const issues = (model.issues = validate(model.getValue(), model.files));
-  iniEditor?.mark(model);
+  if (iniDiagnostics.schedule(model)) iniEditor?.mark(model);
+  const issues = model.issues;
   const errors = issues.filter((issue) => issue.severity === "error").length;
   const warnings = issues.length - errors;
   $("#issue-count").textContent = `${errors} error${errors === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`;

@@ -77,13 +77,13 @@ let daemon = startDaemon();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until<T>(check: () => Promise<T> | T, what: string, timeout = 60000): Promise<T> {
-  const deadline = Date.now() + timeout;
+  const deadline = performance.now() + timeout;
   for (;;) {
     try {
       const value = await check();
       if (value) return value;
     } catch {}
-    if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
+    if (performance.now() > deadline) throw new Error(`timed out: ${what}`);
     await sleep(150);
   }
 }
@@ -123,7 +123,7 @@ try {
     (await until(() => api("/api/tools/skin-studio/launch", { theme }), "launch")).url as string;
 
   browser = await chromium.launch({ headless: true, args: ["--enable-unsafe-webgpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-  const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
+  const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true, permissions: ["clipboard-read", "clipboard-write"] });
   context.setDefaultTimeout(10000);
   context.setDefaultNavigationTimeout(15000);
   const page = await context.newPage();
@@ -159,10 +159,15 @@ try {
     }
   };
   const reset = async () => {
-    await page.evaluate(() => localStorage.clear());
+    const origin = new URL(page.url()).origin;
     // Launch URLs differ only in their fragment; goto alone can keep the
     // old document, in-memory recipe and consumed session alive.
     await page.goto("about:blank");
+    // Clear storage after the old page is gone, so its pending timers cannot
+    // repopulate a supposedly clean scenario.
+    const storage = await context.newCDPSession(page);
+    await storage.send("Storage.clearDataForOrigin", { origin, storageTypes: "local_storage" });
+    await storage.detach();
     await page.goto(await launch("dark"));
     await page.waitForSelector("#skins .skin");
   };
@@ -187,7 +192,10 @@ try {
     const input = page.locator("#editor textarea").first();
     await input.focus();
     await page.keyboard.press("Control+a");
-    await page.keyboard.insertText(text);
+    // Input.insertText is keyboard typing in Monaco: it applies each character
+    // separately. A full ini fixture must use the user's bulk-paste path.
+    await page.evaluate((value: string) => navigator.clipboard.writeText(value), text);
+    await page.keyboard.press("Control+v");
     await page.waitForTimeout(300);
     await page.keyboard.press("Escape");
   };
@@ -211,6 +219,66 @@ try {
     return { get ready() { return until(() => !first, `response barrier ${pattern}`, 15000); }, release: async () => { pending.resolve(); await finished.promise; await page.unroute(pattern, handler); await page.waitForTimeout(300); } };
   };
   const editorText = () => page.locator("#editor .view-lines").innerText();
+
+  await scenario("editor-typing-latency", async () => {
+    await reset(); await pick(opt.skin!); await page.click("#use-base");
+    const text = readFileSync(join(opt.skins!, opt.skin!, "skin.ini"), "utf8");
+    await editText(text);
+    await page.keyboard.press("Control+Home");
+    await page.keyboard.press("End");
+    await page.waitForTimeout(500);
+    await page.evaluate(() => {
+      const metrics = { frames: [] as number[], events: [] as number[], longTasks: [] as number[], keys: [] as number[] };
+      const observers = [
+        new PerformanceObserver(list => { for (const entry of list.getEntries()) metrics.longTasks.push(entry.duration); }),
+        new PerformanceObserver(list => { for (const entry of list.getEntries()) if (entry.name === "keydown") metrics.events.push(entry.duration); }),
+      ];
+      observers[0].observe({ type: "longtask" });
+      observers[1].observe({ type: "event", durationThreshold: 16 } as PerformanceObserverInit);
+      const listener = (event: KeyboardEvent) => {
+        if (event.key.length !== 1) return;
+        const start = performance.now();
+        metrics.keys.push(start);
+        // The second rAF follows the first frame's paint: a conservative
+        // input-to-paint proxy alongside native EventTiming durations.
+        requestAnimationFrame(() => requestAnimationFrame(() => metrics.frames.push(performance.now() - start)));
+      };
+      document.querySelector("#editor")!.addEventListener("keydown", listener as EventListener, true);
+      (globalThis as any).finishTypingMetrics = () => {
+        observers.forEach(observer => observer.disconnect());
+        document.querySelector("#editor")!.removeEventListener("keydown", listener as EventListener, true);
+        return metrics;
+      };
+    });
+    const normal = "abcdefghijklmnopqrstuvwxyz", cadence = 80;
+    let next = performance.now();
+    for (const character of normal) {
+      await sleep(Math.max(0, next - performance.now()));
+      await page.keyboard.press(character);
+      next += cadence;
+    }
+    for (let index = 0; index < normal.length; index++) {
+      await sleep(Math.max(0, next - performance.now()));
+      await page.keyboard.down("x");
+      next += cadence;
+    }
+    await page.keyboard.up("x");
+    await page.waitForTimeout(500);
+    const metrics = await page.evaluate(() => (globalThis as any).finishTypingMetrics());
+    const summary = (samples: number[]) => {
+      const sorted = [...samples].sort((a, b) => a - b);
+      return { count: sorted.length, mean: sorted.reduce((sum, value) => sum + value, 0) / sorted.length, p50: sorted[Math.floor(sorted.length * .5)], p95: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * .95))], max: sorted.at(-1) };
+    };
+    const report = { lines: text.split(/\r?\n/).length, keystrokes: normal.length * 2, requestedCharactersPerSecond: 1000 / cadence, actualCharactersPerSecond: (metrics.keys.length - 1) * 1000 / (metrics.keys.at(-1) - metrics.keys[0]), inputToPaintProxyMs: summary(metrics.frames), eventTimingMs: summary(metrics.events), longTasks: summary(metrics.longTasks), raw: metrics };
+    writeFileSync(join(out, "typing-latency.json"), JSON.stringify(report, null, 2));
+    check("Normal typing and held-key repeat preserve every character", (await state()).ini.includes(normal + "x".repeat(normal.length)), JSON.stringify({ lines: report.lines, cps: report.actualCharactersPerSecond, paintProxyP95: report.inputToPaintProxyMs.p95, eventTimingP95: report.eventTimingMs.p95, longTasks: report.longTasks.count }));
+    await editText(text.replace(/^NoteImage0:.*/m, "NoteImage0: definitely-missing-after-typing"));
+    await page.keyboard.press("Control+f");
+    await page.getByRole("textbox", { name: "Find", exact: true }).fill("definitely-missing-after-typing");
+    await page.keyboard.press("Escape");
+    await until(async () => await page.locator("#editor .squiggly-warning").count() && (await page.locator("#diagnostics").textContent())!.includes("Missing image"), "idle path squiggle");
+    check("A paused edit publishes the correct missing-path squiggle", true);
+  });
 
   await scenario("save-source-context", async () => {
     await reset(); await pick("Audit Target");
@@ -295,6 +363,8 @@ try {
     const baseline = await plan("group-before");
     const manual = "// RETAIN_MY_COMMENT\n" + baseline.ini.replace(/Author:.*/, "Author: My hand edit");
     await editText(manual);
+    writeFileSync(join(out, "manual-before-pick.json"), JSON.stringify({ manual, recipe: await state(), visible: await editorText() }, null, 2));
+    check("Manual unrelated value exists before the pick", (await state()).ini?.includes("Author: My hand edit") === true);
     await pick(opt.other!); await page.click("#tab-elements");
     await page.locator("#cats button", { hasText: /^Mania$/ }).click();
     await group("7K stage").getByRole("button", { name: "Use this skin", exact: true }).click();
@@ -351,7 +421,11 @@ try {
     const image = files.find((file) => /\/.*\.png$/i.test(file));
     if (!image) throw new Error("Real skin must provide a subfolder PNG");
     const stem = image.replace(/\.png$/i, "").replace(/@2x$/i, "");
-    await editText(`[Mania]\nKeys: 4\nNoteImage0: ${stem.toUpperCase().replace(/\//g, "\\")}\n`);
+    const hand = `[Mania]\nKeys: 4\nNoteImage0: ${stem.toUpperCase().replace(/\//g, "\\")}\n`;
+    await editText(hand);
+    await until(async () => (await page.locator("#issue-count").textContent()) === "0 errors · 0 warnings", "normalized path validation");
+    check("Base publication preserves a hand-replaced ini exactly", (await state()).ini === hand.replace(/\r?\n/g, "\r\n"));
+    writeFileSync(join(out, "path-validation-state.json"), JSON.stringify({ image, stem, recipe: await state(), diagnostics: await page.locator("#diagnostics").textContent() }, null, 2));
     check("Real PNG paths resolve across case, slash and HD spelling", !(await page.locator("#diagnostics").textContent())!.includes("Missing image"));
     const folder = stem.slice(0, stem.lastIndexOf("/") + 1);
     await editText(`[Mania]\nKeys: 4\nNoteImage0: ${folder.toUpperCase()}`);
@@ -365,6 +439,7 @@ try {
     if (!jpeg) throw new Error("Alternate real skin must provide a JPEG-only image");
     const jpgStem = jpeg.replace(/\.jpe?g$/i, "");
     await editText(`[Mania]\nKeys: 4\nNoteImage0: ${jpgStem}\n`);
+    await until(async () => (await page.locator("#diagnostics").textContent())!.includes("Missing image"), "JPEG-only path validation");
     check("JPEG-only files do not validate as PNG-backed mania fields", (await page.locator("#diagnostics").textContent())!.includes("Missing image"));
     await page.keyboard.press("ArrowUp"); await page.keyboard.press("End"); await page.keyboard.press("Control+Space"); await page.waitForTimeout(250);
     check("JPEG-only fields do not receive a misleading file completion", !(await page.locator(".suggest-widget:visible").count()) || !(await page.locator(".suggest-widget:visible").textContent())!.includes(jpgStem));
@@ -384,36 +459,29 @@ try {
 
   await scenario("uppercase-ini-full-path", async () => {
     await reset();
-    console.log("step uppercase reset");
     const folder = join(LAB, "Case Folder");
     cpSync(EDITED, folder, { recursive: true }); spawnSync("chmod", ["-R", "u+w", folder]);
-    console.log("step uppercase copied");
     renameSync(join(folder, "skin.ini"), join(folder, "SKIN.INI"));
     writeFileSync(join(folder, "SKIN.INI"), readFileSync(join(folder, "SKIN.INI"), "utf8").replace(/^Name:.*/m, "Name: Case Folder"));
     await page.click("#add-toggle"); await page.locator("#folder-path").fill(folder);
     await page.locator("#add-folder").evaluate((form: HTMLFormElement) => form.requestSubmit());
-    console.log("step uppercase submitted");
-    await until(async () => await page.locator(`#skins .skin[title="${folder}"]`).count() || (await page.locator("#folder-error").textContent())?.trim(), "case folder result");
-    if (!(await page.locator(`#skins .skin[title="${folder}"]`).count())) {
+    const row = page.locator("#skins .skin", { hasText: "Case Folder" });
+    await until(async () => await row.count() || (await page.locator("#folder-error").textContent())?.trim(), "case folder result", 10000);
+    if (!(await row.count())) {
       check("Uppercase skin.ini is accepted as a skin folder", false, (await page.locator("#folder-error").textContent())!); return;
     }
-    await page.locator(`#skins .skin[title="${folder}"]`).click();
+    await row.click();
     await until(async () => (await page.locator("#focus-name").textContent()) === "Case Folder", "case folder selected");
     await until(async () => !(await page.locator("#focus-osk").isDisabled()), "case source loaded", 10000);
-    console.log("step uppercase focused");
     await editText("// CASE_SAVE\n" + readFileSync(join(folder, "SKIN.INI"), "utf8"), true);
-    console.log("step uppercase typed");
     await page.click("#save");
-    console.log("step uppercase save clicked");
     await until(() => readFileSync(join(folder, "SKIN.INI"), "utf8").includes("CASE_SAVE"), "uppercase save", 10000);
-    console.log("step uppercase saved");
     check("Uppercase skin.ini is discovered, read and saved in place", !existsSync(join(folder, "skin.ini")));
     await page.click("#use-base");
     await editText("// CASE_APPLY\n" + readFileSync(join(folder, "SKIN.INI"), "utf8"));
     await page.selectOption("#export-target", "apply");
     await until(async () => !(await page.locator("#export-run").isDisabled()), "uppercase apply");
     await page.click("#export-run"); await page.click("#apply-confirm");
-    console.log("step uppercase applying");
     await until(() => readFileSync(join(folder, "SKIN.INI"), "utf8").includes("CASE_APPLY"), "uppercase apply complete");
     check("Apply preserves original ini case without a second file", !existsSync(join(folder, "skin.ini")));
   });
