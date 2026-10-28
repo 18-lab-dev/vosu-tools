@@ -99,3 +99,19 @@ for (const scale of [0.8, 1.25]) {
       expect(maniaConfig(readSkinIni(ini(40, 402, style)), 4).noteBodyStyle).toBe(style);
     });
 }
+
+test("5K at HitPosition 480: moving only the line aligns it to unchanged raised receptors", () => {
+  const text = (hp: number) => ini(40, hp, 0).replace("Keys: 4", "Keys: 5");
+  const config = (hp: number) => maniaLayout(maniaConfig(readSkinIni(text(hp)), 5), (name) => SIZES[name.replace(/-0$/, "") as keyof typeof SIZES]);
+  const before = config(480), after = config(436.25);
+  expect(after.columns[0].key).toEqual(before.columns[0].key);
+  expect(before.hitY - after.hitY).toBeCloseTo(70);
+  const receptor = drawn(after.columns[0].key!, SIZES.key, { above: 70, rx: 25, ry: 25 });
+  expect(after.hitY).toBeCloseTo(receptor.centreY);
+  const from: Geometry = { hitPosition: 480, width: 64, noteHeight: 64, repeat: false };
+  const files = [{ from: "key", suffix: ".png" }];
+  const dims = new Map([["key", SIZES.key]]);
+  expect(pieceOps("key", from, { ...from, hitPosition: 436 }, files, dims, 0, false)).toBeNull();
+  const resized = pieceOps("key", from, { ...from, width: 80, hitPosition: 425 }, files, dims, 0, false)!;
+  expect(resized[0]).toMatchObject({ op: { resize: { width: 75, height: 250, up: 0 } } });
+});

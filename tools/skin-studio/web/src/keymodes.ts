@@ -48,7 +48,7 @@ export interface KeymodeDraft {
     originals: Record<
       string,
       {
-        /** HitPosition when captured. */
+        /** Receptor-linked HitPosition at capture, excluding line-only displacement. */
         at: number;
         /** The column's width and the note height width when captured (lazer units). */
         width?: number;
@@ -60,17 +60,21 @@ export interface KeymodeDraft {
       }
     >;
     /**
-     * HitPosition units moved by hand (stepper, field, calibration) since
+     * HitPosition units moved by hand (field, calibration) since
      * the capture, at the captured widths. Width changes are not recorded
      * here: the HitPosition they derive is reached by scaling.
      */
     moved?: number;
+    /** HitPosition-only movement in current legacy units, not baked into images. */
+    detached?: number;
   };
   /**
    * Keep proportions when changing column width (proportions.ts): on unless
    * turned off for this key count.
    */
   keepProportions?: boolean;
+  /** Move receptor graphics with HitPosition; on unless disabled for this key count. */
+  moveReceptors?: boolean;
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
