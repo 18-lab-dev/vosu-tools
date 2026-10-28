@@ -668,7 +668,7 @@ export class HitPanel {
     }
     if (kind === "press") return out;
     // Hold tails.
-    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} releases used; ${c.release.excluded} early/late releases outside the hit window excluded`));
+    out.push(h("p", { class: "v-muted" }, `${c.release.count} of ${c.release.total} hold releases used; ${c.release.excluded} excluded (${c.release.excludedEarly} early, ${c.release.excludedLate} late): the client missed or broke combo on these releases. Re-grabbing a dropped hold can produce more than one release.`));
     if (c.release.veryLate)
       out.push(h("p", { class: "km-hit__warn" }, `${c.release.veryLate} very late releases included, as stable judges them.`));
     if (!c.release.total) out.push(h("p", { class: "v-muted" }, "Hold tails: the play has no released holds."));

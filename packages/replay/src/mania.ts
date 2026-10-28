@@ -78,6 +78,8 @@ interface Hold {
   head: Part;
   tail: Part;
   body: Part;
+  /** Kept for physical releases after NoRelease auto-judges the tail. */
+  tailOutcome?: Outcome;
   /** The hold's own (ignored) judgement. */
   self: Part;
   holding: boolean;
@@ -183,6 +185,7 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     const max: HitResult = which === "body" || which === "self" ? "ignore_hit" : "perfect";
     const outcome = record(o, time, type, max, hp, offset);
     outcomes.push(outcome);
+    if (o.kind === "hold" && which === "tail") o.tailOutcome = outcome;
     if (part.hit && which !== "body" && which !== "self") handleHit(o, which === "tail" ? o.end : o.time, time);
     return outcome;
   };
@@ -252,7 +255,7 @@ export function simulateMania(replay: Replay, map: Beatmap, options: { convert?:
     return broken && RESULTS.indexOf(result) < RESULTS.indexOf("meh") ? "meh" : result;
   };
   const release = (column: number, time: number) => {
-    const samples = [...heldInputs[column]].map((o) => ({ note: o.index, time, offset: time - o.end, outcome: undefined as Outcome | undefined }));
+    const samples = [...heldInputs[column]].map((o) => ({ note: o.index, time, offset: time - o.end, outcome: noRelease ? o.tailOutcome : undefined as Outcome | undefined }));
     releases.push(...samples);
     heldInputs[column].clear();
     const list = byColumn[column];

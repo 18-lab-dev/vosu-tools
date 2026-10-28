@@ -97,6 +97,9 @@ export interface CalibrationOffsets extends Offsets {
   /** Physical releases observed, including those the client rejected. */
   total: number;
   excluded: number;
+  /** Rejected physical hold releases, separated by their tail offset. */
+  excludedEarly: number;
+  excludedLate: number;
   /** Accepted releases beyond stable ScoreV1's meh window, never silently dropped. */
   veryLate: number;
 }
@@ -146,7 +149,9 @@ export function offsets(
   const velocity = count ? speeds[Math.floor(count / 2)] : noteVelocity(map, 0, speed, base);
   const total = which === "release" ? releases.length : count;
   const veryLate = which === "release" ? releases.filter((release) => release.hit && release.veryLate).length : 0;
-  return { count, mean, spread, velocity, distance: mean * velocity, total, excluded: total - count, veryLate };
+  const excludedEarly = which === "release" ? releases.filter((release) => !release.hit && release.offset < 0).length : 0;
+  const excludedLate = which === "release" ? releases.filter((release) => !release.hit && release.offset >= 0).length : 0;
+  return { count, mean, spread, velocity, distance: mean * velocity, total, excluded: total - count, excludedEarly, excludedLate, veryLate };
 }
 
 /**

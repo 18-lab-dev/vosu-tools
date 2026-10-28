@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Skin studio reports excluded LN releases separately as early and late, and explains that re-grabbing a hold can produce multiple release samples. Preserve accepted NoRelease tails when the physical key-up comes after the automatic judgement; ordinary lazer's 1.5× and stable ScoreV1's combined head/release rules remain unchanged.
+
 ## 0.4.2 - 2026-10-28
 
 - Skin studio 0.4.2 detects draft source skins that disappeared from the library and offers explicit remap, keep or remove recovery, with undo. References retain source names and fingerprints; existing drafts without stored names continue to work.
