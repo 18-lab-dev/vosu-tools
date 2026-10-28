@@ -158,6 +158,7 @@ let view: "elements" | "explorer" | "keymodes" | "ini" | "preview" =
 let explorer: Explorer | undefined;
 let iniMode: "focus" | "mix" = "mix";
 let syncingMixText = false;
+let compositionTicket = 0;
 let saving = false;
 let conflict = false;
 let diskRevision = "";
@@ -1244,6 +1245,7 @@ $("#km-redo").onclick = redo;
 
 /** Re-renders and recomposes after the recipe changed. */
 function draftChanged() {
+  compositionTicket++;
   persist();
   mixName.value = recipe.name;
   renderFocus();
@@ -1795,6 +1797,7 @@ $("#restore").onclick = async () => {
  * it too, with the values the composed skin.ini has for them.
  */
 function publishComposition(composed: Composed | undefined, touched?: { keys: number; names: string[] }) {
+  compositionTicket++;
   if (composed) {
     const wasEdited = mixEdited();
     composedIni = composed.plan.ini;
@@ -1839,8 +1842,15 @@ function publishComposition(composed: Composed | undefined, touched?: { keys: nu
 }
 
 async function recompose(touched?: { keys: number; names: string[] }) {
-  try { publishComposition(await composeNow(), touched); }
-  catch (error) { composeError = message(error); publishComposition(undefined); }
+  const ticket = ++compositionTicket;
+  try {
+    const composed = await composeNow();
+    if (ticket === compositionTicket) publishComposition(composed, touched);
+  } catch (error) {
+    if (ticket !== compositionTicket) return;
+    composeError = message(error);
+    publishComposition(undefined);
+  }
 }
 
 const groupLabel = (id: string) =>
