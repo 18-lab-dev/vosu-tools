@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "map-preview"
 name = "Map preview"
-version = "0.2.2"
+version = "0.2.3"
 description = "Preview the selected beatmap in all four rulesets, with audio, skins, and visual mods."
 author = "18-LAB"
 icon = "art/icon.svg"
