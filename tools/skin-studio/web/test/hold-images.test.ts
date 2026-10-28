@@ -59,6 +59,7 @@ test("lengthening transforms every tail frame and resolution without stripping s
   const tails = imageUnit("tail", 2);
   const result = await calibrateHoldImages(host, { ...release, distance: -10 }, tails, imageUnit("body", 2), 64, 0, true, []);
   expect(result.T.files.map((file) => file.suffix)).toEqual(tails.files.map((file) => file.suffix));
+  expect(result.T.provenance).toBe("generated");
   expect(host.calls.map((call) => "tail" in call.op ? call.op.tail.gap : null)).toEqual([10, 10, 20, 20]);
 });
 
