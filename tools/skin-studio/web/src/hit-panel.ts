@@ -702,7 +702,7 @@ export class HitPanel {
   #reviewHoldResolution(calibration: Calibration) {
     const generation = this.#host.generation(calibration.keys);
     if (this.#holdReview?.calibration === calibration && this.#holdReview.generation === generation) return this.#holdReview;
-    const review = this.#holdReview = { calibration, generation, pending: true, warnings: [] as string[], error: undefined as string | undefined };
+    const review = this.#holdReview = { calibration, generation, pending: true as boolean, warnings: [] as string[], error: undefined as string | undefined };
     void (async () => {
       const config = maniaConfig(readSkinIni(this.#host.mixText()), calibration.keys);
       const by = new Map(this.#host.resolved().map((image) => [image.key, image]));
