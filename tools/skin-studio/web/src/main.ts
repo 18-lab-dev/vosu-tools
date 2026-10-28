@@ -2435,7 +2435,9 @@ more.onkeydown = (event) => {
   more.querySelector("summary")!.focus();
 };
 $("#mix-plan").onclick = async () => {
+  // The menu closes; focus goes back to its button, not lost in a closed menu.
   more.open = false;
+  more.querySelector("summary")!.focus();
   try {
     const plan = await planNow();
     const link = h("a", {
