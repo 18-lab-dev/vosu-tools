@@ -97,7 +97,7 @@ export const SHEET: { area: string; keys: [string[], string][] }[] = [
       [["Shift+Arrows", "Shift+click"], "Select a range"],
       [["Space", "Ctrl+click"], "Toggle a file"],
       [["Ctrl+A"], "Select every file"],
-      [["Enter"], "Use in mix, or take back out"],
+      [["Enter", "Double-click"], "Inspect: show the file's details (Use changes the draft)"],
       [["Esc"], "Clear the selection"],
     ],
   },

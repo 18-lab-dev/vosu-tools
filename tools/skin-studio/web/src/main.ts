@@ -283,6 +283,20 @@ const skinByKey = (key: string | null) =>
 const skinName = (key: string) =>
   key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? key);
 
+/** A source's identity for its hover: origin, short ID or folder, creator, file count, content hash when known. */
+function sourceIdentity(skin: Skin) {
+  const origin = { stable: "Stable folder", added: "Added folder", osk: ".osk file", lazer: "osu!lazer" }[skin.origin];
+  return [
+    skin.name,
+    skin.origin === "lazer" ? `${origin} · ID ${skin.key.replace(/^lazer:/, "").slice(0, 8)}` : `${origin} · ${skin.key}`,
+    skin.creator ? `by ${skin.creator}` : "",
+    skin.file_count != null ? `${skin.file_count} files` : "",
+    skin.content_hash ? `content ${skin.content_hash.slice(0, 12)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function load(key: string, fresh = false): Promise<Loaded> {
   const cached = loaded.get(key);
   if (cached && !fresh) return cached;
@@ -513,8 +527,7 @@ function renderLibrary() {
                 type: "button",
                 class: "skin",
                 disabled: !skin.available,
-                title:
-                  skin.origin === "lazer" ? (skin.creator ?? "") : skin.key,
+                title: sourceIdentity(skin),
                 ariaCurrent: String(skin.key === focused),
                 onclick: () => void focus(skin.key),
               },
@@ -645,6 +658,10 @@ async function focus(key: string | null) {
     status.textContent = "";
   } catch (error) {
     status.textContent = message(error);
+    // The source may be gone (a lazer re-import gives the skin a new ID):
+    // read the library again so every tab sees it and recovery is offered.
+    await reconcileLibrary();
+    if (focused === key && !skinByKey(key)) status.textContent = `${skinName(key)} is no longer in the library`;
   }
   renderFocus();
 }
@@ -962,9 +979,9 @@ player.addEventListener("pause", syncPlayer);
 player.addEventListener("ended", syncPlayer);
 
 function pickLabel(pick: Pick | undefined) {
-  if (!pick) return recipe.base ? `base · ${skinName(recipe.base)}` : "default";
+  if (!pick) return recipe.base ? `base · ${skinName(recipe.base)}` : "built-in";
   if (pick.kind === "skin") return skinName(pick.key);
-  return pick.kind === "default" ? "default" : "blank";
+  return pick.kind === "default" ? "built-in" : "blank";
 }
 
 function setPick(id: string, pick: Pick | null) {
@@ -1019,10 +1036,10 @@ function groupSection(group: Group, data: SkinData) {
     h("span", { class: "pick-now" }, "Mix ", h("b", {}, pickLabel(pick))),
     choice("Use this skin", isThis, { kind: "skin", key: data.key }),
     choice(
-      "Default",
+      "Built-in",
       pick?.kind === "default",
       { kind: "default" },
-      "osu!'s default elements",
+      "osu!'s own built-in look: no files from any skin",
     ),
     canBlank &&
       choice(
@@ -2007,7 +2024,8 @@ function renderMix() {
               {
                 type: "button",
                 class: "v-btn v-btn--sm v-btn--ghost v-btn--icon",
-                ariaLabel: `Remove ${groupLabel(gid)} from the mix`,
+                ariaLabel: `Reset ${groupLabel(gid)} to the base`,
+                title: "Reset to the base",
                 onclick: () => setPick(gid, null),
               },
               "×",
@@ -2362,7 +2380,7 @@ const previewPrefs: {
   playing: boolean;
 } = (() => {
   const fallback = {
-    source: "focus" as const,
+    source: "mix" as const,
     ruleset: "",
     keys: 4,
     playing: true,
@@ -2803,6 +2821,7 @@ explorer = new Explorer({
   animationUrl,
   play,
   inMix: (ref) => recipe.overrides?.[assetId(ref)]?.skin,
+  provenance,
   use: useUnits,
   group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
   showInElements: (ref, skin) => void showInElements(ref, skin),
@@ -3044,10 +3063,40 @@ subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.
 requestIdleCallback(() => void prefetchEditor(), { timeout: 5000 });
 
+let libraryTicks = 0;
+/**
+ * Reads the library again; when skins appeared or vanished, every tab is
+ * refreshed and the missing-source recovery shows. Nothing is remapped by
+ * name: the user chooses a replacement.
+ */
+async function reconcileLibrary() {
+  const before = (library?.skins ?? []).map((s) => s.key).join("\n");
+  await loadLibrary();
+  if ((library?.skins ?? []).map((s) => s.key).join("\n") === before) return;
+  keymodes.refresh();
+  scheduleCompose();
+}
+
+/** Where an asset in the composed draft comes from: Override, Group, Base or Not included. */
+function provenance(ref: AssetRef): { label: string; included: boolean } {
+  const override = recipe.overrides?.[assetId(ref)];
+  if (override) return { label: `Override · ${skinName(override.skin)}`, included: true };
+  const output = new Map<string, string>();
+  for (const source of lastPlan?.sources ?? [])
+    for (const file of source.files) output.set((typeof file === "string" ? file : file[1]).toLowerCase(), source.skin);
+  const ini = parseIni(lastPlan?.ini ?? "");
+  const hit = unitFiles(ref, [...output.keys()], fontPrefixes(ini))[0];
+  if (!hit) return { label: "Not included", included: false };
+  const from = output.get(hit.toLowerCase())!;
+  if (recipe.picks[groupOf(ref, ini)]?.kind === "skin") return { label: `Group · ${skinName(from)}`, included: true };
+  return { label: from === recipe.base ? `Base · ${skinName(from)}` : skinName(from), included: true };
+}
+
 setInterval(async () => {
   if (document.hidden) return;
-  // Lazer skins appear once lazer-library has read lazer's database.
-  if (library?.lazer.enabled && library.lazer.error) await loadLibrary();
+  // Lazer skins appear once lazer-library has read lazer's database; a
+  // re-import can give a skin a new ID, so the library is re-read now and then.
+  if (library?.lazer.enabled && (library.lazer.error || ++libraryTicks % 4 === 0)) await reconcileLibrary();
   if (saving || !focused) return;
   const skin = skinByKey(focused);
   if (!skin || skin.origin === "lazer" || skin.origin === "osk") return;

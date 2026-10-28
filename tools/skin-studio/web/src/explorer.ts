@@ -11,6 +11,7 @@ import {
   formatSize,
   rowUnits,
   rows,
+  unitFileNames,
 } from "./explorer-model";
 import { parseIni } from "./ini";
 import { type Thumb, Thumbnails, paint, thumbCanvas } from "./thumbs";
@@ -30,6 +31,8 @@ export interface ExplorerHost {
   play(url: string, label: string): void;
   /** The skin the mix takes this asset from, if any. */
   inMix(ref: AssetRef): string | undefined;
+  /** Where the composed draft takes this asset from (Base, Group, Override) or Not included. */
+  provenance(ref: AssetRef): { label: string; included: boolean };
   /** Takes (`on`) or drops these assets from `skin` in the mix. */
   use(refs: AssetRef[], skin: string, on: boolean): void;
   /** The element group label of an asset, if Elements shows it. */
@@ -309,14 +312,24 @@ export class Explorer {
       this.#renderToolbar();
       this.#renderWindow();
     } else if (e.key === "Enter") {
+      // Enter inspects; Use in the toolbar is the one action that changes the draft.
       e.preventDefault();
-      this.#useSelection();
+      this.#inspect();
     } else if (e.key === "Escape" && this.#selected.size) {
       e.preventDefault();
       this.#selected.clear();
       this.#renderToolbar();
       this.#renderWindow();
     }
+  }
+
+  /** Enter and double-click show the active file's details; they never change the draft. */
+  #inspect() {
+    if (this.#active < 0) return;
+    this.#pick(this.#active, "only");
+    this.#details.tabIndex = -1;
+    this.#details.focus({ preventScroll: true });
+    this.#details.scrollIntoView({ block: "nearest" });
   }
 
   #useSelection() {
@@ -344,6 +357,7 @@ export class Explorer {
       path: string | null,
       count: number,
       depth: number,
+      direct = count,
     ) =>
       h(
         "button",
@@ -351,7 +365,7 @@ export class Explorer {
           type: "button",
           class: "x-folder",
           ariaCurrent: String(!searching && this.#folder === path),
-          title: path ?? "Every file",
+          title: path === null ? "Every file" : `${path || "Skin root"}: ${direct} files directly here, ${count} with its folders`,
           onclick: () => {
             this.#folder = path;
             this.#filter.value = "";
@@ -367,8 +381,9 @@ export class Explorer {
       const button = item(
         f.path ? f.name : "Skin root",
         f.path,
-        f.count,
+        f.total,
         f.depth,
+        f.count,
       );
       button.style.paddingLeft = `calc(var(--space-2) + ${f.depth} * var(--space-3))`;
       nodes.push(button);
@@ -382,15 +397,16 @@ export class Explorer {
     const skin = this.#skin;
     const inMix =
       !!units.length && units.every((u) => this.#host.inMix(u) === skin);
+    const files = this.#data ? unitFileNames(units, this.#data.files, this.#data.fonts) : [];
+    const included = units.some((u) => this.#host.provenance(u).included);
     this.#use.disabled = !units.length;
     this.#use.setAttribute("aria-pressed", String(inMix));
     // Primary until everything selected is in the mix; then a pressed toggle.
     this.#use.classList.toggle("v-btn--primary", !inMix);
-    this.#use.textContent = inMix
-      ? "Remove from mix"
-      : units.length > 1
-        ? `Use ${units.length} in mix`
-        : "Use in mix";
+    const what = `${units.length > 1 ? `${units.length} assets` : "asset"} · ${files.length} ${files.length === 1 ? "file" : "files"}`;
+    this.#use.textContent = inMix ? "Remove from mix" : included ? `Override with this · ${files.length} ${files.length === 1 ? "file" : "files"}` : `Use ${what}`;
+    // The whole unit is copied (an image's @2x and frames, a font's glyphs), even from Files.
+    this.#use.title = files.join("\n");
     const n = this.#rows.length;
     const noun = this.#grouped
       ? n === 1
@@ -544,7 +560,7 @@ export class Explorer {
           );
           this.#list.focus({ preventScroll: true });
         },
-        ondblclick: () => this.#useSelection(),
+        ondblclick: () => this.#inspect(),
         // Images drag onto Keymodes slots (the Keymodes tab opens on hover).
         ondragstart: (event: DragEvent) => {
           if (row.unit?.kind !== "image" || !event.dataTransfer) return;
@@ -628,12 +644,8 @@ export class Explorer {
       ]);
       facts.push(["Element group", group ?? "None"]);
       facts.push([
-        "In mix",
-        mixSkin === undefined
-          ? "No"
-          : mixSkin === skin
-            ? "From this skin"
-            : `From ${this.#host.skins().find((s) => s.key === mixSkin)?.name ?? mixSkin}`,
+        "In draft",
+        mixSkin === skin ? "Override · this skin" : this.#host.provenance(unit).label,
       ]);
     }
     const actions = unit
