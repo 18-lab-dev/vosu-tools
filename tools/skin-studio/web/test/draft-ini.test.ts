@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mergeDraftIni } from "../src/draft-ini";
+import { discardedLineCount, mergeDraftIni } from "../src/draft-ini";
 import { KeymodeGenerations } from "../src/keymode-generations";
 import type { Recipe } from "../src/plan";
 
@@ -77,4 +77,11 @@ test("the draft-wide clock invalidates ABA edits, text, and edits outside a key 
   const third = clock.captureDraft(recipe, "draft", manual);
   recipe.sourceInfo = { a: { name: "metadata only" } };
   expect(clock.captureDraft(recipe, "draft", manual)).toBe(third);
+});
+
+test("discard confirmation counts changed lines without counting shifted unchanged lines", () => {
+  expect(discardedLineCount("a\nmy note\nb\nc", "a\nb\nc")).toBe(1);
+  expect(discardedLineCount("a\nnew\nc", "a\nold\nc")).toBe(1);
+  expect(discardedLineCount("a\nc", "a\nb\nc")).toBe(1);
+  expect(discardedLineCount("a\r\nb\r\n", "a\nb\n")).toBe(0);
 });

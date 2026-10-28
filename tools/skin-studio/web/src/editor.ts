@@ -471,7 +471,7 @@ export async function createIniEditor(
       const model = modelOf(doc);
       if (editor.getModel() !== model) editor.setModel(model);
     },
-    setReadOnly: (readOnly) => editor.updateOptions({ readOnly }),
+    setReadOnly: (readOnly) => editor.updateOptions({ readOnly, readOnlyMessage: { value: "Edit it in the draft" } }),
     mark(doc) {
       const model = modelOf(doc);
       monaco.editor.setModelMarkers(

@@ -322,7 +322,7 @@ try {
         document.querySelector(".km-picker")!.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
     }, { name, color });
     await drop("catalog-first.png", "#ff0000");
-    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 1") && (await page.locator("#km-images").textContent())?.includes("catalog-first"), "first upload catalog settled");
+    await until(async () => await page.locator("#mix-uploads-list li").count() === 1 && (await page.locator("#km-images").textContent())?.includes("catalog-first"), "first upload catalog settled");
     let reads = 0;
     const uploads = (url: string) => {
       const parsed = new URL(url);
@@ -339,7 +339,7 @@ try {
     await (await firstResponse).finished();
     await catalogRendered;
     await barrier.release();
-    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "winning upload snapshot publishes management catalog");
+    await until(async () => await page.locator("#mix-uploads-list li").count() === 2, "winning upload snapshot publishes management catalog");
     check("Picker and management catalog share the winning upload snapshot", (await page.locator("#mix-uploads-list").textContent())!.includes("catalog-second.png"));
     await page.click("#mix-uploads-summary");
     await page.click("#mix-uploads-remove");
