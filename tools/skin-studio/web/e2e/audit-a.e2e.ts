@@ -228,7 +228,7 @@ try {
     await page.keyboard.press("End");
     await page.waitForTimeout(500);
     await page.evaluate(() => {
-      const metrics = { frames: [] as number[], events: [] as number[], longTasks: [] as number[], keys: [] as number[] };
+      const metrics = { frames: [] as number[], events: [] as number[], longTasks: [] as number[], keys: [] as number[], repeats: 0 };
       const observers = [
         new PerformanceObserver(list => { for (const entry of list.getEntries()) metrics.longTasks.push(entry.duration); }),
         new PerformanceObserver(list => { for (const entry of list.getEntries()) if (entry.name === "keydown") metrics.events.push(entry.duration); }),
@@ -239,6 +239,7 @@ try {
         if (event.key.length !== 1) return;
         const start = performance.now();
         metrics.keys.push(start);
+        if (event.repeat) metrics.repeats++;
         // The second rAF follows the first frame's paint: a conservative
         // input-to-paint proxy alongside native EventTiming durations.
         requestAnimationFrame(() => requestAnimationFrame(() => metrics.frames.push(performance.now() - start)));
@@ -272,6 +273,7 @@ try {
     const report = { lines: text.split(/\r?\n/).length, keystrokes: normal.length * 2, requestedCharactersPerSecond: 1000 / cadence, actualCharactersPerSecond: (metrics.keys.length - 1) * 1000 / (metrics.keys.at(-1) - metrics.keys[0]), inputToPaintProxyMs: summary(metrics.frames), eventTimingMs: summary(metrics.events), longTasks: summary(metrics.longTasks), raw: metrics };
     writeFileSync(join(out, "typing-latency.json"), JSON.stringify(report, null, 2));
     check("Normal typing and held-key repeat preserve every character", (await state()).ini.includes(normal + "x".repeat(normal.length)), JSON.stringify({ lines: report.lines, cps: report.actualCharactersPerSecond, paintProxyP95: report.inputToPaintProxyMs.p95, eventTimingP95: report.eventTimingMs.p95, longTasks: report.longTasks.count }));
+    check("Held-key input emits native repeat events", metrics.repeats === normal.length - 1, String(metrics.repeats));
     await editText(text.replace(/^NoteImage0:.*/m, "NoteImage0: definitely-missing-after-typing"));
     await page.keyboard.press("Control+f");
     await page.getByRole("textbox", { name: "Find", exact: true }).fill("definitely-missing-after-typing");
