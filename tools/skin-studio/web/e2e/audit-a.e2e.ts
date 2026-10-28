@@ -190,13 +190,18 @@ try {
     await page.click(focus ? "#ini-focus" : "#ini-mix");
     await page.waitForSelector("#editor .monaco-editor", { timeout: 10000 });
     const input = page.locator("#editor textarea").first();
-    await input.focus();
-    await page.keyboard.press("Control+a");
-    // Input.insertText is keyboard typing in Monaco: it applies each character
-    // separately. A full ini fixture must use the user's bulk-paste path.
-    await page.evaluate((value: string) => navigator.clipboard.writeText(value), text);
-    await page.keyboard.press("Control+v");
-    await page.waitForTimeout(300);
+    // The document can still be swapped in (a late compose resets the
+    // selection), so the replacement is repeated until the editor holds it.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await input.focus();
+      await page.keyboard.press("Control+a");
+      // Input.insertText is keyboard typing in Monaco: it applies each character
+      // separately. A full ini fixture must use the user's bulk-paste path.
+      await page.evaluate((value: string) => navigator.clipboard.writeText(value), text);
+      await page.keyboard.press("Control+v");
+      await page.waitForTimeout(300);
+      if ((await editorText()) === text.replace(/\r\n/g, "\n")) break;
+    }
     await page.keyboard.press("Escape");
   };
   const state = () => page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe") ?? "{}"));
