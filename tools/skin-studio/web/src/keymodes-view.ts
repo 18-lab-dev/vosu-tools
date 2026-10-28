@@ -35,7 +35,6 @@ import {
   resetStageGeometry,
   stageImages,
   stageStatus,
-  type DraftStep,
   type KeymodeDraft,
   type Keymodes,
   type Slot,
@@ -97,8 +96,6 @@ export interface KeymodesHost {
   /** The recipe's drafts (live object). */
   drafts(): Keymodes;
   generation(keys: number): number;
-  /** Stores one key count's draft (undefined drops it) and recomposes. */
-  apply(keys: number, draft: KeymodeDraft | undefined): void;
   /** The mix draft's skin.ini as the editor holds it. */
   mixText(): string;
   /** The mix's files: lower-cased output path → where it is copied from. */
@@ -124,8 +121,8 @@ export interface KeymodesHost {
   lastPlay: HitHost["lastPlay"];
   speed: HitHost["speed"];
   setSpeed: HitHost["setSpeed"];
-  /** Records one undoable change in the studio's draft history. */
-  record(step: DraftStep): void;
+  /** Commits these key counts as one whole-recipe undo step. */
+  edit(label: string, changes: Record<string, KeymodeDraft | undefined>): void;
 }
 
 /** An image the picker offers. */
@@ -347,7 +344,7 @@ export class KeymodesView {
   #change(label: string, mutate: (draft: KeymodeDraft) => void, keys = this.#keys) {
     if (!keys) return;
     this.#renderMissing();
-    let before = clone(this.#host.drafts()[String(keys)]);
+    const before = clone(this.#host.drafts()[String(keys)]);
     const remember = (draft: KeymodeDraft) => {
       for (const refs of sourceSlots(draft).values())
         for (const slot of refs) {
@@ -355,35 +352,13 @@ export class KeymodesView {
           slot.sourceHash ??= this.#host.sources().find((s) => s.key === slot.skin)?.contentHash;
         }
     };
-    let after = clone(before) ?? emptyDraft();
+    const after = clone(before) ?? emptyDraft();
     mutate(after);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
-    // Values the draft did not hold yet come from skin.ini (perhaps edited by
-    // hand): the step before keeps them, so undo returns exactly to that text.
-    const text = this.#host.mixText();
-    const seeds = Object.keys(after.values).filter((k) => !(before && k in before.values) && maniaValue(text, keys, k) !== undefined);
-    if (seeds.length) {
-      before ??= emptyDraft();
-      for (const k of seeds) before.values[k] = maniaValue(text, keys, k)!;
-      after = clone(before)!;
-      mutate(after);
-    }
     remember(after);
-    this.#host.record({
-      label,
-      drafts: [before, after],
-      undo: () => this.#restore(keys, before, `Undid ${label}`),
-      redo: () => this.#restore(keys, after, `Redid ${label}`),
-    });
-    this.#host.apply(keys, after);
+    this.#host.edit(label, { [String(keys)]: after });
     this.#error("");
     this.#state(label);
-  }
-  /** Puts a key count's draft back as an undo or redo step left it, and shows it. */
-  #restore(keys: number, draft: KeymodeDraft | undefined, text: string) {
-    this.#keys = keys;
-    this.#host.apply(keys, clone(draft));
-    this.#state(text);
   }
   #state(text: string) {
     $("#km-state").textContent = text;
@@ -1041,7 +1016,7 @@ export class KeymodesView {
       const pickerHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: pickerTip });
       pickerHelp.dataset.tip = pickerTip;
       pickerHelp.dataset.tipPos = "left";
-      const keepTip = "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery is undoable per key count.";
+      const keepTip = "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery of all affected key counts is one undo step.";
       const keepHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: keepTip });
       keepHelp.dataset.tip = keepTip;
       keepHelp.dataset.tipPos = "left";
@@ -1072,11 +1047,7 @@ export class KeymodesView {
           }
           if (changes.some(({ keys, generation }) => this.#host.generation(keys) !== generation))
             throw new Error("The draft changed while recovery was loading; recovery was not applied.");
-          for (const { keys, draft } of changes)
-            this.#change(`${recovery.kind} missing source ${source.name} (${keys}K)`, (after) => {
-              for (const key of Object.keys(after)) delete after[key as keyof KeymodeDraft];
-              Object.assign(after, draft);
-            }, keys);
+          this.#host.edit(`${recovery.kind} missing source ${source.name}`, Object.fromEntries(changes.map(({ keys, draft }) => [String(keys), draft])));
           this.#renderMissing();
         } catch (error) {
           recoveryError.textContent = error instanceof Error ? error.message : String(error);
@@ -1840,7 +1811,7 @@ export class KeymodesView {
     $<HTMLButtonElement>("#km-copy-go").disabled =
       !counts.length || !this.#host.canWrite() || !this.#keys;
   }
-  async #stageCopy(skin: string, from: number, keys: number, originalGeometry = false) {
+  async #stageCopy(skin: string, from: number, keys: number) {
     let image: (key: string) => Slot, value: (key: string) => string | undefined;
     if (skin === MIX) {
       const text = this.#host.mixText();
@@ -1868,7 +1839,7 @@ export class KeymodesView {
       };
       value = (key) => maniaValue(source.text, from, key);
     }
-    return copyStage(keys, from, image, value, originalGeometry);
+    return copyStage(keys, from, image, value);
   }
   async #copy() {
     const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
@@ -1896,7 +1867,7 @@ export class KeymodesView {
       return;
     }
     try {
-      const copied = await this.#stageCopy(source, keys, keys, true);
+      const copied = await this.#stageCopy(source, keys, keys);
       if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while resetting geometry; the reset was not applied.");
       this.#change(`Reset ${keys}K geometry from ${this.#host.skinName(source)}`, (draft) => resetStageGeometry(draft, copied), keys);
     } catch (error) {

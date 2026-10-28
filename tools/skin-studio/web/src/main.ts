@@ -27,6 +27,7 @@ import {
   type Recipe,
   type SkinData,
   compose,
+  type Composed,
   assignGroupPick,
   groupById,
   groupFiles,
@@ -159,6 +160,8 @@ let view: "elements" | "explorer" | "keymodes" | "ini" | "preview" =
 /** The Explorer tab (created once the rest of the page is wired). */
 let explorer: Explorer | undefined;
 let iniMode: "focus" | "mix" = "mix";
+let syncingMixText = false;
+let compositionTicket = 0;
 let saving = false;
 let conflict = false;
 let diskRevision = "";
@@ -1321,6 +1324,7 @@ function undo() {
   if (!step) return;
   step.undo();
   status.textContent = `Undid ${step.label}`;
+  $("#km-state").textContent = status.textContent;
   renderHistory();
 }
 function redo() {
@@ -1328,6 +1332,7 @@ function redo() {
   if (!step) return;
   step.redo();
   status.textContent = `Redid ${step.label}`;
+  $("#km-state").textContent = status.textContent;
   renderHistory();
 }
 $("#km-undo").onclick = undo;
@@ -1335,6 +1340,7 @@ $("#km-redo").onclick = redo;
 
 /** Re-renders and recomposes after the recipe changed. */
 function draftChanged() {
+  compositionTicket++;
   persist();
   mixName.value = recipe.name;
   renderFocus();
@@ -1342,7 +1348,7 @@ function draftChanged() {
   renderMix();
   scheduleCompose();
 }
-/** One undoable change of the draft outside Keymodes (picks, assets, base, discard). */
+/** One whole-recipe undo step across the draft's editors. */
 function edit(label: string, mutate: () => void) {
   const before = JSON.stringify(recipe);
   mutate();
@@ -1358,19 +1364,14 @@ function edit(label: string, mutate: () => void) {
   });
   draftChanged();
 }
-let restoredTextGeneration: number | undefined;
 function restoreDraft(text: string, exact = false) {
   const base = recipe.base;
   recipe = JSON.parse(text);
-  // The draft skin.ini as it was: its hand edits, else what composing gives.
-  if (recipe.ini !== undefined) mixDoc.setValue(recipe.ini);
-  else if (mixEdited()) mixDoc.setValue(composedIni);
+  syncingMixText = true;
+  try { mixDoc.setValue(recipe.ini ?? ""); } finally { syncingMixText = false; }
+  publishComposition(compose(recipe, new Map([...loaded].map(([key, entry]) => [key, entry.data]))), undefined, exact);
   draftChanged();
-  // Undo's before.ini is authoritative, including edits to group-owned
-  // keys. Redo replays the pick against its captured pre-composition text.
-  restoredTextGeneration = exact && recipe.ini !== undefined
-    ? keymodeGenerations.captureDraft(recipe, "draft", mixDoc.getValue())
-    : undefined;
+  clearTimeout(composeTimer);
   if (recipe.base !== base) void refreshLastApply();
 }
 
@@ -1897,16 +1898,12 @@ $("#restore").onclick = async () => {
  * is kept; the `[Mania]` keys a Keymodes change `touched` are written into
  * it too, with the values the composed skin.ini has for them.
  */
-let composeTicket = 0;
 let composedRecipe: Recipe | undefined;
-async function recompose(touched?: { keys: number; names: string[] }) {
-  const ticket = ++composeTicket;
-  const capture = captureDraft();
-  const previous = composedIni;
-  const before = composedRecipe;
-  try {
-    const composed = await composeNow(false, false, capture);
-    if (ticket !== composeTicket || !draftCurrent(capture)) return;
+function publishComposition(composed: Composed | undefined, touched?: { keys: number; names: string[] }, preserveText = false) {
+  compositionTicket++;
+  if (composed) {
+    const capture = captureDraft();
+    const previous = composedIni, before = composedRecipe, previousIni = recipe.ini;
     const wasEdited = capture.edited;
     composedRecipe = capture.recipe;
     composedIni = composed.plan.ini;
@@ -1926,23 +1923,27 @@ async function recompose(touched?: { keys: number; names: string[] }) {
       ...composed.plan.blanks.map((item) => item.to),
     ])];
     composeError = "";
-    if (!wasEdited || !capture.text) mixDoc.setValue(capture.recipe.ini ?? composedIni);
-    else if (previous && capture.generation !== restoredTextGeneration) {
-      let text = mergeDraftIni(capture.text, previous, composedIni, before, capture.recipe);
-      if (touched) {
-        const { keys, names } = touched;
-        // A key count added on the Keymodes screen has a block even without keys.
-        if (blockKeyCounts(parse(composedIni)).includes(keys))
-          text = addManiaBlock(text, keys);
-        for (const name of names)
-          text = setManiaValue(text, keys, name, maniaValue(composedIni, keys, name));
+    syncingMixText = true;
+    try {
+      if (!wasEdited || !capture.text) mixDoc.setValue(recipe.ini ?? composedIni);
+      else {
+        let text = previous && !preserveText
+          ? mergeDraftIni(capture.text, previous, composedIni, before, capture.recipe)
+          : capture.text;
+        if (touched && !preserveText) {
+          const { keys, names } = touched;
+          // A key count added on the Keymodes screen has a block even without keys.
+          if (blockKeyCounts(parse(composedIni)).includes(keys))
+            text = addManiaBlock(text, keys);
+          for (const name of names)
+            text = setManiaValue(text, keys, name, maniaValue(composedIni, keys, name));
+        }
+        if (text === composedIni) delete recipe.ini;
+        else recipe.ini = text;
+        mixDoc.setValue(text);
       }
-      mixDoc.setValue(text);
-    }
-    restoredTextGeneration = undefined;
-  } catch (error) {
-    if (ticket !== composeTicket || !draftCurrent(capture)) return;
-    composeError = message(error);
+    } finally { syncingMixText = false; }
+    if (previousIni !== recipe.ini) persist();
   }
   mixVersion++;
   renderMix();
@@ -1950,6 +1951,19 @@ async function recompose(touched?: { keys: number; names: string[] }) {
   updatePreview();
   keymodes.refresh();
   scheduleReview();
+}
+
+async function recompose(touched?: { keys: number; names: string[] }) {
+  const ticket = ++compositionTicket;
+  const capture = captureDraft();
+  try {
+    const composed = await composeNow(false, false, capture);
+    if (ticket === compositionTicket && draftCurrent(capture)) publishComposition(composed, touched);
+  } catch (error) {
+    if (ticket !== compositionTicket || !draftCurrent(capture)) return;
+    composeError = message(error);
+    publishComposition(undefined);
+  }
 }
 
 const groupLabel = (id: string) =>
@@ -2678,6 +2692,7 @@ mixDoc.onDidChangeContent(
 );
 // The draft keeps a hand-edited skin.ini until applied or discarded.
 mixDoc.onDidChangeContent(() => {
+  if (syncingMixText) return;
   if (!mixDoc.getValue()) return;
   const text = mixEdited() ? mixDoc.getValue() : undefined;
   if (text === recipe.ini) return;
@@ -2826,16 +2841,15 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   const before = recipe.keymodes[String(keys)];
   if (draft) recipe.keymodes[String(keys)] = draft;
   else delete recipe.keymodes[String(keys)];
+  const names = touchedKeys(before, draft);
+  publishComposition(compose(recipe, new Map([...loaded].map(([key, entry]) => [key, entry.data]))), { keys, names });
   persist();
-  renderMix();
   clearTimeout(composeTimer);
-  void recompose({ keys, names: touchedKeys(before, draft) });
 }
 
 const keymodes = new KeymodesView({
-  drafts: () => (recipe.keymodes ??= {}),
+  drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
-  apply: applyKeymode,
   refreshSources: loadLibrary,
   originalStage: (keys) => {
     const pick = recipe.picks[maniaGroup(keys).id];
@@ -2905,7 +2919,12 @@ const keymodes = new KeymodesView({
     name: recipe.name,
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
-  record,
+  edit: (label, changes) => {
+    edit(label, () => {
+      for (const [keys, draft] of Object.entries(changes)) applyKeymode(Number(keys), draft);
+    });
+    clearTimeout(composeTimer);
+  },
 });
 
 explorer = new Explorer({

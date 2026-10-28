@@ -39,6 +39,11 @@ export function frameNames(
   return out;
 }
 
+/** Every file of an editable image unit, including a plain animation fallback. */
+export function imageUnitFiles(index: ReadonlyMap<string, string[]>, name: string): string[] {
+  return [name.toLowerCase(), ...frameNames(index, name)].flatMap((n) => index.get(n) ?? []);
+}
+
 /**
  * The files a lookup of `name` reads: an animated lookup's frames when the
  * first exists, else the plain image; each with its `@2x` variant.

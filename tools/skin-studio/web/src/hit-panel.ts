@@ -11,14 +11,13 @@ import {
   calibratedHitPosition,
   offsets,
   receptorShift,
-  holdPlan,
   type Offsets,
   type Speed,
   type CalibrationOffsets,
 } from "./calibrate";
 import { $, h } from "./dom";
 import { needsGeometryRebase, type KeymodeDraft, type Slot, type SlotImage } from "./keymodes";
-import { lookupFiles } from "./mania";
+import { imageUnitFiles } from "./mania";
 import {
   type Dims,
   type FileOp,
@@ -37,6 +36,7 @@ import {
 } from "./proportions";
 import { UPLOADS } from "./uploads";
 import { playDate } from "./play-date";
+import { calibrateHoldImages, holdPairKey, holdResolution } from "./hold-images";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
@@ -103,6 +103,7 @@ export class HitPanel {
   #host: HitHost;
   #calibrations: Partial<Record<"press" | "release", Calibration>> = {};
   #calibrationErrors: Partial<Record<"press" | "release", string>> = {};
+  #holdReview?: { calibration: Calibration; generation: number; pending: boolean; warnings: string[]; error?: string };
   #newestPlay = 0;
   #busy = false;
 
@@ -652,7 +653,7 @@ export class HitPanel {
   #mixImage(r: ManiaImageResolution): SlotImage | null {
     if (!r.drawn || r.drawn.builtin) return null;
     const files = this.#host.mixFiles();
-    const paths = lookupFiles(this.#host.mixIndex(), r.drawn.name, r.animated);
+    const paths = imageUnitFiles(this.#host.mixIndex(), r.drawn.name);
     const sources = paths.map((p) => files.get(p.toLowerCase())).filter((f) => !!f);
     if (!sources.length) return null;
     const skin = sources[0].skin;
@@ -696,6 +697,39 @@ export class HitPanel {
       this.#busy = false;
       this.render();
     }
+  }
+
+  #reviewHoldResolution(calibration: Calibration) {
+    const generation = this.#host.generation(calibration.keys);
+    if (this.#holdReview?.calibration === calibration && this.#holdReview.generation === generation) return this.#holdReview;
+    const review = this.#holdReview = { calibration, generation, pending: true as boolean, warnings: [] as string[], error: undefined as string | undefined };
+    void (async () => {
+      const config = maniaConfig(readSkinIni(this.#host.mixText()), calibration.keys);
+      const by = new Map(this.#host.resolved().map((image) => [image.key, image]));
+      const checked = new Map<string, Promise<ReturnType<typeof holdResolution>>>();
+      for (let column = 0; column < calibration.keys; column++) {
+        const tailLookup = by.get(`NoteImage${column}T`);
+        const bodyLookup = by.get(`NoteImage${column}L`);
+        const tail = tailLookup?.drawn ? this.#mixImage(by.get(tailLookup.drawn.key)!) : null;
+        const body = bodyLookup?.drawn ? this.#mixImage(bodyLookup) : null;
+        if (!tail || !body) continue;
+        const id = holdPairKey(calibration.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, false);
+        let choice = checked.get(id);
+        if (!choice) {
+          choice = Promise.all(tail.files.map(async (file) => {
+            const rows = await this.#host.rows(tail.skin, file.from);
+            return { width: rows.width, capRows: rows.height - rows.top - rows.bottom, density: /@2x\.[^.]+$/i.test(file.suffix) ? 2 : 1 };
+          })).then((files) => holdResolution(calibration.release, files, config.noteHeightWidth, config.noteBodyStyle, [...tail.files, ...body.files].some((file) => /@2x\.[^.]+$/i.test(file.suffix))));
+          checked.set(id, choice);
+        }
+        const resolution = await choice;
+        if (resolution.warning) review.warnings.push(`Column ${column + 1}: ${resolution.warning}`);
+      }
+    })().catch((error) => { review.error = error instanceof Error ? error.message : String(error); }).finally(() => {
+      review.pending = false;
+      if (this.#holdReview === review && this.#host.generation(calibration.keys) === generation) this.render();
+    });
+    return review;
   }
 
   #proposal(kind: "press" | "release"): Node[] {
@@ -743,6 +777,10 @@ export class HitPanel {
     else if (c.release.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${c.release.count} releases; at least ${MIN_HITS} are needed.`));
     else {
+      const resolution = this.#reviewHoldResolution(c);
+      if (resolution.pending) out.push(h("p", { class: "v-muted" }, "Checking hold image sizes…"));
+      for (const warning of resolution.warnings) out.push(h("p", { class: "km-hit__warn" }, warning));
+      if (resolution.error) out.push(h("p", { class: "km-hit__warn", role: "alert" }, resolution.error));
       const units = c.release.distance;
       const text =
         Math.abs(units) < 0.5
@@ -753,7 +791,7 @@ export class HitPanel {
           "div",
           { class: "km-hit__row" },
           h("span", { title: "Calibration corrects your timing rather than matching it." }, `You released ${Math.abs(c.release.mean).toFixed(1)} ms ${units >= 0 ? "late" : "early"} on average (${fmt(c.release, "holds")}) → ${text}`),
-          Math.abs(units) >= 0.5 ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails") : null,
+          Math.abs(units) >= 0.5 ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || resolution.pending || !!resolution.error || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails") : null,
         ),
       );
     }
@@ -793,11 +831,11 @@ export class HitPanel {
           report.push(`column ${column + 1}: built-in hold images, left as is`);
           continue;
         }
-        const id = `${tail.skin}\n${tail.name}\n${body.skin}\n${body.name}`;
+        const id = holdPairKey(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop);
         let result = done.get(id);
         if (!result) {
           if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== captured) return this.#host.error("The draft changed while hold ends were being derived; the stale result was not applied.");
-          result = await this.#holdEnd(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
+          result = await calibrateHoldImages(this.#host, c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
           done.set(id, result);
         }
         for (const [suffix, slot] of Object.entries(result)) images[`NoteImage${column}${suffix}`] = slot;
@@ -821,43 +859,4 @@ export class HitPanel {
     }
   }
 
-  /** New tail (`T`) and body (`L`) images for one pair; empty when nothing changes. */
-  async #holdEnd(
-    release: Offsets,
-    tail: SlotImage,
-    body: SlotImage,
-    noteWidth: number,
-    bodyStyle: number,
-    atTop: boolean,
-    report: string[],
-  ): Promise<Record<string, SlotImage>> {
-    const sd = (image: SlotImage) => image.files.find((f) => !hd(f.from)) ?? image.files[0];
-    const tailFile = sd(tail).from,
-      bodyFile = sd(body).from;
-    const [t, b] = await Promise.all([this.#host.rows(tail.skin, tailFile), this.#host.rows(body.skin, bodyFile)]);
-    const slot = (image: SlotImage, stored: string, from: string): SlotImage => ({
-      skin: UPLOADS,
-      name: image.name.split("/").pop()!,
-      files: [{ from: stored, suffix: from.slice(from.lastIndexOf(".")) }],
-    });
-    const capRows = t.height - t.top - t.bottom;
-    const plan = holdPlan(release, { capRows, tailWidth: t.width, bodyHeight: b.height, bodyTop: b.top, noteWidth, percy: capRows === 0 && bodyStyle !== 0 });
-    report.push(plan.note);
-    if (plan.kind === "none") return {};
-    if (plan.kind === "shift-body") {
-      const [d] = await this.#host.derive(body.skin, [{ name: bodyFile, op: { shift: { up: plan.up } } }]);
-      return { L: slot(body, d.stored, bodyFile) };
-    }
-    if (plan.kind === "gap") {
-      const [d] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { tail: { gap: plan.gap, at_top: atTop } } }]);
-      return { T: slot(tail, d.stored, tailFile) };
-    }
-    // Percy: a spacer tail and a body carrying the cap (both new, 1x).
-    const [spacer] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { spacer: { rows: plan.spacer } } }]);
-    if (tail.skin !== body.skin) throw new Error("The tail and body come from different skins; take both from one skin first.");
-    const [percy] = await this.#host.derive(body.skin, [
-      { name: bodyFile, cap: tailFile, op: { percy: { height: plan.height, cap_bottom: plan.capBottom } } },
-    ]);
-    return { T: slot(tail, spacer.stored, tailFile), L: slot(body, percy.stored, bodyFile) };
-  }
 }
