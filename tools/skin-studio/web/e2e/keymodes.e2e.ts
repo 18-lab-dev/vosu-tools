@@ -277,6 +277,14 @@ try {
   await page.click(".km-copy-menu > summary");
   await waitLabel("KeyImage2", "mania/7k/mania-key1");
   check("osu! 1/2/S pattern", (await label("KeyImage5"))?.includes("mania-key2") ?? false, await label("KeyImage5") ?? "");
+  // The exact-undo width regression made temporary derives; its redo branch
+  // is now gone. Remove only those unreachable fixtures before counting drops.
+  if (!await page.locator("#mix-uploads-remove").isDisabled()) {
+    await page.evaluate(() => document.querySelector("#mix-uploads")!.setAttribute("open", ""));
+    await page.click("#mix-uploads-remove");
+    await until(async () => await page.locator("#mix-uploads-remove").isDisabled(), "unreachable width fixtures removed");
+    await page.evaluate(() => document.querySelector("#mix-uploads")!.removeAttribute("open"));
+  }
 
   // ── OS-file drop: one valid PNG, one invalid file ─────────────────────────
   await page.evaluate(async () => {
