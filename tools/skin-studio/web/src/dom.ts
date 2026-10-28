@@ -15,3 +15,15 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   node.append(...children.filter((c): c is Node | string => !!c));
   return node;
 }
+
+/**
+ * A help hover: the focusable (i) that carries `tip` (shown on hover and
+ * keyboard focus, read by assistive technology). `pos` keeps the tip inside
+ * the screen near an edge.
+ */
+export function helpTip(tip: string, pos?: "left" | "right") {
+  const el = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: tip });
+  el.dataset.tip = tip;
+  if (pos) el.dataset.tipPos = pos;
+  return el;
+}
