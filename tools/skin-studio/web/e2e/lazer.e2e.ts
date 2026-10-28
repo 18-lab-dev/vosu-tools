@@ -28,7 +28,7 @@ import { parseArgs } from "node:util";
 const ROOT = resolve(import.meta.dir, "../../../..");
 const WEB = resolve(import.meta.dir, "..");
 const { values: opt } = parseArgs({
-  options: { playwright: { type: "string" }, assets: { type: "string" }, skins: { type: "string" }, skin: { type: "string" }, out: { type: "string" }, "missing-source": { type: "boolean" } },
+  options: { playwright: { type: "string" }, assets: { type: "string" }, skins: { type: "string" }, skin: { type: "string" }, out: { type: "string" }, "missing-source": { type: "boolean" }, churn: { type: "boolean" } },
 });
 for (const name of ["playwright", "assets", "skins", "skin", "out"] as const) if (!opt[name]) throw new Error(`--${name} is required`);
 const out = resolve(opt.out!);
@@ -96,6 +96,7 @@ const REPLACEMENT = "5f1c2a7e-0000-4000-8000-00000000beef";
 const ALTERNATE = "5f1c2a7e-0000-4000-8000-00000000cafe";
 const alternateFiles = skinFiles.filter((name) => !/mauve/i.test(name));
 let removed = false;
+const libraryRequests: number[] = [];
 const contentHash = createHash("sha256");
 for (const file of skinFiles) {
   const name = Buffer.from(file);
@@ -151,7 +152,7 @@ const server = Bun.serve({
     if (path === "/tools/_host/v1/theme.css") return new Response(theme, { headers: { "content-type": "text/css" } });
     if (path === "/tools/lazer-library/api/v1/status") return json({ available: true });
     if (path === "/tools/lazer-library/api/v1/skins")
-      return json({ skins: (opt["missing-source"] ? [...(removed ? [] : [ID]), REPLACEMENT, ALTERNATE] : [ID]).map((id) => ({ id, name: opt.skin, creator: "e2e", hash: HASH, content_hash: id === ALTERNATE ? null : CONTENT_HASH, builtin: null, files: id === ALTERNATE ? alternateFiles.length : skinFiles.length })) });
+      return json({ skins: (opt["missing-source"] ? [...(removed ? [] : [ID]), REPLACEMENT, ALTERNATE] : [removed ? REPLACEMENT : ID]).map((id) => ({ id, name: opt.skin, creator: "e2e", hash: HASH, content_hash: id === ALTERNATE ? null : CONTENT_HASH, builtin: null, files: id === ALTERNATE ? alternateFiles.length : skinFiles.length })) });
     const requested = path.includes(ALTERNATE) ? ALTERNATE : path.includes(REPLACEMENT) ? REPLACEMENT : ID;
     const requestedFiles = requested === ALTERNATE ? alternateFiles : skinFiles;
     if (removed && requested === ID && path.includes(`/skins/${ID}/`)) return new Response("deleted", { status: 404 });
@@ -164,6 +165,10 @@ const server = Bun.serve({
       return match ? new Response(Bun.file(join(SKIN, match))) : new Response("missing", { status: 404 });
     }
     if (path.startsWith("/tools/skin-studio/api/")) {
+      if (path === "/tools/skin-studio/api/v1/library") {
+        libraryRequests.push(Date.now());
+        serviceLog.push(`${Date.now()} GET v1/library\n`);
+      }
       // vosu's proxy: POSTs need the page's session; the tool gets its token.
       if (request.method !== "GET" && !request.headers.get("x-stub-session"))
         return new Response("tool UI session or dependent tool token required", { status: 403 });
@@ -230,7 +235,31 @@ try {
   };
   const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-  if (opt["missing-source"]) {
+  if (opt.churn) {
+    await page.goto(base);
+    await page.waitForSelector("#skins .skin");
+    await page.evaluate((id) => {
+      localStorage.setItem("skin-studio:mode", "new");
+      localStorage.setItem("skin-studio:recipe", JSON.stringify({ name: "Churn test", base: `lazer:${id}`, picks: {} }));
+    }, ID);
+    await page.reload();
+    await page.click("#tab-elements");
+    await page.waitForSelector("#skins .skin");
+    const before = libraryRequests.length;
+    removed = true;
+    await until(() => libraryRequests.length > before, "one automatic library poll", 22000);
+    await until(async () => await page.locator("#missing-sources").isVisible(), "Elements recovery banner after one poll", 5000);
+    const skins = await page.evaluate(async () => (await (await fetch("api/v1/library")).json()).skins);
+    check("replacement B is listed", skins.some((skin: { key: string; available: boolean }) => skin.key === `lazer:${REPLACEMENT}` && skin.available));
+    check("removed A shows unavailable", (await page.locator(`#mix-base option[value="lazer:${ID}"]`).textContent())?.includes("(unavailable)") === true);
+    check("recovery banner appears on Elements without editing or reload", await page.locator("#missing-sources").isVisible());
+    const start = Date.now(), count = libraryRequests.length;
+    await page.waitForTimeout(60000);
+    const idle = { durationMs: Date.now() - start, requests: libraryRequests.length - count };
+    writeFileSync(join(out, "idle-poll.json"), JSON.stringify(idle, null, 2));
+    check("idle library polling is bounded", idle.requests >= 3 && idle.requests <= 4, JSON.stringify(idle));
+    await page.screenshot({ path: join(out, "churn-elements.png") });
+  } else if (opt["missing-source"]) {
     await page.goto(base);
     await page.waitForSelector("#skins .skin");
     const file = skinFiles.find((f) => /(^|\/)mauve\.png$/i.test(f)) ?? skinFiles.find((f) => /key.*\.png$/i.test(f));

@@ -4,6 +4,7 @@
 
 import { type AssetRef, assetId, fontPrefixes } from "./assets";
 import { $, h } from "./dom";
+import { useButtonLabel } from "./draft-labels";
 import {
   type FileInfo,
   type Row,
@@ -403,8 +404,7 @@ export class Explorer {
     this.#use.setAttribute("aria-pressed", String(inMix));
     // Primary until everything selected is in the mix; then a pressed toggle.
     this.#use.classList.toggle("v-btn--primary", !inMix);
-    const what = `${units.length > 1 ? `${units.length} assets` : "asset"} · ${files.length} ${files.length === 1 ? "file" : "files"}`;
-    this.#use.textContent = inMix ? "Remove from mix" : included ? `Override with this · ${files.length} ${files.length === 1 ? "file" : "files"}` : `Use ${what}`;
+    this.#use.textContent = useButtonLabel(units.length, files.length, inMix, included);
     // The whole unit is copied (an image's @2x and frames, a font's glyphs), even from Files.
     this.#use.title = files.join("\n");
     const n = this.#rows.length;

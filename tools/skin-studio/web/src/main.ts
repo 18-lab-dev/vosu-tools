@@ -53,6 +53,7 @@ import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
 import { AssetCache } from "./asset-cache";
+import { provenance as draftProvenance, pickLabel as draftPickLabel, groupChoice } from "./draft-labels";
 import { KeymodesView } from "./keymodes-view";
 import { KeymodeGenerations } from "./keymode-generations";
 import {
@@ -979,9 +980,7 @@ player.addEventListener("pause", syncPlayer);
 player.addEventListener("ended", syncPlayer);
 
 function pickLabel(pick: Pick | undefined) {
-  if (!pick) return recipe.base ? `base · ${skinName(recipe.base)}` : "built-in";
-  if (pick.kind === "skin") return skinName(pick.key);
-  return pick.kind === "default" ? "built-in" : "blank";
+  return draftPickLabel(pick, recipe, skinName);
 }
 
 function setPick(id: string, pick: Pick | null) {
@@ -1026,7 +1025,7 @@ function groupSection(group: Group, data: SkinData) {
         class: "v-btn v-btn--sm",
         ariaPressed: String(pressed),
         title,
-        onclick: () => setPick(group.id, pressed ? null : next),
+        onclick: () => setPick(group.id, groupChoice(pressed, next)),
       },
       label,
     );
@@ -3079,17 +3078,7 @@ async function reconcileLibrary() {
 
 /** Where an asset in the composed draft comes from: Override, Group, Base or Not included. */
 function provenance(ref: AssetRef): { label: string; included: boolean } {
-  const override = recipe.overrides?.[assetId(ref)];
-  if (override) return { label: `Override · ${skinName(override.skin)}`, included: true };
-  const output = new Map<string, string>();
-  for (const source of lastPlan?.sources ?? [])
-    for (const file of source.files) output.set((typeof file === "string" ? file : file[1]).toLowerCase(), source.skin);
-  const ini = parseIni(lastPlan?.ini ?? "");
-  const hit = unitFiles(ref, [...output.keys()], fontPrefixes(ini))[0];
-  if (!hit) return { label: "Not included", included: false };
-  const from = output.get(hit.toLowerCase())!;
-  if (recipe.picks[groupOf(ref, ini)]?.kind === "skin") return { label: `Group · ${skinName(from)}`, included: true };
-  return { label: from === recipe.base ? `Base · ${skinName(from)}` : skinName(from), included: true };
+  return draftProvenance(ref, recipe, lastPlan, skinName);
 }
 
 setInterval(async () => {
