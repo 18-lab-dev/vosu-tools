@@ -38,6 +38,8 @@ export interface SlotImage {
  */
 export type Slot = SlotImage | { value: string } | null;
 export interface KeymodeDraft {
+  /** An explicit Add key count keeps its block even with no slot/value overrides. */
+  added?: true;
   /** By `[Mania]` image key (`KeyImage0`, `StageHint`, …). */
   images: Record<string, Slot>;
   /** Other `[Mania]` values by key (`ColumnWidth`, `Colour1`, …); `null` removes it. */
@@ -83,6 +85,19 @@ export interface KeymodeDraft {
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
+/** A normal edit must not manufacture a count when only default preferences remain. */
+export function editKeymodeDraft(
+  before: KeymodeDraft | undefined,
+  mutate: (draft: KeymodeDraft) => void,
+): KeymodeDraft | undefined {
+  const after: KeymodeDraft = before ? structuredClone(before) : { images: {}, values: {} };
+  mutate(after);
+  if (after.keepProportions !== false) delete after.keepProportions;
+  if (after.moveReceptors !== false) delete after.moveReceptors;
+  return Object.keys(after.images).length || Object.keys(after.values).length ||
+    Object.keys(after).some((key) => key !== "images" && key !== "values")
+    ? after : undefined;
+}
 
 /** The image roles of a column, in the screen's (and the wiki's) order. */
 export const COLUMN_ROLES = [

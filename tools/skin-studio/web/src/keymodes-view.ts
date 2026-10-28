@@ -28,6 +28,7 @@ import {
   columnKey,
   copyStage,
   defaultPattern,
+  editKeymodeDraft,
   imageUnit,
   mirror,
   patternOf,
@@ -166,7 +167,6 @@ const SOURCE_TEXT = {
 
 const clone = <T>(value: T): T =>
   value === undefined ? value : structuredClone(value);
-const emptyDraft = (): KeymodeDraft => ({ images: {}, values: {} });
 
 /** `r,g,b[,a]` ↔ `#rrggbb` for colour inputs (alpha kept aside). */
 const toHex = (value: string | undefined, fallback: string) => {
@@ -352,10 +352,9 @@ export class KeymodesView {
           slot.sourceHash ??= this.#host.sources().find((s) => s.key === slot.skin)?.contentHash;
         }
     };
-    const after = clone(before) ?? emptyDraft();
-    mutate(after);
+    const after = editKeymodeDraft(before, mutate);
     if (JSON.stringify(after) === JSON.stringify(before)) return;
-    remember(after);
+    if (after) remember(after);
     this.#host.edit(label, { [String(keys)]: after });
     this.#error("");
     this.#state(label);
@@ -563,7 +562,7 @@ export class KeymodesView {
   /** An empty draft makes the block (`[Mania]`, `Keys: N`) on its own. */
   #addKeyCount(keys: number) {
     this.#keys = keys;
-    this.#change(`Add ${keys}K`, () => {}, keys);
+    this.#change(`Add ${keys}K`, (draft) => { draft.added = true; }, keys);
   }
 
   #renderRail(counts: number[]) {

@@ -2864,6 +2864,7 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   const before = recipe.keymodes[String(keys)];
   if (draft) recipe.keymodes[String(keys)] = draft;
   else delete recipe.keymodes[String(keys)];
+  if (!Object.keys(recipe.keymodes).length) delete recipe.keymodes;
   const names = touchedKeys(before, draft);
   publishComposition(compose(recipe, new Map([...loaded].map(([key, entry]) => [key, entry.data]))), { keys, names });
   persist();

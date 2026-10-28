@@ -172,6 +172,42 @@ try {
   await page.waitForTimeout(2500);
   await shot("4k-before");
   check("4K rows from the base's block", (await page.locator("#km-grid .km-slot").count()) === 4 * 6);
+  // Default preference roundtrips must not manufacture dirty count drafts.
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  for (const preference of ["#km-keep", "#km-move-receptors"]) {
+    const before = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+    const beforeApply = await page.locator("#apply-count").textContent();
+    await page.locator(preference).uncheck();
+    const changed = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+    await page.click("#km-undo");
+    check(`${preference}: first preference Undo restores exact inherited recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before);
+    await page.click("#km-redo");
+    check(`${preference}: preference Redo restores exact changed recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === changed);
+    await page.locator(preference).check();
+    check(`${preference}: return to default removes the count and dirty state`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before && await page.locator("#apply-count").textContent() === beforeApply);
+    await page.click("#km-undo");
+    check(`${preference}: undoing the return restores the false preference exactly`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === changed);
+    await page.click("#km-redo");
+    check(`${preference}: redoing the return restores exact absent-count recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before);
+  }
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  const beforeAdd = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  const addedKeys = await page.locator("#km-add option").evaluateAll((options: HTMLOptionElement[]) => options.find((option) => option.value)?.value);
+  if (!addedKeys) throw new Error("Preference regression fixture needs an unused key count");
+  await page.selectOption("#km-add", addedKeys);
+  await page.waitForTimeout(500);
+  const added = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  await page.locator("#km-move-receptors").uncheck();
+  await page.locator("#km-move-receptors").check();
+  check("Explicitly added empty count survives a preference roundtrip", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === added && !!(await draft())[addedKeys]);
+  await page.click("#km-undo");
+  await page.click("#km-undo");
+  check("Undo of both preference changes restores exact added count", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === added);
+  await page.click("#km-undo");
+  check("Undo of Add removes the count and restores exact prior recipe", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === beforeAdd);
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  await pick(4);
   const recipeBeforeWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
   const untouchedWidth = await page.locator("#km-grid .km-num").first().inputValue();
   await page.locator("#km-grid .km-num").first().fill(String(Number(untouchedWidth) + 1));
