@@ -249,7 +249,23 @@ async fn animation(
 }
 
 pub fn ini_path(folder: &Path) -> Result<PathBuf, Failure> {
-    let ini = folder.join("skin.ini");
+    let mut found = None;
+    for entry in fs::read_dir(folder).map_err(failure)? {
+        let entry = entry.map_err(failure)?;
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.eq_ignore_ascii_case("skin.ini"))
+        {
+            if found.is_some() {
+                return Err(failure(
+                    "Multiple case variants of skin.ini; keep only one.",
+                ));
+            }
+            found = Some(entry.path());
+        }
+    }
+    let ini = found.unwrap_or_else(|| folder.join("skin.ini"));
     if let Ok(meta) = fs::symlink_metadata(&ini)
         && (!meta.is_file() || meta.file_type().is_symlink())
     {
@@ -790,6 +806,38 @@ mod tests {
             StatusCode::CONFLICT
         );
         assert_eq!(fs::read_to_string(path).unwrap(), "[General]\nName: Test\n");
+    }
+    #[test]
+    fn saves_existing_ini_with_its_original_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("SKIN.INI");
+        fs::write(&path, "// original\r\n[General]\r\n").unwrap();
+        let original = fs::read(&path).unwrap();
+        assert_eq!(ini_path(dir.path()).unwrap(), path);
+        let saved = atomic_save(
+            dir.path(),
+            "[General]\r\nName: Changed\r\n",
+            &fingerprint(&original),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "[General]\r\nName: Changed\r\n"
+        );
+        assert_eq!(
+            fs::read(dir.path().join(saved.backup.unwrap())).unwrap(),
+            original
+        );
+        #[cfg(unix)]
+        assert!(!dir.path().join("skin.ini").exists());
+    }
+    #[cfg(unix)]
+    #[test]
+    fn rejects_ambiguous_ini_case_variants() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("SKIN.INI"), "upper").unwrap();
+        fs::write(dir.path().join("skin.ini"), "lower").unwrap();
+        assert!(ini_path(dir.path()).is_err());
     }
     #[test]
     fn creates_missing_ini() {
