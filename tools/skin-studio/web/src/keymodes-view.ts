@@ -2145,7 +2145,19 @@ export class KeymodesView {
               : "No images in this source: choose another in Images from.",
         ),
       );
-    list.replaceChildren(...nodes);
+    // Keep unchanged images connected: replacing the entire list discards focus
+    // and makes the browser rebuild their layout/compositing state.
+    const retained = new Set(nodes);
+    for (let child: ChildNode | null = list.firstChild; child;) {
+      const next = child.nextSibling;
+      if (!retained.has(child)) list.removeChild(child);
+      child = next;
+    }
+    let next = list.firstChild;
+    for (const node of nodes) {
+      if (node === next) next = node.nextSibling;
+      else list.insertBefore(node, next);
+    }
   }
 
   #tile(unit: Unit, index: number, previous: ReadonlyMap<string, HTMLElement>) {

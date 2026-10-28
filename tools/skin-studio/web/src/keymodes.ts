@@ -40,8 +40,8 @@ export interface SlotImage {
  */
 export type Slot = SlotImage | { value: string } | null;
 export interface KeymodeDraft {
-  /** An explicit Add key count keeps its block even with no slot/value overrides. */
-  added?: true;
+  /** True for Add, false for new inherited overrides; unmarked saved counts retain legacy intent. */
+  added?: boolean;
   /** By `[Mania]` image key (`KeyImage0`, `StageHint`, …). */
   images: Record<string, Slot>;
   /** Other `[Mania]` values by key (`ColumnWidth`, `Colour1`, …); `null` removes it. */
@@ -93,15 +93,14 @@ export function editKeymodeDraft(
   mutate: (draft: KeymodeDraft) => void,
 ): KeymodeDraft | undefined {
   const after: KeymodeDraft = before ? structuredClone(before) : { images: {}, values: {} };
-  // Older Add actions stored an unmarked empty count. Preserve that existing
-  // intent; a newly inherited preference edit starts from undefined instead.
-  if (before && !Object.keys(before.images).length && !Object.keys(before.values).length &&
-    Object.keys(before).every((key) => key === "images" || key === "values")) after.added = true;
+  // Preserve legacy authored counts, including ones saved with preferences off.
+  // New inherited mutations carry a distinct marker through save/reload.
+  after.added ??= !!before;
   mutate(after);
   if (after.keepProportions !== false) delete after.keepProportions;
   if (after.moveReceptors !== false) delete after.moveReceptors;
   return Object.keys(after.images).length || Object.keys(after.values).length ||
-    Object.keys(after).some((key) => key !== "images" && key !== "values")
+    Object.keys(after).some((key) => key !== "images" && key !== "values" && (key !== "added" || after.added === true))
     ? after : undefined;
 }
 

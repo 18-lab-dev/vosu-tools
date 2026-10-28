@@ -256,10 +256,12 @@ const persist = () => {
 };
 
 const toolBase = `/tools/${encodeURIComponent(vosu.tool.id)}/api/`;
-const assetUrl = (skin: string, name: string) =>
-  `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`;
+// Browser image caching outlives a page; source epochs alone restart at zero.
+const assetSession = crypto.getRandomValues(new Uint32Array(2)).join("-");
+const assetUrl = (skin: string, name: string): string =>
+  `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}&v=${assetSession}-${assets.epochFor(skin)}`;
 const animationUrl = (skin: string, element: string) =>
-  `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}`;
+  `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}&v=${assetSession}-${assets.epochFor(skin)}`;
 /** Files previews read; a source read afresh is read again (asset-cache.ts). */
 const assets = new AssetCache(assetUrl);
 
@@ -2236,7 +2238,7 @@ function renderMix() {
             { class: "pick-source" },
             [slots ? plural(slots, "image") : "", values ? plural(values, "value") : ""]
               .filter(Boolean)
-              .join(" · ") || "block added",
+              .join(" · ") || (draft.added === false ? "preferences" : "block added"),
           ),
         ),
         h(
