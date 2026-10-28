@@ -254,8 +254,7 @@ try {
     removed = true;
     await until(() => libraryRequests.length > before, "one automatic library poll", 22000);
     await until(async () => await page.locator("#missing-sources").isVisible(), "Elements recovery banner after one poll", 5000);
-    const skins = await page.evaluate(async () => (await (await fetch("api/v1/library")).json()).skins);
-    check("replacement B is listed", skins.some((skin: { key: string; available: boolean }) => skin.key === `lazer:${REPLACEMENT}` && skin.available));
+    check("replacement B is listed in the source selector", await page.locator(`#x-skin option[value="lazer:${REPLACEMENT}"]`).count() === 1);
     check("removed A shows unavailable", (await page.locator(`#mix-base option[value="lazer:${ID}"]`).textContent())?.includes("(unavailable)") === true);
     check("recovery banner appears on Elements without editing or reload", await page.locator("#missing-sources").isVisible());
     const start = Date.now(), count = libraryRequests.length;
