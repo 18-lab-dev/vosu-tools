@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Geometry, hitPositionFor, pieceOf, pieceOps, referenceScale } from "../src/proportions";
 import { HitPanel, type HitHost } from "../src/hit-panel";
+import { stageImages } from "../src/keymodes";
 
 test("repeating a 5K width never renders, captures originals, or derives files", async () => {
   const unexpected = () => { throw new Error("Unchanged width must do nothing"); };
@@ -15,6 +16,20 @@ test("repeating a 5K width never renders, captures originals, or derives files",
   await panel.setWidths([0, 1, 2, 3, 4], "60", "Apply width to all columns");
   await panel.setWidths([0], "60", "Set column 1 width");
   expect(panel.lastRegeometry).toBeNull();
+});
+
+test("classic fallback receptors never request library images or image rows", () => {
+  const unexpected = () => { throw new Error("Built-in fallback has no library files"); };
+  const resolved = stageImages("[Mania]\nKeys: 5\n", [], 5).filter((image) => pieceOf(image.key) === "key");
+  expect(resolved).toHaveLength(10);
+  expect(resolved.every((image) => image.drawn?.builtin)).toBe(true);
+  const host: HitHost = {
+    keys: () => 5, mixText: unexpected,
+    mixFiles: unexpected, mixIndex: unexpected, resolved: () => resolved, draft: () => undefined,
+    change: unexpected, derive: unexpected, rows: unexpected, lastPlay: unexpected,
+    speed: unexpected, setSpeed: unexpected, canWrite: unexpected, state: unexpected, error: unexpected,
+  };
+  new HitPanel(host).warm();
 });
 
 test("HitPosition follows the receptors: 480 − (480 − HitPosition) × s, rounded", () => {
