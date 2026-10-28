@@ -80,7 +80,7 @@ export async function calibrateHoldImages(
   while (bFrames) [a, bFrames] = [bFrames, a % bFrames];
   const count = tailFrames || bodyFrames ? (tailFrames || 1) * (bodyFrames || 1) / a : 0;
   const frames: (number | null)[] = count ? Array.from({ length: count }, (_, i) => i) : [null];
-  if (count && tail.files.some((file) => frameOf(file) === undefined) && body.files.some((file) => frameOf(file) === undefined)) frames.unshift(null);
+  if (count && (tail.files.some((file) => frameOf(file) === undefined) || body.files.some((file) => frameOf(file) === undefined))) frames.unshift(null);
   const densities = new Set([...tail.files, ...body.files].map(densityOf));
   for (const density of densities) for (const frame of frames) {
     const capFile = select(tail, tailFrames, frame, density);

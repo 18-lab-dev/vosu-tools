@@ -79,3 +79,9 @@ test("conversion preserves different tail/body animation loops at both resolutio
   expect(converted.map((call) => call.name)).toEqual([1, 2].flatMap((density) => Array.from({ length: 6 }, (_, i) => `body-${i % 3}${density === 2 ? "@2x" : ""}.png`)));
   expect(converted.map((call) => call.cap)).toEqual([1, 2].flatMap((density) => Array.from({ length: 6 }, (_, i) => `tail-${i % 2}${density === 2 ? "@2x" : ""}.png`)));
 });
+
+test("conversion retains a plain fallback when only the other unit is animated", async () => {
+  const result = await calibrateHoldImages(service(), release, imageUnit("tail", 0, [1]), imageUnit("body", 2, [1]), 64, 0, true, []);
+  expect(result.T.files.map((file) => file.suffix)).toEqual([".png", "-0.png", "-1.png"]);
+  expect(result.L.files.map((file) => file.suffix)).toEqual([".png", "-0.png", "-1.png"]);
+});
