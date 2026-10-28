@@ -296,6 +296,16 @@
   flex-wrap: wrap;
   gap: var(--space-1);
 }
+/* A tile's actions show on hover or keyboard focus; a tile already in the
+   mix keeps its pressed "In mix". Their room stays reserved, so nothing moves. */
+@media (hover: hover) {
+  .tile :is(.use, .files) {
+    transition: opacity 120ms cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  .tile:not(:hover, :focus-within) :is(.use:not([aria-pressed="true"]), .files) {
+    opacity: 0;
+  }
+}
 .tile.found {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
