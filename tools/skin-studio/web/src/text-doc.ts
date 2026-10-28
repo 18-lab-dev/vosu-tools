@@ -28,6 +28,8 @@ export class TextDoc {
   #listeners = new Set<() => void>();
   /** Skin files for image checks; undefined skips them (hashed lazer stores). */
   files: string[] | undefined;
+  /** Cheap URLs for completion thumbnails, keyed by actual skin-relative file. */
+  assetUrls = new Map<string, string>();
   /** Diagnostics of the last check (quick fixes read them). */
   issues: Diagnostic[] = [];
 
