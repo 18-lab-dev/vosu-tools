@@ -288,6 +288,8 @@ try {
   const listed = await page.locator("#apply-list li").allTextContents();
   const where = (await page.locator("#apply-where").textContent()) ?? "";
   check("The first apply lists every change and the folder", listed.length > 0 && where.includes(EDITED), `${listed.length} changes; ${where}`);
+  const iniListed = listed.some((text) => /skin\.ini/i.test(text));
+  check("Review skin.ini is offered exactly when skin.ini changes", (await page.locator("#apply-review-ini").isVisible()) === iniListed, `skin.ini listed: ${iniListed}`);
   check("Nothing is written while confirming", digest(EDITED) === original);
   await page.locator("#apply-dialog").screenshot({ path: join(out, "apply-dialog.png") });
   await page.click("#apply-confirm");

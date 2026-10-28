@@ -1799,6 +1799,10 @@
   padding: var(--space-2) var(--space-3);
   border-top: var(--hair) solid var(--rule);
 }
+/* Review skin.ini sits apart from the answer buttons, at the start. */
+.apply-dialog__review {
+  margin-right: auto;
+}
 .km-hit__check {
   display: inline-flex;
   gap: var(--space-1);

@@ -1779,6 +1779,8 @@ function confirmApply(next: Review): Promise<boolean> {
       : "Every file replaced or removed is copied into Skin studio's data folder first; Restore last apply puts them back. Other files are not touched.";
   $("#apply-confirm").textContent =
     next.target.kind === "import" ? `Import into osu!lazer` : `Apply ${plural(next.changes.length, "change")}`;
+  // The list names files only: the draft's skin.ini is one click away.
+  $("#apply-review-ini").hidden = !next.changes.some((c) => /(^|\/)skin\.ini$/i.test(c.path));
   dialog.returnValue = "";
   dialog.showModal();
   return new Promise((resolve) =>
@@ -2411,9 +2413,15 @@ $("#mix-uploads-remove").onclick = async () => {
   await refreshUploads();
 };
 $("#mix-reset").onclick = () => discardDraft();
-$("#mix-ini").onclick = () => {
+const reviewIni = () => {
   iniMode = "mix";
   showView("ini");
+};
+$("#mix-ini").onclick = reviewIni;
+// From the Apply dialog: cancels the apply and shows the draft's skin.ini.
+$("#apply-review-ini").onclick = () => {
+  $<HTMLDialogElement>("#apply-dialog").close("cancel");
+  reviewIni();
 };
 // More (the Draft's rarely used actions) closes when the user acts anywhere else.
 const more = $<HTMLDetailsElement>("#mix-more");
