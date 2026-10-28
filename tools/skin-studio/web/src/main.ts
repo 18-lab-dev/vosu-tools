@@ -53,6 +53,7 @@ import {
 import type { Preview, Resolver } from "./preview";
 import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
+import { plural } from "./plural";
 import { Explorer } from "./explorer";
 import { AssetCache } from "./asset-cache";
 import { provenance as draftProvenance, pickLabel as draftPickLabel, groupChoice } from "./draft-labels";
@@ -313,7 +314,7 @@ function sourceIdentity(skin: Skin) {
     skin.name,
     skin.origin === "lazer" ? `${origin} · ID ${skin.key.replace(/^lazer:/, "").slice(0, 8)}` : `${origin} · ${skin.key}`,
     skin.creator ? `by ${skin.creator}` : "",
-    skin.file_count != null ? `${skin.file_count} files` : "",
+    skin.file_count != null ? plural(skin.file_count, "file") : "",
     skin.content_hash ? `content ${skin.content_hash.slice(0, 12)}` : "",
   ]
     .filter(Boolean)
@@ -791,7 +792,7 @@ function renderFocus() {
     ? [
         author ?? skin.creator ?? "",
         skin.origin === "lazer" ? "lazer" : skin.key,
-        entry ? `${entry.snapshot.files.length} files` : "",
+        entry ? plural(entry.snapshot.files.length, "file") : "",
       ]
         .filter(Boolean)
         .join(" · ")
@@ -865,7 +866,7 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
       files[0];
     const count = new Set(files.map(stem)).size;
     nodes.push(
-      tile(prefix, assetUrl(data.key, sample), `${count} glyphs`, {
+      tile(prefix, assetUrl(data.key, sample), plural(count, "glyph"), {
         ref: { kind: "font", name: prefix },
         skin: data.key,
       }),
@@ -1139,7 +1140,7 @@ function groupSection(group: Group, data: SkinData) {
         {},
         group.label,
         owned.length
-          ? h("span", { class: "v-muted" }, `${owned.length} files`)
+          ? h("span", { class: "v-muted" }, plural(owned.length, "file"))
           : null,
         pick ? h("span", { class: "v-badge v-badge--accent" }, "in mix") : null,
       ),
@@ -1540,7 +1541,6 @@ function scheduleReview() {
   }, 400);
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const describeTarget = (target: Target) =>
   target.kind === "folder"
     ? `Writes into the skin's folder, ${target.path}`
@@ -2213,7 +2213,7 @@ function renderMix() {
           h(
             "span",
             { class: "pick-source" },
-            [slots ? `${slots} images` : "", values ? `${values} values` : ""]
+            [slots ? plural(slots, "image") : "", values ? plural(values, "value") : ""]
               .filter(Boolean)
               .join(" · ") || "block added",
           ),
@@ -2244,7 +2244,7 @@ function renderMix() {
       ? [h("span", { class: "error" }, composeError)]
       : total || byGroup.size || base
         ? [
-            `${total} files`,
+            plural(total, "file"),
             ...[...counts].map(([key, n]) => ` · ${n} ${skinName(key)}`),
             blanks ? ` · ${blanks} blank` : "",
           ]
@@ -2530,7 +2530,7 @@ async function buildMix(target: Exclude<ExportTarget, "apply">) {
       h(
         "p",
         { class: "ok" },
-        `${built.replaced ? "Replaced" : "Created"} · ${built.files} files`,
+        `${built.replaced ? "Replaced" : "Created"} · ${plural(built.files, "file")}`,
       ),
       h("p", { class: "v-mono v-muted" }, built.path),
     );

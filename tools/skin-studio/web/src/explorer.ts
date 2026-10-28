@@ -4,6 +4,7 @@
 
 import { type AssetRef, assetId, fontPrefixes } from "./assets";
 import { $, h } from "./dom";
+import { plural } from "./plural";
 import { useButtonLabel } from "./draft-labels";
 import {
   type FileInfo,
@@ -368,7 +369,7 @@ export class Explorer {
           type: "button",
           class: "x-folder",
           ariaCurrent: String(!searching && this.#folder === path),
-          title: path === null ? "Every file" : `${path || "Skin root"}: ${direct} files directly here, ${count} with its folders`,
+          title: path === null ? "Every file" : `${path || "Skin root"}: ${plural(direct, "file")} directly here, ${count} with its folders`,
           onclick: () => {
             this.#folder = path;
             this.#filter.value = "";

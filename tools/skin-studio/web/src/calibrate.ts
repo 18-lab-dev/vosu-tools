@@ -22,6 +22,7 @@
 import type { Beatmap } from "@vosu-tools/osu-parse";
 import { scrollPosition } from "@vosu-tools/osu-parse";
 import type { Simulation } from "@vosu-tools/replay";
+import { plural } from "./plural";
 
 /** Lazer units per skin.ini position unit. */
 export const LEGACY_SCALE = 1.6;
@@ -216,14 +217,14 @@ export function holdPlan(release: Offsets, images: HoldImages): HoldPlan {
     return {
       kind: "shift-body",
       up,
-      note: `percy holds (blank tail): the body's end moves ${up >= 0 ? "up" : "down"} ${Math.abs(up)} rows (${direction})${d > 0 && rows > images.bodyTop ? `, limited to its ${images.bodyTop} clear rows` : ""}`,
+      note: `percy holds (blank tail): the body's end moves ${up >= 0 ? "up" : "down"} ${plural(Math.abs(up), "row")} (${direction})${d > 0 && rows > images.bodyTop ? `, limited to its ${plural(images.bodyTop, "clear row")}` : ""}`,
     };
   }
   // Tail rows per lazer unit (notes keep their aspect at the note width).
   const perUnit = images.tailWidth / images.noteWidth;
   if (d > 0) {
     const gap = Math.round(d * perUnit);
-    return { kind: "gap", gap, note: `early releases: lengthen the hold with ${gap} rows before its cap` };
+    return { kind: "gap", gap, note: `early releases: lengthen the hold with ${plural(gap, "row")} before its cap` };
   }
   const early = Math.round(-d * perUnit);
   const spacer = Math.max(1, Math.ceil(2 * Math.max(0, images.capRows - early)));
@@ -232,6 +233,6 @@ export function holdPlan(release: Offsets, images: HoldImages): HoldPlan {
     spacer,
     height: Math.round(BODY_UNITS * perUnit),
     capBottom: Math.floor(spacer / 2) + early,
-    note: `late releases: shorten with percy holds, the cap's bottom edge ${early} rows before the end time`,
+    note: `late releases: shorten with percy holds, the cap's bottom edge ${plural(early, "row")} before the end time`,
   };
 }

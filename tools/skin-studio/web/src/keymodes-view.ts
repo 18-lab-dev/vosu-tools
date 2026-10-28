@@ -44,6 +44,7 @@ import {
 import { frameNames, imageIndex, lookupFiles } from "./mania";
 import { UPLOADS, checkDrop, type DroppedImage } from "./uploads";
 import { HitPanel, type HitHost } from "./hit-panel";
+import { nameParts, roleOrder } from "./picker";
 import { missingSources, recoverSource, sourceFileNames, sourceSlots, type Recovery } from "./missing-sources";
 import { MANIA_COLUMNS, MANIA_FIELDS, columnKey as formKey, setListEntry, type ColumnField, type Field } from "./mania-form";
 import type { Preview, PreviewSource } from "./preview";
@@ -1996,11 +1997,14 @@ export class KeymodesView {
     const hint = pattern ? hintFor(pattern) : null;
     const shown = this.#units.filter((u) => !this.#filter || u.name.toLowerCase().includes(this.#filter));
     const rank = (u: Unit) => (own.has(u.name.toLowerCase()) ? 0 : hint?.test(u.name) ? 1 : 2);
+    // Within a section, osu!mania's own names first (name order otherwise).
+    const section = (n: number) =>
+      shown.filter((u) => rank(u) === n).sort((a, b) => roleOrder(pattern!, a.name) - roleOrder(pattern!, b.name));
     const sections: [string, Unit[]][] = pattern
       ? [
-          [`Used as ${roleLabel(pattern).toLowerCase()} in this skin`, shown.filter((u) => rank(u) === 0)],
-          ["Names that match", shown.filter((u) => rank(u) === 1)],
-          ["Other images", shown.filter((u) => rank(u) === 2)],
+          [`Used as ${roleLabel(pattern).toLowerCase()} in this skin`, section(0)],
+          ["Names that match", section(1)],
+          ["Other images", section(2)],
         ]
       : [["Images", shown]];
     const nodes: Node[] = [];
@@ -2042,7 +2046,9 @@ export class KeymodesView {
         { class: "km-thumb" },
         h("img", { src: this.#host.assetUrl(unit.thumb.skin, unit.thumb.file), alt: "", loading: "lazy", decoding: "async" }),
       ),
-      h("span", { class: "km-tile__name" }, this.#source === UPLOADS ? shownName(unit.name, unit.files) : unit.name),
+      // Cut in the middle: the end tells `mania-note1H` from `mania-note2T`.
+      h("span", { class: "km-tile__name" }, ...nameParts(this.#source === UPLOADS ? shownName(unit.name, unit.files) : unit.name).map((part, i) =>
+        h("span", { class: i ? "km-tile__tail" : "km-tile__head" }, part))),
       h("span", { class: "km-tile__meta" }, meta),
     );
     tile.dataset.index = String(index);
