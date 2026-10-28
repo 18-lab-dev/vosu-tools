@@ -2870,6 +2870,9 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   clearTimeout(composeTimer);
 }
 
+/** The current beatmap's osu!mania key count, from vosu's live subscription (null: none or another ruleset). */
+let beatmapKeys: number | null = null;
+
 const keymodes = new KeymodesView({
   drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
@@ -2947,6 +2950,17 @@ const keymodes = new KeymodesView({
       for (const [keys, draft] of Object.entries(changes)) applyKeymode(Number(keys), draft);
     });
     clearTimeout(composeTimer);
+  },
+  beatmapKeys: () => beatmapKeys,
+  // The Preview's mania key count follows Keymodes.
+  keysChanged: (keys) => {
+    if (!maniaDemo(keys) || previewPrefs.keys === keys) return;
+    previewPrefs.keys = keys;
+    savePreview();
+    if (view === "preview") {
+      renderKeys();
+      preview?.setDemo(demoId());
+    }
   },
 });
 
@@ -3131,8 +3145,15 @@ function subscribe() {
     if (typeof values[1] === "string" && !categoryChosen) follow(values[1]);
     liveClient = values[2] === "stable" || values[2] === "lazer" ? values[2] : null;
     clientScroll.setClient(values[2], values[3]);
+    // A mania beatmap's key count is its converted circle size (converts included).
+    const cs = values[4];
+    const keys = values[1] === "mania" && typeof cs === "number" && cs >= 1 && cs <= 18 ? Math.round(cs) : null;
+    if (keys !== beatmapKeys) {
+      beatmapKeys = keys;
+      keymodes.beatmapChanged();
+    }
   };
-  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania"], onFrame, (state) => {
+  vosu.subscribe(["/folders/skin", "/beatmap/mode/name", "/client", "/settings/mania", "/beatmap/stats/cs/converted"], onFrame, (state) => {
     // Older bridges never report a state; the indicator stays hidden for them.
     live.hidden = dot.hidden = false;
     dot.dataset.state =

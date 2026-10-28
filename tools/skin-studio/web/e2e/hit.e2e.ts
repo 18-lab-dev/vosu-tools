@@ -155,6 +155,11 @@ try {
   await page.click("#use-base");
   await page.click("#tab-keymodes");
   await page.waitForSelector("#km-counts .km-count");
+  // No beatmap and no count viewed before: the last play's (7K) count, which the Preview follows.
+  const shownKeys = () => page.locator('#km-counts .km-count[aria-current="true"] .km-count__name').textContent();
+  const opened = await until(async () => (await shownKeys()) === "7K", "the last play's key count", 30000).then(() => true, () => false);
+  check("Keymodes opens on the last play's key count (7K)", opened, (await shownKeys()) ?? "");
+  check("The Preview's mania key count follows Keymodes", (await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:preview") ?? "{}").keys)) === 7);
   await pick(7);
   // Hit position and LN length start collapsed; they stay open while the page does.
   for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();

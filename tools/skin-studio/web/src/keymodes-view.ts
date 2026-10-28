@@ -18,6 +18,7 @@ import {
   type ManiaImageResolution,
 } from "@vosu-tools/render-core/mania";
 import { readSkinIni } from "@vosu-tools/render-core/skin-ini";
+import { maniaColumns, parseOsu } from "@vosu-tools/osu-parse";
 import { $, h } from "./dom";
 import {
   COLUMN_ROLES,
@@ -81,6 +82,8 @@ const MIX = "mix:";
 /** The `data-row` of stage-wide image slots (after the column roles and 4 value rows). */
 const SHARED_ROW = COLUMN_ROLES.length + 4;
 const DRAG_TYPE = "application/x-skin-studio-image";
+/** The key count viewed last on this screen (Keymodes opens on it when no beatmap says otherwise). */
+const VIEWED_KEYS = "skin-studio:keymodes-keys";
 /**
  * An image as the user knows it: its file name (`drop-note.png`), without
  * the folder (dropped files sit in a folder per drop) or a frame number.
@@ -127,6 +130,10 @@ export interface KeymodesHost {
   setSpeed: HitHost["setSpeed"];
   /** Commits these key counts as one whole-recipe undo step. */
   edit(label: string, changes: Record<string, KeymodeDraft | undefined>): void;
+  /** The current beatmap's osu!mania key count (null: none, or another ruleset). */
+  beatmapKeys(): number | null;
+  /** The shown key count changed (the Preview's mania key count follows it). */
+  keysChanged(keys: number): void;
 }
 
 /** An image the picker offers. */
@@ -221,6 +228,12 @@ export class KeymodesView {
   /** Copy from's skin and key count were chosen by the user (else they follow the shown stage). */
   #copyPicked = false;
   #copyKeysPicked = false;
+  /** Opened once (the first open picks the key count), a count picked here, the count the studio was told. */
+  #opened = false;
+  #userPicked = false;
+  #announced = 0;
+  /** The last play's key count, once read (a fallback when nothing else says which count to show). */
+  #playKeys = 0;
   #dragged: { unit: Unit; source: string } | null = null;
   #preview?: Preview;
   #previewLoading?: Promise<Preview | undefined>;
@@ -466,6 +479,7 @@ export class KeymodesView {
     const counts = this.#counts().filter((k) => DRAWN.includes(k));
     const next = counts[counts.indexOf(this.#keys) + step];
     if (next === undefined) return;
+    this.#userPicked = true;
     this.#select(next);
     this.#state(`${next}K`);
   }
@@ -529,6 +543,12 @@ export class KeymodesView {
       await this.#preview?.show(false);
       return;
     }
+    if (!this.#opened) {
+      this.#opened = true;
+      const unknown = !this.#host.beatmapKeys() && !localStorage.getItem(VIEWED_KEYS);
+      this.#follow();
+      if (unknown) void this.#showPlayKeys();
+    }
     this.refresh();
     if (this.#source === MIX || !this.#units.length)
       await this.#openSource(this.#source);
@@ -538,12 +558,54 @@ export class KeymodesView {
     await preview.show(true);
   }
 
+  /**
+   * The key count to show when none is chosen: the current beatmap's, else
+   * the one viewed last, else the last play's (read on the first open), else
+   * the first drawn.
+   */
+  #preferred(counts: number[]) {
+    const drawn = counts.filter((k) => DRAWN.includes(k));
+    const viewed = Number(localStorage.getItem(VIEWED_KEYS));
+    for (const keys of [this.#host.beatmapKeys(), viewed, this.#playKeys])
+      if (keys && drawn.includes(keys)) return keys;
+    return drawn[0] ?? counts[0] ?? 0;
+  }
+  /** Shows the preferred key count (a new beatmap, the first open). */
+  #follow() {
+    const keys = this.#preferred(this.#counts());
+    if (keys) this.#select(keys);
+    this.#announce();
+  }
+  /** A new current beatmap: Keymodes opens on its key count, unless the user is choosing one here. */
+  beatmapChanged() {
+    if (this.#host.beatmapKeys() && (!this.#visible || !this.#userPicked)) this.#follow();
+  }
+  /**
+   * First open with no beatmap and no count viewed before: the last play's
+   * key count, shown when it arrives unless the user picked one (the mix may
+   * not have composed yet: then {@link refresh} prefers it).
+   */
+  async #showPlayKeys() {
+    try {
+      this.#playKeys = maniaColumns(parseOsu((await this.#host.lastPlay()).osu));
+    } catch {
+      return;
+    }
+    if (!this.#userPicked && DRAWN.includes(this.#playKeys) && this.#counts().includes(this.#playKeys)) {
+      this.#select(this.#playKeys);
+      this.#announce();
+    }
+  }
+
   /** Re-reads the mix (after a compose or an edit of its skin.ini). */
   refresh() {
     this.#renderMissing();
     const counts = this.#counts();
-    if (!counts.includes(this.#keys))
-      this.#keys = counts.find((k) => DRAWN.includes(k)) ?? counts[0] ?? 0;
+    if (!counts.includes(this.#keys)) this.#keys = this.#preferred(counts);
+    if (this.#visible) {
+      this.#announce();
+      if (this.#keys) localStorage.setItem(VIEWED_KEYS, String(this.#keys));
+    }
     const files = this.#host.mixFiles();
     this.#mixIndex = imageIndex([...files.keys()]);
     this.#resolved = this.#keys
@@ -562,6 +624,17 @@ export class KeymodesView {
     this.#syncPreview();
     if (this.#source === MIX) void this.#openSource(MIX);
     else this.#renderSources();
+  }
+
+  /**
+   * Tells the studio the key count shown or followed (a beatmap's, the last
+   * play's): the Preview's mania key count follows it. A count picked while
+   * nothing is known (hidden, first drawn) is not announced.
+   */
+  #announce() {
+    if (this.#keys === this.#announced) return;
+    this.#announced = this.#keys;
+    if (this.#keys) this.#host.keysChanged(this.#keys);
   }
 
   #select(keys: number) {
@@ -608,7 +681,10 @@ export class KeymodesView {
             title: drawn
               ? ""
               : "Dual-stage layouts are not supported by render-core's preview yet",
-            onclick: () => this.#select(keys),
+            onclick: () => {
+              this.#userPicked = true;
+              this.#select(keys);
+            },
           },
           this.#miniStage(text, keys),
           h("span", { class: "km-count__name" }, `${keys}K`),
