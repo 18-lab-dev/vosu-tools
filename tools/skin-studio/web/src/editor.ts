@@ -416,12 +416,22 @@ export async function createIniEditor(
       event.preventDefault();
       event.stopImmediatePropagation();
       dragged = true;
-      const selections = [];
-      for (let line = Math.min(anchor.lineNumber, end.lineNumber); line <= Math.max(anchor.lineNumber, end.lineNumber); line++) {
-        const max = model.getLineMaxColumn(line);
-        selections.push(new monaco.Selection(line, Math.min(anchor.column, max), line, Math.min(end.column, max)));
+      // Hit-test each visual row at the two screen X coordinates. Reusing
+      // model columns would turn a zero-width box into a destructive range
+      // across tabs, wide glyphs or wrapped lines.
+      const origin = editor.getDomNode()!.getBoundingClientRect();
+      const from = editor.getScrolledVisiblePosition(anchor);
+      const to = editor.getScrolledVisiblePosition(end);
+      if (!from || !to) return;
+      const height = editor.getOption(monaco.editor.EditorOption.lineHeight);
+      const selections: monaco.Selection[] = [];
+      for (let top = Math.min(from.top, to.top); top <= Math.max(from.top, to.top); top += height) {
+        const y = origin.top + top + height / 2;
+        const start = editor.getTargetAtClientPoint(down.clientX, y)?.position;
+        const finish = editor.getTargetAtClientPoint(event.clientX, y)?.position;
+        if (start && finish) selections.push(monaco.Selection.fromPositions(start, finish));
       }
-      editor.setSelections(selections);
+      if (selections.length) editor.setSelections(selections);
     };
     const stop = (event: PointerEvent) => {
       if (event.pointerId !== down.pointerId) return;
