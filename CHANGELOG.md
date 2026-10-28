@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Skin studio's Keymodes picker reuses one image inventory index across its units, keeping large-skin geometry refreshes linear instead of rebuilding the complete index once per image. Programmatic publication no longer schedules a duplicate delayed skin decode and texture upload.
+- Skin studio's Keymodes picker reuses one image inventory index across its units, keeping large-skin geometry refreshes linear instead of rebuilding the complete index once per image. Composition normalizes retained-image filenames and compiles each reference matcher once. Programmatic publication no longer schedules a duplicate delayed skin decode and texture upload.
 - Returning Keymodes geometry preferences to their defaults removes empty inherited count drafts and their dirty state, while explicitly added key counts remain present. Undo/Redo preserves the exact prior recipe.
 - Skin studio captures one draft recipe/text generation across composition, plan and Apply. Stale loading work is rejected; Apply completion retains newer edits and their undo/redo history. Save and focus responses cannot cross source/request identities, including A → B → A.
 - Group and single-asset picks now update their owned ini keys even after hand editing the draft, preserving unrelated values/comments. Tab-aligned Alt-box selection uses visual columns rather than model character offsets.

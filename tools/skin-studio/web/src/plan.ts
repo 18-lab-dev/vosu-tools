@@ -127,6 +127,7 @@ export const maniaKeyCounts = (skin: SkinData) =>
 function referenced(
   files: string[],
   pairs: { section: string; key: string; value: string }[],
+  images = files.filter((file) => imageExt.test(file)).map((file) => [file, stem(file)] as const),
 ): string[] {
   const out = new Set<string>();
   for (const { section, key, value } of pairs) {
@@ -134,13 +135,12 @@ function referenced(
     if (type !== "image" && type !== "prefix") continue;
     const target = value.replace(/\\/g, "/").replace(/^\/+/, "").toLowerCase();
     if (!target || target.includes("..")) continue;
-    for (const file of files) {
-      if (!imageExt.test(file)) continue;
-      const s = stem(file);
+    const numbered = type === "image" ? new RegExp(`^${escape(target)}-?\\d+$`) : undefined;
+    for (const [file, s] of images) {
       if (
         type === "prefix"
           ? s.startsWith(`${target}-`)
-          : s === target || new RegExp(`^${escape(target)}-?\\d+$`).test(s)
+          : s === target || numbered!.test(s)
       )
         out.add(file);
     }
@@ -407,12 +407,13 @@ export function compose(
   // instead of drawing its built-in look.
   if (base) {
     const have = present(out);
+    const images = base.files.filter((file) => imageExt.test(file)).map((file) => [file, stem(file)] as const);
     for (const section of ini)
       for (const e of entries([section], section.name, /.*/)) {
         if (resolve(section.name, e.key)?.type !== "image") continue;
         const target = imageValue(e.value);
         if (!target || target.includes("..") || have.has(target)) continue;
-        const files = referenced(base.files, [{ section: section.name, ...e }]);
+        const files = referenced(base.files, [{ section: section.name, ...e }], images);
         for (const from of files)
           out.set(from.toLowerCase(), { skin: base.key, from });
         if (files.length) have.add(target);
