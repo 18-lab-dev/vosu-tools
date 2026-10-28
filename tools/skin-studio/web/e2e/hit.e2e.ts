@@ -584,7 +584,7 @@ try {
   await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').blur();
   check("Full image-unit fixture is active before calibration", await page.evaluate((expected: string) => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from === expected, seededUnits[0].files[0].from));
   await page.click("#km-calibrate-ln");
-  await until(() => page.locator("#km-ln .km-hit__play").filter({ hasText: "Sheriruth" }).count(), "real replay for full image units", 120000);
+  await until(async () => (await page.locator("#km-play").textContent())?.includes("Sheriruth") && (await page.locator("#km-ln").textContent())?.includes("You released"), "real replay for full image units", 120000);
   const beforeUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
   await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from)) !== seededUnits[0].files[0].from, "complete units calibrated");
