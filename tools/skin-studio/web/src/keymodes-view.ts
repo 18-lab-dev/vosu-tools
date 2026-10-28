@@ -951,7 +951,7 @@ export class KeymodesView {
       const pickerHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: pickerTip });
       pickerHelp.dataset.tip = pickerTip;
       pickerHelp.dataset.tipPos = "left";
-      const keepTip = "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery is undoable per key count.";
+      const keepTip = "Keep uses retained uploads at their current geometry; future resizing may resample them and cannot restore cropped pixels. Without a retained image, remap or remove is required. Recovery of all affected key counts is one undo step.";
       const keepHelp = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: keepTip });
       keepHelp.dataset.tip = keepTip;
       keepHelp.dataset.tipPos = "left";
@@ -982,11 +982,7 @@ export class KeymodesView {
           }
           if (changes.some(({ keys, generation }) => this.#host.generation(keys) !== generation))
             throw new Error("The draft changed while recovery was loading; recovery was not applied.");
-          for (const { keys, draft } of changes)
-            this.#change(`${recovery.kind} missing source ${source.name} (${keys}K)`, (after) => {
-              for (const key of Object.keys(after)) delete after[key as keyof KeymodeDraft];
-              Object.assign(after, draft);
-            }, keys);
+          this.#host.edit(`${recovery.kind} missing source ${source.name}`, Object.fromEntries(changes.map(({ keys, draft }) => [String(keys), draft])));
           this.#renderMissing();
         } catch (error) {
           recoveryError.textContent = error instanceof Error ? error.message : String(error);

@@ -314,6 +314,27 @@ try {
       await resize("42");
       check(`width changes succeed after ${kind}`, !(await page.locator("#km-error").isVisible()));
     }
+    for (const [label, kind] of [["Remap", "remap"], ["Keep derived images", "keep"], ["Remove slots", "remove"]]) {
+      const multiple = JSON.parse(saved);
+      const seven = multiple.keymodes["7"];
+      multiple.keymodes["4"] = {
+        images: { KeyImage0: seven.images.KeyImage0 },
+        values: { ColumnWidth: "40,40,40,40", HitPosition: seven.values.HitPosition },
+        hit: { ...seven.hit, originals: { KeyImage0: seven.hit.originals.KeyImage0 } },
+      };
+      await page.evaluate((value) => localStorage.setItem("skin-studio:recipe", value), JSON.stringify(multiple));
+      await page.reload(); await page.click("#tab-keymodes"); await pick(7);
+      await until(async () => await banner.isVisible(), "multi-count missing source");
+      const before = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+      await banner.getByRole("button", { name: label, exact: true }).click();
+      await until(async () => !(await banner.isVisible()), `${kind} recovers all key counts`);
+      const after = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+      await page.click("#km-undo");
+      await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === before, `${kind} one undo restores every key count`);
+      check(`${kind} recovery across 4K and 7K is one exact undo step`, true);
+      await page.click("#km-redo");
+      await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === after, `${kind} one redo restores all recovered key counts`);
+    }
     // Existing drafts cannot recover a deleted name or hash from an absent Realm row.
     const legacy = JSON.parse(saved);
     const oldOriginal = legacy.keymodes["7"].hit.originals.KeyImage0;
