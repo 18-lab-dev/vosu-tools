@@ -191,6 +191,36 @@ try {
   check("7K rows from the base's block", (await page.locator("#km-grid .km-slot").count()) === 7 * 6);
   check("7K note resolves from skin.ini", (await label("NoteImage1"))?.includes("NoteImage1: mania/circles-7k/mauve") ?? false, await label("NoteImage1") ?? "");
 
+  // ── The 1/2/S pattern sets only the slots it changes ────────────────────
+  // The base's 7K already follows 1/2/S. With column 1's note changed, the
+  // pattern changes columns 3, 5 and 7's notes; no other slot may get the
+  // "set here" dot.
+  const pristine = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  const slotMarks = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>("#km-grid .km-slot[data-key]")].map((el) => [
+    el.dataset.key!,
+    { set: el.classList.contains("km-slot--set"), shows: (el.getAttribute("aria-label") ?? "").replace(/ · set here$/, "") },
+  ])));
+  await source(opt.notes!);
+  await slot("NoteImage0").click();
+  await tile("mania/circles-7k/mauve").click();
+  await waitLabel("NoteImage0", "mania/7k/mauve");
+  const beforePattern = await slotMarks();
+  await page.click(".km-copy-menu > summary");
+  await page.click("#km-pattern");
+  await page.click(".km-copy-menu > summary");
+  await waitLabel("NoteImage2", "mania/7k/mauve");
+  const afterPattern = await slotMarks();
+  const patterned = Object.keys(afterPattern).filter((key) => afterPattern[key].shows !== beforePattern[key]?.shows);
+  const strayDots = Object.keys(afterPattern).filter((key) => afterPattern[key].set && !beforePattern[key]?.set && !patterned.includes(key));
+  check(
+    "The 1/2/S pattern marks only the slots it changes (no set-here dot on unchanged slots)",
+    patterned.join() === "NoteImage2,NoteImage4,NoteImage6" && patterned.every((key) => afterPattern[key].set) && !strayDots.length,
+    `changed ${patterned.join(", ") || "none"}; stray dots ${strayDots.join(", ") || "none"}`,
+  );
+  await page.click("#km-undo");
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === pristine, "undo the pattern check");
+
   const copyFrom = async (skin: string, keys: number) => {
     await page.click(".km-copy-menu > summary");
     await page.selectOption("#km-copy-skin", { label: skin });
