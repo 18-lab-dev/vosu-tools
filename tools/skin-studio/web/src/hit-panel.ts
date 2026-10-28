@@ -223,7 +223,7 @@ export class HitPanel {
    * calibration read, as labels; its replay file and date are in the title.
    */
   #renderPlay() {
-    const root = $("#km-play");
+    const root = $("#km-last-play");
     const c = this.#lastRead;
     root.hidden = !c || !this.#host.keys();
     if (!c) return root.replaceChildren();
@@ -234,14 +234,14 @@ export class HitPanel {
       h("span", { class: "v-label" }, "Last play"),
       h(
         "span",
-        { class: "km-play__map", title: [c.play.source, date.absolute].filter(Boolean).join("\n") },
+        { class: "km-last-play__map", title: [c.play.source, date.absolute].filter(Boolean).join("\n") },
         `${meta.Artist ?? "?"} - ${meta.Title ?? "?"} [${meta.Version ?? "?"}]`,
       ),
-      h("span", { class: "v-muted km-play__meta" }, `${c.keys}K · osu!${c.play.client} · speed ${c.speed.speed} · ${date.relative}`),
+      h("span", { class: "v-muted km-last-play__meta" }, `${c.keys}K · osu!${c.play.client} · speed ${c.speed.speed} · ${date.relative}`),
       ...(date.stale
         ? [h(
             "span",
-            { class: "km-play__old" },
+            { class: "km-last-play__old" },
             "Older play",
             helpTip("Only completed, saved osu!mania scores with replays are read: this may not be your latest attempt.", "left"),
           )]

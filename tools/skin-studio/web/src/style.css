@@ -1611,7 +1611,7 @@
   letter-spacing: normal;
 }
 /* The play both calibrations read, once, above their groups. */
-.km-play {
+.km-last-play {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
@@ -1619,15 +1619,15 @@
   margin-top: var(--space-3);
   font-size: var(--step--1);
 }
-.km-play[hidden] {
+.km-last-play[hidden] {
   display: none;
 }
-.km-play__map {
+.km-last-play__map {
   min-width: 0;
   font-weight: 600;
   overflow-wrap: anywhere;
 }
-.km-play__old {
+.km-last-play__old {
   display: inline-flex;
   gap: var(--space-1);
   align-items: center;

@@ -196,18 +196,19 @@ try {
 
   // ── Calibrate receptors from the last play (7K, osu!stable) ─────────────
   await page.click("#km-calibrate");
-  await until(async () => !(await page.locator("#km-play").isHidden()) && (await page.locator("#km-hit").textContent())?.includes("You pressed"), "proposal", 120000);
+  await until(async () => !(await page.locator("#km-last-play").isHidden()) && (await page.locator("#km-hit").textContent())?.includes("You pressed"), "proposal", 120000);
   const proposal = (await page.locator("#km-hit").textContent()) ?? "";
-  const lastPlay = (await page.locator("#km-play").textContent()) ?? "";
-  const playTitle = (await page.locator("#km-play .km-play__map").getAttribute("title")) ?? "";
+  const lastPlay = (await page.locator("#km-last-play").textContent()) ?? "";
+  const playTitle = (await page.locator("#km-last-play .km-last-play__map").getAttribute("title")) ?? "";
   check("Last play names the play, its key count and speed as labels; the replay file is in its title", /Last play\s*MYUKKE\. - FULi AUTO BUSTER \[Ignition x1\.1\]\s*7K · osu!stable · speed 24 · \d+ days ago/.test(lastPlay) && /^Data\/r\/09be4f5b/.test(playTitle) && !lastPlay.includes("Data/r"), lastPlay);
   const press = /You pressed 6.5 ms early on average \(mean -6.5 ms ± [\d.]+ over 2,420 hits\) → receptors down 8 px so you press later \(HitPosition 455 → 460\)/.exec(proposal);
   check("Early presses correct down: 455 → 460 (deliberately reverses 0.4.x)", !!press, press?.[0] ?? proposal);
   check("Hit calibration alone does not propose LN changes", !(await page.locator("#km-hit").textContent())?.includes("You released") && !(await page.locator("#km-ln").textContent())?.includes("You released"));
-  check("Play age is relative and stale attempts are labelled", lastPlay.includes("Older play") && await page.locator("#km-play .km-play__old .v-help").count() === 1);
+  check("Play age is relative and stale attempts are labelled", lastPlay.includes("Older play") && await page.locator("#km-last-play .km-last-play__old .v-help").count() === 1);
   await page.click("#km-calibrate-ln");
   await until(async () => (await page.locator("#km-ln").textContent())?.includes("You released"), "independent LN proposal", 120000);
-  check("Both calibrations share one Last play block", await page.locator("#km-play").count() === 1 && (await page.locator("#km-play").textContent()) === lastPlay && !(await page.locator("#km-hit, #km-ln").allTextContents()).join("").includes("Last play"));
+  check("Both calibrations share one Last play block", await page.locator("#km-last-play").count() === 1 && (await page.locator("#km-last-play").textContent()) === lastPlay && !(await page.locator("#km-hit, #km-ln").allTextContents()).join("").includes("Last play"));
+  check("The stage Play button keeps its label (ids are unique)", (await page.locator("#km-play").count()) === 1 && (await page.locator("#km-play").textContent())?.trim() === "Play");
   check("LN group has no press proposal", !(await page.locator("#km-ln").textContent())?.includes("You pressed"));
   const sevenReleases = (await page.locator("#km-ln").textContent()) ?? "";
   check("7K LN proposal reports used/excluded releases", /\d+ of \d+ hold releases used/.test(sevenReleases) && /\d+ excluded \(\d+ early, \d+ late\)/.test((await page.locator("#km-ln .v-help").first().getAttribute("aria-label")) ?? ""), sevenReleases);
@@ -249,7 +250,7 @@ try {
   await pick(4);
   const before4 = await label("NoteImage0L");
   await page.click("#km-calibrate-ln");
-  await until(async () => (await page.locator("#km-play").textContent())?.includes("Sheriruth") && (await page.locator("#km-ln").textContent())?.includes("You released"), "4K proposal", 120000);
+  await until(async () => (await page.locator("#km-last-play").textContent())?.includes("Sheriruth") && (await page.locator("#km-ln").textContent())?.includes("You released"), "4K proposal", 120000);
   const tails = (await page.locator("#km-ln").textContent()) ?? "";
   const release = /You released ([\d.]+) ms late on average \(mean \+?[\d.]+ ms ± [\d.]+ over ([\d,]+) holds\) → LNs [\d.]+ px shorter so you release earlier/.exec(tails);
   check("Rate mods: DT play judged in real ms; late releases shorten LNs", !!release && release[1] === "5.1" && release[2] === "424", release?.[0] ?? tails.slice(0, 300));
@@ -584,7 +585,7 @@ try {
   await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').blur();
   check("Full image-unit fixture is active before calibration", await page.evaluate((expected: string) => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from === expected, seededUnits[0].files[0].from));
   await page.click("#km-calibrate-ln");
-  await until(async () => (await page.locator("#km-play").textContent())?.includes("Sheriruth") && (await page.locator("#km-ln").textContent())?.includes("You released"), "real replay for full image units", 120000);
+  await until(async () => (await page.locator("#km-last-play").textContent())?.includes("Sheriruth") && (await page.locator("#km-ln").textContent())?.includes("You released"), "real replay for full image units", 120000);
   const beforeUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
   await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
   await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from)) !== seededUnits[0].files[0].from, "complete units calibrated");
