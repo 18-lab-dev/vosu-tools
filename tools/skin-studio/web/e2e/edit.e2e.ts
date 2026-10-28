@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// End-to-end check of editing a skin in place (Skin studio's default) on a
+// End-to-end check of applying the draft to its base skin in place (Apply) on a
 // writable copy of a real stable skin, in an isolated vosu
 // (`vosu --tool tools/skin-studio`): private network namespace, a /dev without
 // GPU nodes (Chromium draws with SwiftShader), private /tmp, hidden
@@ -174,13 +174,13 @@ try {
   const originalIni = readFileSync(join(EDITED, "skin.ini"));
   const mod = process.platform === "darwin" ? "Meta" : "Control";
 
-  // ── Edit in place is the default; with no client, choose the skin ──────────
-  check("Current skin mode by default", (await page.locator("#mode-current").getAttribute("aria-pressed")) === "true");
-  check("Without a client: no current skin, how to choose one", ((await page.locator("#edit-where").textContent()) ?? "").includes("Edit this skin"));
+  // ── One draft; with no client it follows no skin until one is chosen ──────
+  const baseShown = async () => (await page.locator("#mix-base option:checked").textContent()) ?? "";
+  check("Without a client the draft's base follows osu!, which reports no skin", (await baseShown()) === "Follow osu! · no skin reported", await baseShown());
   await page.locator("#skins .skin", { hasText: opt.skin! }).click();
   await page.click("#use-base");
-  await until(async () => ((await page.locator("#edit-target").textContent()) ?? "").startsWith(opt.skin!), "target");
-  check("Edit this skin sets the target", true);
+  await until(async () => (await baseShown()).startsWith(opt.skin!), "base");
+  check("Use as mix base sets the base Apply writes into", true);
 
   // ── Keymodes: Ctrl+click, Shift+click, Shift+arrows, Ctrl+A, Esc ──────────
   await page.click("#tab-keymodes");
@@ -278,7 +278,7 @@ try {
   await page.waitForSelector("#skins .skin");
   await page.click("#tab-keymodes");
   await pick(7);
-  check("Apply to current skin is the default export choice", (await page.locator("#export-target").inputValue()) === "apply");
+  check("Apply to the base skin is the default export choice", (await page.locator("#export-target").inputValue()) === "apply");
   await until(async () => !(await page.locator("#export-run").isDisabled()), "apply enabled", 30000);
   answer = true;
   await page.click("#export-run");

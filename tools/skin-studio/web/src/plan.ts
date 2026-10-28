@@ -1,7 +1,7 @@
 // Composes a mix recipe into the service's build plan: which files to copy
 // from which skin, which elements to blank, and the merged skin.ini.
 
-import { resolve } from "@vosu-tools/skin-spec";
+import { parse, resolve } from "@vosu-tools/skin-spec";
 import {
   maniaConfig,
   maniaImageKeys,
@@ -69,13 +69,17 @@ export interface Recipe {
   /** The Keymodes screen's slots and values per key count; they win over both. */
   keymodes?: Keymodes;
   /**
-   * Edit in place: the skin.ini text when edited by hand (the draft keeps it
-   * across reloads until applied or discarded).
+   * The draft skin.ini text when edited by hand (kept across reloads until
+   * applied or discarded).
    */
   ini?: string;
-  /** Edit in place: the user chose this skin, so it does not follow osu!'s. */
+  /** The user chose the base (or none), so it does not follow osu!'s skin. */
   pinned?: boolean;
-  /** Edit in place: the base is the skin itself, its [General] untouched. */
+  /**
+   * Composed for its base itself (Apply to base skin): the base keeps its
+   * [General]. Also marks an edit-in-place draft from before the single
+   * draft, kept aside until the user opens or discards it.
+   */
   inPlace?: boolean;
 }
 export type FileMap = string | [string, string];
@@ -227,6 +231,28 @@ export const hasEdits = (recipe: Recipe) =>
   !!Object.keys(recipe.overrides ?? {}).length ||
   Object.values(recipe.keymodes ?? {}).some((d) => !!d) ||
   recipe.ini !== undefined;
+
+/**
+ * A hand-edited draft skin.ini applied to its base in place: the lines the
+ * composer wrote to name a new skin (`[General]` Name set to the draft's
+ * name, Version added as `latest`) take the base's own values again, or are
+ * left out where the base has none. Lines edited to anything else stay.
+ */
+export function keepGeneral(text: string, baseText: string, name: string): string {
+  const own = new Map<string, string>();
+  for (const line of parse(baseText).lines)
+    if (line.section === "General" && line.key && !own.has(line.key.toLowerCase()))
+      own.set(line.key.toLowerCase(), line.value ?? "");
+  const composed: Record<string, string> = { name: name.trim(), version: "latest" };
+  return parse(text)
+    .lines.flatMap((line) => {
+      const key = line.section === "General" ? line.key?.toLowerCase() : undefined;
+      if (!key || !(key in composed) || line.value !== composed[key]) return [line.raw + line.eol];
+      const value = own.get(key);
+      return value === undefined ? [] : [line.raw.slice(0, (line.valueColumn ?? 1) - 1) + value + line.eol];
+    })
+    .join("");
+}
 
 export interface Composed {
   plan: Plan;

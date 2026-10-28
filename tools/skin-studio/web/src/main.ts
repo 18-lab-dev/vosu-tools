@@ -30,6 +30,7 @@ import {
   groupFiles,
   hasEdits,
   inPlaceRemovals,
+  keepGeneral,
   maniaGroup,
   maniaKeyCounts,
   recipeSkins,
@@ -58,7 +59,8 @@ import {
   uploadUsage,
   type UploadFile,
 } from "./uploads";
-import { touchedKeys, type KeymodeDraft } from "./keymodes";
+import { History, touchedKeys, type DraftStep, type KeymodeDraft } from "./keymodes";
+import { SHEET, shortcut, typesText } from "./shortcuts";
 import { sourceSlots } from "./missing-sources";
 import {
   canWrite,
@@ -178,32 +180,47 @@ let lastPlan: Plan | null = null;
 let mixVersion = 0;
 let currentSkinName: string | null = null;
 
-// Two drafts: "current" edits a skin in place (by default the one osu! uses;
-// its `base` is that skin), "new" mixes a new skin. Each holds only skin
+// One mix draft, based by default on the skin osu! uses (it follows osu!
+// until it holds edits or the user chooses a base). It holds only skin
 // names/paths the user picked and the edits; never sessions. Nothing is
-// written to a skin until Apply changes (or an export).
-type EditMode = "current" | "new";
+// written to a skin until an export (Apply to base skin included).
 const RECIPE_KEY = "skin-studio:recipe";
-const EDIT_KEY = "skin-studio:edit";
-const MODE_KEY = "skin-studio:mode";
-const readRecipe = (key: string, fallback: Recipe): Recipe => {
+/** A second draft kept aside, offered by the Mix panel (Open swaps, Discard drops). */
+const SAVED_KEY = "skin-studio:saved-draft";
+const readRecipe = (text: string | null): Recipe | null => {
   try {
-    const stored = JSON.parse(localStorage.getItem(key) ?? "null");
-    if (stored && typeof stored.name === "string" && stored.picks)
-      return stored as Recipe;
+    const stored = JSON.parse(text ?? "null");
+    if (stored && typeof stored.name === "string" && stored.picks) return stored as Recipe;
   } catch {
-    /* fall through to a fresh recipe */
+    /* not a draft */
   }
-  return fallback;
+  return null;
 };
-let editMode: EditMode =
-  localStorage.getItem(MODE_KEY) === "new" ? "new" : "current";
-const recipes: Record<EditMode, Recipe> = {
-  new: readRecipe(RECIPE_KEY, { name: "My mix", base: null, picks: {} }),
-  current: readRecipe(EDIT_KEY, { name: "", base: null, picks: {} }),
-};
-recipes.current.inPlace = true;
-let recipe: Recipe = recipes[editMode];
+let recipe: Recipe = readRecipe(localStorage.getItem(RECIPE_KEY)) ?? { name: "My mix", base: null, picks: {} };
+let savedDraft: Recipe | null = readRecipe(localStorage.getItem(SAVED_KEY));
+/**
+ * Before the single draft there were two, chosen by a Current skin / New
+ * skin switch (`skin-studio:mode`): the new-mix draft (this key) and an
+ * edit-in-place draft (`skin-studio:edit`). The new-mix draft stays the
+ * draft, keeping the base it chose (or none). An in-place draft with edits
+ * is kept aside as the saved draft, which the Mix panel offers to open or
+ * discard; an empty one held nothing to keep.
+ */
+{
+  const mode = localStorage.getItem("skin-studio:mode");
+  const legacyEdit = localStorage.getItem("skin-studio:edit");
+  if (mode !== null || legacyEdit !== null) {
+    if (recipe.base || hasEdits(recipe)) recipe.pinned = true;
+    const edit = readRecipe(legacyEdit);
+    if (edit && hasEdits(edit)) {
+      savedDraft = { ...edit, inPlace: true };
+      localStorage.setItem(SAVED_KEY, JSON.stringify(savedDraft));
+    }
+    localStorage.setItem(RECIPE_KEY, JSON.stringify(recipe));
+    localStorage.removeItem("skin-studio:edit");
+    localStorage.removeItem("skin-studio:mode");
+  }
+}
 const persist = () => {
   const keys = new Set(recipeSkins(recipe));
   for (const draft of Object.values(recipe.keymodes ?? {}))
@@ -214,10 +231,7 @@ const persist = () => {
     const source = library?.skins.find((skin) => skin.key === key);
     if (source) recipe.sourceInfo[key] = { name: source.name, contentHash: source.content_hash ?? undefined };
   }
-  localStorage.setItem(
-    editMode === "new" ? RECIPE_KEY : EDIT_KEY,
-    JSON.stringify(recipe),
-  );
+  localStorage.setItem(RECIPE_KEY, JSON.stringify(recipe));
 };
 
 const toolBase = `/tools/${encodeURIComponent(vosu.tool.id)}/api/`;
@@ -336,8 +350,8 @@ function renderIni() {
   const model = iniMode === "focus" ? focusDoc : mixDoc;
   iniEditor?.show(model);
   const loadedFocus = focused ? loaded.get(focused) : undefined;
-  // The skin being edited in place changes only through the draft.
-  const drafted = editMode === "current" && !!focused && focused === recipe.base;
+  // The draft's base changes through the draft while it holds edits.
+  const drafted = !!focused && focused === recipe.base && hasEdits(recipe);
   const writable =
     iniMode === "focus" &&
     !!loadedFocus?.snapshot.writable &&
@@ -346,7 +360,6 @@ function renderIni() {
   iniEditor?.setReadOnly(iniMode === "focus" && !writable);
   $("#ini-focus").setAttribute("aria-pressed", String(iniMode === "focus"));
   $("#ini-mix").setAttribute("aria-pressed", String(iniMode === "mix"));
-  $("#ini-mix").textContent = editMode === "current" ? "Draft" : "Mix draft";
   save.hidden = reload.hidden = iniMode !== "focus";
   $("#ini-reset").hidden = iniMode !== "mix" || !mixEdited();
   save.disabled = !writable || saving || conflict || !focusDirty();
@@ -676,23 +689,10 @@ function renderFocus() {
         .join(" · ")
     : "";
   const useBase = $<HTMLButtonElement>("#use-base");
-  useBase.disabled = !focused || (editMode === "current" && !editable(skin));
-  useBase.setAttribute(
-    "aria-pressed",
-    String(!!focused && recipe.base === focused),
-  );
-  useBase.textContent =
-    editMode === "current"
-      ? recipe.base === focused && focused
-        ? "Editing this skin"
-        : "Edit this skin"
-      : recipe.base === focused && focused
-        ? "Mix base"
-        : "Use as mix base";
-  useBase.title =
-    editMode === "current" && skin && !editable(skin)
-      ? ".osk files and dropped files are read-only: switch to New skin to mix from them"
-      : "";
+  const isBase = !!focused && recipe.base === focused;
+  useBase.disabled = !focused || !skin?.available;
+  useBase.setAttribute("aria-pressed", String(isBase));
+  useBase.textContent = isBase ? "Mix base" : "Use as mix base";
   const focusOsk = $<HTMLButtonElement>("#focus-osk");
   focusOsk.disabled = !entry || !canWrite();
   focusOsk.title = canWrite() ? "" : "Read-only tab";
@@ -816,13 +816,12 @@ function tiles(data: SkinData, owned: string[], fonts: boolean): Node[] {
 /** Takes one asset from a skin into the mix, or drops it when it already is. */
 function useAsset(ref: AssetRef, skin: string) {
   const id = assetId(ref);
-  recipe.overrides ??= {};
-  if (recipe.overrides[id]?.skin === skin) delete recipe.overrides[id];
-  else recipe.overrides[id] = { skin };
-  persist();
-  renderGroups();
-  renderMix();
-  scheduleCompose();
+  const taken = recipe.overrides?.[id]?.skin === skin;
+  edit(`${taken ? "drop" : "take"} ${ref.name}${taken ? "" : ` from ${skinName(skin)}`}`, () => {
+    recipe.overrides ??= {};
+    if (taken) delete recipe.overrides[id];
+    else recipe.overrides[id] = { skin };
+  });
 }
 
 /** The "Use in mix" toggle of a tile. */
@@ -958,12 +957,10 @@ function pickLabel(pick: Pick | undefined) {
 }
 
 function setPick(id: string, pick: Pick | null) {
-  if (pick) recipe.picks[id] = pick;
-  else delete recipe.picks[id];
-  persist();
-  renderGroups();
-  renderMix();
-  scheduleCompose();
+  edit(`${groupLabel(id)}: ${pick ? pickLabel(pick) : "removed"}`, () => {
+    if (pick) recipe.picks[id] = pick;
+    else delete recipe.picks[id];
+  });
 }
 
 function groupSection(group: Group, data: SkinData) {
@@ -1100,17 +1097,7 @@ function renderGroups() {
 }
 
 $("#use-base").onclick = () => {
-  if (!focused) return;
-  if (editMode === "current") {
-    if (recipe.base !== focused) setTarget(focused, true);
-    return;
-  }
-  recipe.base = recipe.base === focused ? null : focused;
-  persist();
-  renderFocus();
-  renderLibrary();
-  renderMix();
-  scheduleCompose();
+  if (focused && recipe.base !== focused) setBase(focused, true);
 };
 
 // ---- views -----------------------------------------------------------------
@@ -1134,8 +1121,8 @@ function showView(next: typeof view) {
   $("#guide").hidden = !!focused || view !== "elements";
   $(".focus-head").hidden = view === "keymodes";
   if (view === "ini") {
-    // The skin edited in place opens on its draft.
-    if (!focused || (editMode === "current" && focused === recipe.base)) iniMode = "mix";
+    // The draft's base opens on the draft.
+    if (!focused || focused === recipe.base) iniMode = "mix";
     renderIni();
     if (iniEditor) iniEditor.layout();
     else void ensureEditor();
@@ -1190,7 +1177,7 @@ function scheduleCompose() {
   clearTimeout(composeTimer);
   composeTimer = window.setTimeout(() => void recompose(), 150);
 }
-async function composeNow(fresh = false) {
+async function composeNow(fresh = false, inPlace = false) {
   const keys = recipeSkins(recipe);
   const map = new Map<string, SkinData>();
   for (const key of keys) {
@@ -1198,14 +1185,135 @@ async function composeNow(fresh = false) {
       throw new Error(`${skinName(key)} is unavailable`);
     map.set(key, (await load(key, fresh)).data);
   }
-  return compose(recipe, map);
+  return compose(inPlace ? { ...recipe, inPlace } : recipe, map);
 }
-/** The plan to build: the composed files with the draft skin.ini if edited. */
-async function planNow(fresh = false): Promise<Plan> {
-  const { plan } = await composeNow(fresh);
-  if (mixEdited() && mixDoc.getValue()) plan.ini = mixDoc.getValue();
+/**
+ * The plan to build: the composed files with the draft skin.ini if edited.
+ * `inPlace` composes it for the base itself, which keeps its [General].
+ */
+async function planNow(fresh = false, inPlace = false): Promise<Plan> {
+  const { plan } = await composeNow(fresh, inPlace);
+  if (mixEdited() && mixDoc.getValue())
+    plan.ini = inPlace && recipe.base
+      ? keepGeneral(mixDoc.getValue(), (await load(recipe.base, fresh)).data.text, recipe.name)
+      : mixDoc.getValue();
   return plan;
 }
+
+// ---- the draft's history: one undo step per change, whichever screen -------
+let history = new History<DraftStep>();
+function record(step: DraftStep) {
+  history.push(step);
+  renderHistory();
+}
+function renderHistory() {
+  const next = history.next;
+  const undo = $<HTMLButtonElement>("#km-undo"),
+    redo = $<HTMLButtonElement>("#km-redo");
+  undo.disabled = !history.canUndo;
+  redo.disabled = !history.canRedo;
+  undo.title = next.undo ? `Undo ${next.undo} (Ctrl+Z)` : "Nothing to undo";
+  redo.title = next.redo ? `Redo ${next.redo} (Ctrl+Shift+Z)` : "Nothing to redo";
+  const discard = $<HTMLButtonElement>("#mix-reset");
+  discard.disabled = !hasEdits(recipe) && !recipe.pinned;
+  discard.title = discard.disabled ? "The draft holds no changes" : "";
+}
+function undo() {
+  const step = history.undo();
+  if (!step) return;
+  step.undo();
+  status.textContent = `Undid ${step.label}`;
+  renderHistory();
+}
+function redo() {
+  const step = history.redo();
+  if (!step) return;
+  step.redo();
+  status.textContent = `Redid ${step.label}`;
+  renderHistory();
+}
+$("#km-undo").onclick = undo;
+$("#km-redo").onclick = redo;
+
+/** Re-renders and recomposes after the recipe changed. */
+function draftChanged() {
+  persist();
+  mixName.value = recipe.name;
+  renderFocus();
+  renderLibrary();
+  renderMix();
+  scheduleCompose();
+}
+/** One undoable change of the draft outside Keymodes (picks, assets, base, discard). */
+function edit(label: string, mutate: () => void) {
+  const before = JSON.stringify(recipe);
+  mutate();
+  const after = JSON.stringify(recipe);
+  if (after === before) return;
+  const recipes: Recipe[] = [JSON.parse(before), JSON.parse(after)];
+  record({
+    label,
+    drafts: recipes.flatMap((r) => Object.values(r.keymodes ?? {})),
+    recipes,
+    undo: () => restoreDraft(before),
+    redo: () => restoreDraft(after),
+  });
+  draftChanged();
+}
+function restoreDraft(text: string) {
+  const base = recipe.base;
+  recipe = JSON.parse(text);
+  // The draft skin.ini as it was: its hand edits, else what composing gives.
+  if (recipe.ini !== undefined) mixDoc.setValue(recipe.ini);
+  else if (mixEdited()) mixDoc.setValue(composedIni);
+  draftChanged();
+  if (recipe.base !== base) void refreshLastApply();
+}
+
+// ---- base: the skin the draft starts from ----------------------------------
+const FOLLOW = "#follow",
+  NO_BASE = "#none";
+const baseSelect = $<HTMLSelectElement>("#mix-base");
+{
+  const tip =
+    "Follow osu!: the skin osu! uses now, until the draft holds changes. Group picks, single assets and Keymodes slots replace the base's files; Apply to base skin writes the result into the base itself.";
+  const help = $("#mix-base-help");
+  help.dataset.tip = tip;
+  help.setAttribute("aria-label", tip);
+}
+function setBase(key: string | null, pinned: boolean) {
+  edit(pinned ? `base ${key ? skinName(key) : "none"}` : "follow osu!'s skin", () => {
+    recipe.base = key;
+    if (pinned) recipe.pinned = true;
+    else delete recipe.pinned;
+  });
+  void refreshLastApply();
+}
+function renderBase() {
+  const now = currentKey();
+  const skins = (library?.skins ?? []).filter((s) => s.available && !s.builtin);
+  const origins = { stable: "Stable", added: "Added", osk: ".osk", lazer: "Lazer" };
+  const groups = new Map<string, Skin[]>();
+  for (const skin of skins) groups.set(origins[skin.origin], [...(groups.get(origins[skin.origin]) ?? []), skin]);
+  baseSelect.replaceChildren(
+    h("option", { value: FOLLOW }, now ? `Follow osu! · ${skinName(now)}` : "Follow osu! · no skin reported"),
+    ...[...groups].map(([label, list]) => {
+      const group = h("optgroup", { label });
+      group.append(...list.map((s) => h("option", { value: s.key }, s.name)));
+      return group;
+    }),
+    h("option", { value: NO_BASE }, "No base"),
+  );
+  const base = recipe.base;
+  if (base && !skins.some((s) => s.key === base))
+    baseSelect.append(h("option", { value: base }, `${skinName(base)} (unavailable)`));
+  baseSelect.value = !recipe.pinned && base === now ? FOLLOW : (base ?? (recipe.pinned ? NO_BASE : FOLLOW));
+}
+baseSelect.onchange = () => {
+  const value = baseSelect.value;
+  if (value === FOLLOW) setBase(currentKey(), false);
+  else setBase(value === NO_BASE ? null : value, true);
+};
 
 // ---- edit in place: the draft, its review, Apply / Discard / Restore -------
 interface Change {
@@ -1230,9 +1338,8 @@ interface Applied {
   opened: boolean;
 }
 let review: Review | null = null;
-/** Choose "Apply to current skin" once it can be offered (unless the user picked another). */
-let applyDefault =
-  editMode === "current" && localStorage.getItem("skin-studio:export-target") !== "stable";
+/** Choose Apply once it can be offered, unless the user chose an export before. */
+let applyDefault = localStorage.getItem("skin-studio:export-target") === null;
 /** Why exporting is unavailable now (renderMix's reason, for renderApply). */
 let exportReason = "";
 let reviewError = "";
@@ -1252,11 +1359,11 @@ const editable = (skin: Skin | undefined) =>
 const currentKey = () =>
   library?.skins.find((s) => s.current && editable(s))?.key ?? null;
 
-/** The apply request for the draft as it is now. */
+/** The apply request for the draft as it is now: composed for the base itself. */
 async function applyRequest(fresh: boolean) {
   const target = recipe.base;
-  if (!target) throw new Error("No skin to apply to");
-  const plan = await planNow(fresh);
+  if (!target) throw new Error("The draft has no base skin to apply to");
+  const plan = await planNow(fresh, true);
   plan.name = skinName(target);
   const base = (await load(target, fresh)).data;
   return { skin: target, plan, remove: inPlaceRemovals(plan, base) };
@@ -1265,7 +1372,11 @@ async function applyRequest(fresh: boolean) {
 function scheduleReview() {
   clearTimeout(reviewTimer);
   const ticket = ++reviewTicket;
-  if (editMode !== "current" || !recipe.base || !canWrite() || composeError) {
+  // Reviewed while Apply is chosen, and for a lazer base always: whether
+  // lazer's Edit externally folder is mounted decides if Apply is offered.
+  const base = skinByKey(recipe.base);
+  const wanted = exportTarget.value === "apply" || base?.origin === "lazer";
+  if (!wanted || !editable(base) || !canWrite() || composeError) {
     review = null;
     reviewError = "";
     renderApply();
@@ -1294,60 +1405,57 @@ const describeTarget = (target: Target) =>
       ? `Writes into osu!lazer's "Edit externally" folder (${target.path}); press "Finish editing" in lazer afterwards to replace the skin`
       : `osu!lazer cannot have its skins replaced from outside: applying imports this as a new skin, "${target.name}". To edit in place, open lazer's skin editor and choose "Edit externally" first.`;
 
+/** The Apply choice for the draft's base, or null when the base can't take one. */
+function applyOption(): string | null {
+  const target = recipe.base;
+  const skin = skinByKey(target);
+  if (!target || !editable(skin)) return null;
+  if (skin?.origin === "lazer")
+    // Only lazer's own Edit externally keeps the skin (ImportAsUpdate);
+    // otherwise the result is imported as a new skin.
+    return review?.target.kind === "mounted"
+      ? `Apply to ${skinName(target)} (Edit externally)`
+      : "Import into osu!lazer (new skin)";
+  return target === currentKey() ? "Apply to current skin" : `Apply to ${skinName(target)}`;
+}
+
 function renderApply() {
-  const current = editMode === "current";
-  $("#edit-head").hidden = !current;
-  $("#mix-head").hidden = current;
-  // "Apply to current skin" exists while a skin is edited in place (and is
-  // the default choice then); its state line sits under the button.
-  const exportTarget = $<HTMLSelectElement>("#export-target");
+  // Apply writes into the base itself (the default choice while offered);
+  // its state line sits under the button.
   const option = exportTarget.querySelector<HTMLOptionElement>('option[value="apply"]')!;
-  option.hidden = option.disabled = !current || !recipe.base;
-  if (option.hidden && exportTarget.value === "apply") exportTarget.value = "stable";
-  if (!option.hidden && applyDefault) {
+  const label = applyOption();
+  option.hidden = option.disabled = !label;
+  option.textContent = label ?? "Apply to base skin";
+  if (!label && exportTarget.value === "apply")
+    exportTarget.value = library?.stable_dir ? "stable" : "osk";
+  if (label && applyDefault) {
     exportTarget.value = "apply";
     applyDefault = false;
   }
-  $("#apply-area").hidden = option.hidden || exportTarget.value !== "apply";
-  $("#mode-current").setAttribute("aria-pressed", String(current));
-  $("#mode-new").setAttribute("aria-pressed", String(!current));
-  $("#mix-reset").textContent = current ? "Discard" : "Clear";
-  $("#mix-reset").hidden = current;
-  if (!current) return;
+  $("#apply-area").hidden = !label || exportTarget.value !== "apply";
   const target = recipe.base;
-  const skin = skinByKey(target);
-  $("#edit-target").textContent = target
-    ? `${skinName(target)}${target === currentKey() ? " (current skin)" : ""}`
-    : "No skin";
-  $("#edit-where").textContent = !target
-    ? "vosu reports no current skin (osu! not running?). Choose one in the library, then Edit this skin."
-    : review
-      ? describeTarget(review.target)
-      : skin?.origin === "lazer"
-        ? "osu!lazer skin"
-        : "Skin folder";
-  // osu! switched skins while this draft has edits for another one.
+  // osu! switched skins while this draft has edits based on another one.
   const now = currentKey();
   const note = $("#edit-note");
   note.hidden = !(target && now && now !== target && hasEdits(recipe) && !recipe.pinned);
   if (!note.hidden && now)
     note.replaceChildren(
-      `osu! now uses ${skinName(now)}; this draft still edits ${skinName(target ?? "")}. `,
+      `osu! now uses ${skinName(now)}; this draft is based on ${skinName(target ?? "")}. `,
       h(
         "button",
         {
           type: "button",
           class: "v-btn v-btn--sm v-btn--ghost",
-          onclick: () => setTarget(now, false),
+          onclick: () => setBase(now, false),
         },
-        `Edit ${skinName(now)}`,
+        `Base it on ${skinName(now)}`,
       ),
     );
   const edits = hasEdits(recipe);
   renderExport(exportReason);
   const count = $("#apply-count");
   count.classList.toggle("error", !!reviewError);
-  count.textContent = !target
+  count.textContent = !label
     ? ""
     : !canWrite()
       ? edits
@@ -1362,7 +1470,6 @@ function renderApply() {
           : edits
             ? "Checking changes…"
             : "No changes";
-  $<HTMLButtonElement>("#discard").disabled = applying || !edits;
   const restore = $<HTMLButtonElement>("#restore");
   restore.hidden = !lastApply;
   restore.disabled = applying || !canWrite();
@@ -1370,30 +1477,11 @@ function renderApply() {
     restore.title = `Puts back the ${plural(lastApply.changes, "file")} the apply of ${new Date(lastApply.created * 1000).toLocaleString()} changed`;
 }
 
-/** Edits nothing until the user picks a skin; `pinned` stops following osu!. */
-function setTarget(key: string, pinned: boolean) {
-  if (
-    hasEdits(recipe) &&
-    !confirm(`Discard the unapplied changes to ${skinName(recipe.base ?? "")} and edit ${skinName(key)}?`)
-  )
-    return;
-  clearDraft();
-  recipe.base = key;
-  recipe.pinned = pinned || undefined;
-  persist();
-  void refreshLastApply();
-  renderFocus();
-  renderLibrary();
-  renderMix();
-  scheduleCompose();
-}
-
-/** Follows osu!'s current skin while the draft has nothing unapplied. */
+/** Follows osu!'s current skin while the draft holds nothing and has no chosen base. */
 function followCurrent() {
-  if (editMode !== "current") return;
   const now = currentKey();
-  if (!now || now === recipe.base) return;
-  if (recipe.base && (hasEdits(recipe) || recipe.pinned)) return renderApply();
+  if (recipe.pinned || !now || now === recipe.base) return renderApply();
+  if (recipe.base && hasEdits(recipe)) return renderApply();
   recipe.base = now;
   persist();
   void refreshLastApply();
@@ -1402,31 +1490,112 @@ function followCurrent() {
   scheduleCompose();
 }
 
+/** Empties the draft after an apply wrote it into the base (no undo: it is on disk). */
 function clearDraft() {
   recipe.picks = {};
   recipe.overrides = {};
   recipe.keymodes = {};
   delete recipe.ini;
   persist();
-  keymodes.resetHistory();
+  history = new History();
+  renderHistory();
   composedIni = "";
   mixDoc.setValue("");
   review = null;
 }
+
+/** What a draft holds, for confirmations ("2 group picks, Keymodes edits for 7K"). */
+function draftContents(draft: Recipe): string {
+  const parts: string[] = [];
+  const picks = Object.keys(draft.picks).length,
+    assets = Object.keys(draft.overrides ?? {}).length,
+    counts = Object.keys(draft.keymodes ?? {});
+  if (picks) parts.push(plural(picks, "group pick"));
+  if (assets) parts.push(plural(assets, "single asset"));
+  if (counts.length) parts.push(`Keymodes edits for ${counts.map((k) => `${k}K`).join(", ")}`);
+  if (draft.ini !== undefined) parts.push("hand edits to its skin.ini");
+  if (draft.pinned) parts.push(`the chosen base (${draft.base ? skinName(draft.base) : "none"})`);
+  return parts.join(", ") || "nothing";
+}
+/** Discard draft: back to an empty draft following osu!'s skin, one undo step. */
 function discardDraft() {
-  if (!hasEdits(recipe)) return;
-  if (!confirm(`Discard ${review?.changes.length ? plural(review.changes.length, "unapplied change") : "the draft"}?`))
+  if (!hasEdits(recipe) && !recipe.pinned) return;
+  if (
+    !confirm(
+      `Discard the draft?\n\nThis loses ${draftContents(recipe)}.${
+        review?.changes.length ? ` ${plural(review.changes.length, "unapplied change")} to ${skinName(recipe.base ?? "")} go with it.` : ""
+      }\n\nUndo (Ctrl+Z) brings it back while this page stays open.`,
+    )
+  )
     return;
-  clearDraft();
-  renderFocus();
-  renderMix();
-  scheduleCompose();
+  edit("Discard draft", () => {
+    recipe.picks = {};
+    recipe.overrides = {};
+    recipe.keymodes = {};
+    delete recipe.ini;
+    delete recipe.pinned;
+    recipe.base = currentKey();
+  });
+  // The draft skin.ini goes back to what composing gives.
+  if (mixEdited()) mixDoc.setValue(composedIni);
+  void refreshLastApply();
+}
+
+// ---- the saved draft: kept aside by Open, or by the move to one draft ------
+function renderSaved() {
+  const box = $("#saved-draft");
+  box.hidden = !savedDraft;
+  if (!savedDraft) {
+    box.replaceChildren();
+    return;
+  }
+  const what = savedDraft.inPlace
+    ? `Unapplied edits to ${savedDraft.base ? skinName(savedDraft.base) : "a skin"}`
+    : `“${savedDraft.name.trim() || "My mix"}”`;
+  const tip = savedDraft.inPlace
+    ? `Kept from editing the current skin, before Skin studio had one draft: ${draftContents(savedDraft)}. Open makes it the draft and keeps this one here; Discard deletes it.`
+    : `The draft before the one open now: ${draftContents(savedDraft)}. Open swaps them; Discard deletes it.`;
+  const help = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: tip });
+  help.dataset.tip = tip;
+  help.dataset.tipPos = "left";
+  box.replaceChildren(
+    h("span", { class: "mix-saved__what", title: what }, h("span", { class: "v-label" }, "Saved draft"), " ", what),
+    help,
+    h("button", { type: "button", class: "v-btn v-btn--sm", onclick: openSaved }, "Open"),
+    h("button", { type: "button", class: "v-btn v-btn--sm v-btn--ghost", onclick: discardSaved }, "Discard"),
+  );
+}
+/** Makes the saved draft the draft; the draft with anything in it is kept aside. */
+function openSaved() {
+  if (!savedDraft) return;
+  const next: Recipe = { ...savedDraft, name: savedDraft.name.trim() || "My mix" };
+  // An edit-in-place draft keeps editing its skin.
+  if (next.inPlace && next.base) next.pinned = true;
+  delete next.inPlace;
+  savedDraft = hasEdits(recipe) || recipe.pinned ? recipe : null;
+  if (savedDraft) localStorage.setItem(SAVED_KEY, JSON.stringify(savedDraft));
+  else localStorage.removeItem(SAVED_KEY);
+  recipe = next;
+  // The history described the other draft.
+  history = new History();
+  review = null;
+  composedIni = "";
+  mixDoc.setValue(recipe.ini ?? "");
+  draftChanged();
+  renderSaved();
+  void refreshLastApply();
+}
+function discardSaved() {
+  if (!savedDraft || !confirm(`Discard the saved draft?\n\nThis loses ${draftContents(savedDraft)}. It cannot be undone.`)) return;
+  savedDraft = null;
+  localStorage.removeItem(SAVED_KEY);
+  renderSaved();
 }
 
 async function refreshLastApply() {
   lastApply = null;
   const target = recipe.base;
-  if (editMode === "current" && target && skinByKey(target)?.origin !== "lazer")
+  if (target && editable(skinByKey(target)) && skinByKey(target)?.origin !== "lazer")
     try {
       lastApply = await request(`v1/applied?skin=${encodeURIComponent(target)}`);
     } catch {
@@ -1588,7 +1757,6 @@ async function restoreUnfinished(u: Unfinished) {
   }
 }
 
-$("#discard").onclick = () => discardDraft();
 $("#restore").onclick = async () => {
   const target = recipe.base;
   if (!target || !lastApply) return;
@@ -1613,26 +1781,6 @@ $("#restore").onclick = async () => {
   await refreshUnfinished();
 };
 
-function setMode(next: EditMode) {
-  if (next === editMode) return;
-  persist();
-  editMode = next;
-  localStorage.setItem(MODE_KEY, next);
-  recipe = recipes[next];
-  keymodes.resetHistory();
-  composedIni = "";
-  mixDoc.setValue("");
-  review = null;
-  mixName.value = recipe.name;
-  if (next === "current") followCurrent();
-  void refreshLastApply();
-  renderFocus();
-  renderLibrary();
-  renderMix();
-  scheduleCompose();
-}
-$("#mode-current").onclick = () => setMode("current");
-$("#mode-new").onclick = () => setMode("new");
 /**
  * Composes the recipe into the mix draft. A draft skin.ini edited by hand
  * is kept; the `[Mania]` keys a Keymodes change `touched` are written into
@@ -1649,10 +1797,7 @@ async function recompose(touched?: { keys: number; names: string[] }) {
     fallbacks = composed.fallbacks;
     lastPlan = composed.plan;
     composeError = "";
-    if (!wasEdited || !mixDoc.getValue())
-      mixDoc.setValue(
-        editMode === "current" && recipe.ini !== undefined ? recipe.ini : composedIni,
-      );
+    if (!wasEdited || !mixDoc.getValue()) mixDoc.setValue(recipe.ini ?? composedIni);
     else if (touched) {
       const { keys, names } = touched;
       let text = mixDoc.getValue();
@@ -1690,12 +1835,12 @@ const holders = (ref: AssetRef) =>
 function setCarry(id: string, carry: Carry, on: boolean) {
   const override = recipe.overrides?.[id];
   if (!override) return;
-  const set = new Set(override.carry ?? []);
-  if (on) set.add(carry);
-  else set.delete(carry);
-  override.carry = [...set];
-  persist();
-  scheduleCompose();
+  edit(`${on ? "carry" : "drop"} ${carry} of ${parseAssetId(id)?.name ?? id}`, () => {
+    const set = new Set(override.carry ?? []);
+    if (on) set.add(carry);
+    else set.delete(carry);
+    override.carry = [...set];
+  });
 }
 
 function overrideRow(id: string) {
@@ -1712,10 +1857,9 @@ function overrideRow(id: string) {
       onchange: (event: Event) => {
         const target = event.currentTarget;
         if (!(target instanceof HTMLSelectElement)) return;
-        recipe.overrides![id] = { skin: target.value };
-        persist();
-        renderGroups();
-        scheduleCompose();
+        edit(`${ref.name} from ${skinName(target.value)}`, () => {
+          recipe.overrides![id] = { skin: target.value };
+        });
       },
     },
     ...others.map((key) =>
@@ -1795,8 +1939,8 @@ function overrideRow(id: string) {
 
 function renderMix() {
   const base = recipe.base;
-  $("#mix-base").textContent = base ? skinName(base) : "None";
-  $("#mix-base-clear").hidden = !base;
+  renderBase();
+  renderHistory();
   // Groups with a pick or with single-asset overrides, overrides listed under them.
   const byGroup = new Map<string, string[]>();
   for (const id of Object.keys(recipe.picks))
@@ -1888,7 +2032,7 @@ function renderMix() {
   $("#mix-picks").replaceChildren(
     ...(rows.length
       ? rows
-      : [h("li", { class: "empty" }, "No groups picked.")]),
+      : [h("li", { class: "empty" }, "No changes yet: pick groups in Elements, assets in Explorer or images in Keymodes.")]),
   );
   const overrides = Object.keys(recipe.overrides ?? {}).length;
   const total = [...counts.values()].reduce((a, b) => a + b, 0) + blanks;
@@ -1975,6 +2119,7 @@ exportTarget.onchange = () => {
   localStorage.setItem(EXPORT_KEY, exportTarget.value);
   applyDefault = false;
   renderMix();
+  scheduleReview();
 };
 
 // ---- dropped files: listed with their use; removed only by the user --------
@@ -2029,26 +2174,7 @@ $("#mix-uploads-remove").onclick = async () => {
   }
   await refreshUploads();
 };
-$("#mix-base-clear").onclick = () => {
-  recipe.base = null;
-  persist();
-  renderFocus();
-  renderLibrary();
-  renderMix();
-  scheduleCompose();
-};
-$("#mix-reset").onclick = () => {
-  if (editMode === "current") return discardDraft();
-  if (!confirm("Clear the mix?")) return;
-  recipe = recipes.new = { name: recipe.name, base: null, picks: {}, overrides: {} };
-  persist();
-  mixDoc.setValue("");
-  composedIni = "";
-  renderFocus();
-  renderLibrary();
-  renderMix();
-  scheduleCompose();
-};
+$("#mix-reset").onclick = () => discardDraft();
 $("#mix-ini").onclick = () => {
   iniMode = "mix";
   showView("ini");
@@ -2416,15 +2542,16 @@ mixDoc.onDidChangeContent(
     scheduleReview();
   }),
 );
-// The in-place draft keeps a hand-edited skin.ini until applied or discarded.
+// The draft keeps a hand-edited skin.ini until applied or discarded.
 mixDoc.onDidChangeContent(() => {
-  if (editMode !== "current" || !mixDoc.getValue()) return;
+  if (!mixDoc.getValue()) return;
   const text = mixEdited() ? mixDoc.getValue() : undefined;
   if (text === recipe.ini) return;
   if (text === undefined) delete recipe.ini;
   else recipe.ini = text;
   persist();
   renderApply();
+  renderHistory();
 });
 focusDoc.onDidChangeContent(afterEdit(() => focusVersion++));
 
@@ -2516,16 +2643,14 @@ function play(url: string, label: string) {
 
 /** Takes (`on`) or drops several assets from one skin in the mix. */
 function useUnits(refs: AssetRef[], skin: string, on: boolean) {
-  recipe.overrides ??= {};
-  for (const ref of refs) {
-    const id = assetId(ref);
-    if (on) recipe.overrides[id] = { skin };
-    else if (recipe.overrides[id]?.skin === skin) delete recipe.overrides[id];
-  }
-  persist();
-  renderGroups();
-  renderMix();
-  scheduleCompose();
+  edit(`${on ? "take" : "drop"} ${refs.length === 1 ? refs[0].name : plural(refs.length, "asset")}`, () => {
+    recipe.overrides ??= {};
+    for (const ref of refs) {
+      const id = assetId(ref);
+      if (on) recipe.overrides[id] = { skin };
+      else if (recipe.overrides[id]?.skin === skin) delete recipe.overrides[id];
+    }
+  });
 }
 
 async function revealInExplorer(ref: AssetRef, skin: string) {
@@ -2640,6 +2765,7 @@ const keymodes = new KeymodesView({
     name: recipe.name,
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
+  record,
 });
 
 explorer = new Explorer({
@@ -2675,6 +2801,85 @@ explorer = new Explorer({
   tab.addEventListener("dragover", (event) => event.preventDefault());
   tab.addEventListener("dragleave", () => clearTimeout(timer));
 }
+
+// ---- keyboard shortcuts (shortcuts.ts decides; the sheet lists them all) ---
+const keysDialog = $<HTMLDialogElement>("#keys-dialog");
+$("#keys-list").replaceChildren(
+  ...SHEET.map(({ area, keys }) =>
+    h(
+      "section",
+      { class: "keys-area" },
+      h("h3", { class: "v-label" }, area),
+      h(
+        "dl",
+        {},
+        ...keys.flatMap(([combos, what]) => [
+          h("dt", {}, ...combos.map((combo) => h("kbd", {}, combo))),
+          h("dd", {}, what),
+        ]),
+      ),
+    ),
+  ),
+);
+const openSheet = () => {
+  if (!keysDialog.open) keysDialog.showModal();
+};
+$("#keys-open").onclick = openSheet;
+/** Focuses and selects a filter field. */
+function focusField(selector: string) {
+  const field = $<HTMLInputElement>(selector);
+  field.focus();
+  field.select();
+}
+document.addEventListener("keydown", (event) => {
+  const active = document.activeElement;
+  const action = shortcut(event, {
+    view,
+    text: typesText(active),
+    editor: !!active?.closest("#editor"),
+    modal: !!document.querySelector("dialog[open]"),
+  });
+  if (!action) return;
+  // Keys the screen has no use for right now stay the browser's.
+  const handled = (() => {
+    switch (action) {
+      case "undo":
+        undo();
+        return true;
+      case "redo":
+        redo();
+        return true;
+      case "find":
+        if (view === "keymodes") keymodes.focusFilter();
+        else if (view === "explorer") focusField("#x-filter");
+        else if (view === "elements") focusField("#filter");
+        else if (iniEditor) iniEditor.find();
+        else void ensureEditor().then((editor) => editor.find());
+        return true;
+      case "export": {
+        const run = $<HTMLButtonElement>("#export-run");
+        if (!run.disabled) run.click();
+        return true;
+      }
+      case "sheet":
+        openSheet();
+        return true;
+      case "previous-count":
+      case "next-count":
+        keymodes.stepCount(action === "previous-count" ? -1 : 1);
+        return true;
+      case "clear-slots":
+        return keymodes.clearSelected();
+      case "deselect": {
+        const menu = document.querySelector<HTMLDetailsElement>("#keymodes-view details.km-copy-menu[open]");
+        if (!menu) return keymodes.clearSelection();
+        menu.open = false;
+        return true;
+      }
+    }
+  })();
+  if (handled) event.preventDefault();
+});
 
 // ---- live game state -------------------------------------------------------
 /** The attached client ("stable" or "lazer"), from vosu's live subscription. */
@@ -2805,6 +3010,7 @@ if (initial) {
   else renderFocus();
 } else renderFocus();
 renderMix();
+renderSaved();
 void refreshUploads();
 void refreshLastApply();
 void refreshUnfinished();

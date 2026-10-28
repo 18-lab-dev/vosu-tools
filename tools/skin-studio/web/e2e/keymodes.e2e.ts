@@ -139,8 +139,6 @@ try {
   });
   await page.goto(await launch("dark"));
   await page.waitForSelector("#skins .skin");
-  // These checks build new skins (the Mix panel's New skin mode).
-  await page.click("#mode-new");
   const shot = (name: string, opts: object = {}) => page.screenshot({ path: join(out, `${name}.png`), ...opts });
   const slot = (key: string) => page.locator(`#km-grid [data-key="${key}"], #km-shared-grid [data-key="${key}"]`).first();
   const label = (key: string) => slot(key).getAttribute("aria-label");
@@ -258,7 +256,10 @@ try {
     await waitLabel(key.replace("0", "6"), `mania/7k/${name.split("/").pop()}`);
   }
   check("Apply to all columns", true);
+  // Mirror and the pattern sit in the Column tools menu.
+  await page.click(".km-copy-menu > summary");
   await page.click("#km-pattern");
+  await page.click(".km-copy-menu > summary");
   await waitLabel("KeyImage2", "mania/7k/mania-key1");
   check("osu! 1/2/S pattern", (await label("KeyImage5"))?.includes("mania-key2") ?? false, await label("KeyImage5") ?? "");
 
@@ -305,7 +306,9 @@ try {
   await shot("7k-drop-error");
 
   // ── Mirror, undo/redo across it ──────────────────────────────────────────
+  await page.click(".km-copy-menu > summary");
   await page.click("#km-mirror");
+  await page.click(".km-copy-menu > summary");
   await waitLabel("NoteImage6", "mania/7k/left");
   check("Mirror: column 7 takes column 1", true);
   await slot("KeyImage0").focus();
