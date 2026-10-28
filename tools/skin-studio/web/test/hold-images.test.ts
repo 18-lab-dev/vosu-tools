@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Offsets } from "../src/calibrate";
-import { calibrateHoldImages, holdPairKey } from "../src/hold-images";
+import { calibrateHoldImages, holdPairKey, holdResolution } from "../src/hold-images";
 import type { SlotImage } from "../src/keymodes";
 import type { DeriveOp } from "../src/hit-panel";
 import { imageIndex, imageUnitFiles, lookupFiles } from "../src/mania";
@@ -72,7 +72,7 @@ test("HD-only percy bodies retain HD markers and every animation frame", async (
 
 test("conversion preserves different tail/body animation loops at both resolutions", async () => {
   const host = service();
-  const result = await calibrateHoldImages(host, release, imageUnit("tail", 2), imageUnit("body", 3), 64, 0, true, []);
+  const result = await calibrateHoldImages(host, release, imageUnit("tail", 2), imageUnit("body", 3), 128, 0, true, []);
   const suffixes = [1, 2].flatMap((density) => Array.from({ length: 6 }, (_, i) => `-${i}${density === 2 ? "@2x" : ""}.png`));
   expect(result.T.files.map((file) => file.suffix)).toEqual(suffixes);
   expect(result.L.files.map((file) => file.suffix)).toEqual(suffixes);
@@ -92,4 +92,15 @@ test("editable image units retain plain fallbacks as well as drawn animation fra
   const index = imageIndex(names);
   expect(lookupFiles(index, "body", true)).toHaveLength(4);
   expect(imageUnitFiles(index, "body")).toEqual(names);
+});
+
+test("oversized HD conversion explicitly uses SD while retaining animation", async () => {
+  expect(holdResolution(release, [{ width: 128, capRows: 192, density: 2 }], 64, 0, true)).toEqual({ useSD: true, warning: "Hold tail: HD would be 65,600 px tall, using SD" });
+  const host = service();
+  const report: string[] = [];
+  const result = await calibrateHoldImages(host, release, imageUnit("tail", 2, [2]), imageUnit("body", 3, [2]), 64, 0, true, report);
+  expect(report).toContain("Hold tail: HD would be 65,600 px tall, using SD");
+  expect(result.L.files.map((file) => file.suffix)).toEqual(Array.from({ length: 6 }, (_, i) => `-${i}.png`));
+  expect(host.calls.filter((call) => "percy" in call.op).every((call) => "percy" in call.op && call.op.percy.height === 32800)).toBe(true);
+  expect(host.calls.some((call) => "resize" in call.op && call.op.resize.scale_y === 0.5)).toBe(true);
 });

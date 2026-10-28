@@ -36,7 +36,7 @@ import {
 } from "./proportions";
 import { UPLOADS } from "./uploads";
 import { playDate } from "./play-date";
-import { calibrateHoldImages, holdPairKey } from "./hold-images";
+import { calibrateHoldImages, holdPairKey, holdResolution } from "./hold-images";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
@@ -103,6 +103,7 @@ export class HitPanel {
   #host: HitHost;
   #calibrations: Partial<Record<"press" | "release", Calibration>> = {};
   #calibrationErrors: Partial<Record<"press" | "release", string>> = {};
+  #holdReview?: { calibration: Calibration; generation: number; pending: boolean; warnings: string[]; error?: string };
   #newestPlay = 0;
   #busy = false;
 
@@ -698,6 +699,39 @@ export class HitPanel {
     }
   }
 
+  #reviewHoldResolution(calibration: Calibration) {
+    const generation = this.#host.generation(calibration.keys);
+    if (this.#holdReview?.calibration === calibration && this.#holdReview.generation === generation) return this.#holdReview;
+    const review = this.#holdReview = { calibration, generation, pending: true, warnings: [] as string[], error: undefined as string | undefined };
+    void (async () => {
+      const config = maniaConfig(readSkinIni(this.#host.mixText()), calibration.keys);
+      const by = new Map(this.#host.resolved().map((image) => [image.key, image]));
+      const checked = new Map<string, Promise<ReturnType<typeof holdResolution>>>();
+      for (let column = 0; column < calibration.keys; column++) {
+        const tailLookup = by.get(`NoteImage${column}T`);
+        const bodyLookup = by.get(`NoteImage${column}L`);
+        const tail = tailLookup?.drawn ? this.#mixImage(by.get(tailLookup.drawn.key)!) : null;
+        const body = bodyLookup?.drawn ? this.#mixImage(bodyLookup) : null;
+        if (!tail || !body) continue;
+        const id = holdPairKey(calibration.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, false);
+        let choice = checked.get(id);
+        if (!choice) {
+          choice = Promise.all(tail.files.map(async (file) => {
+            const rows = await this.#host.rows(tail.skin, file.from);
+            return { width: rows.width, capRows: rows.height - rows.top - rows.bottom, density: /@2x\.[^.]+$/i.test(file.suffix) ? 2 : 1 };
+          })).then((files) => holdResolution(calibration.release, files, config.noteHeightWidth, config.noteBodyStyle, [...tail.files, ...body.files].some((file) => /@2x\.[^.]+$/i.test(file.suffix))));
+          checked.set(id, choice);
+        }
+        const resolution = await choice;
+        if (resolution.warning) review.warnings.push(`Column ${column + 1}: ${resolution.warning}`);
+      }
+    })().catch((error) => { review.error = error instanceof Error ? error.message : String(error); }).finally(() => {
+      review.pending = false;
+      if (this.#holdReview === review && this.#host.generation(calibration.keys) === generation) this.render();
+    });
+    return review;
+  }
+
   #proposal(kind: "press" | "release"): Node[] {
     const c = this.#calibrations[kind];
     if (!c) return this.#calibrationErrors[kind] ? [h("p", { class: "km-hit__warn", role: "alert" }, this.#calibrationErrors[kind]!)] : [];
@@ -743,6 +777,10 @@ export class HitPanel {
     else if (c.release.count < MIN_HITS)
       out.push(h("p", { class: "km-hit__warn" }, `Hold tails: ${c.release.count} releases; at least ${MIN_HITS} are needed.`));
     else {
+      const resolution = this.#reviewHoldResolution(c);
+      if (resolution.pending) out.push(h("p", { class: "v-muted" }, "Checking hold image sizes…"));
+      for (const warning of resolution.warnings) out.push(h("p", { class: "km-hit__warn" }, warning));
+      if (resolution.error) out.push(h("p", { class: "km-hit__warn", role: "alert" }, resolution.error));
       const units = c.release.distance;
       const text =
         Math.abs(units) < 0.5
@@ -753,7 +791,7 @@ export class HitPanel {
           "div",
           { class: "km-hit__row" },
           h("span", { title: "Calibration corrects your timing rather than matching it." }, `You released ${Math.abs(c.release.mean).toFixed(1)} ms ${units >= 0 ? "late" : "early"} on average (${fmt(c.release, "holds")}) → ${text}`),
-          Math.abs(units) >= 0.5 ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails") : null,
+          Math.abs(units) >= 0.5 ? h("button", { type: "button", class: "v-btn v-btn--sm v-btn--primary", disabled: this.#busy || resolution.pending || !!resolution.error || !this.#host.canWrite(), onclick: () => void this.#applyTails() }, "Apply to hold tails") : null,
         ),
       );
     }
