@@ -521,6 +521,63 @@ try {
   await until(async () => (await page.locator("#km-hit").textContent())?.includes("at least 50"), "few presses");
   check("Too few presses blocks only the hit-position proposal", await page.locator("#km-hit button", { hasText: "Apply to receptors" }).count() === 0);
   await page.unroute("**/v1/plays/last");
+
+  // Real replay calibration of distinct same-name uploads, complete SD/HD
+  // animation units and an HD-only unit. Pixels come from the copied skin.
+  const bodyFixture = readdirSync(join(SKINS, opt.skin!), { recursive: true }).find((file) => /mania\/arrows\/holdbody-50\.png$/i.test(String(file)));
+  if (!bodyFixture) throw new Error("Arturia fixture requires its 4K hold body");
+  const seededUnits = await page.evaluate(async (bodyFile: string) => {
+    // This runs in Chromium; its session bridge URL cannot be imported by Bun.
+    const { vosu } = await import("/tools/_host/v1/bridge.js");
+    const recipe = JSON.parse(localStorage.getItem("skin-studio:recipe")!);
+    const derive = async (skin: string, name: string, op: unknown) => {
+      const response = await vosu.fetch("v1/derive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ skin, files: [{ name, op }] }) });
+      if (!response.ok) throw new Error(await response.text());
+      return (await response.json())[0].stored as string;
+    };
+    const cropped = await derive(recipe.base, bodyFile, { rows: { height: 12000 } });
+    const dimResponse = await vosu.fetch(`v1/rows?skin=uploads%3A&name=${encodeURIComponent(cropped)}`);
+    const dim = await dimResponse.json();
+    const units = [];
+    for (const offset of [0, 4]) {
+      const files = [];
+      for (let frame = 0; frame < 2; frame++) {
+        const from = await derive("uploads:", cropped, { shift: { up: offset + frame } });
+        files.push({ from, suffix: `-${frame}.png` });
+      }
+      for (let frame = 0; frame < 2; frame++) {
+        const from = await derive("uploads:", files[frame].from, { resize: { width: dim.width * 2, height: 24000, scale_y: 2, up: 0 } });
+        files.push({ from, suffix: `-${frame}@2x.png` });
+      }
+      units.push({ skin: "uploads:", name: "holdbody-50", files });
+    }
+    units.push({ ...units[0], files: units[0].files.filter((file) => file.suffix.includes("@2x")) });
+    recipe.keymodes["4"] = { images: Object.fromEntries(units.map((unit, i) => [`NoteImage${i}L`, unit])), values: { NoteBodyStyle: "1" } };
+    delete recipe.ini;
+    localStorage.setItem("skin-studio:recipe", JSON.stringify(recipe));
+    return units;
+  }, String(bodyFixture));
+  await page.goto(await launch("dark"));
+  await page.click("#tab-keymodes"); await pick(4);
+  await page.evaluate(() => { for (const group of document.querySelectorAll("#keymodes-view details.km-hit")) group.setAttribute("open", ""); });
+  await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').fill("24");
+  await page.locator('#km-hit input[aria-label="Your osu!mania scroll speed"]').blur();
+  await page.click("#km-calibrate-ln");
+  await until(() => page.locator("#km-ln .km-hit__play").filter({ hasText: "Sheriruth" }).count(), "real replay for full image units", 120000);
+  const beforeUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+  await page.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
+  await until(async () => (await page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe")!).keymodes["4"].images.NoteImage0L.files[0].from)) !== seededUnits[0].files[0].from, "complete units calibrated");
+  const afterUnits = await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!);
+  const unitImages = JSON.parse(afterUnits).keymodes["4"].images;
+  check("Real last-play LN calibration keeps distinct same-name column images independent", unitImages.NoteImage0L.files[0].from !== unitImages.NoteImage1L.files[0].from);
+  for (let c = 0; c < 3; c++)
+    check(`Real LN calibration preserves every frame and density of column ${c + 1}`, JSON.stringify(unitImages[`NoteImage${c}L`].files.map((file: { suffix: string }) => file.suffix)) === JSON.stringify(seededUnits[c].files.map((file: { suffix: string }) => file.suffix)));
+  writeFileSync(join(out, "calibrated-image-units.json"), JSON.stringify({ seededUnits, after: unitImages }, null, 2));
+  await shot("calibrated-image-units");
+  await page.click("#km-undo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === beforeUnits, "full unit calibration undo");
+  await page.click("#km-redo");
+  await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")!) === afterUnits, "full unit calibration redo");
   check("No page errors", !pageErrors.length, pageErrors.join(" | "));
 } catch (error) {
   check("run", false, error instanceof Error ? error.stack : String(error));
