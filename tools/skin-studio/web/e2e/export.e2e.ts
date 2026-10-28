@@ -142,6 +142,8 @@ try {
   await page.locator("#skins .skin", { hasText: opt.skin! }).click();
   await page.click("#use-base");
   const NAME = "Arturia export";
+  // Apply keeps the skin's own name (the field is disabled): name the export.
+  await page.selectOption("#export-target", "stable");
   await page.fill("#mix-name", NAME);
   await page.locator("#mix-name").press("Tab");
   await until(async () => (await page.evaluate(() => document.querySelector("#mix-tally .v-help")?.getAttribute("aria-label")))?.includes("files"), "mix composed");
@@ -219,6 +221,7 @@ try {
   await light.waitForSelector("#skins .skin");
   await light.locator("#skins .skin", { hasText: opt.skin! }).click();
   await light.click("#use-base");
+  await light.selectOption("#export-target", "stable");
   await light.fill("#mix-name", NAME);
   await light.locator("#mix-name").press("Tab");
   await until(async () => (await light.evaluate(() => document.querySelector("#mix-tally .v-help")?.getAttribute("aria-label")))?.includes("files"), "light mix composed");
