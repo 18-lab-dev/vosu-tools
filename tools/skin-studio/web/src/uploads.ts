@@ -4,7 +4,7 @@
 
 import type { KeymodeDraft, Keymodes } from "./keymodes";
 import { sourceSlots } from "./missing-sources";
-import { compose, recipeSkins, type Recipe, type SkinData } from "./plan";
+import { compose, type Recipe, type SkinData } from "./plan";
 
 /**
  * The largest file accepted: vosu forwards at most 1 MiB of request body to
@@ -129,8 +129,17 @@ export interface UploadFile {
  * catalog until those dependencies can be resolved.
  */
 export function recipeUploadFiles(recipe: Recipe, skins: Map<string, SkinData>): string[] | null {
-  if (recipeSkins(recipe).includes(UPLOADS) && !skins.has(UPLOADS)) return null;
-  return compose(recipe, skins).plan.sources
+  const uploadRecipe: Recipe = {
+    name: recipe.name,
+    base: recipe.base === UPLOADS ? UPLOADS : null,
+    picks: Object.fromEntries(Object.entries(recipe.picks).filter(([, pick]) => pick.kind === "skin" && pick.key === UPLOADS)),
+    overrides: Object.fromEntries(Object.entries(recipe.overrides ?? {}).filter(([, override]) => override.skin === UPLOADS)),
+  };
+  if (!uploadRecipe.base && !Object.keys(uploadRecipe.picks).length && !Object.keys(uploadRecipe.overrides!).length) return [];
+  if (!skins.has(UPLOADS)) return null;
+  // Resolve only upload-backed dependencies, not every skin and image in
+  // every retained recipe snapshot whenever the list redraws.
+  return compose(uploadRecipe, skins).plan.sources
     .filter((source) => source.skin === UPLOADS)
     .flatMap((source) => source.files.map((file) => typeof file === "string" ? file : file[0]));
 }

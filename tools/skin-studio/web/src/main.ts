@@ -56,12 +56,13 @@ import {
   UPLOADS,
   formatBytes,
   removeQuestion,
+  recipeUploadFiles,
   uploadUsage,
   type UploadFile,
 } from "./uploads";
 import { History, touchedKeys, type DraftStep, type KeymodeDraft } from "./keymodes";
 import { SHEET, shortcut, typesText } from "./shortcuts";
-import { sourceSlots } from "./missing-sources";
+import { sourceFileNames, sourceSlots } from "./missing-sources";
 import {
   canWrite,
   dashboardTools,
@@ -2132,9 +2133,21 @@ async function refreshUploads() {
   }
   renderUploads();
 }
+function currentUploadUsage() {
+  const sources = new Map([...loaded].map(([key, entry]) => [key, entry.data]));
+  const references = (draft: Recipe) => [
+    ...(recipeUploadFiles(draft, sources) ?? uploadFiles.map((file) => file.name)),
+    ...sourceFileNames(draft.keymodes ?? {}, UPLOADS),
+  ];
+  const steps = history.steps();
+  return uploadUsage(uploadFiles, recipe.keymodes ?? {}, steps.flatMap((step) => step.drafts), {
+    current: [recipe, ...(savedDraft ? [savedDraft] : [])].flatMap(references),
+    history: steps.flatMap((step) => step.recipes ?? []).flatMap(references),
+  });
+}
 function renderUploads() {
-  const { used, unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
-  const all = [...used, ...unused];
+  const { used, history: keptForUndo, unused } = currentUploadUsage();
+  const all = [...used, ...keptForUndo, ...unused];
   $("#mix-uploads").hidden = !all.length;
   $("#mix-uploads-summary").textContent = `Dropped files: ${all.length} (${formatBytes(all.reduce((s, f) => s + f.size, 0))})`;
   $("#mix-uploads-list").replaceChildren(
@@ -2146,7 +2159,7 @@ function renderUploads() {
         h("span", { class: "v-muted" }, formatBytes(f.size)),
         used.includes(f)
           ? h("span", { class: "v-badge v-badge--ok" }, "used by this draft")
-          : h("span", { class: "v-badge" }, "unused"),
+          : h("span", { class: "v-badge" }, keptForUndo.includes(f) ? "kept for undo" : "unused"),
       ),
     ),
   );
@@ -2155,14 +2168,14 @@ function renderUploads() {
   remove.title = !canWrite()
     ? "Read-only tab"
     : unused.length
-      ? "Files this draft uses are kept"
-      : "This draft uses every dropped file";
+      ? "Draft, saved draft and undo dependencies are kept"
+      : "Every dropped file is used by a draft or kept for undo";
 }
 $("#mix-uploads-remove").onclick = async () => {
   // Recompute at click time: the draft may have changed since the list.
-  const { unused } = uploadUsage(uploadFiles, recipe.keymodes ?? {});
+  const { unused, history: keptForUndo } = currentUploadUsage();
   const note = $("#mix-uploads-note");
-  if (!unused.length || !confirm(removeQuestion(unused))) return;
+  if (!unused.length || !confirm(removeQuestion(unused, keptForUndo.length))) return;
   try {
     const removed = await post<{ files: number; bytes: number }>(
       "v1/uploads/remove",
