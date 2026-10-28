@@ -7,9 +7,29 @@ const original = "[General]\r\nName: Mix\r\nAuthor: Source\r\n[Mania]\r\nKeys: 7
 const next = original.replace("old/note", "mania/7k/note").replace("HitPosition: 400", "HitPosition: 420");
 const manual = "\uFEFF// retain me\r\n" + original.replace("Author: Source", "Author: Manual").replace("HitPosition: 400", "HitPosition: 399 // keep inline");
 
-test("composed image and geometry changes merge into hand ini without resetting other keys", () => {
+test("background composition updates untouched image keys without resetting hand overrides", () => {
   const text = mergeDraftIni(manual, original, next);
-  expect(text).toBe(manual.replace("old/note", "mania/7k/note").replace("399 // keep inline", "420 // keep inline"));
+  expect(text).toBe(manual.replace("old/note", "mania/7k/note"));
+});
+
+test("a late first base composition cannot replace values typed after choosing the base", () => {
+  const previous = "[General]\nName: Mix\nAuthor:\n";
+  const fresh = "[General]\nName: Mix\nAuthor: Source\n[Mania]\nKeys: 4\nNoteImage0: note\n";
+  const hand = "// retain\n" + fresh.replace("Author: Source", "Author: My hand edit");
+  expect(mergeDraftIni(hand, previous, fresh)).toBe(hand);
+});
+
+test("late base publication cannot inflate a hand-replaced document with untouched source sections", () => {
+  const before = "[General]\nName: Mix\nAuthor:\n";
+  const hand = "[Mania]\nKeys: 4\nNoteImage0: user/note\n";
+  expect(mergeDraftIni(hand, before, original)).toBe(hand);
+});
+
+test("an explicit draft rename still owns General.Name", () => {
+  const before: Recipe = { name: "Mix", base: "a", picks: {} };
+  const after: Recipe = { ...before, name: "Renamed" };
+  const hand = original.replace("Name: Mix", "Name: Hand name");
+  expect(mergeDraftIni(hand, original, original.replace("Name: Mix", "Name: Renamed"), before, after)).toBe(hand.replace("Name: Hand name", "Name: Renamed"));
 });
 
 test("an explicit group pick owns its values even if its source matches the old composition", () => {

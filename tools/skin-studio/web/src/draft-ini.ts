@@ -24,6 +24,7 @@ function fields(text: string) {
 
 /** Update only compositor-owned values; retain hand edits and raw untouched lines. */
 export function mergeDraftIni(text: string, previous: string, next: string, before?: Recipe, after?: Recipe) {
+  const handEdited = text !== previous;
   const old = fields(previous).entries, fresh = fields(next).entries;
   const picked = new Set(Object.keys({ ...before?.picks, ...after?.picks }).filter((id) => JSON.stringify(before?.picks[id]) !== JSON.stringify(after?.picks[id])));
   const removed = new Set([...old.values()].filter((field) => field.section === "Mania" && field.key === "Keys" && !fresh.has(identity(field))).map((field) => field.keys));
@@ -35,6 +36,7 @@ export function mergeDraftIni(text: string, previous: string, next: string, befo
     .filter((id) => JSON.stringify(before?.overrides?.[id]) !== JSON.stringify(after?.overrides?.[id]))
     .map((id) => ({ ref: parseAssetId(id), carry: after?.overrides?.[id]?.carry ?? [] }));
   const forced = (field: Field) => {
+    if (field.section === "General" && field.key === "Name" && before && after && before.name !== after.name) return true;
     if (assets.some(({ ref, carry }) => {
       if (!ref) return false;
       const type = resolve(field.section, field.key)?.type;
@@ -48,10 +50,14 @@ export function mergeDraftIni(text: string, previous: string, next: string, befo
       return group?.ini?.some((rule) => rule.section === field.section && (rule.pattern ? new RegExp(rule.key).test(field.key) : rule.key === field.key));
     });
   };
+  const manual = fields(text).entries;
   for (const [id, field] of new Map([...old, ...fresh])) {
     if (field.section === "Mania" && removed.has(field.keys)) continue;
     const updated = fresh.get(id);
-    if (old.get(id)?.value === updated?.value && !forced(field)) continue;
+    const owned = forced(field);
+    if (old.get(id)?.value === updated?.value && !owned) continue;
+    if (!owned && manual.get(id)?.value !== old.get(id)?.value) continue;
+    if (!owned && handEdited && !manual.has(id)) continue;
     const { doc, counts } = fields(text);
     const sameBlock = (line: Line) => line.section === field.section && (field.section !== "Mania" || counts.get(line.block) === field.keys);
     const matching = doc.lines.filter((line) => sameBlock(line) && line.key === field.key);
