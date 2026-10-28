@@ -310,6 +310,42 @@ try {
     check("One native undo restores the entire deleted ini", true);
   });
 
+  await scenario("upload-catalog-read-order", async () => {
+    await reset(); await pick(opt.skin!); await page.click("#use-base");
+    await page.click("#tab-keymodes");
+    const drop = (name: string, color: string) => page.evaluate(async ({ name, color }: { name: string; color: string }) => {
+      const canvas = new OffscreenCanvas(8, 8), context = canvas.getContext("2d")!;
+      context.fillStyle = color; context.fillRect(0, 0, 8, 8);
+      const data = new DataTransfer();
+      data.items.add(new File([await canvas.convertToBlob({ type: "image/png" })], name, { type: "image/png" }));
+      for (const type of ["dragenter", "dragover", "drop"])
+        document.querySelector(".km-picker")!.dispatchEvent(new DragEvent(type, { dataTransfer: data, bubbles: true, cancelable: true }));
+    }, { name, color });
+    await drop("catalog-first.png", "#ff0000");
+    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 1") && (await page.locator("#km-images").textContent())?.includes("catalog-first"), "first upload catalog settled");
+    let reads = 0;
+    const uploads = (url: string) => {
+      const parsed = new URL(url);
+      return parsed.pathname.endsWith("/v1/skin") && parsed.searchParams.get("skin") === "uploads:";
+    };
+    const barrier = await hold("**/api/v1/skin?*", (route) => uploads(route.request().url()) && ++reads === 2);
+    const firstResponse = page.waitForResponse((response: any) => uploads(response.url()) && response.request().method() === "GET");
+    const catalogRendered = page.evaluate(() => new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => { observer.disconnect(); resolve(); });
+      observer.observe(document.querySelector("#mix-uploads-list")!, { childList: true });
+    }));
+    await drop("catalog-second.png", "#0000ff");
+    await barrier.ready;
+    await (await firstResponse).finished();
+    await catalogRendered;
+    await barrier.release();
+    await until(async () => (await page.locator("#mix-uploads-summary").textContent())?.startsWith("Dropped files: 2"), "winning upload snapshot publishes management catalog");
+    check("Picker and management catalog share the winning upload snapshot", (await page.locator("#mix-uploads-list").textContent())!.includes("catalog-second.png"));
+    await page.click("#mix-uploads-summary");
+    await page.click("#mix-uploads-remove");
+    await until(async () => await page.locator("#mix-uploads").isHidden(), "temporary upload fixture removed");
+  });
+
   await scenario("save-source-context", async () => {
     await reset(); await pick("Audit Target");
     await editText("// SAVE_RACE_A\n" + readFileSync(join(TARGET, "skin.ini"), "utf8"), true);

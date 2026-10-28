@@ -11,6 +11,7 @@
 - skin.ini checks wait for 200 ms of typing idle, coalescing keystroke bursts and rejecting stale diagnostic results instead of blocking each character on full-file validation.
 - Grouped Explorer asset details deduplicate in-flight member-thumbnail callbacks, avoiding exponentially repeated redraws when inspecting a full font or animation.
 - Empty hand-edited ini text remains empty through draft persistence, export and preview/keymode consumers. Hand-edited-only drafts use a truthful compact label; the Problems search field no longer collapses beside its severity selector.
+- Dropped-file picker and management counts share the same winning source snapshot; overlapping refreshes cannot leave a newly uploaded file missing from the management list.
 - Skin studio refreshes stale preview bytes and discovers replaced lazer skin IDs without reloading, showing source recovery on every tab. Explorer distinguishes Base/Group/Override provenance, counts complete assets and nested folders, and keeps Enter/double-click inspection non-destructive. Clarify Built-in versus resetting to the base, source identity and browsing identity; preview the draft by default.
 - Skin studio preserves the actual focused Keymodes number/text input across background redraws, including its native selection and unfinished text. Replacing a width such as 60 with 75 can no longer concatenate into 6075 or commit a partial value while another edit finishes.
 

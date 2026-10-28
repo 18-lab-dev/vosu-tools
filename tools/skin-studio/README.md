@@ -192,6 +192,8 @@ Pending base publication cannot overwrite later hand-entered values or repopulat
 
 Deleting the whole draft ini keeps an intentionally empty document through persistence, plan export, Preview and Keymodes; it does not fall back to the base's ini. Native Undo restores the deleted text. Drafts containing only hand-edited text are labelled **skin.ini edits**, not “No changes yet”; explanations stay in the label's hover. The Problems severity selector leaves the adjacent search field usable at both supported viewport sizes.
 
+The Dropped files picker and management list publish the same winning catalog snapshot, including when their refreshes overlap after an upload.
+
 **Problems** is a collapsible bottom drawer, closed for warning-only skins and opened when new errors appear. Its summary retains error/warning counts while closed; severity and text filters affect only the list, not Monaco's squiggles. Each problem still jumps to its source line. **Draft destination** chooses the draft's Apply/export target; **Export selected .osk** / **Export edited .osk** on the source card instead exports that source, including unsaved selected-skin ini text, without saving it or exporting the mix draft.
 
 Whole-file diagnostics run after 200 ms of typing idle, once per burst rather than once per character. Unchanged text/file inventories reuse their results; selected-skin and draft models have independent pending checks, and stale checks cannot publish obsolete squiggles. The audit harness records native EventTiming, input-to-paint proxies and long tasks while normally typing and holding a key at 12.5 characters per second in a real 545-line skin.ini.

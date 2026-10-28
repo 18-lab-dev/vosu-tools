@@ -328,6 +328,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
     // Only the newest read may invalidate or replace this source's cache.
     if (cached) assets.invalidate(key);
     loaded.set(key, entry);
+    if (key === UPLOADS) publishUploads(snapshot.files);
   }
   return loaded.get(key) ?? entry;
 }
@@ -2290,9 +2291,13 @@ exportTarget.onchange = () => {
 
 // ---- dropped files: listed with their use; removed only by the user --------
 let uploadFiles: UploadFile[] = [];
+function publishUploads(files: UploadFile[]) {
+  uploadFiles = files;
+  renderUploads();
+}
 async function refreshUploads() {
   try {
-    uploadFiles = (await load(UPLOADS, true)).snapshot.files;
+    await load(UPLOADS, true);
   } catch (error) {
     $("#mix-uploads-note").textContent = message(error);
   }
