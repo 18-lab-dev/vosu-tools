@@ -11,7 +11,6 @@ import {
   calibratedHitPosition,
   offsets,
   receptorShift,
-  holdPlan,
   type Offsets,
   type Speed,
   type CalibrationOffsets,
@@ -37,7 +36,7 @@ import {
 } from "./proportions";
 import { UPLOADS } from "./uploads";
 import { playDate } from "./play-date";
-import { holdPairKey } from "./hold-images";
+import { calibrateHoldImages, holdPairKey } from "./hold-images";
 
 /** One image operation of the service's `/v1/derive`. */
 export type DeriveOp =
@@ -798,7 +797,7 @@ export class HitPanel {
         let result = done.get(id);
         if (!result) {
           if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== captured) return this.#host.error("The draft changed while hold ends were being derived; the stale result was not applied.");
-          result = await this.#holdEnd(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
+          result = await calibrateHoldImages(this.#host, c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
           done.set(id, result);
         }
         for (const [suffix, slot] of Object.entries(result)) images[`NoteImage${column}${suffix}`] = slot;
@@ -822,43 +821,4 @@ export class HitPanel {
     }
   }
 
-  /** New tail (`T`) and body (`L`) images for one pair; empty when nothing changes. */
-  async #holdEnd(
-    release: Offsets,
-    tail: SlotImage,
-    body: SlotImage,
-    noteWidth: number,
-    bodyStyle: number,
-    atTop: boolean,
-    report: string[],
-  ): Promise<Record<string, SlotImage>> {
-    const sd = (image: SlotImage) => image.files.find((f) => !hd(f.from)) ?? image.files[0];
-    const tailFile = sd(tail).from,
-      bodyFile = sd(body).from;
-    const [t, b] = await Promise.all([this.#host.rows(tail.skin, tailFile), this.#host.rows(body.skin, bodyFile)]);
-    const slot = (image: SlotImage, stored: string, from: string): SlotImage => ({
-      skin: UPLOADS,
-      name: image.name.split("/").pop()!,
-      files: [{ from: stored, suffix: from.slice(from.lastIndexOf(".")) }],
-    });
-    const capRows = t.height - t.top - t.bottom;
-    const plan = holdPlan(release, { capRows, tailWidth: t.width, bodyHeight: b.height, bodyTop: b.top, noteWidth, percy: capRows === 0 && bodyStyle !== 0 });
-    report.push(plan.note);
-    if (plan.kind === "none") return {};
-    if (plan.kind === "shift-body") {
-      const [d] = await this.#host.derive(body.skin, [{ name: bodyFile, op: { shift: { up: plan.up } } }]);
-      return { L: slot(body, d.stored, bodyFile) };
-    }
-    if (plan.kind === "gap") {
-      const [d] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { tail: { gap: plan.gap, at_top: atTop } } }]);
-      return { T: slot(tail, d.stored, tailFile) };
-    }
-    // Percy: a spacer tail and a body carrying the cap (both new, 1x).
-    const [spacer] = await this.#host.derive(tail.skin, [{ name: tailFile, op: { spacer: { rows: plan.spacer } } }]);
-    if (tail.skin !== body.skin) throw new Error("The tail and body come from different skins; take both from one skin first.");
-    const [percy] = await this.#host.derive(body.skin, [
-      { name: bodyFile, cap: tailFile, op: { percy: { height: plan.height, cap_bottom: plan.capBottom } } },
-    ]);
-    return { T: slot(tail, spacer.stored, tailFile), L: slot(body, percy.stored, bodyFile) };
-  }
 }
