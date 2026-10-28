@@ -275,6 +275,15 @@
                     class="v-select"
                     aria-label="Copy from key count"
                   ></select>
+                  <label class="v-row km-copy__rows">
+                    <span class="v-label">Rows</span>
+                    <select id="km-copy-rows" class="v-select">
+                      <option value="all">All</option>
+                      <option value="keys">Keys</option>
+                      <option value="notes">Notes &amp; holds</option>
+                      <option value="values">Values</option>
+                    </select>
+                  </label>
                   <button id="km-copy-go" type="submit" class="v-btn v-btn--sm v-btn--primary">
                     Copy
                   </button>
@@ -302,12 +311,23 @@
               <div class="v-scroll km-sheet">
                 <div id="km-grid" class="km-grid" role="grid" aria-multiselectable="true" aria-label="Column images and values"></div>
                 <p id="km-error" class="km-error" role="alert" hidden></p>
+                <div id="km-last-play" class="km-last-play" hidden></div>
                 <details class="km-hit">
                   <summary class="v-label">Hit position</summary>
                   <div id="km-hit" class="km-hit__body"></div>
                 </details>
                 <details class="km-hit">
-                  <summary class="v-label">LN length</summary>
+                  <summary class="v-label">
+                    LN length
+                    <span
+                      class="v-help"
+                      tabindex="0"
+                      role="img"
+                      data-tip-pos="right"
+                      aria-label="Release timings calibrate hold tails and LN length, independently of hit position, at the scroll speed in Hit position."
+                      data-tip="Release timings calibrate hold tails and LN length, independently of hit position, at the scroll speed in Hit position."
+                    ></span>
+                  </summary>
                   <div id="km-ln" class="km-hit__body"></div>
                 </details>
                 <details class="km-shared">
@@ -498,6 +518,7 @@
       <section class="v-panel mix" aria-label="Mix draft">
         <div class="v-panel__head mix-bar">
           <span class="v-label">Draft</span>
+          <span id="mix-tally" class="mix-tally"></span>
           <span class="v-bar__spacer"></span>
           <button id="km-undo" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
             Undo
@@ -505,8 +526,8 @@
           <button id="km-redo" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
             Redo
           </button>
-          <button id="mix-reset" type="button" class="v-btn v-btn--sm v-btn--ghost" disabled>
-            Discard draft
+          <button id="mix-reset" type="button" class="v-btn v-btn--sm v-btn--ghost" aria-label="Discard draft" disabled>
+            Discard<span class="mix-bar__wide"> draft</span>
           </button>
         </div>
         <div id="saved-draft" class="mix-saved" role="status" hidden></div>
@@ -591,13 +612,18 @@
             >
               Review skin.ini
             </button>
-            <button
-              id="mix-plan"
-              type="button"
-              class="v-btn v-btn--sm v-btn--ghost"
-            >
-              Download plan
-            </button>
+            <details id="mix-more" class="mix-more">
+              <summary class="v-btn v-btn--sm v-btn--ghost">More</summary>
+              <div class="mix-more__menu">
+                <button
+                  id="mix-plan"
+                  type="button"
+                  class="v-btn v-btn--sm v-btn--ghost"
+                >
+                  Download plan
+                </button>
+              </div>
+            </details>
           </div>
           <div id="mix-result" class="mix-result" aria-live="polite"></div>
         </div>
@@ -615,6 +641,9 @@
           <p id="apply-safety" class="v-muted"></p>
         </div>
         <div class="v-row apply-dialog__foot">
+          <button id="apply-review-ini" type="button" class="v-btn v-btn--sm v-btn--ghost apply-dialog__review" hidden>
+            Review skin.ini
+          </button>
           <button value="cancel" class="v-btn">Cancel</button>
           <button id="apply-confirm" value="apply" class="v-btn v-btn--primary">Apply</button>
         </div>
