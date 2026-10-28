@@ -107,7 +107,7 @@ Merge platform catalogs with:
 
 ```sh
 python scripts/package.py --merge-catalogs linux/catalog.json windows/catalog.json \
-  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.3.0
+  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.4.0
 ```
 
 Conflicting tool metadata or different packages for an already-present target fail the merge. No target package is silently replaced.

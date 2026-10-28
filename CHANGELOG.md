@@ -1,14 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-10-27
 
 - Rename Mania ratings to Map analysis (`map-analysis`), with catalog-only `replaces` metadata preserving migration support and legacy manifest compatibility.
+- On vosu 1.2.2+, Mania ratings updates to Map analysis automatically, keeping data and settings. On older vosu, install Map analysis manually; old Mania ratings keeps working.
 - Analyse standard, taiko, catch and mania at the selected mods and rate, using the existing rosu-pp 4.0.1 engine (lazer 2025-10-13 algorithms; newer lazer can differ).
 - Add in-process accuracy-target pp from the same rosu-pp attributes and explicitly labelled, documented per-mode section metrics (ours), using the shared ruleset converter for played maps.
 - Remove the rate-curve UI, CLI option, settings and `/v1/beatmap/<md5>/rates` route. Current-rate ratings and mania timelines remain.
 - Skin studio separates hit-position (press/receptor) and LN-length (release/hold-tail) calibration into independent, visible groups. Each names the play, client and key count, shows relative and absolute local play time, flags old plays, and explains blocked proposals.
 - Replay renderer: correct mania Classic + ScoreV2 judging to use modern hit windows, matching lazer's `ManiaHitWindows`; Classic's legacy windows apply only without ScoreV2.
 - Skin studio LN-length means now use only non-miss/non-combo-break physical releases under the replay client's timing rules. Show used/total/excluded counts, block calibration when fewer than 50 remain, and explicitly report very late held releases which stable ScoreV1 still accepts.
+- Ship Map analysis 0.3.0 (replacing Mania ratings 0.2.0), Skin studio 0.4.0, Replay renderer 0.3.0 (new bundled multi-ruleset analysis plus replay-window fixes), Practice 0.1.3 and Downloader 0.1.1 (Map analysis dependency/discovery ID migration).
+- Lazer library 0.2.0, Map preview 0.2.2 and Server pp calculator 0.1.0 are unchanged: no changed runtime code is bundled.
+- Fix release packaging to retain the full Cargo dependency metadata while reading catalog-only replacement IDs; every archive retains the strict legacy manifest and ZIP compatibility checks.
 
 ## v0.3.0 - 2026-10-26
 

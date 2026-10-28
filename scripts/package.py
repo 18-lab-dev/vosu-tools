@@ -307,8 +307,8 @@ def assemble(root, out, target, base_url, metadata, tools):
     for directory, manifest, package in tools:
         identity, version = manifest['id'], manifest['version']
         files = {'tool.toml': (directory / 'tool.toml').read_bytes()}
-        metadata = tomllib.loads((directory / 'Cargo.toml').read_text(encoding='utf-8')).get('package', {}).get('metadata', {}).get('vosu-tools', {}) if package else {}
-        replaces = metadata.get('replaces', [])
+        tool_metadata = tomllib.loads((directory / 'Cargo.toml').read_text(encoding='utf-8')).get('package', {}).get('metadata', {}).get('vosu-tools', {}) if package else {}
+        replaces = tool_metadata.get('replaces', [])
         if (not isinstance(replaces, list) or any(not isinstance(old, str) or not valid_id(old) or old == identity for old in replaces)
                 or len(set(replaces)) != len(replaces)):
             raise ValueError(f'invalid replacement ids for {identity}')
@@ -388,7 +388,7 @@ def main():
     parser.add_argument('--root', type=Path, default=ROOT)
     parser.add_argument('--out', type=Path, default=Path('dist'))
     parser.add_argument('--target', choices=TARGETS)
-    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.3.0')
+    parser.add_argument('--base-url', required=True, help='release asset directory, e.g. https://github.com/18-lab-dev/vosu-tools/releases/download/v0.4.0')
     parser.add_argument('--name', default='18-LAB official tools')
     parser.add_argument('--published')
     parser.add_argument('--skip-build', action='store_true', help='package already-built binaries and hidden-sourcemap UI outputs')

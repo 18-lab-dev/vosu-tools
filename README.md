@@ -130,7 +130,7 @@ With Python 3.11+, the target's native build dependencies, Rust, and Bun install
 ```sh
 bun install --frozen-lockfile
 python scripts/package.py --target x86_64-unknown-linux-gnu \
-  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.3.0
+  --base-url https://github.com/18-lab-dev/vosu-tools/releases/download/v0.4.0
 python -m unittest discover -s scripts -p test_package.py
 ```
 

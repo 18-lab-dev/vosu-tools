@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "replay-renderer"
 name = "Replay renderer"
-version = "0.2.0"
+version = "0.3.0"
 description = "A deterministic, skin-aware replay video studio"
 author = "18-LAB"
 icon = "art/icon.svg"

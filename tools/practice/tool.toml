@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "practice"
 name = "osu! practice tool"
-version = "0.1.2"
+version = "0.1.3"
 description = "Practice maps: change rate, difficulty and ruleset transforms, trim to the sections you want to grind, and preview the result before generating it."
 author = "18-LAB"
 icon = "art/icon.svg"

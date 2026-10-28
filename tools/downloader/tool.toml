@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "downloader"
 name = "Beatmap downloader"
-version = "0.1.0"
+version = "0.1.1"
 description = "Discover maps from your selected beatmap and play history; queue polite, validated mirror downloads."
 author = "18-LAB"
 icon = "art/icon.svg"
