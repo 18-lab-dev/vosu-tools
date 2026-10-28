@@ -15,6 +15,7 @@ import { type Ini, maniaBlock, removeInSection, setInSection } from "./ini";
 import { frameNames, hasImage, imageIndex } from "./mania";
 import { occupied, stageFolder } from "./layout";
 import { imageExt } from "./groups";
+import { pieceOf } from "./proportions";
 import type { Recipe } from "./plan";
 
 /** An image copied into the mix: a skin's image with its `@2x` and frames. */
@@ -76,6 +77,8 @@ export interface KeymodeDraft {
   keepProportions?: boolean;
   /** Move receptor graphics with HitPosition; on unless disabled for this key count. */
   moveReceptors?: boolean;
+  /** WidthForNoteHeightScale inserted by width edits; user-set values are never managed. */
+  autoNoteHeight?: string;
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
@@ -318,6 +321,7 @@ export function copyStage(
   from: number,
   image: (key: string) => Slot,
   value: (key: string) => string | undefined,
+  originalGeometry = false,
 ): KeymodeDraft {
   const map = remapColumns(keys, from);
   const images: Record<string, Slot> = {};
@@ -342,6 +346,8 @@ export function copyStage(
     lines === undefined
       ? null
       : [...map, from].map((i) => lines.split(",")[i]?.trim() ?? "").join(",");
+  if (originalGeometry)
+    for (const key of ["HitPosition", "WidthForNoteHeightScale", "NoteBodyStyle"]) values[key] = value(key) ?? null;
   for (let c = 0; c < keys; c++)
     for (const name of ["Colour", "ColourLight"]) {
       const raw = value(`${name}${map[c] + 1}`);
@@ -358,14 +364,66 @@ export interface Change {
   label: string;
 }
 /**
+ * Old drafts can retain captures from before a slot was selected or the base
+ * changed. A restored value must still name its capture's prior selection;
+ * generated file slots are different by design. Receptors captured in different
+ * HitPosition epochs cannot share one `hit.moved`/width reference either.
+ */
+export function needsGeometryRebase(
+  draft: KeymodeDraft | undefined,
+  source?: (key: string) => SlotImage | null,
+): boolean {
+  let keyAt: number | undefined;
+  for (const [key, original] of Object.entries(draft?.hit?.originals ?? {})) {
+    const current = draft!.images[key];
+    if (!(current && "files" in current)) {
+      if (JSON.stringify(current) !== JSON.stringify(original.had ? original.prior : undefined)) return true;
+      if (source) {
+        const image = source(key);
+        if (!image || image.skin !== original.slot.skin || image.name !== original.slot.name ||
+            JSON.stringify(image.files) !== JSON.stringify(original.slot.files)) return true;
+      }
+    }
+    if (/^KeyImage\d+D?$/.test(key)) {
+      if (keyAt !== undefined && original.at !== keyAt) return true;
+      keyAt = original.at;
+    }
+  }
+  return false;
+}
+
+/**
  * Sets `slot` for every key of `draft` (one undoable change however many
- * slots). A key image chosen by hand is no longer one HitPosition moved.
+ * slots). Selecting a geometry piece starts one new baseline for the whole
+ * stage: keeping other slots' older captures would mix HitPosition epochs.
  */
 export function assignSlots(draft: KeymodeDraft, keys: readonly string[], slot: Slot) {
-  for (const key of keys) {
-    draft.images[key] = slot === null ? null : structuredClone(slot);
-    if (draft.hit) delete draft.hit.originals[key];
-  }
+  assignImageSlots(draft, Object.fromEntries(keys.map((key) => [key, slot])));
+}
+
+/** Bulk picker/mirror/pattern edits have the same capture lifetime as one slot. */
+export function assignImageSlots(draft: KeymodeDraft, images: Record<string, Slot>) {
+  for (const [key, slot] of Object.entries(images)) draft.images[key] = structuredClone(slot);
+  if (Object.keys(images).some((key) => pieceOf(key))) delete draft.hit;
+}
+
+/** Copies a stage as a new selection, never retaining an older stage's captures. */
+export function applyStageCopy(draft: KeymodeDraft, copied: KeymodeDraft) {
+  assignImageSlots(draft, copied.images);
+  Object.assign(draft.values, copied.values);
+  delete draft.hit;
+  delete draft.autoNoteHeight;
+}
+
+/** Explicit, undoable recovery from already-restored stale image selections. */
+export function resetStageGeometry(draft: KeymodeDraft, original: KeymodeDraft) {
+  for (const key of Object.keys(draft.images)) if (pieceOf(key)) delete draft.images[key];
+  for (const [key, slot] of Object.entries(original.images))
+    if (pieceOf(key)) draft.images[key] = structuredClone(slot);
+  for (const key of ["ColumnWidth", "HitPosition", "WidthForNoteHeightScale", "NoteBodyStyle"])
+    draft.values[key] = original.values[key] ?? null;
+  delete draft.hit;
+  delete draft.autoNoteHeight;
 }
 
 /** One undoable change of the mix draft, whichever screen made it. */

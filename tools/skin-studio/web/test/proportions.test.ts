@@ -15,7 +15,8 @@ test("repeating a 5K width never renders, captures originals, or derives files",
   const host: HitHost = {
     keys: () => 5,
     mixText: () => "[Mania]\nKeys: 5\nColumnWidth: 60,60,60,60,60\nHitPosition: 455\n",
-    mixFiles: unexpected, mixIndex: unexpected, resolved: unexpected, draft: unexpected,
+    mixFiles: unexpected, mixIndex: unexpected, resolved: unexpected, draft: () => undefined,
+    generation: () => 0,
     change: unexpected, derive: unexpected, rows: unexpected, lastPlay: unexpected,
     speed: unexpected, setSpeed: unexpected, canWrite: unexpected, state: unexpected, error: unexpected,
   };
@@ -33,6 +34,7 @@ test("classic fallback receptors never request library images or image rows", ()
   const host: HitHost = {
     keys: () => 5, mixText: unexpected,
     mixFiles: unexpected, mixIndex: unexpected, resolved: () => resolved, draft: () => undefined,
+    generation: () => 0,
     change: unexpected, derive: unexpected, rows: unexpected, lastPlay: unexpected,
     speed: unexpected, setSpeed: unexpected, canWrite: unexpected, state: unexpected, error: unexpected,
   };

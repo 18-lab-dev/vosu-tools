@@ -17,7 +17,7 @@ import {
   type CalibrationOffsets,
 } from "./calibrate";
 import { $, h } from "./dom";
-import type { KeymodeDraft, Slot, SlotImage } from "./keymodes";
+import { needsGeometryRebase, type KeymodeDraft, type Slot, type SlotImage } from "./keymodes";
 import { lookupFiles } from "./mania";
 import {
   type Dims,
@@ -61,9 +61,10 @@ export interface HitHost {
   mixFiles(): Map<string, { skin: string; from: string; to: string }>;
   mixIndex(): Map<string, string[]>;
   resolved(): ManiaImageResolution[];
-  draft(): KeymodeDraft | undefined;
-  /** One undoable change of the shown key count's draft. */
-  change(label: string, mutate: (draft: KeymodeDraft) => void): void;
+  draft(keys?: number): KeymodeDraft | undefined;
+  generation(keys: number): number;
+  /** One undoable change; asynchronous geometry commits name their captured key count. */
+  change(label: string, mutate: (draft: KeymodeDraft) => void, keys?: number): void;
   derive(skin: string, files: { name: string; op: DeriveOp; cap?: string }[]): Promise<{ from: string; stored: string; lost: number }[]>;
   rows(skin: string, name: string): Promise<{ width: number; height: number; top: number; bottom: number }>;
   lastPlay(): Promise<LastPlay>;
@@ -302,15 +303,19 @@ export class HitPanel {
       return;
     }
     const keys = this.#host.keys();
-    await this.#serial("HitPosition", async () => {
+    await this.#serial(`${keys}K HitPosition`, async () => {
+      if (this.#host.keys() !== keys) return this.#host.error("Key count changed; the queued HitPosition edit was not applied.");
+      const generation = this.#host.generation(keys);
       const current = this.#current();
       if (target === current) return;
       if (this.#host.draft()?.moveReceptors === false) {
         if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
+        if (this.#host.keys() !== keys || this.#host.generation(keys) !== generation)
+          return this.#host.error("The draft changed; the HitPosition edit was not applied.");
         this.#host.change(`Set ${keys}K HitPosition to ${target} (receptors fixed)`, (draft) => {
           draft.values.HitPosition = String(target);
           if (draft.hit) draft.hit.detached = (draft.hit.detached ?? 0) + target - current;
-        });
+        }, keys);
       } else {
         await this.#regeometry(`Set ${keys}K HitPosition to ${target}`, { HitPosition: String(target) }, true);
       }
@@ -326,29 +331,52 @@ export class HitPanel {
    */
   async setWidths(columns: readonly number[], value: string, label: string) {
     this.lastRegeometry = null;
-    await this.#serial(`ColumnWidth${columns.join(",")}`, () => {
+    const keys = this.#host.keys();
+    await this.#serial(`${keys}K ColumnWidth${columns.join(",")}`, async () => {
+      if (this.#host.keys() !== keys) return this.#host.error("Key count changed; the queued width edit was not applied.");
       // The widths as the skin.ini has them now, these columns changed (one
       // change: one HitPosition, one undo step).
-      const keys = this.#host.keys();
       const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
       const widths = config.columnWidth.map((w, i) => (columns.includes(i) ? value : String(Math.round((w / 1.6) * 1e4) / 1e4)));
       return this.#setWidths(widths, label);
     });
   }
+  #needsRebase(draft: KeymodeDraft | undefined) {
+    if (!draft?.hit) return false;
+    const resolved = this.#host.resolved();
+    return needsGeometryRebase(draft, (key) => {
+      const image = resolved.find((r) => r.key === key);
+      return image ? this.#mixImage(image) : null;
+    });
+  }
+
+  /** Legacy derives may already have restored old blank/value selections. */
+  get needsOriginalStageReset(): boolean {
+    const draft = this.#host.draft();
+    return this.#needsRebase(draft) && Object.entries(draft?.hit?.originals ?? {}).some(([key, original]) =>
+      pieceOf(key) === "key" &&
+      JSON.stringify(draft!.images[key]) === JSON.stringify(original.had ? original.prior : undefined));
+  }
+
   async #setWidths(widths: string[], label: string) {
     const keys = this.#host.keys();
+    const generation = this.#host.generation(keys);
     const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
-    if (widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
+    const draft = this.#host.draft();
+    const rebase = this.#needsRebase(draft);
+    if (!rebase && widths.every((width, i) => Math.abs(Number(width) * 1.6 - config.columnWidth[i]) < 1e-9)) return;
     const values: Record<string, string | null> = { ColumnWidth: widths.join(",") };
     if (this.#host.draft()?.keepProportions === false) {
       if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
-      this.#host.change(label, (draft) => Object.assign(draft.values, values));
+      if (this.#host.keys() !== keys) return this.#host.error("Key count changed; the width edit was not applied.");
+      if (this.#host.generation(keys) !== generation) return this.#host.error("The draft changed; the width edit was not applied.");
+      this.#host.change(label, (draft) => Object.assign(draft.values, values), keys);
       return;
     }
     // Scales against the widths the pieces had when first captured (the
     // originals), so changing columns one by one ends where changing them
     // all at once would: HitPosition follows the scale most columns have.
-    const originals = Object.entries(this.#host.draft()?.hit?.originals ?? {});
+    const originals = Object.entries(rebase ? {} : draft?.hit?.originals ?? {});
     const base = config.columnWidth.map((w, i) => originals.find(([k, o]) => pieceOf(k) && columnOf(k) === i && o.width)?.[1].width ?? w);
     const valid = (v: number) => (Number.isFinite(v) && v > 0 ? v : 1);
     const was = referenceScale(config.columnWidth.map((w, i) => valid(w / base[i])));
@@ -361,8 +389,17 @@ export class HitPanel {
     if (hitPosition < 240 || hitPosition > 480)
       return this.#host.error(`Keeping proportions would put HitPosition at ${hitPosition}, outside 240–480.`);
     values.HitPosition = String(hitPosition);
-    const wfnhs = Number(maniaValue(this.#host.mixText(), keys, "WidthForNoteHeightScale"));
-    if (wfnhs > 0) values.WidthForNoteHeightScale = String(Math.round(((wfnhs * scale) / was) * 100) / 100);
+    const rawHeight = maniaValue(this.#host.mixText(), keys, "WidthForNoteHeightScale");
+    const managedHeight = draft?.autoNoteHeight !== undefined && rawHeight === draft.autoNoteHeight;
+    if (rawHeight === undefined || managedHeight) {
+      // With no explicit reference, osu! uses the narrowest column. Pin only
+      // when that default would otherwise resize the unedited columns' notes.
+      const height = (config.noteHeightWidth * scale) / was;
+      const natural = Math.min(...widths.map((width) => Number(width) * 1.6));
+      if (Math.abs(height - natural) > 1e-6)
+        values.WidthForNoteHeightScale = String(Math.round((height / 1.6) * 1e4) / 1e4);
+      else if (managedHeight) values.WidthForNoteHeightScale = null;
+    }
     await this.#regeometry(label, values);
   }
 
@@ -443,11 +480,14 @@ export class HitPanel {
   async #regeometry(label: string, values: Record<string, string | null>, byHand = false) {
     const ticket = ++this.#geometryTicket;
     const started = performance.now();
+    const keys = this.#host.keys();
+    const generation = this.#host.generation(keys);
     this.#busy = true;
     this.render();
     try {
       if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
-      const keys = this.#host.keys();
+      if (this.#host.generation(keys) !== generation) return this.#host.error("The draft changed; the geometry edit was not applied.");
+      if (this.#host.keys() !== keys) return this.#host.error("Key count changed; the geometry edit was not applied.");
       const text = this.#host.mixText();
       let next = text;
       for (const [key, value] of Object.entries(values)) next = setManiaValue(next, keys, key, value ?? undefined);
@@ -457,7 +497,7 @@ export class HitPanel {
       const target = Number(values.HitPosition ?? current);
       const widthsChange = now.columnWidth.some((w, i) => w !== then.columnWidth[i]) || now.noteHeightWidth !== then.noteHeightWidth;
       const draft = this.#host.draft();
-      const hit = structuredClone(draft?.hit) ?? { originals: {} };
+      const hit = this.#needsRebase(draft) ? { originals: {} } : structuredClone(draft?.hit) ?? { originals: {} };
       // Pieces not changed yet are captured as they are now, with the draft's
       // own slot so that going back restores exactly that. Keys always (the
       // hit line moves them); notes and hold pieces once widths change.
@@ -557,6 +597,7 @@ export class HitPanel {
       }
       // A newer change superseded this one.
       if (ticket !== this.#geometryTicket) return;
+      if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== draft) return this.#host.error("The draft changed while geometry was being derived; the stale result was not applied.");
       const light = Number(maniaValue(text, keys, "LightPosition"));
       if (draft?.moveReceptors !== false && values.HitPosition !== undefined && Number.isFinite(light) && light > 0 && target !== current)
         values = { ...values, LightPosition: String(Math.round(light + target - current)) };
@@ -565,12 +606,18 @@ export class HitPanel {
           if (slot === undefined) delete d.images[key];
           else d.images[key] = slot;
         Object.assign(d.values, values);
+        if (values.WidthForNoteHeightScale !== undefined) {
+          if (values.WidthForNoteHeightScale === null) delete d.autoNoteHeight;
+          else d.autoNoteHeight = values.WidthForNoteHeightScale;
+        } else if (d.autoNoteHeight !== undefined && maniaValue(text, keys, "WidthForNoteHeightScale") !== d.autoNoteHeight) {
+          delete d.autoNoteHeight;
+        }
         // Back where every image was made: nothing is changed any more.
         const shown = (key: string) => (key in slots ? slots[key] : d.images[key]);
         if (!hit.detached && Object.entries(hit.originals).every(([key, o]) => JSON.stringify(shown(key)) === JSON.stringify(o.had ? o.prior : undefined)))
           delete d.hit;
         else d.hit = hit;
-      });
+      }, keys);
       const notes = skipped.length ? pieceReport(keys, skipped) : "";
       this.lastRegeometry = { images, ms: Math.round(performance.now() - started), skipped: notes };
       if (notes) this.#host.state(`${label}. ${notes}`);
@@ -720,11 +767,15 @@ export class HitPanel {
   async #applyTails() {
     const c = this.#calibrations.release;
     if (!c || c.keys !== this.#host.keys() || c.release.count < MIN_HITS) return;
+    const keys = c.keys;
+    const generation = this.#host.generation(keys);
     this.#busy = true;
     this.render();
     try {
       if (this.#host.beforeGeometry && !await this.#host.beforeGeometry()) return;
-      const keys = this.#host.keys();
+      if (this.#host.keys() !== keys || this.#host.generation(keys) !== generation)
+        return this.#host.error("The draft changed; hold-end calibration was not applied.");
+      const captured = this.#host.draft(keys);
       const config = maniaConfig(readSkinIni(this.#host.mixText()), keys);
       const atTop = !(this.#host.speed()?.upscroll ?? false);
       const resolved = this.#host.resolved();
@@ -745,12 +796,14 @@ export class HitPanel {
         const id = `${tail.skin}\n${tail.name}\n${body.skin}\n${body.name}`;
         let result = done.get(id);
         if (!result) {
+          if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== captured) return this.#host.error("The draft changed while hold ends were being derived; the stale result was not applied.");
           result = await this.#holdEnd(c.release, tail, body, config.noteHeightWidth, config.noteBodyStyle, atTop, report);
           done.set(id, result);
         }
         for (const [suffix, slot] of Object.entries(result)) images[`NoteImage${column}${suffix}`] = slot;
         if (result.L && config.noteBodyStyle === 0) style = true;
       }
+      if (this.#host.generation(keys) !== generation || this.#host.draft(keys) !== captured) return this.#host.error("The draft changed while hold ends were being derived; the stale result was not applied.");
       this.#host.change(`Calibrate ${keys}K hold ends`, (draft) => {
         Object.assign(draft.images, images);
         // The calibrated pieces are the new originals for later width changes
@@ -758,7 +811,7 @@ export class HitPanel {
         if (draft.hit) for (const key of Object.keys(images)) delete draft.hit.originals[key];
         // A percy body is drawn from the tail end only by repeating styles.
         if (style) draft.values.NoteBodyStyle = "1";
-      });
+      }, keys);
       this.#host.state(`Hold ends: ${[...new Set(report)].join("; ") || "changed"}`);
     } catch (error) {
       this.#host.error(error instanceof Error ? error.message : String(error));
