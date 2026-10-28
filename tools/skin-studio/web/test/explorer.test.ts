@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { assetId, fontPrefixes, inUnit, unitOf } from "../src/assets";
-import { folders, rowUnits, rows } from "../src/explorer-model";
+import { folders, rowUnits, rows, unitFileNames } from "../src/explorer-model";
 import { parseIni } from "../src/ini";
 
 const fonts = fontPrefixes(parseIni("[Fonts]\nHitCirclePrefix: numbers/hit\n"));
@@ -143,4 +143,19 @@ test("flat rows, folders and filters", () => {
   ]);
   // Two files of one unit selected: one unit to mix.
   expect(rowUnits(search).map(assetId)).toEqual(["sound:normal-hitclap"]);
+});
+
+test("a parent folder counts its subfolders' files too, and keeps its direct count", () => {
+  const tree = folders(["Circles/Notes/a.png", "Circles/Notes/b.png", "Circles/Receptors/r.png", "x.png"].map((name) => ({ name, size: 1 })));
+  const circles = tree.find((f) => f.path === "Circles")!;
+  expect([circles.count, circles.total]).toEqual([0, 3]);
+  expect(tree.find((f) => f.path === "Circles/Notes")!.total).toBe(2);
+  expect(tree.find((f) => f.path === "")!.total).toBe(4);
+});
+
+test("Use names every file of the unit, even when one frame row is selected", () => {
+  const files = ["hit300-0.png", "hit300-1.png", "hit300-0@2x.png", "hit100.png"].map((name) => ({ name, size: 1 }));
+  const one = rows(files, new Set(), { grouped: false, folder: null, query: "hit300-1" });
+  expect(one.length).toBe(1);
+  expect(unitFileNames(rowUnits(one), files, new Set()).sort()).toEqual(["hit300-0.png", "hit300-0@2x.png", "hit300-1.png"]);
 });

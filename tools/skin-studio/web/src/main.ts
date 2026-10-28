@@ -52,6 +52,8 @@ import type { Preview, Resolver } from "./preview";
 import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
+import { AssetCache } from "./asset-cache";
+import { provenance as draftProvenance, pickLabel as draftPickLabel, groupChoice } from "./draft-labels";
 import { KeymodesView } from "./keymodes-view";
 import { KeymodeGenerations } from "./keymode-generations";
 import {
@@ -244,6 +246,8 @@ const assetUrl = (skin: string, name: string) =>
   `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`;
 const animationUrl = (skin: string, element: string) =>
   `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}`;
+/** Files previews read; a source read afresh is read again (asset-cache.ts). */
+const assets = new AssetCache(assetUrl);
 
 class HttpError extends Error {
   constructor(
@@ -280,6 +284,20 @@ const skinByKey = (key: string | null) =>
 const skinName = (key: string) =>
   key === UPLOADS ? "Dropped files" : (skinByKey(key)?.name ?? recipe.sourceInfo?.[key]?.name ?? key);
 
+/** A source's identity for its hover: origin, short ID or folder, creator, file count, content hash when known. */
+function sourceIdentity(skin: Skin) {
+  const origin = { stable: "Stable folder", added: "Added folder", osk: ".osk file", lazer: "osu!lazer" }[skin.origin];
+  return [
+    skin.name,
+    skin.origin === "lazer" ? `${origin} · ID ${skin.key.replace(/^lazer:/, "").slice(0, 8)}` : `${origin} · ${skin.key}`,
+    skin.creator ? `by ${skin.creator}` : "",
+    skin.file_count != null ? `${skin.file_count} files` : "",
+    skin.content_hash ? `content ${skin.content_hash.slice(0, 12)}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 async function load(key: string, fresh = false): Promise<Loaded> {
   const cached = loaded.get(key);
   if (cached && !fresh) return cached;
@@ -296,6 +314,9 @@ async function load(key: string, fresh = false): Promise<Loaded> {
       owned: snapshot.owned,
     },
   };
+  // Files may have new bytes under the same names (a changed file, an apply,
+  // a restore): previews read this source's files again.
+  if (cached) assets.invalidate(key);
   loaded.set(key, entry);
   return entry;
 }
@@ -507,8 +528,7 @@ function renderLibrary() {
                 type: "button",
                 class: "skin",
                 disabled: !skin.available,
-                title:
-                  skin.origin === "lazer" ? (skin.creator ?? "") : skin.key,
+                title: sourceIdentity(skin),
                 ariaCurrent: String(skin.key === focused),
                 onclick: () => void focus(skin.key),
               },
@@ -639,6 +659,10 @@ async function focus(key: string | null) {
     status.textContent = "";
   } catch (error) {
     status.textContent = message(error);
+    // The source may be gone (a lazer re-import gives the skin a new ID):
+    // read the library again so every tab sees it and recovery is offered.
+    await reconcileLibrary();
+    if (focused === key && !skinByKey(key)) status.textContent = `${skinName(key)} is no longer in the library`;
   }
   renderFocus();
 }
@@ -956,9 +980,7 @@ player.addEventListener("pause", syncPlayer);
 player.addEventListener("ended", syncPlayer);
 
 function pickLabel(pick: Pick | undefined) {
-  if (!pick) return recipe.base ? `base · ${skinName(recipe.base)}` : "default";
-  if (pick.kind === "skin") return skinName(pick.key);
-  return pick.kind === "default" ? "default" : "blank";
+  return draftPickLabel(pick, recipe, skinName);
 }
 
 function setPick(id: string, pick: Pick | null) {
@@ -1003,7 +1025,7 @@ function groupSection(group: Group, data: SkinData) {
         class: "v-btn v-btn--sm",
         ariaPressed: String(pressed),
         title,
-        onclick: () => setPick(group.id, pressed ? null : next),
+        onclick: () => setPick(group.id, groupChoice(pressed, next)),
       },
       label,
     );
@@ -1013,10 +1035,10 @@ function groupSection(group: Group, data: SkinData) {
     h("span", { class: "pick-now" }, "Mix ", h("b", {}, pickLabel(pick))),
     choice("Use this skin", isThis, { kind: "skin", key: data.key }),
     choice(
-      "Default",
+      "Built-in",
       pick?.kind === "default",
       { kind: "default" },
-      "osu!'s default elements",
+      "osu!'s own built-in look: no files from any skin",
     ),
     canBlank &&
       choice(
@@ -2001,7 +2023,8 @@ function renderMix() {
               {
                 type: "button",
                 class: "v-btn v-btn--sm v-btn--ghost v-btn--icon",
-                ariaLabel: `Remove ${groupLabel(gid)} from the mix`,
+                ariaLabel: `Reset ${groupLabel(gid)} to the base`,
+                title: "Reset to the base",
                 onclick: () => setPick(gid, null),
               },
               "×",
@@ -2356,7 +2379,7 @@ const previewPrefs: {
   playing: boolean;
 } = (() => {
   const fallback = {
-    source: "focus" as const,
+    source: "mix" as const,
     ruleset: "",
     keys: 4,
     playing: true,
@@ -2407,21 +2430,6 @@ const ensurePreview = () =>
     },
   ));
 
-/** Fetched skin files, shared by every preview load (cleared when large). */
-const blobs = new Map<string, Promise<Blob | null>>();
-function fetchBlob(skin: string, file: string): Promise<Blob | null> {
-  const key = `${skin}\n${file}`;
-  let pending = blobs.get(key);
-  if (!pending) {
-    if (blobs.size > 4000) blobs.clear();
-    pending = fetch(assetUrl(skin, file), { credentials: "omit" }).then(
-      (r) => (r.ok ? r.blob() : null),
-      () => null,
-    );
-    blobs.set(key, pending);
-  }
-  return pending;
-}
 let blankPng: Promise<Blob> | undefined;
 const blank = (kind: "png" | "wav") =>
   kind === "wav"
@@ -2442,7 +2450,7 @@ function focusResolver(key: string): Resolver | null {
     if (lower === "skin.ini")
       return iniBlob(focused === key ? text : entry.snapshot.text);
     const name = names.get(lower);
-    return name ? fetchBlob(key, name) : Promise.resolve(null);
+    return name ? assets.get(key, name) : Promise.resolve(null);
   };
 }
 function mixResolver(plan: Plan): Resolver {
@@ -2450,7 +2458,7 @@ function mixResolver(plan: Plan): Resolver {
   for (const source of plan.sources)
     for (const file of source.files) {
       const [from, to] = typeof file === "string" ? [file, file] : file;
-      files.set(to.toLowerCase(), () => fetchBlob(source.skin, from));
+      files.set(to.toLowerCase(), () => assets.get(source.skin, from));
     }
   for (const item of plan.blanks)
     files.set(item.to.toLowerCase(), () => blank(item.kind));
@@ -2592,7 +2600,7 @@ function updatePreview() {
   if (previewPrefs.source === "mix") {
     void preview?.setSource({
       key: "mix",
-      version: mixVersion,
+      version: mixVersion + assets.epoch,
       name: recipe.name,
       resolve: lastPlan ? mixResolver(lastPlan) : null,
     });
@@ -2600,7 +2608,7 @@ function updatePreview() {
     const entry = focused ? loaded.get(focused) : undefined;
     void preview?.setSource({
       key: `skin:${focused ?? ""}`,
-      version: entry ? focusVersion + 1 : 0,
+      version: entry ? focusVersion + assets.epoch + 1 : 0,
       name: focused ? skinName(focused) : "",
       resolve: focused ? focusResolver(focused) : null,
     });
@@ -2795,7 +2803,7 @@ const keymodes = new KeymodesView({
   },
   previewSource: () => ({
     key: "mix",
-    version: mixVersion,
+    version: mixVersion + assets.epoch,
     name: recipe.name,
     resolve: lastPlan ? mixResolver(lastPlan) : null,
   }),
@@ -2812,6 +2820,7 @@ explorer = new Explorer({
   animationUrl,
   play,
   inMix: (ref) => recipe.overrides?.[assetId(ref)]?.skin,
+  provenance,
   use: useUnits,
   group: (ref, ini) => groupById(groupOf(ref, parseIni(ini)))?.label,
   showInElements: (ref, skin) => void showInElements(ref, skin),
@@ -3053,10 +3062,30 @@ subscribe();
 // The first view is up: fetch the skin.ini editor while the page is idle.
 requestIdleCallback(() => void prefetchEditor(), { timeout: 5000 });
 
+let libraryTicks = 0;
+/**
+ * Reads the library again; when skins appeared or vanished, every tab is
+ * refreshed and the missing-source recovery shows. Nothing is remapped by
+ * name: the user chooses a replacement.
+ */
+async function reconcileLibrary() {
+  const before = (library?.skins ?? []).map((s) => s.key).join("\n");
+  await loadLibrary();
+  if ((library?.skins ?? []).map((s) => s.key).join("\n") === before) return;
+  keymodes.refresh();
+  scheduleCompose();
+}
+
+/** Where an asset in the composed draft comes from: Override, Group, Base or Not included. */
+function provenance(ref: AssetRef): { label: string; included: boolean } {
+  return draftProvenance(ref, recipe, lastPlan, skinName);
+}
+
 setInterval(async () => {
   if (document.hidden) return;
-  // Lazer skins appear once lazer-library has read lazer's database.
-  if (library?.lazer.enabled && library.lazer.error) await loadLibrary();
+  // Lazer skins appear once lazer-library has read lazer's database; a
+  // re-import can give a skin a new ID, so the library is re-read now and then.
+  if (library?.lazer.enabled && (library.lazer.error || ++libraryTicks % 4 === 0)) await reconcileLibrary();
   if (saving || !focused) return;
   const skin = skinByKey(focused);
   if (!skin || skin.origin === "lazer" || skin.origin === "osk") return;
