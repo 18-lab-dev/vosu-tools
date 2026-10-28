@@ -104,3 +104,7 @@ test("oversized HD conversion explicitly uses SD while retaining animation", asy
   expect(host.calls.filter((call) => "percy" in call.op).every((call) => "percy" in call.op && call.op.percy.height === 32800)).toBe(true);
   expect(host.calls.some((call) => "resize" in call.op && call.op.resize.scale_y === 0.5)).toBe(true);
 });
+
+test("an oversized SD conversion is explained before derivation", () => {
+  expect(() => holdResolution(release, [{ width: 128, capRows: 96, density: 1 }], 64, 0, false)).toThrow("SD would be 65,600 px tall");
+});

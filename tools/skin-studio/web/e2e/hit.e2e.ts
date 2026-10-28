@@ -597,7 +597,8 @@ try {
     const sd = await derive(recipe.base, "Circles/Notes/pl0x/Baby Pink.png", 64, 32, 1);
     const hd = await derive("uploads:", sd, 128, 64, 2);
     const tail = { skin: "uploads:", name: "audit-normal-tail", files: [{ from: sd, suffix: ".png" }, { from: hd, suffix: "@2x.png" }] };
-    for (let column = 0; column < 3; column++) recipe.keymodes["4"].images[`NoteImage${column}T`] = tail;
+    for (let column = 0; column < 4; column++) recipe.keymodes["4"].images[`NoteImage${column}T`] = tail;
+    recipe.keymodes["4"].images.NoteImage3L = structuredClone(recipe.keymodes["4"].images.NoteImage0L);
     recipe.keymodes["4"].values = { NoteBodyStyle: "0", WidthForNoteHeightScale: "40" };
     delete recipe.ini;
     return JSON.stringify(recipe);
@@ -615,7 +616,8 @@ try {
   await until(async () => (await normalPage.locator("#km-ln").textContent()).includes("HD would be 65,600 px tall, using SD"), "explicit HD-to-SD proposal");
   check("Oversized native-HD conversion is disclosed before applying", true);
   await normalPage.locator("#km-ln button", { hasText: "Apply to hold tails" }).click();
-  await until(async () => JSON.parse(await normalPage.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["4"].values.NoteBodyStyle === "1", "normal holds converted at SD");
+  await until(async () => JSON.parse(await normalPage.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["4"].values.NoteBodyStyle === "1" || await normalPage.locator("#km-error").isVisible(), "normal holds converted at SD");
+  if (await normalPage.locator("#km-error").isVisible()) throw new Error(`Normal hold conversion: ${await normalPage.locator("#km-error").textContent()}`);
   const normalAfter = JSON.parse(await normalPage.evaluate(() => localStorage.getItem("skin-studio:recipe")!)).keymodes["4"];
   check("Explicit SD conversion preserves animation but emits no HD files", [0, 1, 2].every((column) => {
     const files = normalAfter.images[`NoteImage${column}L`].files;

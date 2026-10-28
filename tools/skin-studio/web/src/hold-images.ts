@@ -24,12 +24,12 @@ export function holdResolution(
   release: Offsets, tail: readonly { width: number; capRows: number; density: number }[],
   noteWidth: number, bodyStyle: number, hasHD: boolean,
 ): { useSD: boolean; warning?: string } {
-  if (!hasHD || release.distance < 0.5 || (bodyStyle !== 0 && tail.every((file) => file.capRows === 0))) return { useSD: false };
+  if (release.distance < 0.5 || (bodyStyle !== 0 && tail.every((file) => file.capRows === 0))) return { useSD: false };
   const sdWidth = Math.max(...tail.map((file) => file.width / file.density));
-  const hdHeight = Math.round(BODY_UNITS * sdWidth * 2 / noteWidth);
-  if (hdHeight <= MAX_DERIVED_HEIGHT) return { useSD: false };
   const sdHeight = Math.round(BODY_UNITS * sdWidth / noteWidth);
   if (sdHeight > MAX_DERIVED_HEIGHT) throw new Error(`Hold tail: SD would be ${sdHeight.toLocaleString("en")} px tall, above the ${MAX_DERIVED_HEIGHT.toLocaleString("en")} px limit.`);
+  const hdHeight = Math.round(BODY_UNITS * sdWidth * 2 / noteWidth);
+  if (!hasHD || hdHeight <= MAX_DERIVED_HEIGHT) return { useSD: false };
   return { useSD: true, warning: `Hold tail: HD would be ${hdHeight.toLocaleString("en")} px tall, using SD` };
 }
 
