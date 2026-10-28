@@ -35,7 +35,7 @@ for (const client of ["scores", "stable"] as const) {
         releases.filter((r) => !r.hit && r.offset >= 0).length,
         replay.lazer?.statistics.miss ?? replay.counts.miss,
       ]).toEqual(expected[client][i]);
-      if (replay.lazer) expect(simulation.statistics.miss).toBe(replay.lazer.statistics.miss);
+      if (replay.lazer) expect(simulation.statistics?.miss).toBe(replay.lazer.statistics.miss);
     }
   });
 }
