@@ -343,7 +343,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
   };
   if (sourceReads.get(key) === ticket) {
     // Only the newest read may invalidate or replace this source's cache.
-    if (cached) assets.invalidate(key);
+    assets.invalidate(key);
     loaded.set(key, entry);
     if (key === UPLOADS) publishUploads(snapshot.files);
   }
