@@ -184,6 +184,9 @@ export function maniaKeyCounts(doc: Document): number[] {
   }
   return out;
 }
+// Scalar lookups share one private parse; callers never receive its mutable lines.
+let maniaLookup: { text: string; doc: Document } | undefined;
+
 /**
  * The value of `key` in the `[Mania]` block for `keys` columns, as osu!
  * reads it: the last occurrence in that block wins, a `//` comment is not
@@ -194,7 +197,8 @@ export function maniaValue(
   keys: number,
   key: string,
 ): string | undefined {
-  const doc = parse(text),
+  if (!maniaLookup || maniaLookup.text !== text) maniaLookup = { text, doc: parse(text) };
+  const doc = maniaLookup.doc,
     block = maniaBlockOf(doc, keys);
   if (block === undefined) return undefined;
   const line = doc.lines.findLast((l) => l.block === block && l.key === key);

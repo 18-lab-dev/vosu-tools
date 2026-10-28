@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import {
   parse,
   serialize,
@@ -150,6 +150,24 @@ test("[Mania] values read as osu! reads them", () => {
   expect(maniaKeyCounts(parse(skinIni))).toEqual([4]);
   // The last occurrence in a block wins.
   expect(maniaValue("[Mania]\nKeys: 7\nKeyImage0: a\nKeyImage0: b\n", 7, "KeyImage0")).toBe("b");
+});
+
+test("repeated Mania scalar lookups share one bounded, private text parse", () => {
+  const source = "; shared scalar lookup fixture\n[Mania]\nKeys: 4\nNoteImage0: first\nNoteImage0: last // comment\n";
+  const parses = spyOn(String.prototype, "matchAll");
+  try {
+    for (let i = 0; i < 60; i++) expect(maniaValue(source, 4, "NoteImage0")).toBe("last");
+    expect(parses).toHaveBeenCalledTimes(1);
+    const edited = source.replace("last // comment", "edited");
+    expect(maniaValue(edited, 4, "NoteImage0")).toBe("edited");
+    expect(maniaValue(source, 4, "NoteImage0")).toBe("last");
+    expect(parses).toHaveBeenCalledTimes(3);
+  } finally {
+    parses.mockRestore();
+  }
+  const outside = parse(source);
+  outside.lines.findLast((line) => line.key === "NoteImage0")!.value = "outside mutation";
+  expect(maniaValue(source, 4, "NoteImage0")).toBe("last");
 });
 
 test("setting [Mania] values keeps everything else byte for byte", () => {

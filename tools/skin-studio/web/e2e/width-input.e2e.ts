@@ -187,6 +187,20 @@ try {
     const undone=await page.evaluate(()=>JSON.parse(localStorage.getItem('skin-studio:recipe')??'{}').keymodes?.['7']?.values?.ColumnWidth);
     check((partial?'Partial text':'Unchanged selected value')+': one Undo restores 60',undone?.split(',')[2]==='60',undone);
   }
+  await page.evaluate(() => {
+    const grid = document.querySelector("#km-grid")!;
+    const state = { count: 0 };
+    Reflect.set(window, "publicationRedraws", state);
+    new MutationObserver((records) => { state.count += records.filter((record) => record.type === "childList").length; }).observe(grid, { childList: true });
+  });
+  const publishedWidth = page.locator('#km-grid input[aria-label="Column 1 width"]');
+  await publishedWidth.fill("61");
+  await publishedWidth.press("Tab");
+  await until(() => page.evaluate(() => JSON.parse(localStorage.getItem("skin-studio:recipe") ?? "{}").keymodes?.["7"]?.values?.ColumnWidth?.split(",")[0] === "61"), "programmatic width published");
+  const synchronous = await page.evaluate(() => Reflect.get(window, "publicationRedraws").count);
+  await page.waitForTimeout(650);
+  const settled = await page.evaluate(() => Reflect.get(window, "publicationRedraws").count);
+  check("Programmatic composition publishes once without a delayed hand-edit redraw", synchronous > 0 && settled === synchronous, JSON.stringify({ synchronous, settled }));
   check('No page errors',!pageErrors.length,pageErrors.join(' | '));
 } catch(error) {
   check('run',false,error instanceof Error?error.stack:String(error));

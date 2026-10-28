@@ -172,12 +172,71 @@ try {
   await page.waitForTimeout(2500);
   await shot("4k-before");
   check("4K rows from the base's block", (await page.locator("#km-grid .km-slot").count()) === 4 * 6);
+  await slot("NoteImage0").click();
+  await page.evaluate(() => Reflect.set(window, "pickerFirstTile", document.querySelector("#km-images .km-tile")));
+  await slot("NoteImage1").click();
+  check("Selecting another slot reuses unchanged picker image nodes", await page.evaluate(() => {
+    const tile = Reflect.get(window, "pickerFirstTile") as HTMLElement | null;
+    return !!tile?.isConnected && !!document.querySelector("#km-images")?.contains(tile);
+  }));
+  // Default preference roundtrips must not manufacture dirty count drafts.
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  for (const preference of ["#km-keep", "#km-move-receptors"]) {
+    const before = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+    const beforeApply = await page.locator("#apply-count").textContent();
+    await page.locator(preference).uncheck();
+    const changed = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+    await page.click("#km-undo");
+    check(`${preference}: first preference Undo restores exact inherited recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before);
+    await page.click("#km-redo");
+    check(`${preference}: preference Redo restores exact changed recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === changed);
+    await page.locator(preference).check();
+    check(`${preference}: return to default removes the count and dirty state`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before && await page.locator("#apply-count").textContent() === beforeApply);
+    await page.click("#km-undo");
+    check(`${preference}: undoing the return restores the false preference exactly`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === changed);
+    await page.click("#km-redo");
+    check(`${preference}: redoing the return restores exact absent-count recipe`, await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === before);
+  }
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  const beforeAdd = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  const addedKeys = await page.locator("#km-add option").evaluateAll((options: HTMLOptionElement[]) => options.find((option) => option.value)?.value);
+  if (!addedKeys) throw new Error("Preference regression fixture needs an unused key count");
+  await page.selectOption("#km-add", addedKeys);
+  await page.waitForTimeout(500);
+  const added = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  await page.locator("#km-move-receptors").uncheck();
+  await page.locator("#km-move-receptors").check();
+  check("Explicitly added empty count survives a preference roundtrip", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === added && !!(await draft())[addedKeys]);
+  await page.click("#km-undo");
+  await page.click("#km-undo");
+  check("Undo of both preference changes restores exact added count", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === added);
+  await page.click("#km-undo");
+  check("Undo of Add removes the count and restores exact prior recipe", await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === beforeAdd);
+  for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all()) await summary.click();
+  await pick(4);
   const recipeBeforeWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  await page.evaluate(() => {
+    const list = document.querySelector("#km-images")!;
+    const tile = [...list.querySelectorAll(".km-tile")].find((node) => /cursor/i.test(node.querySelector(".km-tile__name")?.textContent ?? ""));
+    const state = { tile, detached: false, url: tile?.querySelector("img")?.src, observer: null as MutationObserver | null };
+    state.observer = new MutationObserver((records) => {
+      if (tile && records.some((record) => [...record.removedNodes].some((node) => node === tile || node.contains(tile)))) state.detached = true;
+    });
+    state.observer.observe(list, { childList: true });
+    Reflect.set(window, "unchangedCursorTile", state);
+  });
   const untouchedWidth = await page.locator("#km-grid .km-num").first().inputValue();
   await page.locator("#km-grid .km-num").first().fill(String(Number(untouchedWidth) + 1));
   await page.locator("#km-grid .km-num").first().press("Tab");
   await until(async () => !!(await draft())["4"]?.values.ColumnWidth, "first width committed");
   const recipeAfterWidth = await page.evaluate(() => localStorage.getItem("skin-studio:recipe"));
+  check("Width-derived uploads keep unrelated thumbnails connected with stable source-versioned URLs", await page.evaluate(() => {
+    const state = Reflect.get(window, "unchangedCursorTile") as { tile?: Element; detached: boolean; url?: string; observer: MutationObserver };
+    state.observer.disconnect();
+    return !!state.tile?.isConnected && !state.detached && !!state.url &&
+      state.tile.querySelector("img")?.src === state.url && new URL(state.url).searchParams.has("v");
+  }));
   await page.click("#km-undo");
   await until(async () => await page.evaluate(() => localStorage.getItem("skin-studio:recipe")) === recipeBeforeWidth, "undo restores exact original recipe");
   check("Undo of the first width edit removes the key count override and restores exact recipe bytes", !(await draft())["4"]);
@@ -819,6 +878,28 @@ try {
     }
   }
   check("Stage group export: every receptor and note is the source's own file", !problems.length, problems.join("; ") || `${pieces.length} keys`);
+
+  // An old saved Add action has no marker; changing preferences must not erase it.
+  for (const [preference, property] of [["#km-keep", "keepProportions"], ["#km-move-receptors", "moveReceptors"]] as const) {
+    for (const initiallyOff of [false, true]) {
+      await page.evaluate(({ property, initiallyOff }) => localStorage.setItem("skin-studio:recipe", JSON.stringify({
+        name: "Legacy add", base: null, pinned: true, picks: {},
+        keymodes: { "5": { images: {}, values: {}, ...(initiallyOff ? { [property]: false } : {}) } },
+      })), { property, initiallyOff });
+      await page.goto("about:blank");
+      await page.goto(await launch("dark"));
+      await page.waitForSelector("#skins .skin");
+      await page.click("#tab-keymodes");
+      await pick(5);
+      for (const summary of await page.locator("#keymodes-view details.km-hit > summary").all())
+        if (!await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement).open)) await summary.click();
+      if (!initiallyOff) await page.locator(preference).uncheck();
+      await page.locator(preference).check();
+      check(`${preference}: legacy saved Add survives ${initiallyOff ? "saved-off reset" : "preference roundtrip"}`, (await draft())["5"]?.added === true &&
+        await page.locator("#km-counts .km-count").filter({ hasText: /^5K/ }).count() === 1);
+    }
+  }
+  check("No page errors after legacy Add roundtrips", !pageErrors.length, pageErrors.join(" | "));
   const processes = readdirSync("/proc").filter((p) => /^\d+$/.test(p)).map((p) => {
     try {
       return readFileSync(`/proc/${p}/comm`, "utf8").trim();

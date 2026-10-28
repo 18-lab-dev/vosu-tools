@@ -8,7 +8,7 @@ export type Fetcher = (url: string, init: RequestInit) => Promise<Response>;
 
 export class AssetCache {
   #blobs = new Map<string, Promise<Blob | null>>();
-  #refreshed = new Set<string>();
+  #refreshed = new Map<string, number>();
   /** Bumped by every invalidation: part of each preview source's version. */
   epoch = 0;
 
@@ -17,6 +17,11 @@ export class AssetCache {
     readonly fetcher: Fetcher = (url, init) => fetch(url, init),
     readonly limit = 4000,
   ) {}
+
+  /** A source's thumbnails change only when that source is read afresh. */
+  epochFor(skin: string): number {
+    return this.#refreshed.get(skin) ?? 0;
+  }
 
   get(skin: string, file: string): Promise<Blob | null> {
     const key = `${skin}\n${file}`;
@@ -39,7 +44,6 @@ export class AssetCache {
   invalidate(skin: string) {
     const prefix = `${skin}\n`;
     for (const key of this.#blobs.keys()) if (key.startsWith(prefix)) this.#blobs.delete(key);
-    this.#refreshed.add(skin);
-    this.epoch++;
+    this.#refreshed.set(skin, ++this.epoch);
   }
 }

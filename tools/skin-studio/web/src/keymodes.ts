@@ -40,6 +40,8 @@ export interface SlotImage {
  */
 export type Slot = SlotImage | { value: string } | null;
 export interface KeymodeDraft {
+  /** True for Add, false for new inherited overrides; unmarked saved counts retain legacy intent. */
+  added?: boolean;
   /** By `[Mania]` image key (`KeyImage0`, `StageHint`, …). */
   images: Record<string, Slot>;
   /** Other `[Mania]` values by key (`ColumnWidth`, `Colour1`, …); `null` removes it. */
@@ -85,6 +87,22 @@ export interface KeymodeDraft {
 }
 /** Drafts by key count. */
 export type Keymodes = Record<string, KeymodeDraft>;
+/** A normal edit must not manufacture a count when only default preferences remain. */
+export function editKeymodeDraft(
+  before: KeymodeDraft | undefined,
+  mutate: (draft: KeymodeDraft) => void,
+): KeymodeDraft | undefined {
+  const after: KeymodeDraft = before ? structuredClone(before) : { images: {}, values: {} };
+  // Preserve legacy authored counts, including ones saved with preferences off.
+  // New inherited mutations carry a distinct marker through save/reload.
+  after.added ??= !!before;
+  mutate(after);
+  if (after.keepProportions !== false) delete after.keepProportions;
+  if (after.moveReceptors !== false) delete after.moveReceptors;
+  return Object.keys(after.images).length || Object.keys(after.values).length ||
+    Object.keys(after).some((key) => key !== "images" && key !== "values" && (key !== "added" || after.added === true))
+    ? after : undefined;
+}
 
 /** The image roles of a column, in the screen's (and the wiki's) order. */
 export const COLUMN_ROLES = [
@@ -105,12 +123,13 @@ export const patternOf = (key: string) => key.replace(/\d+/, "#");
  * The files of image `name` in a skin's `files`: the plain image and its
  * frames `name-0`, `name-1`, … (consecutive), each with its `@2x`; with the
  * part each adds to the name. Empty when the skin has no such image.
+ * Callers expanding an inventory can share its already-built index.
  */
 export function imageUnit(
   files: readonly string[],
   name: string,
+  index: ReadonlyMap<string, string[]> = imageIndex(files),
 ): SlotImage["files"] {
-  const index = imageIndex(files);
   return imageUnitFiles(index, name)
     .map((from) => ({
       from,

@@ -43,3 +43,19 @@ test("invalidation is per source, and a failed read becomes readable after a ref
   await cache.get("B", "x.png");
   expect(fetched).toBe(3);
 });
+
+test("thumbnail epochs change only for the refreshed source", () => {
+  const cache = new AssetCache((skin, file) => `${skin}/${file}`);
+  expect(cache.epochFor("base")).toBe(0);
+  expect(cache.epochFor("uploads")).toBe(0);
+  cache.invalidate("base");
+  const base = cache.epochFor("base");
+  expect(base).toBe(cache.epoch);
+  cache.invalidate("uploads");
+  expect(cache.epochFor("base")).toBe(base);
+  const uploads = cache.epochFor("uploads");
+  expect(uploads).toBe(cache.epoch);
+  cache.invalidate("base");
+  expect(cache.epochFor("base")).toBeGreaterThan(base);
+  expect(cache.epochFor("uploads")).toBe(uploads);
+});

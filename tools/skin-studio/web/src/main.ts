@@ -256,10 +256,12 @@ const persist = () => {
 };
 
 const toolBase = `/tools/${encodeURIComponent(vosu.tool.id)}/api/`;
-const assetUrl = (skin: string, name: string) =>
-  `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}`;
+// Browser image caching outlives a page; source epochs alone restart at zero.
+const assetSession = crypto.getRandomValues(new Uint32Array(2)).join("-");
+const assetUrl = (skin: string, name: string): string =>
+  `${toolBase}v1/asset?skin=${encodeURIComponent(skin)}&name=${encodeURIComponent(name)}&v=${assetSession}-${assets.epochFor(skin)}`;
 const animationUrl = (skin: string, element: string) =>
-  `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}`;
+  `${toolBase}v1/animation?skin=${encodeURIComponent(skin)}&element=${encodeURIComponent(element)}&v=${assetSession}-${assets.epochFor(skin)}`;
 /** Files previews read; a source read afresh is read again (asset-cache.ts). */
 const assets = new AssetCache(assetUrl);
 
@@ -341,7 +343,7 @@ async function load(key: string, fresh = false): Promise<Loaded> {
   };
   if (sourceReads.get(key) === ticket) {
     // Only the newest read may invalidate or replace this source's cache.
-    if (cached) assets.invalidate(key);
+    assets.invalidate(key);
     loaded.set(key, entry);
     if (key === UPLOADS) publishUploads(snapshot.files);
   }
@@ -1395,18 +1397,30 @@ function draftChanged() {
 /** One whole-recipe undo step across the draft's editors. */
 function edit(label: string, mutate: () => void) {
   const before = JSON.stringify(recipe);
+  const destinationBefore = { value: exportTarget.value, automatic: applyDefault, saved: localStorage.getItem(EXPORT_KEY) };
   mutate();
   const after = JSON.stringify(recipe);
   if (after === before) return;
   const recipes: Recipe[] = [JSON.parse(before), JSON.parse(after)];
+  let destinationAfter = destinationBefore;
+  const restore = (text: string, exact: boolean, destination: typeof destinationBefore) => {
+    restoreDraft(text, exact);
+    if (recipes[0].base === recipes[1].base || destinationBefore.value === destinationAfter.value) return;
+    exportTarget.value = destination.value;
+    applyDefault = destination.automatic;
+    if (destination.saved === null) localStorage.removeItem(EXPORT_KEY);
+    else localStorage.setItem(EXPORT_KEY, destination.saved);
+    renderApply();
+  };
   record({
     label,
     drafts: recipes.flatMap((r) => Object.values(r.keymodes ?? {})),
     recipes,
-    undo: () => restoreDraft(before, true),
-    redo: () => restoreDraft(after),
+    undo: () => restore(before, true, destinationBefore),
+    redo: () => restore(after, false, destinationAfter),
   });
   draftChanged();
+  destinationAfter = { value: exportTarget.value, automatic: applyDefault, saved: localStorage.getItem(EXPORT_KEY) };
 }
 function restoreDraft(text: string, exact = false) {
   const base = recipe.base;
@@ -2224,7 +2238,7 @@ function renderMix() {
             { class: "pick-source" },
             [slots ? plural(slots, "image") : "", values ? plural(values, "value") : ""]
               .filter(Boolean)
-              .join(" · ") || "block added",
+              .join(" · ") || (draft.added === false ? "preferences" : "block added"),
           ),
         ),
         h(
@@ -2781,13 +2795,15 @@ const afterEdit = (bump: () => void) => {
 };
 // Hand edits of the mix draft's [Mania] blocks show on the Keymodes screen.
 mixDoc.onDidChangeContent(() => keymodeGenerations.observe(recipe, "draft", mixDoc.getValue()));
-mixDoc.onDidChangeContent(
-  afterEdit(() => {
-    mixVersion++;
-    keymodes.refresh();
-    scheduleReview();
-  }),
-);
+const onMixHandEdit = afterEdit(() => {
+  mixVersion++;
+  keymodes.refresh();
+  scheduleReview();
+});
+mixDoc.onDidChangeContent(() => {
+  // publishComposition already updates the version and consumers synchronously.
+  if (!syncingMixText) onMixHandEdit();
+});
 // The draft keeps a hand-edited skin.ini until applied or discarded.
 mixDoc.onDidChangeContent(() => {
   if (syncingMixText) return;
@@ -2940,6 +2956,7 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
   const before = recipe.keymodes[String(keys)];
   if (draft) recipe.keymodes[String(keys)] = draft;
   else delete recipe.keymodes[String(keys)];
+  if (!Object.keys(recipe.keymodes).length) delete recipe.keymodes;
   const names = touchedKeys(before, draft);
   publishComposition(compose(recipe, new Map([...loaded].map(([key, entry]) => [key, entry.data]))), { keys, names });
   persist();
@@ -2953,6 +2970,7 @@ const keymodes = new KeymodesView({
   drafts: () => recipe.keymodes ?? {},
   generation: (keys) => keymodeGenerations.capture(keys, recipe, "draft", mixDoc.getValue()),
   refreshSources: loadLibrary,
+  assetEpoch: (skin) => assets.epochFor(skin),
   originalStage: (keys) => {
     const pick = recipe.picks[maniaGroup(keys).id];
     const key = pick ? (pick.kind === "skin" ? pick.key : null) : recipe.base;
