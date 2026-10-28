@@ -9,6 +9,16 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* Muted is the resting state of audio previews, not a choice to highlight:
+   pressed, it keeps the ghost look (its label says which state it is in). */
+#mute.v-btn--ghost[aria-pressed="true"] {
+  color: var(--fg-dim);
+  background: transparent;
+  border-color: transparent;
+}
+#mute.v-btn--ghost[aria-pressed="true"]:hover {
+  color: var(--fg);
+}
 
 .studio {
   grid-template-columns: minmax(13rem, 17rem) minmax(0, 1fr) minmax(
