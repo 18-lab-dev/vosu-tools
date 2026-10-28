@@ -26,6 +26,7 @@ import {
   type Recipe,
   type SkinData,
   compose,
+  assignGroupPick,
   groupById,
   groupFiles,
   hasEdits,
@@ -51,6 +52,7 @@ import { ClientScroll } from "./client-scroll";
 import { $, h } from "./dom";
 import { Explorer } from "./explorer";
 import { KeymodesView } from "./keymodes-view";
+import { KeymodeGenerations } from "./keymode-generations";
 import {
   UPLOADS,
   formatBytes,
@@ -204,7 +206,9 @@ const recipes: Record<EditMode, Recipe> = {
 };
 recipes.current.inPlace = true;
 let recipe: Recipe = recipes[editMode];
+const keymodeGenerations = new KeymodeGenerations();
 const persist = () => {
+  keymodeGenerations.observe(recipe, editMode, mixDoc.getValue());
   const keys = new Set(recipeSkins(recipe));
   for (const draft of Object.values(recipe.keymodes ?? {}))
     for (const refs of sourceSlots(draft).values())
@@ -958,8 +962,7 @@ function pickLabel(pick: Pick | undefined) {
 }
 
 function setPick(id: string, pick: Pick | null) {
-  if (pick) recipe.picks[id] = pick;
-  else delete recipe.picks[id];
+  assignGroupPick(recipe, id, pick);
   persist();
   renderGroups();
   renderMix();
@@ -2409,6 +2412,7 @@ const afterEdit = (bump: () => void) => {
   };
 };
 // Hand edits of the mix draft's [Mania] blocks show on the Keymodes screen.
+mixDoc.onDidChangeContent(() => keymodeGenerations.observe(recipe, editMode, mixDoc.getValue()));
 mixDoc.onDidChangeContent(
   afterEdit(() => {
     mixVersion++;
@@ -2575,8 +2579,14 @@ function applyKeymode(keys: number, draft: KeymodeDraft | undefined) {
 
 const keymodes = new KeymodesView({
   drafts: () => (recipe.keymodes ??= {}),
+  generation: (keys) => keymodeGenerations.capture(keys, recipe, editMode, mixDoc.getValue()),
   apply: applyKeymode,
   refreshSources: loadLibrary,
+  originalStage: (keys) => {
+    const pick = recipe.picks[maniaGroup(keys).id];
+    const key = pick ? (pick.kind === "skin" ? pick.key : null) : recipe.base;
+    return key && skinByKey(key)?.available ? key : null;
+  },
   mixText: () => mixDoc.getValue() || lastPlan?.ini || "",
   mixFiles: () => {
     const files = new Map<string, { skin: string; from: string; to: string }>();

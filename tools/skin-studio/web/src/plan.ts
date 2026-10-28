@@ -105,6 +105,16 @@ export function groupById(id: string): Group | undefined {
   return groups.find((g) => g.id === id);
 }
 
+/** A different stage pick cannot inherit geometry captures from its predecessor. */
+export function assignGroupPick(recipe: Recipe, id: string, pick: Pick | null) {
+  if (JSON.stringify(recipe.picks[id] ?? null) === JSON.stringify(pick)) return;
+  if (pick) recipe.picks[id] = pick;
+  else delete recipe.picks[id];
+  const keys = groupById(id)?.maniaKeys;
+  const draft = keys === undefined ? undefined : recipe.keymodes?.[String(keys)];
+  if (draft) delete draft.hit;
+}
+
 /** Key counts with a `[Mania]` block in this skin. */
 export const maniaKeyCounts = (skin: SkinData) =>
   [...maniaBlocks(parseIni(skin.text)).keys()].sort((a, b) => a - b);

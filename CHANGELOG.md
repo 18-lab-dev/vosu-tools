@@ -6,6 +6,8 @@
 - Skin studio calibration now corrects timing instead of matching it: late presses raise receptors, early presses lower them; late releases shorten LNs, early releases lengthen them. Magnitudes and per-key-count scope are unchanged. Re-calibrating a skin calibrated with 0.4.x moves it the other way. Proposals state the correcting direction and explain it on hover.
 - Skin studio repairs stale Keymodes geometry captures on the next width edit, including repeating the current width. Replacing an image establishes one new stage baseline so old receptor selections and HitPosition epochs cannot reappear in only some columns.
 - Skin studio replaces HitPosition's −5/+5 buttons with a plain number field (Enter/blur commits; native arrows step by one) and adds an undoable, per-key-count **Move receptors with HitPosition** toggle, on by default. Off moves only the note landing line, including calibration, without rewriting receptor images or LightPosition; proportional width changes still resize images but skip HitPosition-driven receptor shifts.
+- Skin studio offers a conditional, undoable **Reset geometry from original stage** when old captures have already restored obsolete blank receptors. Stage copies, group replacements and bulk image selections invalidate the shared capture baseline. Partial width edits pin the implicit note-height reference only when needed so untouched columns' note images stay untouched; user-set `WidthForNoteHeightScale` values are never rewritten.
+- Skin studio keeps asynchronous geometry, copies, source recovery and LN calibration scoped to their original key count, and rejects stale results after newer edits or undo/redo instead of restoring old selections.
 
 ## 0.4.2 - 2026-10-28
 

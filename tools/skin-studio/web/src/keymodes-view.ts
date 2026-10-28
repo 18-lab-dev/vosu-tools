@@ -24,6 +24,8 @@ import {
   History,
   applyToAll,
   assignSlots,
+  assignImageSlots,
+  applyStageCopy,
   columnKey,
   copyStage,
   defaultPattern,
@@ -31,6 +33,7 @@ import {
   mirror,
   patternOf,
   remapColumns,
+  resetStageGeometry,
   stageImages,
   stageStatus,
   type KeymodeDraft,
@@ -93,6 +96,7 @@ export interface PickerSource {
 export interface KeymodesHost {
   /** The recipe's drafts (live object). */
   drafts(): Keymodes;
+  generation(keys: number): number;
   /** Stores one key count's draft (undefined drops it) and recomposes. */
   apply(keys: number, draft: KeymodeDraft | undefined): void;
   /** The mix draft's skin.ini as the editor holds it. */
@@ -102,6 +106,8 @@ export interface KeymodesHost {
   sources(): PickerSource[];
   refreshSources?(): Promise<unknown>;
   load(key: string): Promise<{ text: string; files: string[] }>;
+  /** Source chosen for this stage group, otherwise the mix base. */
+  originalStage(keys: number): string | null;
   assetUrl(skin: string, file: string): string;
   skinName(key: string): string;
   /** Stores a dropped file; resolves with its name under {@link UPLOADS}. */
@@ -229,14 +235,19 @@ export class KeymodesView {
       mixFiles: () => host.mixFiles(),
       mixIndex: () => this.#mixIndex,
       resolved: () => this.#resolved,
-      draft: () => this.#draft(),
-      change: (label, mutate) => this.#change(label, mutate),
+      draft: (keys) => this.#draft(keys),
+      generation: (keys) => host.generation(keys),
+      change: (label, mutate, keys) => this.#change(label, mutate, keys),
       beforeGeometry: async () => {
         await host.refreshSources?.();
         const missing = missingSources(host.drafts(), new Set(host.sources().map((s) => s.key)));
         this.#renderMissing();
         if (missing.length) {
           this.#error("Resolve the missing source above before changing geometry.");
+          return false;
+        }
+        if (this.#hit.needsOriginalStageReset) {
+          this.#error("Stale originals replaced this stage's images. Reset geometry from original stage before changing geometry.");
           return false;
         }
         return true;
@@ -255,11 +266,11 @@ export class KeymodesView {
     $("#km-all").onclick = () => this.#applyToAll();
     $("#km-mirror").onclick = () =>
       this.#change("Mirror", (draft) =>
-        Object.assign(draft.images, mirror(this.#keys, this.#current)),
+        assignImageSlots(draft, mirror(this.#keys, this.#current)),
       );
     $("#km-pattern").onclick = () =>
       this.#change("osu! column pattern", (draft) =>
-        Object.assign(draft.images, defaultPattern(this.#keys, this.#current)),
+        assignImageSlots(draft, defaultPattern(this.#keys, this.#current)),
       );
     $("#km-still").onclick = () => this.#setPlaying(false);
     $("#km-play").onclick = () => this.#setPlaying(true);
@@ -324,8 +335,8 @@ export class KeymodesView {
     for (const key of Object.keys(this.#host.drafts())) counts.add(Number(key));
     return [...counts].filter((k) => k > 0).sort((a, b) => a - b);
   }
-  #draft(): KeymodeDraft | undefined {
-    return this.#host.drafts()[String(this.#keys)];
+  #draft(keys = this.#keys): KeymodeDraft | undefined {
+    return this.#host.drafts()[String(keys)];
   }
   /** The slot a key has now: the draft's, else a value naming what the mix draws. */
   #current = (key: string): Slot => {
@@ -643,6 +654,13 @@ export class KeymodesView {
     redo.disabled = !this.#history.canRedo;
     undo.title = next.undo ? `Undo ${next.undo} (Ctrl+Z)` : "Nothing to undo";
     redo.title = next.redo ? `Redo ${next.redo} (Ctrl+Shift+Z)` : "Nothing to redo";
+    document.getElementById("km-reset-geometry")?.remove();
+    if (this.#hit.needsOriginalStageReset && this.#host.originalStage(this.#keys))
+      undo.insertAdjacentElement("afterend", h("button", {
+        id: "km-reset-geometry", type: "button", class: "v-btn v-btn--sm", disabled: !write,
+        title: "Restore the original stage's images, column widths and HitPosition for this key count. Other key counts stay unchanged. Undo restores this draft.",
+        onclick: () => void this.#resetGeometry(),
+      }, "Reset geometry from original stage"));
     const all = $<HTMLButtonElement>("#km-all");
     const value = this.#lastFocus === "value" && this.#valueFocus ? this.#valueSpecs.get(this.#valueFocus.row) : undefined;
     const armed = this.#armed && /\d/.test(this.#armed) && /^(Key|Note)Image/.test(this.#armed);
@@ -958,7 +976,7 @@ export class KeymodesView {
           const changes = source.counts.map((keys) => {
             const draft = clone(this.#host.drafts()[String(keys)]);
             recoverSource(draft, source.key, recovery);
-            return { keys, draft };
+            return { keys, draft, generation: this.#host.generation(keys) };
           });
           if (recovery.kind === "remap") {
             const { files } = await this.#host.load(recovery.key);
@@ -976,6 +994,8 @@ export class KeymodesView {
                 if (slot && "files" in slot && slot.skin === UPLOADS && slot.files.some((f) => !retained.has(f.from.toLowerCase())))
                   throw new Error("A retained derived file has been removed. Remap or remove the slots instead.");
           }
+          if (changes.some(({ keys, generation }) => this.#host.generation(keys) !== generation))
+            throw new Error("The draft changed while recovery was loading; recovery was not applied.");
           for (const { keys, draft } of changes)
             this.#change(`${recovery.kind} missing source ${source.name} (${keys}K)`, (after) => {
               for (const key of Object.keys(after)) delete after[key as keyof KeymodeDraft];
@@ -1044,6 +1064,7 @@ export class KeymodesView {
     const set = (key: string, v: string | null, label: string) =>
       this.#change(label, (draft) => {
         draft.values[key] = v;
+        if (key === "WidthForNoteHeightScale") delete draft.autoNoteHeight;
       });
     const help = (tip: string) => {
       const el = h("span", { class: "v-help", tabIndex: 0, role: "img", ariaLabel: tip });
@@ -1706,7 +1727,7 @@ export class KeymodesView {
     const pattern = patternOf(key);
     const from = Number(/\d+/.exec(key)![0]);
     this.#change(`Apply ${roleLabel(pattern).toLowerCase()} to all columns`, (draft) =>
-      Object.assign(draft.images, applyToAll(this.#keys, pattern, from, this.#current)),
+      assignImageSlots(draft, applyToAll(this.#keys, pattern, from, this.#current)),
     );
   }
 
@@ -1740,11 +1761,7 @@ export class KeymodesView {
     $<HTMLButtonElement>("#km-copy-go").disabled =
       !counts.length || !this.#host.canWrite() || !this.#keys;
   }
-  async #copy() {
-    const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
-    const from = Number($<HTMLSelectElement>("#km-copy-keys").value);
-    if (!from || !this.#keys) return;
-    const keys = this.#keys;
+  async #stageCopy(skin: string, from: number, keys: number, originalGeometry = false) {
     let image: (key: string) => Slot, value: (key: string) => string | undefined;
     if (skin === MIX) {
       const text = this.#host.mixText();
@@ -1772,17 +1789,40 @@ export class KeymodesView {
       };
       value = (key) => maniaValue(source.text, from, key);
     }
-    const copied = copyStage(keys, from, image, value);
+    return copyStage(keys, from, image, value, originalGeometry);
+  }
+  async #copy() {
+    const skin = $<HTMLSelectElement>("#km-copy-skin").value || MIX;
+    const from = Number($<HTMLSelectElement>("#km-copy-keys").value);
+    if (!from || !this.#keys) return;
+    const keys = this.#keys;
+    const generation = this.#host.generation(keys);
+    const copied = await this.#stageCopy(skin, from, keys);
+    if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while copying; the stale copy was not applied.");
     const map = remapColumns(keys, from).map((c) => c + 1);
     const name = skin === MIX ? "this mix" : this.#host.skinName(skin);
-    this.#change(`Copy ${from}K from ${name}`, (draft) => {
-      Object.assign(draft.images, copied.images);
-      Object.assign(draft.values, copied.values);
-    });
+    this.#change(`Copy ${from}K from ${name}`, (draft) => applyStageCopy(draft, copied), keys);
     if (from !== keys)
       this.#state(
         `Copied ${from}K from ${name} into ${keys}K: columns take ${map.join(", ")} (same column kind 1/2/S, nearest position)`,
       );
+  }
+
+  async #resetGeometry() {
+    const keys = this.#keys;
+    const generation = this.#host.generation(keys);
+    const source = this.#host.originalStage(keys);
+    if (!source) {
+      this.#error("The original stage has no file-backed source to reset from.");
+      return;
+    }
+    try {
+      const copied = await this.#stageCopy(source, keys, keys, true);
+      if (this.#host.generation(keys) !== generation) return this.#error("The draft changed while resetting geometry; the reset was not applied.");
+      this.#change(`Reset ${keys}K geometry from ${this.#host.skinName(source)}`, (draft) => resetStageGeometry(draft, copied), keys);
+    } catch (error) {
+      this.#error(`Reset geometry: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // ---- picker -------------------------------------------------------------------
