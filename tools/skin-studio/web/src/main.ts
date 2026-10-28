@@ -2706,13 +2706,15 @@ const afterEdit = (bump: () => void) => {
 };
 // Hand edits of the mix draft's [Mania] blocks show on the Keymodes screen.
 mixDoc.onDidChangeContent(() => keymodeGenerations.observe(recipe, "draft", mixDoc.getValue()));
-mixDoc.onDidChangeContent(
-  afterEdit(() => {
-    mixVersion++;
-    keymodes.refresh();
-    scheduleReview();
-  }),
-);
+const onMixHandEdit = afterEdit(() => {
+  mixVersion++;
+  keymodes.refresh();
+  scheduleReview();
+});
+mixDoc.onDidChangeContent(() => {
+  // publishComposition already updates the version and consumers synchronously.
+  if (!syncingMixText) onMixHandEdit();
+});
 // The draft keeps a hand-edited skin.ini until applied or discarded.
 mixDoc.onDidChangeContent(() => {
   if (syncingMixText) return;
