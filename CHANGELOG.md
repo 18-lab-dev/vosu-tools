@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.4 - 2026-10-29
+
+Replay renderer updates to **0.3.2** and Practice to **0.1.5**. **Replay renderer's HUD position settings are renamed (`hud.<layer>.margin_x`/`.margin_y`) and `note_speed` is removed: presets holding the old values drop them and use the defaults.**
+
+Map preview 0.2.4 and Skin studio 0.5.1 include the shared mania configuration changes (`ComboPosition` is now read); their behaviour is unchanged. Other tool versions are unchanged.
 
 ### Practice
 

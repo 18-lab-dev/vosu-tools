@@ -1,7 +1,7 @@
 manifest_version = 1
 id = "skin-studio"
 name = "Skin studio"
-version = "0.5.0"
+version = "0.5.1"
 description = "Browse stable and lazer skins, preview elements and gameplay in every ruleset, mix element groups or single assets into a new stable skin or a downloadable .osk, and edit skin.ini"
 author = "18-LAB"
 icon = "art/icon.svg"
