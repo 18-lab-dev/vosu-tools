@@ -147,6 +147,9 @@ function triangles(
 }
 const DIGIT_FONT =
   '700 {size}px "Helvetica Neue", Arial, system-ui, sans-serif';
+/** The classic HUD's score font: lighter than the combo digits. */
+const HUD_FONT =
+  '500 {size}px "Helvetica Neue", Arial, system-ui, sans-serif';
 
 interface Builder {
   skin: Skin;
@@ -1205,6 +1208,84 @@ function judgementImages(
       judgementText(String(d), legacy ? "#ffffff" : "#f4f4f8", 42, w, 54),
     );
   }
+}
+
+/* ------------------------------------------------------------------ HUD */
+
+/**
+ * The classic skin's HUD images, drawn here: the score font (`score-*`:
+ * digits, comma, dot, percent, x) and a new-style health bar (`scorebar-bg`,
+ * `-colour`, `-marker`). Sizes follow lazer's classic skin: digits 46 tall,
+ * the bar 695×44 with its 645×10 fill in the slot at (12, 12.48) where
+ * LegacyHealthDisplay puts it. Kept out of `builtinSkin`: the HUD draws these
+ * itself and the playfield's GPU atlas never needs them.
+ */
+export function classicHud(): Skin {
+  const b = builder("osu! (classic) HUD", {}, {});
+  const size = 40,
+    height = 46,
+    font = HUD_FONT.replace("{size}", String(size));
+  const probe = new OffscreenCanvas(8, 8).getContext("2d")!;
+  probe.font = font;
+  for (const [char, name] of [
+    ..."0123456789x".split("").map((c) => [c, c]),
+    [",", "comma"],
+    [".", "dot"],
+    ["%", "percent"],
+  ]) {
+    const w = Math.ceil(probe.measureText(char).width + 4);
+    b.set(
+      `score-${name}`,
+      draw(w, height, (g) => {
+        g.font = font;
+        g.textAlign = "center";
+        g.textBaseline = "alphabetic";
+        g.lineJoin = "round";
+        g.lineWidth = 2.5;
+        g.strokeStyle = "rgba(24,26,34,0.6)";
+        g.strokeText(char, w / 2, 38);
+        g.fillStyle = "#ffffff";
+        g.fillText(char, w / 2, 38);
+      }),
+    );
+  }
+  b.set(
+    "scorebar-bg",
+    draw(695, 44, (g) => {
+      // A slate panel whose bottom-right corner curves away.
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(695, 0);
+      g.bezierCurveTo(690, 26, 676, 42, 648, 44);
+      g.lineTo(0, 44);
+      g.closePath();
+      g.fillStyle = vertical(g, 0, 44, [
+        [0, "rgba(128,145,182,0.62)"],
+        [0.55, "rgba(84,96,128,0.72)"],
+        [1, "rgba(40,44,58,0.82)"],
+      ]);
+      g.fill();
+      roundRect(g, 10.5, 11, 649, 13, 6.5, "rgba(28,28,32,0.86)");
+      g.lineWidth = 1.5;
+      g.strokeStyle = "rgba(196,210,244,0.5)";
+      g.stroke();
+    }),
+  );
+  b.set(
+    "scorebar-colour",
+    draw(645, 10, (g) => roundRect(g, 0, 0, 645, 10, 5, "#ffffff")),
+  );
+  b.set(
+    "scorebar-marker",
+    draw(24, 24, (g) => {
+      const glow = g.createRadialGradient(12, 12, 2, 12, 12, 12);
+      glow.addColorStop(0, "rgba(255,255,255,1)");
+      glow.addColorStop(0.45, "rgba(255,255,255,0.9)");
+      glow.addColorStop(1, "rgba(255,255,255,0)");
+      disc(g, 12, 12, 12, glow);
+    }),
+  );
+  return b.skin;
 }
 
 /* ----------------------------------------------------------------- entry */

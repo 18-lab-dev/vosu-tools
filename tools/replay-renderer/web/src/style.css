@@ -264,9 +264,11 @@
 .lay-box:hover {
   border-style: solid;
 }
+/* No z-index on boxes: they stack by area (editor.ts), so a selected
+   full-screen box (a skin's scorebar-bg) must not rise over smaller ones.
+   Its handles rise instead, as no box forms a stacking context. */
 .lay-box[aria-pressed="true"] {
   border: 1.5px solid var(--accent);
-  z-index: 1;
 }
 .lay-box:focus-visible {
   outline: 2px solid var(--accent);
@@ -292,6 +294,7 @@
   opacity: 1;
 }
 .lay-handle {
+  z-index: 1;
   position: absolute;
   width: 10px;
   height: 10px;

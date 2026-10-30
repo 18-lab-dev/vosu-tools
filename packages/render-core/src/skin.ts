@@ -622,6 +622,38 @@ async function decode(
   return added;
 }
 /**
+ * Decodes `names` (with the animation frames of those in `animated`) from the
+ * files behind a `loadSkin` skin into a separate image set: images a tool
+ * draws itself (the HUD) stay out of the playfield skin and its GPU atlas.
+ * The caller closes the bitmaps. Skins without files (built-in looks) give
+ * an empty set.
+ */
+export async function loadImages(
+  skin: Skin,
+  names: readonly string[],
+  animated: ReadonlySet<string> = new Set(),
+): Promise<Skin> {
+  const images: Skin = {
+    name: skin.name,
+    sections: skin.sections,
+    version: skin.version,
+    frameRate: skin.frameRate,
+    assets: new Map(),
+    pixelScale: new Map(),
+    animations: new Map(),
+    blank: new Set(),
+  };
+  const source = sources.get(skin);
+  // `decode` looks for frames of every name outside `general`.
+  if (source)
+    await decode(
+      images,
+      { ...source, general: new Set(names.filter((name) => !animated.has(name))), missing: new Set() },
+      names,
+    );
+  return images;
+}
+/**
  * Images lazer loads with ClampToEdge or Repeat wrapping, per axis (S, T):
  * `LegacyDrumRoll`'s body and end, and the mania notes, keys and bodies of
  * every key count. Everything else is WrapMode.None.

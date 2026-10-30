@@ -4,9 +4,7 @@ import {
   HUD_KEYS,
   freeSpot,
   guidesFor,
-  hudBox,
   hudUnit,
-  hudTransformFor,
   layoutCells,
   place,
   resizeBox,
@@ -18,7 +16,7 @@ import {
   type Rect,
 } from "./layout";
 import { PAGE_LIMITS, type Layer } from "./overlay-layout";
-import { hudShown, hudTransform, transformOf, type Track } from "./studio";
+import { hudBoxOf, hudLayers, hudTransform, hudTransformAt, transformOf, type Track } from "./studio";
 
 /** A selectable thing in the frame: a track's playfield, one of its HUD
  *  layers, or an overlay layer. */
@@ -119,7 +117,7 @@ export class LayoutEditor {
       }));
     const spot = freeSpot(scene(true), width, height, options) ?? freeSpot(scene(false), width, height, options);
     if (spot) return spot;
-    const health = hudBox(cells[0], "health", hudTransform(tracks[0], "health"));
+    const health = hudBoxOf(tracks[0], cells[0], "health");
     return { x: Math.round(health.x - cells[0].x), y: Math.round(health.y + health.height - cells[0].y + 20 * unit) };
   }
   /** Overlay boxes in the frame, for the composition inspector. */
@@ -154,7 +152,7 @@ export class LayoutEditor {
       const l = item.layer;
       return { x: cell.x + l.x, y: cell.y + l.y, width: l.width * l.scale, height: l.height * l.scale };
     }
-    if (item.kind === "hud") return hudBox(cell, item.key, hudTransform(item.track, item.key));
+    if (item.kind === "hud") return hudBoxOf(item.track, cell, item.key);
     return place(cell, item.track.content, transformOf(item.track)).box;
   }
   private items(): Item[] {
@@ -172,9 +170,7 @@ export class LayoutEditor {
     const tracks = this.host.tracks();
     return [
       ...tracks.map((track) => ({ kind: "playfield", track }) as Item),
-      ...tracks.flatMap((track) =>
-        HUD_KEYS.filter((key) => hudShown(track, key)).map((key) => ({ kind: "hud", track, key }) as Item),
-      ),
+      ...tracks.flatMap((track) => hudLayers(track).map((key) => ({ kind: "hud", track, key }) as Item)),
       ...this.host.layers().flatMap((layer) =>
         tracks
           .filter((track) => !layer.hidden.has(track.id))
@@ -214,11 +210,11 @@ export class LayoutEditor {
     }
     const index = this.host.tracks().indexOf(item.track);
     if (item.kind === "hud") {
-      const t = hudTransformFor(this.cells()[index], item.key, box);
+      const t = hudTransformAt(item.track, this.cells()[index], item.key, box);
       const s = item.track.settings,
         prefix = `hud.${item.key}`;
-      s[`${prefix}.dx`] = round(clamp(t.x, limit(`${prefix}.dx`)));
-      s[`${prefix}.dy`] = round(clamp(t.y, limit(`${prefix}.dy`)));
+      s[`${prefix}.margin_x`] = round(clamp(t.x, limit(`${prefix}.margin_x`)));
+      s[`${prefix}.margin_y`] = round(clamp(t.y, limit(`${prefix}.margin_y`)));
       if (resized) s[`${prefix}.scale`] = round(clamp(t.scale, limit(`${prefix}.scale`)));
       return;
     }
@@ -236,7 +232,7 @@ export class LayoutEditor {
       item.track.settings["playfield.y"] = DEFAULT_TRANSFORM.y;
       item.track.settings["playfield.scale"] = DEFAULT_TRANSFORM.scale;
     } else if (item.kind === "hud") {
-      for (const axis of ["dx", "dy", "scale"]) {
+      for (const axis of ["margin_x", "margin_y", "scale"]) {
         const key = `hud.${item.key}.${axis}`;
         item.track.settings[key] = DEFAULTS[key];
       }
@@ -292,10 +288,19 @@ export class LayoutEditor {
     const items = this.items();
     if (this.selection && !items.some((item) => this.same(this.selection, item)))
       this.selection = null;
+    // Larger boxes underneath: a full-screen health background (scorebar-bg)
+    // or a big playfield must leave the smaller layers over it clickable.
+    const stacked = items
+      .map((item) => {
+        const box = this.boxOf(item);
+        return { item, area: box.width * box.height };
+      })
+      .sort((a, b) => b.area - a.area)
+      .map(({ item }) => item);
     this.layer.replaceChildren(
       this.guides.x,
       this.guides.y,
-      ...items.map((item) => {
+      ...stacked.map((item) => {
         const box = this.boxOf(item);
         const node = document.createElement("div");
         node.className = `lay-box lay-box--${item.kind}`;

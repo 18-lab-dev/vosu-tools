@@ -15,10 +15,29 @@ export {
   legacySliderStyle,
 } from "./skin";
 export { maniaKeysFor, sceneScope } from "./scene";
+export { maniaConfig } from "./mania";
+export type { ManiaConfig } from "./mania";
 export type { Skin, SkinStyle, SkinScope, LoadSkinOptions } from "./skin";
 export { builtinSkin, builtinSkinNames, withFallback } from "./builtin";
 export type { BuiltinSkinName } from "./builtin";
 export type { RenderOptions, Scene, InputFrame } from "./scene";
+export {
+  ACCURACY_SCALE,
+  SCORE_SCALE,
+  comboChanges,
+  drawHealth,
+  drawHudText,
+  formatAccuracy,
+  healthFrame,
+  healthSize,
+  hudText,
+  legacyComboFrame,
+  loadHud,
+  maniaComboFrame,
+  rolling,
+  rollingAt,
+} from "./hud";
+export type { ComboChange, ComboFrame, HealthFrame, HealthSource, Hud, HudFont, HudText, Rolling } from "./hud";
 export type { JudgementEvent } from "./judgements";
 export {
   PLAYFIELD_BACKGROUND,

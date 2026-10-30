@@ -53,6 +53,8 @@ export interface ManiaConfig {
   lightPosition: number;
   /** Judgement centre's distance from the stage's top edge (`ScorePosition`). */
   scorePosition: number;
+  /** The combo counter's centre distance from the stage's top edge (`ComboPosition`). */
+  comboPosition: number;
   /** Note height reference width (`WidthForNoteHeightScale`, else the narrowest column). */
   noteHeightWidth: number;
   showJudgementLine: boolean;
@@ -145,6 +147,7 @@ export function maniaConfig(
     hitPosition: (480 - 402) * MANIA_SCALE,
     lightPosition: (480 - 413) * MANIA_SCALE,
     scorePosition: 300 * MANIA_SCALE,
+    comboPosition: 111 * MANIA_SCALE,
     noteHeightWidth: 0,
     showJudgementLine: true,
     keysUnderNotes: false,
@@ -190,6 +193,10 @@ export function maniaConfig(
       case "ScorePosition":
         if (Number.isFinite(float(value)))
           config.scorePosition = float(value) * MANIA_SCALE;
+        break;
+      case "ComboPosition":
+        if (Number.isFinite(float(value)))
+          config.comboPosition = float(value) * MANIA_SCALE;
         break;
       case "JudgementLine":
         config.showJudgementLine = value === "1";

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Replay renderer
+
+- Score, accuracy and the health bar are drawn with the track's skin as lazer's legacy HUD draws them: the `ScorePrefix` font with `ScoreOverlap`, rolling counters, and `scorebar-bg`/`-colour`/`-marker` (or the old-style `ki` images) with the initial fill, low-health colours, bulge and flash. Skins lacking them and built-in looks use original drawings of the classic skin's.
+- Combo uses the skin's `ComboPrefix` font and each ruleset's legacy counter: osu! and taiko's bottom-left counter with its pop-out, mania's counter over the stage at the skin's `ComboPosition` with its hit stretch and `ColourBreak` break pop-out. osu!catch has no HUD combo, as in lazer (the catcher shows it), and loses its Combo switch.
+- **The Note movement multiplier (`note_speed`) is removed.** Presets holding it drop the value; `--set note_speed=…` is now an unknown setting.
+- mania tracks can use upscroll (**Upscroll** in the track's settings, `mania.scroll_up`): the stage, notes and combo counter flip as in lazer, and overlays are told the direction. Replays don't record the client's scroll direction, so it is off until set per track or in a player preset.
+- HUD layers are placed in lazer's UI units at lazer's default positions, so full-screen `scorebar-bg` art lines up. **The position settings are now `hud.<layer>.margin_x`/`.margin_y`; presets saved with `hud.<layer>.dx`/`.dy` drop those values and use the new defaults.** Accuracy's vertical margin is measured from the score's bottom edge.
+- In the layout editor, larger boxes sit under smaller ones, so a full-screen health bar or a big playfield never blocks clicking the score, accuracy or other layers on top of it, even while selected.
+- Mania `mania-stage-left`/`-right` images are no longer cut at the 4:3 view; they reach the cell's edges as in lazer.
+- A map whose background image is missing, outside its folder or undecodable renders on black instead of failing to load.
+
 ## 0.4.3 - 2026-10-28
 
 Skin studio updates to **0.5.0** in this release. **Calibration now corrects your timing: late presses move receptors up and late releases shorten LNs; early timing moves them the other way. This is the opposite direction to Skin studio 0.4.x.** Existing geometry is not automatically recalibrated.

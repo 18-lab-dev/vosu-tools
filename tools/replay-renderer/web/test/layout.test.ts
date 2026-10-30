@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import settingSchema from "../../render-settings.json";
 import {
-  HUD,
+  DEFAULT_TRANSFORM,
   HUD_KEYS,
   VIEW,
+  drawnWidth,
   gridFor,
   hudBox,
   hudTransformFor,
@@ -17,8 +18,10 @@ import {
   resizeBox,
   snapMove,
   transformFor,
+  uiUnit,
   type HudKey,
   type Rect,
+  type Size,
 } from "../src/layout";
 
 const close = (a: number, b: number, digits = 6) => expect(a).toBeCloseTo(b, digits);
@@ -149,24 +152,47 @@ test("cells tile the frame with gaps and whole pixels", () => {
   expect(() => layoutCells(0, 1920, 1080, "auto")).toThrow();
 });
 
-test("HUD layers hang from their corner and scale with the cell's short side", () => {
+test("a mania stage's side images widen its target up to the cell, the stage staying put", () => {
+  const frame = { x: 0, y: 0, width: 1920, height: 1080 };
+  const plain = place(frame, stage, DEFAULT_TRANSFORM);
+  const decorated = place(frame, stage, DEFAULT_TRANSFORM, undefined, 2560);
+  // The same scale and stage box; the target spans the cell (853 world units at 2.25 px each).
+  expect(decorated.target.height).toBe(plain.target.height);
+  expect(decorated.box).toEqual(plain.box);
+  expect(decorated.target.width).toBe(1920);
+  close(decorated.draw.x, 0);
+  close(decorated.draw.width, 1920);
+  // Narrower decorations widen it only as far as they reach.
+  expect(place(frame, stage, DEFAULT_TRANSFORM, undefined, 700).target.width).toBe(1575);
+  // The measured width is symmetric about the stage centre and never below the view.
+  const row = new Uint8Array(2560 * 4);
+  row[2000 * 4 + 3] = 255;
+  expect(drawnWidth(row, 2560, 1)).toBe(2 * (2001 - 1280));
+  expect(drawnWidth(new Uint8Array(2560 * 4), 2560, 1)).toBe(VIEW.width);
+});
+
+test("HUD layers hang from their corner in lazer UI units; accuracy hangs under the score", () => {
   const cell = { x: 100, y: 0, width: 1080, height: 1920 };
+  const unit = uiUnit(cell);
+  close(unit, 1080 / 1024);
+  const size = { width: 200, height: 40 };
   // Score hangs from the top right: 20 units in from the right edge, 30 down.
-  const score = hudBox(cell, "score", { x: 20, y: 30, scale: 1 });
-  close(score.x + score.width, 100 + 1080 - 20);
-  close(score.y, 30);
-  close(score.height, HUD.score.height);
+  const score = hudBox(cell, "score", { x: 20, y: 30, scale: 1 }, size);
+  close(score.x + score.width, 100 + 1080 - 20 * unit);
+  close(score.y, 30 * unit);
+  close(score.height, 40 * unit);
+  // Accuracy's vertical margin is from the score's bottom edge.
+  const accuracy = hudBox(cell, "accuracy", { x: 17, y: 9, scale: 1 }, size, score);
+  close(accuracy.y, score.y + score.height + 9 * unit);
   // Combo hangs from the bottom left.
-  const combo = hudBox(cell, "combo", { x: 20, y: 20, scale: 2 });
-  close(combo.x, 120);
-  close(combo.y + combo.height, 1920 - 20);
-  close(combo.height, HUD.combo.height * 2);
-  // A half-size cell halves the HUD, offsets included.
-  const half = hudBox({ x: 0, y: 0, width: 540, height: 960 }, "health", { x: 20, y: 20, scale: 1 });
-  expect([half.x, half.y, half.width]).toEqual([10, 10, HUD.health.width / 2]);
+  const combo = hudBox(cell, "combo", { x: 20, y: 20, scale: 2 }, size);
+  close(combo.x, 100 + 20 * unit);
+  close(combo.y + combo.height, 1920 - 20 * unit);
+  close(combo.height, size.height * 2 * unit);
   for (const key of HUD_KEYS) {
-    const t = { x: 31, y: 77, scale: 1.4 };
-    const back = hudTransformFor(cell, key, hudBox(cell, key, t));
+    const t = { x: 31, y: 77, scale: 1.4 },
+      below = key === "accuracy" ? score : undefined;
+    const back = hudTransformFor(cell, key, hudBox(cell, key, t, size, below), size, below);
     close(back.x, t.x);
     close(back.y, t.y);
     close(back.scale, t.scale);
@@ -175,14 +201,27 @@ test("HUD layers hang from their corner and scale with the cell's short side", (
 
 const overlap = (a: Rect, b: Rect) =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+/** The classic skin's HUD at scale 1: 8 score digits and "100.00%" at the
+ *  counters' scales, "0000x" at the combo counter's 1.28, and the 695×44
+ *  health bar. */
+const CLASSIC: Record<HudKey, Size> = {
+  score: { width: 8 * 31 * 0.96, height: 46 * 0.96 },
+  accuracy: { width: (5 * 31 + 15 + 54) * 0.576, height: 46 * 0.576 },
+  combo: { width: (4 * 31 + 28) * 1.28, height: 46 * 1.28 },
+  health: { width: 695, height: 44 },
+};
 const defaultHud = (cell: Rect) => {
   const value = (key: string) => settingSchema.find((rule) => rule.key === key)!.default;
-  return Object.fromEntries(
-    HUD_KEYS.map((key) => [
+  const box = (key: HudKey, below?: Rect) =>
+    hudBox(
+      cell,
       key,
-      hudBox(cell, key, { x: value(`hud.${key}.dx`), y: value(`hud.${key}.dy`), scale: value(`hud.${key}.scale`) }),
-    ]),
-  ) as Record<HudKey, Rect>;
+      { x: value(`hud.${key}.margin_x`), y: value(`hud.${key}.margin_y`), scale: value(`hud.${key}.scale`) },
+      CLASSIC[key],
+      below,
+    );
+  const score = box("score");
+  return { score, accuracy: box("accuracy", score), combo: box("combo"), health: box("health") };
 };
 
 test("the default HUD follows lazer's arrangement and never overlaps, in any cell", () => {
@@ -194,23 +233,23 @@ test("the default HUD follows lazer's arrangement and never overlaps, in any cel
       for (const count of [1, 2, 3, 4, 6])
         for (const cell of layoutCells(count, width, height, layout)) {
           const hud = defaultHud(cell);
-          const unit = Math.min(cell.width, cell.height) / 1080;
+          const unit = uiUnit(cell);
           for (const box of Object.values(hud)) {
-            // Inside the cell, clear of its edges.
-            expect(box.x).toBeGreaterThanOrEqual(cell.x + 19 * unit);
-            expect(box.y).toBeGreaterThanOrEqual(cell.y + 19 * unit);
-            expect(box.x + box.width).toBeLessThanOrEqual(cell.x + cell.width - 19 * unit);
-            expect(box.y + box.height).toBeLessThanOrEqual(cell.y + cell.height - 19 * unit);
+            expect(box.x).toBeGreaterThanOrEqual(cell.x - 1e-9);
+            expect(box.y).toBeGreaterThanOrEqual(cell.y - 1e-9);
+            expect(box.x + box.width).toBeLessThanOrEqual(cell.x + cell.width + 1e-9);
+            expect(box.y + box.height).toBeLessThanOrEqual(cell.y + cell.height + 1e-9);
           }
           for (const [i, a] of HUD_KEYS.entries())
             for (const b of HUD_KEYS.slice(i + 1)) expect(overlap(hud[a], hud[b])).toBe(false);
-          // Health top left, score top right, accuracy right under it, combo bottom left.
-          expect(hud.health.x).toBeLessThan(hud.score.x);
-          close(hud.score.x + hud.score.width, hud.accuracy.x + hud.accuracy.width);
-          expect(hud.accuracy.y).toBeGreaterThan(hud.score.y + hud.score.height);
-          expect(hud.accuracy.y - (hud.score.y + hud.score.height)).toBeLessThan(10 * unit);
-          expect(hud.combo.y).toBeGreaterThan(cell.y + cell.height / 2);
-          close(hud.combo.x, hud.health.x);
+          // lazer's legacy HUD: health flush top left, score 10 in from the
+          // right, accuracy 17 in and 9 under it, combo 10 in from the bottom left.
+          expect([hud.health.x, hud.health.y]).toEqual([cell.x, cell.y]);
+          close(hud.score.x + hud.score.width, cell.x + cell.width - 10 * unit);
+          close(hud.accuracy.x + hud.accuracy.width, cell.x + cell.width - 17 * unit);
+          close(hud.accuracy.y, hud.score.y + hud.score.height + 9 * unit);
+          close(hud.combo.x, cell.x + 10 * unit);
+          close(hud.combo.y + hud.combo.height, cell.y + cell.height - 10 * unit);
         }
 });
 

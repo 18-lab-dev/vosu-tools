@@ -1050,7 +1050,8 @@ mod tests {
                 ("playfield.scale".to_owned(), 1.5),
             ])
         );
-        assert!(parse_setting("hud.score.dx=20.5").is_ok());
+        assert!(parse_setting("hud.score.margin_x=20.5").is_ok());
+        assert!(parse_setting("hud.score.dx=20.5").is_err());
         assert!(parse_setting("hud.score.x=0.5").is_err());
         assert!(parse_setting("key_overlay=1").is_err());
     }

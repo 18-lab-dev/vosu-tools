@@ -17,15 +17,36 @@ import {
   type Beatmap,
 } from "@vosu-tools/osu-parse";
 import {
+  ACCURACY_SCALE,
+  SCORE_SCALE,
   builtinLook,
   builtinSkinNames,
+  comboChanges,
   createPlayfield,
+  drawHealth,
+  drawHudText,
+  formatAccuracy,
+  healthFrame,
+  healthSize,
+  hudText,
+  legacyComboFrame,
+  loadHud,
   loadPlayfieldSkin,
+  maniaComboFrame,
+  maniaConfig,
   maniaKeysFor,
+  rolling,
+  rollingAt,
   type BuiltinSkinName,
+  type ComboChange,
+  type HealthSource,
+  type Hud,
+  type HudFont,
   type JudgementEvent,
+  type ManiaConfig,
   type Renderer,
   type RenderTarget,
+  type Rolling,
   type Skin,
 } from "@vosu-tools/render-core";
 const hitValues: Record<Result, number> = {
@@ -39,19 +60,22 @@ const hitValues: Record<Result, number> = {
 import { assertCompatible } from "@vosu-tools/render-export";
 import { convertBeatmap, isConvert } from "@vosu-tools/ruleset-convert";
 import {
-  HUD,
   HUD_KEYS,
   VIEW,
   contentBounds,
+  drawnWidth,
   fitBounds,
   hudBox,
+  hudTransformFor,
   hudUnit,
   layoutCells,
   place,
+  uiUnit,
   worldToOutput,
   type HudKey,
   type Layout,
   type Rect,
+  type Size,
   type Transform,
 } from "./layout";
 import { BUILTIN } from "./skins";
@@ -94,8 +118,12 @@ export interface Track extends Preset {
   builtinSamples?: boolean;
   /** Visible playfield extent in world units (see `probeContent`). */
   content: Rect;
+  /** World width the playfield draws, centred on x = 256 (see `probeContent`). */
+  drawn: number;
   /** Running score, when the judgements verified (see `scoreCurve`). */
   score: ScoreCurve | null;
+  /** The skin's HUD and the values it shows (see `trackHud`). */
+  hud: TrackHud;
   timings?: { simulation: number; sceneBuild: number };
   dispose(): void;
 }
@@ -199,20 +227,27 @@ async function newPlayfield(skin: Skin): Promise<{ renderer: Renderer; canvas: H
 /**
  * The playfield's visible extent in world units. osu! and catch use the
  * whole 640×480 view; mania stages and the taiko strip are measured from a
- * reference render, so any skin's stage width is respected.
+ * reference render, so any skin's stage width is respected. `drawn` is the
+ * world width the playfield draws (mania's StageLeft/StageRight images may
+ * reach past the view, `PROBE_WIDTH` at most), the view's elsewhere.
  */
-async function probeContent(renderer: Renderer, mode: number): Promise<Rect> {
-  if (mode === 0 || mode === 2) return { ...VIEW };
-  const { width, height } = VIEW;
-  const target = renderer.createTarget(width, height);
-  try {
-    renderer.resize(width, height);
-    renderer.renderAt(0, { target });
-    return fitBounds(mode, contentBounds(await target.read(), width, height));
-  } finally {
-    target.destroy();
-  }
+async function probeContent(renderer: Renderer, mode: number): Promise<{ content: Rect; drawn: number }> {
+  if (mode === 0 || mode === 2) return { content: { ...VIEW }, drawn: VIEW.width };
+  const probe = async (width: number) => {
+    const target = renderer.createTarget(width, VIEW.height);
+    try {
+      renderer.resize(width, VIEW.height);
+      renderer.renderAt(0, { target });
+      return await target.read();
+    } finally {
+      target.destroy();
+    }
+  };
+  const content = fitBounds(mode, contentBounds(await probe(VIEW.width), VIEW.width, VIEW.height));
+  return { content, drawn: mode === 3 ? drawnWidth(await probe(PROBE_WIDTH), PROBE_WIDTH, VIEW.height) : VIEW.width };
 }
+/** World width of mania's wide probe: past the half width of a 32:9 frame (853 units). */
+const PROBE_WIDTH = 4 * VIEW.width;
 const KNOWN = new Set(settingSchema.map((rule) => rule.key));
 /** The simulation's results in render-core's terms. */
 export function judgementEvents(simulation: Simulation): JudgementEvent[] {
@@ -273,6 +308,7 @@ export async function loadTrack(
   // lazer's built-in current skin has no files: draw it. File skins keep the
   // classic look for any element they lack, as the clients do.
   let skin: Skin,
+    files: Skin | null = null,
     owned: ImageBitmap[] = [];
   const drawn = preset.skin?.startsWith(BUILTIN)
     ? preset.skin.slice(BUILTIN.length)
@@ -305,17 +341,28 @@ export async function loadTrack(
       throw new Error(`Skin load failed: ${e}`);
     }
     owned = [...loaded.files.assets.values()];
+    files = loaded.files;
     skin = loaded.skin;
   }
+  // A background the map names but does not ship (404) or names outside its
+  // folder (400), or one that does not decode, leaves the cell black, as the
+  // clients show it; other failures (the service itself) still fail the load.
   let background: ImageBitmap | null = null;
   const backgroundFile = raw.events
     .map(csv)
     .find((fields) => fields[0] === "0" && fields[2])?.[2];
   if (backgroundFile) {
-    const response = await fetcher(
-      `${assetPrefix}?${new URLSearchParams({ kind: "map-asset", hash: replay.beatmapHash, path: backgroundFile })}`,
-    );
-    background = await createImageBitmap(await response.blob());
+    let blob: Blob | null = null;
+    try {
+      blob = await (
+        await fetcher(
+          `${assetPrefix}?${new URLSearchParams({ kind: "map-asset", hash: replay.beatmapHash, path: backgroundFile })}`,
+        )
+      ).blob();
+    } catch (error) {
+      if (!(error instanceof ApiError && (error.status === 404 || error.status === 400))) throw error;
+    }
+    if (blob) background = await createImageBitmap(blob).catch(() => null);
   }
   const { renderer, canvas } = await newPlayfield(skin);
   let simulation: Simulation | null = null,
@@ -347,7 +394,8 @@ export async function loadTrack(
   renderer.setBeatmap(source, {
     mods,
     scrollSpeed: settings["mania.scroll_speed"],
-    noteSpeed: settings.note_speed,
+    // lazer's scroll direction is a client setting, not part of the replay.
+    maniaScrollUp: settings["mania.scroll_up"] === 1,
     hitLighting: settings.hit_lighting !== 0,
     taikoTopArea: settings["taiko.top_area"] !== 0,
     judgements: events ?? undefined,
@@ -356,7 +404,17 @@ export async function loadTrack(
     input: replay.frames,
     playfieldShift: true,
   });
-  const content = await probeContent(renderer, replay.mode);
+  const probed = await probeContent(renderer, replay.mode);
+  const score = simulation?.verified ? scoreCurve(simulation, replay.score) : null;
+  const keys = maniaKeysFor(source, { mods })[0];
+  const hud = await trackHud(
+    files,
+    replay,
+    simulation,
+    score,
+    keys ? maniaConfig(skin, keys) : null,
+    settings["mania.scroll_up"] === 1,
+  );
   return {
     id,
     replay,
@@ -375,15 +433,86 @@ export async function loadTrack(
     builtinSamples: !!drawn,
     settings,
     background,
-    content,
-    score: simulation?.verified ? scoreCurve(simulation, replay.score) : null,
+    content: probed.content,
+    drawn: probed.drawn,
+    score,
+    hud,
     dispose() {
       renderer.destroy();
       background?.close();
+      hud.look.close();
       // Built-in skins are shared between tracks; only file-skin bitmaps are ours.
       for (const bitmap of owned) bitmap.close();
     },
     warning,
+  };
+}
+/** What a track's HUD draws with and the values it shows. */
+export interface TrackHud {
+  look: Hud;
+  /** The skin's counters and health bar at scale 1, lazer UI units. */
+  sizes: Record<"score" | "accuracy" | "combo" | "health", Size>;
+  /** The counters' rolling values over verified judgements; null when they did not verify. */
+  score: Rolling | null;
+  accuracy: Rolling | null;
+  /** Combo changes when the combo verified, else null. */
+  combo: ComboChange[] | null;
+  /** mania's combo counter sits over the stage: `ComboPosition` (stage units) from
+   *  its top, or its bottom with upscroll, and `ColourBreak`. */
+  mania: { comboPosition: number; scrollUp: boolean; breakColour: readonly [number, number, number] } | null;
+  /** The health bar's values without its start (the composition's); null without a health graph. */
+  health: Omit<HealthSource, "start"> | null;
+}
+async function trackHud(
+  files: Skin | null,
+  replay: Replay,
+  simulation: Simulation | null,
+  score: ScoreCurve | null,
+  mania: ManiaConfig | null,
+  scrollUp: boolean,
+): Promise<TrackHud> {
+  const look = await loadHud(files);
+  // At least a unit across, so a skin without its fonts still leaves a box to select.
+  const atLeastUnit = ({ width, height }: Size): Size => ({ width: Math.max(1, width), height: Math.max(1, height) });
+  const text = (font: HudFont, sample: string, scale: number, fixed = true) => {
+    const measured = hudText(font, sample, fixed);
+    return atLeastUnit({ width: measured.width * scale, height: measured.height * scale });
+  };
+  const verified = simulation?.verified ? simulation : null;
+  // The graph `replayHealth` reads: the recorded one, else lazer's from verified judgements.
+  const graph = replay.life.length ? replay.life : (verified?.health ?? []);
+  const breakColour = mania?.colours.get("ColourBreak");
+  return {
+    look,
+    sizes: {
+      score: text(look.score, "00000000", SCORE_SCALE),
+      accuracy: text(look.score, "100.00%", ACCURACY_SCALE),
+      combo: text(look.combo, "0000x", LEGACY_COMBO_SCALE, false),
+      health: atLeastUnit(healthSize(look)),
+    },
+    // LegacyScoreCounter rolls over 1000 ms, the accuracy counter (PercentageCounter) over 375 ms.
+    score: score ? rolling(score.times, score.scores, 0, 1000) : null,
+    accuracy: verified
+      ? rolling(verified.events.map((e) => e.time), verified.events.map((e) => e.accuracy), 1, 375)
+      : null,
+    combo: verified?.comboVerified ? comboChanges(verified.events) : null,
+    mania: mania
+      ? {
+          comboPosition: mania.comboPosition,
+          scrollUp,
+          // LegacyManiaComboCounter: Color4.Red without ColourBreak.
+          breakColour: breakColour ? [breakColour[0], breakColour[1], breakColour[2]] : [1, 0, 0],
+        }
+      : null,
+    health: graph.length
+      ? {
+          value: (time) => replayHealth(replay, simulation, time) ?? 0,
+          settled: graph.find((point) => point.health !== graph[0].health)?.time ?? Infinity,
+          hits: (simulation?.events ?? [])
+            .filter((e) => !(e.result === "miss" || e.kind?.includes("miss")))
+            .map((e) => e.time),
+        }
+      : null,
   };
 }
 /** A track's playfield transform, from its render settings. */
@@ -395,63 +524,131 @@ export function transformOf(track: Pick<Track, "settings">): Transform {
   };
 }
 const DEFAULTS = Object.fromEntries(settingSchema.map((rule) => [rule.key, rule.default]));
-/** A HUD layer's placement, from its render settings: distance from its cell
- *  corner (HUD units) and scale. */
+/** A HUD layer's placement, from its render settings: margins from its cell
+ *  corner (lazer UI units; accuracy's vertical one from the score) and scale. */
 export function hudTransform(track: Pick<Track, "settings">, key: HudKey): Transform {
   const value = (axis: string) =>
     track.settings[`hud.${key}.${axis}`] ?? DEFAULTS[`hud.${key}.${axis}`];
-  return { x: value("dx"), y: value("dy"), scale: value("scale") };
+  return { x: value("margin_x"), y: value("margin_y"), scale: value("scale") };
 }
-/** Whether a HUD layer is switched on for this track. */
-export const hudShown = (track: Pick<Track, "settings">, key: HudKey) =>
-  (track.settings[`hud.${key}`] ?? 1) !== 0;
-const HUD_INK = "#f6f3ee",
-  HUD_SHADOW = "rgba(0, 0, 0, 0.7)";
+const RULES = new Map(settingSchema.map((rule) => [rule.key, rule]));
+/** Whether a HUD layer is switched on for this track and drawn in its ruleset
+ *  (lazer's catch HUD has no combo counter: the catcher carries it). */
+export const hudShown = (track: Pick<Track, "settings" | "replay">, key: HudKey) =>
+  !!RULES.get(`hud.${key}`)?.modes.includes(track.replay.mode) && (track.settings[`hud.${key}`] ?? 1) !== 0;
+/** The HUD layers the layout editor places: shown ones with margins in this
+ *  ruleset (mania's combo counter moves with the stage). */
+export const hudLayers = (track: Pick<Track, "settings" | "replay">) =>
+  HUD_KEYS.filter(
+    (key) => hudShown(track, key) && !!RULES.get(`hud.${key}.margin_x`)?.modes.includes(track.replay.mode),
+  );
+const hudSize = (track: Pick<Track, "hud">, key: HudKey): Size => track.hud.sizes[key];
+/** A track's HUD layer in `cell`, output pixels: the skin's counters and
+ *  health bar at their size; accuracy hangs under the score. */
+export function hudBoxOf(track: Pick<Track, "settings" | "hud">, cell: Rect, key: HudKey): Rect {
+  const below = key === "accuracy" ? hudBoxOf(track, cell, "score") : undefined;
+  return hudBox(cell, key, hudTransform(track, key), hudSize(track, key), below);
+}
+/** The transform that puts a track's HUD layer at `box` (the inverse of `hudBoxOf`). */
+export function hudTransformAt(track: Pick<Track, "settings" | "hud">, cell: Rect, key: HudKey, box: Rect): Transform {
+  const below = key === "accuracy" ? hudBoxOf(track, cell, "score") : undefined;
+  return hudTransformFor(cell, key, box, hudSize(track, key), below);
+}
+/** LegacyDefaultComboCounter's own scale (set by the legacy HUD layouts). */
+const LEGACY_COMBO_SCALE = 1.28;
+/** The default combo font's line: its glyphs scale about 0.625 of their height plus 9 units. */
+const comboOrigin = (height: number) => 0.625 * height + 9;
 /**
- * Draws a track's enabled HUD layers. Combo, accuracy and score appear only
- * when the replay's judgements verified; health follows the recorded life graph
- * (osu!stable), else lazer's health simulated from those verified judgements.
+ * Draws a track's enabled HUD layers as lazer draws them with the track's
+ * skin (`TrackHud`), from the HUD's appearance at `start`: score, accuracy,
+ * the health bar, and the ruleset's combo counter (osu! and taiko bottom
+ * left, mania over the stage at ComboPosition). Combo, accuracy and score
+ * appear only when the replay's judgements verified; health follows the
+ * recorded life graph (osu!stable), else lazer's health simulated from those
+ * verified judgements.
  */
-function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, time: number) {
-  const state = track.simulation?.verified ? stateAt(track.replay, track.simulation, time) : null;
+function drawHud(context: CanvasRenderingContext2D, track: Track, cell: Rect, time: number, start: number) {
+  const hud = track.hud,
+    unit = uiUnit(cell);
   for (const key of HUD_KEYS) {
     if (!hudShown(track, key)) continue;
-    const box = hudBox(cell, key, hudTransform(track, key));
-    context.save();
-    if (key === "health") {
-      const health = replayHealth(track.replay, track.simulation, time);
-      if (health !== null) {
-        context.fillStyle = "rgba(0, 0, 0, 0.45)";
-        context.fillRect(box.x, box.y, box.width, box.height);
-        context.fillStyle = HUD_INK;
-        context.fillRect(box.x, box.y, box.width * health, box.height);
-      }
-      context.restore();
+    if (key === "combo") {
+      if (hud.combo) drawCombo(context, track, cell, time);
       continue;
     }
-    const text =
-      key === "score"
-        ? track.score && state
-          ? String(scoreAt(track.score, time)).padStart(8, "0")
-          : null
-        : key === "accuracy"
-          ? state
-            ? `${(state.accuracy * 100).toFixed(2)}%`
-            : null
-          : state?.combo != null
-            ? `${state.combo}x`
-            : null;
-    if (text) {
-      const right = HUD[key].anchorX === 1;
-      context.font = `700 ${Math.round(box.height * 0.86)}px monospace`;
-      context.textAlign = right ? "right" : "left";
-      context.textBaseline = "middle";
-      context.shadowColor = HUD_SHADOW;
-      context.shadowBlur = box.height * 0.12;
-      context.fillStyle = HUD_INK;
-      context.fillText(text, right ? box.x + box.width : box.x, box.y + box.height / 2, box.width);
+    const box = hudBoxOf(track, cell, key),
+      scale = unit * hudTransform(track, key).scale;
+    if (key === "health") {
+      if (hud.health) drawHealth(context, hud.look, healthFrame({ ...hud.health, start }, time), box.x, box.y, scale);
+      continue;
     }
-    context.restore();
+    const curve = hud[key];
+    if (!curve) continue;
+    const value = rollingAt(curve, time),
+      text = hudText(hud.look.score, key === "score" ? String(Math.round(value)).padStart(8, "0") : formatAccuracy(value)),
+      size = scale * (key === "score" ? SCORE_SCALE : ACCURACY_SCALE);
+    // Both counters hang from their top-right corner.
+    drawHudText(context, text, box.x + box.width - text.width * size, box.y, size);
+  }
+}
+/** The ruleset's legacy combo counter in the skin's combo font. */
+function drawCombo(context: CanvasRenderingContext2D, track: Track, cell: Rect, time: number) {
+  const hud = track.hud,
+    font = hud.look.combo,
+    changes = hud.combo!;
+  if (hud.mania) {
+    // Centred over the stage, ComboPosition in from its top (from its bottom with
+    // upscroll, as lazer flips the counter's anchor); HUD units are 1/1.6 of the
+    // stage's world units.
+    const offset = hud.mania.comboPosition / 1.6;
+    const frame = maniaComboFrame(changes, time),
+      at = worldToOutput(
+        cell,
+        track.content,
+        transformOf(track),
+        256,
+        hud.mania.scrollUp ? VIEW.y + VIEW.height - offset : VIEW.y + offset,
+      ),
+      scale = at.scale / 1.6;
+    const shown = hudText(font, String(frame.count), false);
+    drawHudText(context, shown, at.x, at.y, scale, {
+      origin: [shown.width / 2, shown.height / 2],
+      stretch: frame.stretch,
+      alpha: frame.alpha,
+    });
+    if (frame.popOut) {
+      const lost = hudText(font, String(frame.popOut.count), false);
+      drawHudText(context, lost, at.x, at.y, scale, {
+        origin: [lost.width / 2, lost.height / 2],
+        stretch: [frame.popOut.scale, frame.popOut.scale],
+        alpha: frame.popOut.alpha,
+        additive: true,
+        tint: hud.mania.breakColour,
+      });
+    }
+    return;
+  }
+  const frame = legacyComboFrame(changes, time),
+    box = hudBoxOf(track, cell, "combo"),
+    scale = uiUnit(cell) * hudTransform(track, "combo").scale * LEGACY_COMBO_SCALE;
+  // The counter's box is the shown text's, on the layer's bottom-left corner.
+  const shown = hudText(font, `${frame.count}x`, false),
+    top = box.y + box.height - shown.height * scale,
+    line = top + comboOrigin(shown.height) * scale;
+  drawHudText(context, shown, box.x, line, scale, {
+    origin: [0, comboOrigin(shown.height)],
+    stretch: frame.stretch,
+    alpha: frame.alpha,
+  });
+  if (frame.popOut) {
+    // Bottom-aligned with the shown text; it grows from 3 units left of its corner, as in stable.
+    const popped = hudText(font, `${frame.popOut.count}x`, false);
+    drawHudText(context, popped, box.x, top + (shown.height - 0.375 * popped.height + 9) * scale, scale, {
+      origin: [3, comboOrigin(popped.height)],
+      stretch: [frame.popOut.scale, frame.popOut.scale],
+      alpha: frame.popOut.alpha,
+      additive: true,
+    });
   }
 }
 const LEGEND_INK = "#f6f3ee";
@@ -703,7 +900,7 @@ export class Composition {
     this.cells().forEach((cell, i) => {
       const track = this.tracks[i],
         renderer = track.renderer,
-        { width: w, height: h } = place(cell, track.content, transformOf(track)).target;
+        { width: w, height: h } = place(cell, track.content, transformOf(track), undefined, track.drawn).target;
       renderer.resize(w, h);
       this.readbacks.push(readback(renderer, w, h, this.profile));
     });
@@ -889,7 +1086,16 @@ export class Composition {
     }
     let top = Math.round(24 * unit);
     if (this.overlap.health) {
-      const healthBox = hudBox(cell, "health", hudTransform(focus, "health"));
+      // A plain bar in the player's colour (the legend's look, not the skin's),
+      // inset like the legend and moved by the health layer's margins.
+      const t = hudTransform(focus, "health"),
+        ui = uiUnit(cell);
+      const healthBox = {
+        x: cell.x + 20 * unit + t.x * ui,
+        y: cell.y + 20 * unit + t.y * ui,
+        width: 480 * unit * t.scale,
+        height: 14 * unit * t.scale,
+      };
       const health = replayHealth(focus.replay, focus.simulation, time);
       if (health !== null) {
         context.save();
@@ -988,11 +1194,10 @@ export class Composition {
     }
     // HUD layers last: they stay above every playfield, wherever those were moved.
     this.tracks.forEach((track, i) => {
-      drawHud(context, track, rects[i], time);
+      drawHud(context, track, rects[i], time, this.start);
       const ms = took();
-      for (const key of HUD_KEYS)
-        if (hudShown(track, key))
-          layers.push({ name: `V${i + 1} ${key}`, kind: "hud", box: hudBox(rects[i], key, hudTransform(track, key)), ms: key === "score" ? ms : null });
+      for (const key of hudLayers(track))
+        layers.push({ name: `V${i + 1} ${key}`, kind: "hud", box: hudBoxOf(track, rects[i], key), ms: key === "score" ? ms : null });
     });
     this.inspected = layers;
   }

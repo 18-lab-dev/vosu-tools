@@ -108,42 +108,58 @@ export function layoutCells(
 export type HudKey = "score" | "accuracy" | "combo" | "health";
 export const HUD_KEYS: readonly HudKey[] = ["score", "accuracy", "combo", "health"];
 /**
- * Each layer's size at scale 1, in HUD units (a 1080 px short side), and the
- * cell corner it hangs from (lazer's legacy/argon arrangement: health bar top
- * left, score top right with accuracy under it, combo bottom left). A layer's
- * position (`hud.<layer>.dx`/`.dy`) is its distance from that corner into the
- * cell, in HUD units, so the HUD keeps its proportions in any cell shape.
+ * The cell corner each layer hangs from, as in lazer's legacy HUD: health bar
+ * top left, score top right with accuracy under it, combo bottom left. A
+ * layer's margins (`hud.<layer>.margin_x`/`.margin_y`) are its distance from
+ * that corner into the cell in lazer UI units (`uiUnit`), except accuracy's
+ * vertical margin, which is measured from the score layer's bottom edge.
  */
-export const HUD: Record<HudKey, { width: number; height: number; anchorX: 0 | 1; anchorY: 0 | 1 }> = {
-  score: { width: 330, height: 72, anchorX: 1, anchorY: 0 },
-  accuracy: { width: 190, height: 46, anchorX: 1, anchorY: 0 },
-  combo: { width: 260, height: 84, anchorX: 0, anchorY: 1 },
-  health: { width: 480, height: 14, anchorX: 0, anchorY: 0 },
+export const HUD_ANCHOR: Record<HudKey, { x: 0 | 1; y: 0 | 1 }> = {
+  score: { x: 1, y: 0 },
+  accuracy: { x: 1, y: 0 },
+  combo: { x: 0, y: 1 },
+  health: { x: 0, y: 0 },
 };
-/** Output pixels per HUD unit in `cell`: its short side over 1080. */
+/** A HUD layer's size at scale 1, lazer UI units. */
+export interface Size {
+  width: number;
+  height: number;
+}
+/** Output pixels per lazer UI unit in `cell`: osu! scales its interface to fit 1024×768 inside the screen. */
+export const uiUnit = (cell: Rect) => Math.min(cell.width / 1024, cell.height / 768);
+/** Output pixels per spacing unit of the studio's own marks (overlap legend, name tags, overlay spots): the short side over 1080. */
 export const hudUnit = (cell: Rect) => Math.min(cell.width, cell.height) / 1080;
-/** Output-pixel box of a HUD layer placed at `transform` (`x`/`y`: distance
- *  from its corner, HUD units) in `cell`. */
-export function hudBox(cell: Rect, key: HudKey, transform: Transform): Rect {
-  const spec = HUD[key],
-    unit = hudUnit(cell);
-  const width = spec.width * unit * transform.scale,
-    height = spec.height * unit * transform.scale;
+/** Output-pixel box of a HUD layer of `size` placed at `transform` (`x`/`y`:
+ *  margins, lazer UI units) in `cell`; `below` is the score's box, which
+ *  accuracy hangs under. */
+export function hudBox(cell: Rect, key: HudKey, transform: Transform, size: Size, below?: Rect): Rect {
+  const anchor = HUD_ANCHOR[key],
+    unit = uiUnit(cell);
+  const width = size.width * unit * transform.scale,
+    height = size.height * unit * transform.scale;
   return {
-    x: spec.anchorX ? cell.x + cell.width - transform.x * unit - width : cell.x + transform.x * unit,
-    y: spec.anchorY ? cell.y + cell.height - transform.y * unit - height : cell.y + transform.y * unit,
+    x: anchor.x ? cell.x + cell.width - transform.x * unit - width : cell.x + transform.x * unit,
+    y: below
+      ? below.y + below.height + transform.y * unit
+      : anchor.y
+        ? cell.y + cell.height - transform.y * unit - height
+        : cell.y + transform.y * unit,
     width,
     height,
   };
 }
-/** The transform that puts a HUD layer's box at `box`; its height decides the scale. */
-export function hudTransformFor(cell: Rect, key: HudKey, box: Rect): Transform {
-  const spec = HUD[key],
-    unit = hudUnit(cell);
+/** The transform that puts a HUD layer of `size` at `box`; its height decides the scale. */
+export function hudTransformFor(cell: Rect, key: HudKey, box: Rect, size: Size, below?: Rect): Transform {
+  const anchor = HUD_ANCHOR[key],
+    unit = uiUnit(cell);
   return {
-    x: (spec.anchorX ? cell.x + cell.width - box.x - box.width : box.x - cell.x) / unit,
-    y: (spec.anchorY ? cell.y + cell.height - box.y - box.height : box.y - cell.y) / unit,
-    scale: box.height / (spec.height * unit),
+    x: (anchor.x ? cell.x + cell.width - box.x - box.width : box.x - cell.x) / unit,
+    y: (below
+      ? box.y - below.y - below.height
+      : anchor.y
+        ? cell.y + cell.height - box.y - box.height
+        : box.y - cell.y) / unit,
+    scale: box.height / (size.height * unit),
   };
 }
 
@@ -199,18 +215,26 @@ const viewScale = (width: number, height: number) =>
  * Places a playfield whose visible content occupies `content` (world units)
  * in `cell`. `texture` is the size of an already rendered target; when it
  * was rendered for another scale (live dragging) it is drawn resampled.
+ * `drawnWidth` is the world width, centred on x = 256, that the playfield
+ * draws (see `drawnWidth`): a mania stage's StageLeft/StageRight images can
+ * reach past the view. The target covers it up to the cell's width, as the
+ * client draws them up to the screen's edges.
  */
 export function place(
   cell: Rect,
   content: Rect,
   transform: Transform,
   texture?: { width: number; height: number },
+  drawnWidth = VIEW.width,
 ): Placement {
   const ceiling = MAX_TARGET / Math.max(VIEW.width, VIEW.height);
   const scale = fitScale(cell, content) * transform.scale;
   const targetScale = Math.min(scale, ceiling);
+  // At least the view: a wider target keeps the renderer's height-fitted
+  // scale (`viewScale`), so only the covered width changes.
+  const covered = Math.max(VIEW.width, Math.min(drawnWidth, cell.width / scale));
   const target = {
-    width: Math.max(2, Math.round(VIEW.width * targetScale)),
+    width: Math.max(2, Math.min(MAX_TARGET, Math.round(covered * targetScale))),
     height: Math.max(2, Math.round(VIEW.height * targetScale)),
   };
   const tex = texture ?? target;
@@ -299,6 +323,27 @@ export function contentBounds(
     width: (right - left + 1) * sx,
     height: (bottom - top + 1) * sy,
   };
+}
+
+/** The world width, centred on x = 256, holding every pixel with alpha above
+ *  `threshold` of an RGBA image drawn at 1 px per world unit with x = 256 at
+ *  its centre; at least the view's width. */
+export function drawnWidth(
+  pixels: Uint8ClampedArray | Uint8Array,
+  width: number,
+  height: number,
+  threshold = 8,
+): number {
+  let left = width,
+    right = -1;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++)
+      if (pixels[(y * width + x) * 4 + 3] > threshold) {
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+  if (right < left) return VIEW.width;
+  return Math.max(VIEW.width, 2 * Math.max(width / 2 - left, right + 1 - width / 2));
 }
 
 /**

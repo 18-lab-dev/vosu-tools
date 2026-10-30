@@ -136,7 +136,7 @@ function rankOf(mode: number, accuracy: number, counts: { n300: number; n100: nu
  */
 export function telemetry(
   track: Pick<Track, "replay" | "map" | "simulation"> &
-    Partial<Pick<Track, "original" | "convert" | "skin" | "score">>,
+    Partial<Pick<Track, "original" | "convert" | "skin" | "score" | "settings">>,
   time: number,
   /** Map time of the video's first frame: the overlay clock starts there. */
   start = 0,
@@ -186,7 +186,10 @@ export function telemetry(
     game: { paused: false },
     settings: {
       mode,
-      mania: { scrollDirection: { number: 1, name: "down" } },
+      // vosu's numbering: 0 up, 1 down (the track's Upscroll setting).
+      mania: {
+        scrollDirection: track.settings?.["mania.scroll_up"] === 1 ? { number: 0, name: "up" } : { number: 1, name: "down" },
+      },
     },
     beatmap: {
       isKiai: kiaiAt(map, time),
