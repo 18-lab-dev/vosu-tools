@@ -4,6 +4,7 @@ use rubato::{
 };
 use std::{
     fs::File,
+    io::Read,
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -16,16 +17,36 @@ fn check(cancel: &AtomicBool) -> Result<()> {
     anyhow::ensure!(!cancel.load(Ordering::Relaxed), "cancelled");
     Ok(())
 }
+const UNSUPPORTED: &str = "audio format not supported (needs MP3, OGG Vorbis, or WAV)";
+
+enum Format {
+    Ogg,
+    Wav,
+    Flac,
+    Mp3,
+}
+
+/// Picks the decoder from the file's content, not its name: lazer stores
+/// audio under extensionless hashes, and stable maps often ship audio whose
+/// extension doesn't match its format.
 pub fn decode(path: &Path, cancel: &AtomicBool) -> Result<Audio> {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let mut head = Vec::with_capacity(12);
+    File::open(path)?.take(12).read_to_end(&mut head)?;
+    let format = if head.starts_with(b"OggS") {
+        Format::Ogg
+    } else if head.starts_with(b"RIFF") && head.get(8..12) == Some(b"WAVE") {
+        Format::Wav
+    } else if head.starts_with(b"fLaC") {
+        Format::Flac
+    } else {
+        // No MP3 signature is required: MP3s may start with junk the decoder
+        // skips, and anything else yields no frames and is rejected as empty.
+        Format::Mp3
+    };
     let mut channels: Vec<Vec<f32>> = Vec::new();
     let sample_rate;
-    match ext.as_str() {
-        "ogg" => {
+    match format {
+        Format::Ogg => {
             let mut d = vorbis_rs::VorbisDecoder::new(File::open(path)?)?;
             sample_rate = d.sampling_frequency().get();
             channels.resize(d.channels().get() as usize, Vec::new());
@@ -36,7 +57,7 @@ pub fn decode(path: &Path, cancel: &AtomicBool) -> Result<Audio> {
                 }
             }
         }
-        "mp3" => {
+        Format::Mp3 => {
             let mut d = minimp3::Decoder::new(File::open(path)?);
             let mut sr = None;
             loop {
@@ -63,9 +84,9 @@ pub fn decode(path: &Path, cancel: &AtomicBool) -> Result<Audio> {
                     Err(e) => bail!("MP3 decode: {e:?}"),
                 }
             }
-            sample_rate = sr.context("empty MP3")? as u32;
+            sample_rate = sr.context(UNSUPPORTED)? as u32;
         }
-        "wav" => {
+        Format::Wav => {
             let mut d = hound::WavReader::open(path)?;
             let spec = d.spec();
             sample_rate = spec.sample_rate;
@@ -81,7 +102,7 @@ pub fn decode(path: &Path, cancel: &AtomicBool) -> Result<Audio> {
                 }
             }
         }
-        _ => bail!("supported audio: MP3, OGG Vorbis, WAV"),
+        Format::Flac => bail!(UNSUPPORTED),
     }
     anyhow::ensure!(
         !channels.is_empty() && channels.len() <= 2 && !channels[0].is_empty(),

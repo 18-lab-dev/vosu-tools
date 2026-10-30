@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Practice
+
+- Generating a map no longer fails with "supported audio: MP3, OGG Vorbis, WAV" on lazer, whose audio files carry no extension, or on stable maps whose audio extension doesn't match its format. The audio format is now read from the file itself.
+
 ### Replay renderer
 
 - Score, accuracy and the health bar are drawn with the track's skin as lazer's legacy HUD draws them: the `ScorePrefix` font with `ScoreOverlap`, rolling counters, and `scorebar-bg`/`-colour`/`-marker` (or the old-style `ki` images) with the initial fill, low-health colours, bulge and flash. Skins lacking them and built-in looks use original drawings of the classic skin's.
